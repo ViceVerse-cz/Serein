@@ -2,6 +2,11 @@ use local_store::AppPreferences;
 
 pub const MIN_WINDOW_SIZE: [u32; 2] = [600, 520];
 pub const DEFAULT_WINDOW_SIZE: [u32; 2] = [1120, 760];
+pub const MIN_POPOUT_SIZE: [u32; 2] = [480, 320];
+pub const DEFAULT_POPOUT_SIZE: [u32; 2] = [960, 640];
+/// Decoration allowance (logical) reserved when fitting the call window before it exists:
+/// covers Windows' 8 px borders and title bar and typical X11/macOS title bars.
+pub const POPOUT_FRAME: [u32; 2] = [16, 40];
 
 #[derive(Default)]
 pub struct Settings {
@@ -73,6 +78,8 @@ impl Settings {
 			voice_push_to_talk: ui.voice_push_to_talk,
 			voice_muted: ui.voice_muted,
 			voice_deafened: ui.voice_deafened,
+			voice_popout_auto: ui.voice_popout_auto,
+			voice_popout_geometry: self.current.voice_popout_geometry,
 			voice_input: ui.voice_input.clone(),
 			voice_output: ui.voice_output.clone(),
 			input_percent: ui.voice_gain.input_percent,
@@ -128,6 +135,7 @@ impl Settings {
 		ui.voice_push_to_talk = value.voice_push_to_talk;
 		ui.voice_muted = value.voice_muted;
 		ui.voice_deafened = value.voice_deafened;
+		ui.voice_popout_auto = value.voice_popout_auto;
 		ui.voice_input.clone_from(&value.voice_input);
 		ui.voice_output.clone_from(&value.voice_output);
 		ui.voice_gain.input_percent = value.input_percent;
@@ -230,6 +238,206 @@ pub fn restore_window_geometry(
 		#[cfg(target_os = "macos")]
 		window.set_maximized(true);
 	}
+}
+
+type Monitor = (
+	winit::dpi::PhysicalPosition<i32>,
+	winit::dpi::PhysicalSize<u32>,
+	f64,
+);
+
+/// Whether a top-left corner lies inside this monitor's bounds.
+fn monitor_contains(monitor: Monitor, position: [i32; 2]) -> bool {
+	let (origin, size, _) = monitor;
+	i64::from(position[0]) >= i64::from(origin.x)
+		&& i64::from(position[1]) >= i64::from(origin.y)
+		&& i64::from(position[0]) < i64::from(origin.x) + i64::from(size.width)
+		&& i64::from(position[1]) < i64::from(origin.y) + i64::from(size.height)
+}
+
+/// The current display as origin, size and scale; a window off every display has none.
+fn monitor_of(window: &winit::window::Window) -> Option<Monitor> {
+	window
+		.current_monitor()
+		.map(|monitor| (monitor.position(), monitor.size(), monitor.scale_factor()))
+}
+
+/// First placement of the call window: the saved spot while its display is still connected,
+/// otherwise the saved (or a first-use) size centred on the main window's monitor.
+pub fn fit_popout_geometry(
+	window: &winit::window::Window,
+	saved: Option<local_store::WindowGeometry>,
+) -> local_store::WindowGeometry {
+	let monitors: Vec<_> = window
+		.available_monitors()
+		.map(|monitor| (monitor.position(), monitor.size(), monitor.scale_factor()))
+		.collect();
+	let mut geometry = fit_popout_geometry_on(&monitors, monitor_of(window), saved);
+	if window.outer_position().is_err() {
+		// Wayland and other platforms place the window themselves and report no position.
+		geometry.position = None;
+	}
+	geometry
+}
+
+/// The display a fitted popout position sits on; the viewport builder takes points, not pixels.
+pub fn popout_scale_factor(window: &winit::window::Window, position: [i32; 2]) -> f64 {
+	window
+		.available_monitors()
+		.find(|monitor| {
+			monitor_contains(
+				(monitor.position(), monitor.size(), monitor.scale_factor()),
+				position,
+			)
+		})
+		.map_or(1.0, |monitor| monitor.scale_factor())
+}
+
+/// Fits the saved or first-use size inside the saved position's display, a monitorless fallback
+/// included; the returned position is centred when nothing was saved.
+fn fit_popout_geometry_on(
+	monitors: &[Monitor],
+	current: Option<Monitor>,
+	saved: Option<local_store::WindowGeometry>,
+) -> local_store::WindowGeometry {
+	let default = local_store::WindowGeometry {
+		size: DEFAULT_POPOUT_SIZE,
+		position: None,
+		maximized: false,
+	};
+	let saved_position = saved.and_then(|geometry| geometry.position);
+	let Some(monitor) = saved_position
+		.and_then(|position| {
+			monitors
+				.iter()
+				.copied()
+				.find(|monitor| monitor_contains(*monitor, position))
+		})
+		.or(current)
+		.or_else(|| monitors.first().copied())
+	else {
+		return saved.unwrap_or(default);
+	};
+	let (origin, available, scale) = monitor;
+	if available.width == 0 || available.height == 0 {
+		return saved.unwrap_or(default);
+	}
+	let [mut width, mut height] = saved.map_or(DEFAULT_POPOUT_SIZE, |geometry| geometry.size);
+	// The window does not exist yet, so its decorations are unknown; reserve a typical frame
+	// so the outer rectangle, not just the content, fits the display.
+	let frame =
+		winit::dpi::LogicalSize::new(POPOUT_FRAME[0], POPOUT_FRAME[1]).to_physical::<u32>(scale);
+	let limit = |available: u32, frame: u32| {
+		(f64::from(available.saturating_sub(frame)) / scale)
+			.floor()
+			.max(1.0) as u32
+	};
+	// Never below the window minimum, never past the display edge.
+	width = width.clamp(
+		MIN_POPOUT_SIZE[0].min(limit(available.width, frame.width)),
+		limit(available.width, frame.width),
+	);
+	height = height.clamp(
+		MIN_POPOUT_SIZE[1].min(limit(available.height, frame.height)),
+		limit(available.height, frame.height),
+	);
+	let inner = winit::dpi::LogicalSize::new(width, height).to_physical::<u32>(scale);
+	let physical = [
+		inner.width.saturating_add(frame.width),
+		inner.height.saturating_add(frame.height),
+	];
+	let centred = [
+		origin.x + ((i64::from(available.width) - i64::from(physical[0])) / 2) as i32,
+		origin.y + ((i64::from(available.height) - i64::from(physical[1])) / 2) as i32,
+	];
+	let (position, _) = fit_window_geometry(
+		saved_position
+			.filter(|position| monitor_contains(monitor, *position))
+			.unwrap_or(centred),
+		physical,
+		[origin.x, origin.y],
+		[available.width, available.height],
+		physical,
+	);
+	local_store::WindowGeometry {
+		size: [width, height],
+		position: (saved.is_none() || saved_position.is_some()).then_some(position),
+		maximized: saved.is_some_and(|geometry| geometry.maximized),
+	}
+}
+
+/// Viewport rectangles are in points (physical pixels ÷ native scale ÷ egui zoom) while the
+/// saved geometry keeps a logical size and a physical position. Sizes come from the content
+/// rectangle because Wayland reports no inner rectangle.
+pub fn popout_frame_geometry(
+	size_points: Option<[f32; 2]>,
+	position_points: Option<[f32; 2]>,
+	native_scale: f64,
+	zoom: f32,
+) -> (Option<[u32; 2]>, Option<[i32; 2]>) {
+	let zoom = f64::from(zoom.max(0.01));
+	(
+		size_points.map(|size| {
+			[
+				(size[0] as f64 * zoom).round().max(1.0) as u32,
+				(size[1] as f64 * zoom).round().max(1.0) as u32,
+			]
+		}),
+		position_points.map(|position| {
+			[
+				(position[0] as f64 * native_scale * zoom).round() as i32,
+				(position[1] as f64 * native_scale * zoom).round() as i32,
+			]
+		}),
+	)
+}
+
+/// Builder points from saved geometry: the viewport builder scales sizes and positions by
+/// egui zoom on the way out, so a saved logical size and physical position come back here.
+pub fn popout_request_geometry(
+	size: [u32; 2],
+	position: Option<[i32; 2]>,
+	native_scale: f64,
+	zoom: f32,
+) -> ([f32; 2], Option<[f32; 2]>) {
+	let zoom = f64::from(zoom.max(0.01));
+	let scale = native_scale.max(0.01) * zoom;
+	(
+		[size[0] as f32 / zoom as f32, size[1] as f32 / zoom as f32],
+		position.map(|position| {
+			[
+				(position[0] as f64 / scale) as f32,
+				(position[1] as f64 / scale) as f32,
+			]
+		}),
+	)
+}
+
+/// The geometry a call-window frame should persist, if it reports enough to save one.
+/// A maximized window keeps its last normal size and position and only flips the flag;
+/// fullscreen and minimized frames never overwrite the saved geometry.
+pub fn sample_popout_geometry(
+	last: Option<local_store::WindowGeometry>,
+	size: Option<[u32; 2]>,
+	position: Option<[i32; 2]>,
+	maximized: Option<bool>,
+	fullscreen: Option<bool>,
+	minimized: Option<bool>,
+) -> Option<local_store::WindowGeometry> {
+	if fullscreen == Some(true) || minimized == Some(true) {
+		return None;
+	}
+	if maximized == Some(true) {
+		return last.map(|geometry| local_store::WindowGeometry {
+			maximized: true,
+			..geometry
+		});
+	}
+	Some(local_store::WindowGeometry {
+		size: size?,
+		position,
+		maximized: false,
+	})
 }
 
 /// X11 window managers ignore maximize requests for a window that is not yet shown.
@@ -398,6 +606,171 @@ fn fit_window_geometry(
 #[cfg_attr(test, test)]
 pub fn debug_window_geometry_check() {
 	use local_store::{LocalStore, WindowGeometry};
+	let monitors = [
+		(
+			winit::dpi::PhysicalPosition::new(0, 0),
+			winit::dpi::PhysicalSize::new(1920, 1080),
+			1.0,
+		),
+		(
+			winit::dpi::PhysicalPosition::new(1920, 0),
+			winit::dpi::PhysicalSize::new(2560, 1440),
+			1.0,
+		),
+	];
+	let current = Some(monitors[0]);
+	// The outer rectangle (content plus the reserved frame) stays on its display.
+	let outer_fits = |geometry: WindowGeometry| {
+		let [x, y] = geometry.position.unwrap();
+		let outer = [
+			geometry.size[0] + POPOUT_FRAME[0],
+			geometry.size[1] + POPOUT_FRAME[1],
+		];
+		monitors.iter().any(|(origin, size, _)| {
+			x >= origin.x
+				&& y >= origin.y
+				&& i64::from(x) + i64::from(outer[0]) <= i64::from(origin.x) + i64::from(size.width)
+				&& i64::from(y) + i64::from(outer[1])
+					<= i64::from(origin.y) + i64::from(size.height)
+		})
+	};
+	assert_eq!(
+		fit_popout_geometry_on(&monitors, current, None),
+		WindowGeometry {
+			size: DEFAULT_POPOUT_SIZE,
+			position: Some([472, 200]),
+			maximized: false,
+		}
+	);
+	// A display that is no longer connected still opens on a visible one.
+	let lost = WindowGeometry {
+		size: [1200, 800],
+		position: Some([5000, 3000]),
+		maximized: true,
+	};
+	let fitted = fit_popout_geometry_on(&monitors, current, Some(lost));
+	assert_eq!(fitted.size, [1200, 800]);
+	assert_eq!(fitted.position, Some([352, 120]));
+	assert!(outer_fits(fitted));
+	assert!(fitted.maximized);
+	assert_eq!(
+		fit_popout_geometry_on(
+			&monitors,
+			current,
+			Some(WindowGeometry {
+				size: [800, 600],
+				position: Some([2200, 100]),
+				maximized: false,
+			})
+		),
+		WindowGeometry {
+			size: [800, 600],
+			position: Some([2200, 100]),
+			maximized: false,
+		}
+	);
+	// Wayland reports no position, so size-only geometry keeps it absent.
+	assert_eq!(
+		fit_popout_geometry_on(
+			&monitors,
+			current,
+			Some(WindowGeometry {
+				size: [800, 600],
+				position: None,
+				maximized: false,
+			})
+		),
+		WindowGeometry {
+			size: [800, 600],
+			position: None,
+			maximized: false,
+		}
+	);
+	// A saved size larger than the display lands fully inside it, frame included.
+	let oversized = fit_popout_geometry_on(
+		&monitors,
+		current,
+		Some(WindowGeometry {
+			size: [4000, 3000],
+			position: Some([1800, 1000]),
+			maximized: false,
+		}),
+	);
+	assert_eq!(
+		oversized,
+		WindowGeometry {
+			size: [1904, 1040],
+			position: Some([0, 0]),
+			maximized: false,
+		}
+	);
+	assert!(outer_fits(oversized));
+	// A maximized frame keeps the last normal size and position and only flips the flag.
+	let normal = WindowGeometry {
+		size: [800, 600],
+		position: Some([1200, 200]),
+		maximized: false,
+	};
+	assert_eq!(
+		sample_popout_geometry(
+			Some(normal),
+			Some([2560, 1440]),
+			Some([0, 0]),
+			Some(true),
+			Some(false),
+			Some(false),
+		),
+		Some(WindowGeometry {
+			maximized: true,
+			..normal
+		})
+	);
+	// Fullscreen and minimized frames never overwrite the saved geometry.
+	for (fullscreen, minimized) in [(Some(true), Some(false)), (Some(false), Some(true))] {
+		assert_eq!(
+			sample_popout_geometry(
+				Some(normal),
+				Some([2560, 1440]),
+				Some([0, 0]),
+				Some(false),
+				fullscreen,
+				minimized,
+			),
+			None
+		);
+	}
+	// A normal frame saves its own logical size and physical position.
+	assert_eq!(
+		sample_popout_geometry(
+			Some(WindowGeometry {
+				maximized: true,
+				..normal
+			}),
+			Some([900, 700]),
+			Some([300, 100]),
+			Some(false),
+			Some(false),
+			Some(false),
+		),
+		Some(WindowGeometry {
+			size: [900, 700],
+			position: Some([300, 100]),
+			maximized: false,
+		})
+	);
+	// egui zoom divides every viewport report; stored geometry keeps logical and physical.
+	let (size, position) =
+		popout_frame_geometry(Some([640.0, 480.0]), Some([200.0, 100.0]), 1.0, 1.5);
+	assert_eq!(size, Some([960, 720]));
+	assert_eq!(position, Some([300, 150]));
+	assert_eq!(
+		popout_request_geometry([960, 720], Some([300, 150]), 1.0, 1.5),
+		([640.0, 480.0], Some([200.0, 100.0]))
+	);
+	assert_eq!(
+		popout_request_geometry([960, 720], Some([300, 150]), 2.0, 1.5),
+		([640.0, 480.0], Some([100.0, 50.0]))
+	);
 	assert_eq!(
 		fit_window_geometry([1850, 1000], [3000, 2000], [0, 0], [1920, 1080], [1, 1]),
 		([0, 0], [1920, 1080])
@@ -549,6 +922,31 @@ mod tests {
 		settings.observe(&ui);
 		assert!(!settings.current.message_requests_collapsed);
 		assert!(settings.state.dirty);
+	}
+
+	#[test]
+	fn popout_preferences_round_trip_and_keep_saved_geometry() {
+		let mut settings = Settings {
+			loaded: true,
+			..Default::default()
+		};
+		let geometry = local_store::WindowGeometry {
+			size: [960, 640],
+			position: Some([-1920, 0]),
+			maximized: true,
+		};
+		settings.current.voice_popout_geometry = Some(geometry);
+		let mut ui = ui::MessagingUi::default();
+		settings.apply(&mut ui);
+		assert!(!ui.voice_popout_auto);
+		ui.voice_popout_auto = true;
+		settings.observe(&ui);
+		assert!(settings.current.voice_popout_auto);
+		assert_eq!(settings.current.voice_popout_geometry, Some(geometry));
+
+		settings.current.voice_popout_auto = false;
+		settings.apply(&mut ui);
+		assert!(!ui.voice_popout_auto);
 	}
 
 	#[test]

@@ -23,6 +23,8 @@ struct Choosing {
 	cancelled: Arc<AtomicBool>,
 	/// Files this selection is preparing; zero while a native picker is still open.
 	files: Arc<AtomicUsize>,
+	/// Dropped on the call window, so its failures are announced there.
+	popout: bool,
 }
 /// One chosen file with its composer thumbnail; `key` survives removals while a thumbnail
 /// is still decoding for it.
@@ -402,6 +404,8 @@ pub struct Uploads {
 	last: Option<Status>,
 	/// One problem, announced once. Drained by the caller into a toast.
 	notice: Option<&'static str>,
+	/// The notice belongs to a selection dropped on the call window.
+	notice_popout: bool,
 }
 impl Uploads {
 	#[allow(clippy::too_many_arguments)]
@@ -572,6 +576,7 @@ impl Uploads {
 			result,
 			cancelled,
 			files: Arc::new(AtomicUsize::new(count)),
+			popout: false,
 		});
 		self.image_draft = Some(draft);
 		Ok(())
@@ -642,6 +647,7 @@ impl Uploads {
 		}
 		Ok(())
 	}
+	/// Starts the native file picker for this conversation; refuses while one is still open.
 	pub fn start_choose(
 		&mut self,
 		generation: u64,
@@ -649,6 +655,7 @@ impl Uploads {
 		runtime: &tokio::runtime::Handle,
 		context: &egui::Context,
 		parent: Arc<winit::window::Window>,
+		popout: bool,
 	) -> Result<(), &'static str> {
 		// One native picker at a time; loading selections may continue behind it.
 		if !self.accepting()
@@ -662,8 +669,12 @@ impl Uploads {
 		// Construct on the native UI thread; await and inspect outside rendering.
 		let dialog = platform::save::attachment_source(parent);
 		self.start_selection(generation, channel, runtime, context, 0, dialog);
+		if let Some(batch) = self.choosing.last_mut() {
+			batch.popout = popout;
+		}
 		Ok(())
 	}
+	/// Validates dropped paths and loads them like a picker selection.
 	pub fn start_drop(
 		&mut self,
 		generation: u64,
@@ -671,6 +682,7 @@ impl Uploads {
 		runtime: &tokio::runtime::Handle,
 		context: &egui::Context,
 		files: Vec<egui::DroppedFileHandle>,
+		popout: bool,
 	) -> Result<(), &'static str> {
 		if !self.accepting() {
 			return Err("Wait for the current attachment operation to finish");
@@ -692,8 +704,13 @@ impl Uploads {
 		self.start_selection(generation, channel, runtime, context, count, async move {
 			Some(paths)
 		});
+		if let Some(batch) = self.choosing.last_mut() {
+			batch.popout = popout;
+		}
 		Ok(())
 	}
+	/// Spawns the loader for one selection and records it, so `poll` can admit the result into
+	/// the composer once it is ready.
 	fn start_selection(
 		&mut self,
 		generation: u64,
@@ -748,6 +765,7 @@ impl Uploads {
 			result,
 			cancelled,
 			files,
+			popout: false,
 		});
 	}
 	/// Composer navigation: parks the files staged in the conversation being left and restores
@@ -786,6 +804,8 @@ impl Uploads {
 			self.previewing = parked.previewing;
 		}
 	}
+	/// Keeps a conversation's staged files for when it is shown again, evicting the oldest parked
+	/// batches when the count or byte cap is exceeded.
 	fn park(&mut self, scope: (u64, Id)) {
 		let parked = Parked {
 			scope,
@@ -795,6 +815,7 @@ impl Uploads {
 		if parked.bytes() > PARKED_BYTES {
 			self.notice =
 				Some("Attachments removed: too large to keep after leaving the conversation");
+			self.notice_popout = false;
 			return;
 		}
 		self.parked.retain(|other| other.scope != scope);
@@ -808,6 +829,7 @@ impl Uploads {
 		}
 		if evicted {
 			self.notice = Some("Attachments staged in an earlier conversation were removed");
+			self.notice_popout = false;
 		}
 	}
 	/// Drops every parked selection, as when the account session ends.
@@ -822,6 +844,8 @@ impl Uploads {
 			self.remove();
 		}
 	}
+	/// Moves finished selections, previews and progress into the composer, and cancels staging
+	/// for a conversation this frame is not showing.
 	pub fn poll(
 		&mut self,
 		generation: u64,
@@ -864,6 +888,7 @@ impl Uploads {
 				}
 			};
 			let cancelled = choosing.cancelled.load(Ordering::Acquire);
+			let popout = choosing.popout;
 			self.choosing.remove(index);
 			self.clear_finished_progress();
 			if cancelled {
@@ -879,11 +904,17 @@ impl Uploads {
 								self.push(source, thumbnail);
 							}
 						}
-						Err(error) => self.notice = Some(error),
+						Err(error) => {
+							self.notice = Some(error);
+							self.notice_popout = popout;
+						}
 					}
 				}
 				Ok(None) => {}
-				Err(error) => self.notice = Some(error),
+				Err(error) => {
+					self.notice = Some(error);
+					self.notice_popout = popout;
+				}
 			}
 		}
 		self.previewing
@@ -919,6 +950,7 @@ impl Uploads {
 				self.last = reached;
 				if problem.is_some() {
 					self.notice = problem;
+					self.notice_popout = false;
 				}
 			} else {
 				self.last = Some(status);
@@ -1020,7 +1052,12 @@ impl Uploads {
 	/// Takes the pending problem, if any. Progress is not reported here: the timeline's
 	/// own pending row carries it, and a toast is for what went wrong, not what is going.
 	pub fn take_notice(&mut self) -> Option<&'static str> {
-		self.notice.take()
+		self.take_notice_origin().map(|(notice, _)| notice)
+	}
+	/// The notice and whether it came from a call-window drop.
+	pub fn take_notice_origin(&mut self) -> Option<(&'static str, bool)> {
+		let popout = std::mem::take(&mut self.notice_popout);
+		self.notice.take().map(|notice| (notice, popout))
 	}
 	pub fn remove(&mut self) {
 		self.selected.clear();
@@ -1679,7 +1716,7 @@ mod tests {
 		] {
 			assert!(
 				uploads
-					.start_drop(1, Id(2), &runtime, &context, files)
+					.start_drop(1, Id(2), &runtime, &context, files, false)
 					.is_err()
 			);
 			assert!(!uploads.busy());
@@ -1697,14 +1734,28 @@ mod tests {
 		drop(file);
 		assert!(
 			uploads
-				.start_drop(1, Id(2), &runtime, &context, vec![handle(path.clone())])
+				.start_drop(
+					1,
+					Id(2),
+					&runtime,
+					&context,
+					vec![handle(path.clone())],
+					false
+				)
 				.is_ok()
 		);
 		// A drop while the first one still loads joins the composer instead of being refused;
 		// sending waits for both, and loading files count toward the 10-file bound.
 		assert!(
 			uploads
-				.start_drop(1, Id(2), &runtime, &context, vec![handle(path.clone())])
+				.start_drop(
+					1,
+					Id(2),
+					&runtime,
+					&context,
+					vec![handle(path.clone())],
+					false
+				)
 				.is_ok()
 		);
 		assert!(uploads.accepting());
@@ -1719,6 +1770,7 @@ mod tests {
 					(0..10 - uploads.loading() - uploads.files().len() + 1)
 						.map(|_| handle(path.clone()))
 						.collect(),
+					false,
 				)
 				.is_err()
 		);
@@ -1732,7 +1784,14 @@ mod tests {
 		uploads.remove_at(1);
 		assert!(
 			uploads
-				.start_drop(1, Id(2), &runtime, &context, vec![handle(path.clone())])
+				.start_drop(
+					1,
+					Id(2),
+					&runtime,
+					&context,
+					vec![handle(path.clone())],
+					false
+				)
 				.is_ok()
 		);
 		settle(&mut uploads, &context, Id(2)).await;
@@ -1744,14 +1803,29 @@ mod tests {
 		uploads.remove();
 		assert!(
 			uploads
-				.start_drop(1, Id(2), &runtime, &context, vec![handle(path.clone())])
+				.start_drop(
+					1,
+					Id(2),
+					&runtime,
+					&context,
+					vec![handle(path.clone())],
+					false
+				)
 				.is_ok()
 		);
 		// A result inspected before or after navigation must never enter the new conversation.
 		uploads.poll(1, Some(Id(3)), true, &context);
 		settle(&mut uploads, &context, Id(3)).await;
 		assert!(uploads.selection().is_none());
-		tokio::fs::remove_file(path).await.unwrap();
+		tokio::fs::remove_file(&path).await.unwrap();
+		// A failure found later still belongs to the window the file was dropped on.
+		assert!(
+			uploads
+				.start_drop(1, Id(2), &runtime, &context, vec![handle(path)], true)
+				.is_ok()
+		);
+		settle(&mut uploads, &context, Id(2)).await;
+		assert!(matches!(uploads.take_notice_origin(), Some((_, true))));
 	}
 	#[test]
 	fn cancelled_chooser_and_upload_keep_the_single_slot_until_the_worker_finishes() {
@@ -1767,6 +1841,7 @@ mod tests {
 				result,
 				cancelled: cancelled.clone(),
 				files: Arc::new(AtomicUsize::new(1)),
+				popout: false,
 			}],
 			selected: vec![],
 			next_key: 0,
@@ -1775,6 +1850,7 @@ mod tests {
 			uploading: None,
 			last: None,
 			notice: None,
+			notice_popout: false,
 		};
 		uploads.poll(2, Some(Id(2)), true, &context);
 		assert!(cancelled.load(Ordering::Acquire));
@@ -1853,6 +1929,7 @@ pub(crate) fn debug_reservation_check(runtime: &tokio::runtime::Handle) {
 		result,
 		cancelled: Arc::new(AtomicBool::new(false)),
 		files: Arc::new(AtomicUsize::new(discord_api::upload::MAX_FILES)),
+		popout: false,
 	});
 	let context = egui::Context::default();
 	assert!(uploads.accepting());

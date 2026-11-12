@@ -16,6 +16,80 @@ use model::{
 /// Local mutes share the 64 per-user volume slots sent to the mixer.
 const MAX_USER_MUTES: usize = 64;
 
+/// The call window's viewport. The desktop creates it with this id.
+pub fn popout_viewport_id() -> egui::ViewportId {
+	egui::ViewportId::from_hash_of("serein-voice-popout")
+}
+
+fn middle_claimed_id() -> egui::Id {
+	egui::Id::unique("voice-popout-middle-claimed")
+}
+
+fn middle_claimed(ctx: &egui::Context) -> bool {
+	ctx.data(|data| data.get_temp::<bool>(middle_claimed_id()).unwrap_or(false))
+}
+
+/// Publish whether a binding claims the middle button, so the call window's filter leaves it
+/// for the binding instead of starting autoscroll.
+pub(crate) fn set_middle_claimed(ctx: &egui::Context, claimed: bool) {
+	ctx.data_mut(|data| data.insert_temp(middle_claimed_id(), claimed));
+}
+
+/// Middle-button input for the call window, which eframe never gives to `App::raw_input_hook`:
+/// immediate viewports are drawn inside the parent's pass. Like the main window's host filter,
+/// this keeps the button out of egui's pointer state so it cannot start a text selection.
+#[derive(Default)]
+pub(crate) struct MiddleButton {
+	middle: crate::scroll::Middle,
+	down: bool,
+}
+
+impl egui::Plugin for MiddleButton {
+	fn debug_name(&self) -> &'static str {
+		"Call window middle button"
+	}
+
+	fn input_hook(&mut self, ctx: &egui::Context, input: &mut egui::RawInput) {
+		if input.viewport_id != popout_viewport_id() || middle_claimed(ctx) {
+			self.middle = Default::default();
+			return;
+		}
+		let mut middle = crate::scroll::Middle::default();
+		input.events.retain(|event| match event {
+			egui::Event::MiddleClickPaste { .. } => false,
+			egui::Event::PointerButton {
+				pos,
+				button: egui::PointerButton::Middle,
+				pressed,
+				..
+			} => {
+				if *pressed {
+					middle.pressed.get_or_insert(*pos);
+				}
+				self.down = *pressed;
+				// Releases stay, like the main window's filter, so egui cannot hold a button
+				// whose claim changed while it was down.
+				!*pressed
+			}
+			_ => true,
+		});
+		middle.down = self.down;
+		self.middle = middle;
+	}
+}
+
+/// Register the call window's middle-button filter; adding the same type twice is ignored.
+pub(crate) fn install_middle_button(ctx: &egui::Context) {
+	if ctx.plugin_opt::<MiddleButton>().is_none() {
+		ctx.add_plugin(MiddleButton::default());
+	}
+}
+
+fn popout_middle(ctx: &egui::Context) -> crate::scroll::Middle {
+	ctx.plugin_opt::<MiddleButton>()
+		.map_or_default(|plugin| plugin.lock().middle)
+}
+
 pub(super) struct VoiceDrag(pub Id, pub Id, pub Id);
 
 pub(super) struct CallSwitch {
@@ -25,9 +99,270 @@ pub(super) struct CallSwitch {
 	generation: u64,
 	confirmed_at: Option<std::time::Instant>,
 	audio: Option<(bool, bool)>,
+	/// The user's own join, so the call may open in its own window once it starts.
+	popout: bool,
 }
 
 impl MessagingUi {
+	/// The call channel while its stage is in the call window.
+	pub fn voice_popout(&self) -> Option<Id> {
+		self.voice_popout
+	}
+
+	pub fn voice_popout_chat_open(&self) -> bool {
+		self.voice_popout_chat
+	}
+
+	/// A file dropped on the call window belongs to the chat it draws there; the main
+	/// window's conversation and the server emoji page are not reachable from it.
+	pub fn voice_popout_takes_drops(&self, state: &State) -> bool {
+		self.voice_popout_owns_chat(state)
+	}
+
+	/// A notice for the window the user acted in; the call window draws its own stack.
+	pub fn notice_in(&mut self, popout: bool, level: design::Level, text: impl Into<String>) {
+		if popout && self.voice_popout.is_some() {
+			self.voice_popout_toasts.push(level, text);
+		} else {
+			self.toasts.push(level, text);
+		}
+	}
+
+	/// Reported by the desktop from the call window's viewport each frame it draws.
+	pub fn set_voice_popout_minimized(&mut self, minimized: bool) {
+		self.voice_popout_minimized = minimized;
+	}
+
+	/// Whether the call window is open and not minimized, so its stage is on screen.
+	pub fn voice_popout_visible(&self) -> bool {
+		self.voice_popout.is_some() && !self.voice_popout_minimized
+	}
+
+	/// Native fullscreen change for the call window, applied by the desktop after this frame.
+	pub fn take_voice_popout_fullscreen_request(&mut self) -> Option<bool> {
+		self.voice_popout_fullscreen_request.take()
+	}
+
+	/// Reconciles the toggle with fullscreen the OS entered or left on its own.
+	pub fn set_voice_popout_fullscreen(&mut self, fullscreen: bool) {
+		self.voice_popout_fullscreen = fullscreen;
+		if !fullscreen {
+			self.voice_popout_fullscreen_request = None;
+		}
+	}
+
+	/// Takes the origin of the pending picker request: true when the call window asked.
+	pub fn take_attach_in_popout(&mut self) -> bool {
+		std::mem::take(&mut self.attach_in_popout)
+	}
+
+	/// Dock the stage back into the main window without navigating.
+	pub fn close_voice_popout(&mut self) {
+		self.voice_popout = None;
+		self.voice_popout_chat = false;
+		self.voice_popout_fullscreen = false;
+		self.voice_popout_fullscreen_request = None;
+		self.voice_popout_minimized = false;
+		self.voice_popout_toasts = Default::default();
+		// A card or link dialog opened in the call window leaves with it.
+		if self.profile_in_popout {
+			self.profile.close();
+			self.profile_in_popout = false;
+		}
+		self.profile_dialogs_in_popout = false;
+		// A video made fullscreen from the call window leaves with it.
+		if self.timeline.video.fullscreen_in_popout() {
+			self.timeline.video.exit_fullscreen();
+			let _ = self.timeline.video.take_popout_fullscreen_request();
+		}
+		if self.popout_links {
+			self.timeline.opening = None;
+			self.timeline.browser_opening = None;
+			self.popout_links = false;
+		}
+	}
+
+	/// A call the user just joined, accepted or started opens in its own window when the
+	/// device preference asks for it.
+	fn auto_popout(&mut self, channel: Id, popout: bool) {
+		if popout && self.voice_popout_auto {
+			self.exit_voice_fullscreen();
+			self.voice_popout = Some(channel);
+		}
+	}
+
+	/// The call window closes with its call; its chat closes once the main window selects
+	/// another conversation.
+	pub(super) fn sync_voice_popout(&mut self, state: &State) {
+		if self.voice_popout.is_some_and(|channel| {
+			state
+				.voice
+				.active
+				.as_ref()
+				.is_none_or(|call| call.channel != channel)
+		}) {
+			self.close_voice_popout();
+		}
+		if self.voice_popout_chat && state.selected != self.voice_popout {
+			self.voice_popout_chat = false;
+		}
+	}
+
+	/// Whether the call window draws the timeline and composer this frame.
+	pub(super) fn voice_popout_owns_chat(&self, state: &State) -> bool {
+		self.voice_popout_chat && self.voice_popout.is_some() && state.selected == self.voice_popout
+	}
+
+	/// Takes a link confirmation this window's draw opened, so the main window leaves it alone.
+	fn claim_popout_links(&mut self, before: &(Option<String>, Option<String>)) {
+		if (self.timeline.opening != before.0
+			&& self
+				.timeline
+				.opening
+				.as_deref()
+				.is_some_and(|link| crate::markdown::discord_chat_link(link).is_none()))
+			|| (self.timeline.browser_opening != before.1
+				&& self.timeline.browser_opening.is_some())
+		{
+			self.popout_links = true;
+		}
+	}
+
+	/// The call window's content: the stage and, when toggled on, the call channel's chat.
+	pub fn show_voice_popout(&mut self, ui: &mut egui::Ui, state: &mut State) -> Vec<Command> {
+		let mut commands = Vec::new();
+		install_middle_button(ui.ctx());
+		self.sync_voice_popout(state);
+		let Some(channel) = self.voice_popout else {
+			return commands;
+		};
+		crate::i18n::set_current(self.language);
+		crate::scroll::apply_preferences(ui.ctx(), self.reading_preferences);
+		// Like the main pass: a card's opener rectangle is fresh each frame.
+		ui.ctx().data_mut(|data| {
+			data.remove::<egui::Rect>(crate::profiles::profile_opener_id());
+		});
+		// An open picker closes on Escape without consuming it; that press is not for fullscreen.
+		let popup_open = egui::Popup::is_any_open(ui.ctx());
+		// Escape goes to a dialog or picker first, then to leaving fullscreen; only a spare
+		// press restores the stage grid.
+		self.voice_stage_escape_held = popup_open
+			|| self.voice_popout_fullscreen
+			|| ui.ctx().memory(|memory| memory.top_modal_layer().is_some());
+		let profile_before = self.profile.open_requests();
+		let attach_before = self.attach_requested;
+		let links_before = (
+			self.timeline.opening.clone(),
+			self.timeline.browser_opening.clone(),
+		);
+		let chat = self.voice_popout_owns_chat(state);
+		// A fullscreen video opened here owns this window until it closes; the dialog itself
+		// requests the native transition.
+		if self.timeline.video.fullscreen_in_popout()
+			&& self.timeline.show_fullscreen_video(ui.ctx(), state)
+		{
+			// Opening the original here still belongs to this window's link confirmation.
+			self.claim_popout_links(&links_before);
+			// The chat is not drawn this frame, so this window does not bind its session.
+			self.popout_scroll.clear_if_unbound(ui.ctx());
+			ui.painter()
+				.rect_filled(ui.max_rect(), 0, egui::Color32::BLACK);
+			return commands;
+		}
+		if chat {
+			let middle = if self.button_claimed(egui::PointerButton::Middle) {
+				crate::scroll::Middle::default()
+			} else {
+				popout_middle(ui.ctx())
+			};
+			self.popout_scroll.middle(middle);
+			let ctx = ui.ctx().clone();
+			self.poll_creator_overlay(&ctx, state, &mut commands);
+			let background = design::window_palette(ui);
+			egui::Panel::right("voice-popout-chat")
+				.resizable(true)
+				.default_size(360.0)
+				.size_range(280.0..=(ui.available_width() * 0.6).max(280.0))
+				.frame(egui::Frame::new().fill(background.chat))
+				.show(ui, |ui| {
+					self.timeline.video.drawing_in_popout = true;
+					self.conversation(ui, state, channel, None, &mut commands);
+					self.timeline.video.drawing_in_popout = false;
+				});
+		}
+		egui::CentralPanel::default()
+			.frame(egui::Frame::NONE)
+			.show(ui, |ui| {
+				let rect = ui.max_rect();
+				self.voice_stage(ui, state, channel, 0.0, true, &mut commands);
+				self.voice_stage_escape_held = false;
+				let mut corner =
+					ui.new_child(egui::UiBuilder::new().max_rect(egui::Rect::from_min_size(
+						rect.right_top() + egui::vec2(-52.0, 12.0),
+						egui::Vec2::splat(40.0),
+					)));
+				// The stage stays black in every theme, so the bubble reads as dark.
+				corner.visuals_mut().dark_mode = true;
+				let label = self
+					.language
+					.text(if chat { "hide-chat" } else { "show-chat" });
+				if crate::icons::toggle(&mut corner, crate::icons::Icon::Forum, 40.0, chat, &label)
+					.clicked()
+				{
+					self.voice_popout_chat = !chat;
+					if !chat {
+						if let Some(command) = state.select(channel) {
+							commands.push(command);
+						}
+						self.focus_switched_composer = true;
+					}
+				}
+			});
+		// Cards and link dialogs open in the window whose pointer last asked for them.
+		if self.attach_requested && !attach_before {
+			self.attach_in_popout = true;
+		}
+		if self.profile.open_requests() != profile_before && self.profile.open_user().is_some() {
+			if !self.profile_in_popout {
+				self.profile.reset_anchor();
+			}
+			self.profile_in_popout = true;
+		}
+		if chat {
+			self.conversation_overlays(ui, state, &mut commands);
+		}
+		if self.profile_in_popout {
+			self.profile_overlay(ui, state, &mut commands);
+		}
+		if self.profile_dialogs_in_popout {
+			let ctx = ui.ctx().clone();
+			self.confirm_friend_removal(&ctx, state, &mut commands);
+			self.profile_dialogs(ui, state, &mut commands);
+			self.release_profile_dialogs();
+		}
+		// A link this window opened, from chat, a card or a viewer, keeps its confirmation here.
+		self.claim_popout_links(&links_before);
+		if self.popout_links {
+			self.link_confirmations(ui.ctx());
+			self.popout_links =
+				self.timeline.opening.is_some() || self.timeline.browser_opening.is_some();
+		}
+		// Dialogs, the composer and pickers take Escape first; only a spare press leaves fullscreen.
+		if self.voice_popout_fullscreen
+			&& !popup_open
+			&& ui.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
+		{
+			self.voice_popout_fullscreen = false;
+			self.voice_popout_fullscreen_request = Some(false);
+		}
+		// Selectable stage text (a call failure) can request the copy menu with chat hidden too.
+		crate::select::show_menu(ui.ctx());
+		self.popout_scroll.clear_if_unbound(ui.ctx());
+		self.popout_scroll.paint(ui.ctx());
+		self.voice_popout_toasts.show(ui.ctx(), 12.0);
+		commands
+	}
+
 	pub(super) fn exit_voice_fullscreen(&mut self) {
 		if let Some((_, ctx, previous, focus)) = self.voice_fullscreen.take() {
 			self.voice_fullscreen_request = Some(previous);
@@ -229,6 +564,8 @@ impl MessagingUi {
 		values[index] = (user.0, volume);
 	}
 
+	/// The participant's context menu: local mute and volume, server moderation, and the shared
+	/// user actions, all scoped to the call's channel.
 	fn voice_participant_menu(
 		&mut self,
 		response: &egui::Response,
@@ -375,7 +712,8 @@ impl MessagingUi {
 					ui.separator();
 				}
 				if let Some(user) = resolve_member(state, entry).0 {
-					crate::user_menu::contents(
+					// The call window can be open while the main window shows another server.
+					crate::user_menu::contents_in(
 						ui,
 						state,
 						user,
@@ -383,6 +721,7 @@ impl MessagingUi {
 						&mut self.profile,
 						&mut self.user_action,
 						None,
+						Some(entry.channel),
 					);
 				}
 			});
@@ -848,6 +1187,8 @@ impl MessagingUi {
 		}
 	}
 
+	/// Turns a requested stream preview into a watch command, joining its call first when
+	/// needed, or explains in the status line why it cannot start.
 	pub(super) fn apply_stream_preview_watch(
 		&mut self,
 		state: &mut State,
@@ -883,7 +1224,7 @@ impl MessagingUi {
 		{
 			None => {
 				if self
-					.request_call_audio(state, channel, false, None, commands)
+					.request_call_audio(state, channel, false, None, false, commands)
 					.is_err()
 				{
 					self.stream_preview_watch = None;
@@ -920,11 +1261,53 @@ impl MessagingUi {
 		channel: Id,
 		commands: &mut Vec<Command>,
 	) {
-		let connected = state
-			.voice
-			.active
-			.as_ref()
-			.is_some_and(|call| call.channel == channel);
+		if self.voice_popout == Some(channel) {
+			self.voice_popout_placeholder(ui);
+		} else {
+			self.voice_stage(ui, state, channel, 0.0, false, commands);
+		}
+	}
+
+	/// Where a popped-out stage was: a note and the way back into this window.
+	fn voice_popout_placeholder(&mut self, ui: &mut egui::Ui) {
+		let rect = ui.available_rect_before_wrap();
+		ui.painter().rect_filled(rect, 0, STAGE_FILL);
+		ui.allocate_exact_size(rect.size(), egui::Sense::hover());
+		let mut inner = ui.new_child(
+			egui::UiBuilder::new()
+				.max_rect(rect)
+				.layout(egui::Layout::top_down(egui::Align::Center)),
+		);
+		inner.add_space(((rect.height() - 72.0) * 0.5).max(8.0));
+		inner.label(
+			design::semibold(&inner, crate::i18n::translate("voice-popout-docked"), 16.0)
+				.color(STAGE_TEXT),
+		);
+		inner.add_space(8.0);
+		if inner
+			.button(crate::i18n::translate("voice-popout-bring-back"))
+			.clicked()
+		{
+			self.close_voice_popout();
+		}
+	}
+
+	/// The call stage for guild and DM calls, filling the rest of `ui`: notices, tiles and
+	/// the control bar. `header` keeps the DM conversation header's strip clear; `popout`
+	/// is set when the stage is drawn in the call window.
+	pub(super) fn voice_stage(
+		&mut self,
+		ui: &mut egui::Ui,
+		state: &mut State,
+		channel: Id,
+		header: f32,
+		popout: bool,
+		commands: &mut Vec<Command>,
+	) {
+		let call = state.voice.active.as_ref().filter(|c| c.channel == channel);
+		let connected = call.is_some();
+		let dm = call.is_some_and(|c| c.guild.is_none());
+		let error = call.and_then(|c| c.error);
 		let stage = ui.available_rect_before_wrap();
 		ui.painter().rect_filled(stage, 0, STAGE_FILL);
 		let (rect, _) = ui.allocate_exact_size(stage.size(), egui::Sense::hover());
@@ -932,84 +1315,138 @@ impl MessagingUi {
 		let bottom = CONTROL_HEIGHT + 2.0 * STAGE_MARGIN;
 		// In the call, the bar fades in on hover and an enlarged video fills the stage.
 		let reveal = if connected {
-			chrome_reveal(ui, rect, "voice-stage-chrome")
+			chrome_reveal(
+				ui,
+				rect,
+				if dm {
+					"dm-call-chrome"
+				} else {
+					"voice-stage-chrome"
+				},
+			)
 		} else {
 			1.0
 		};
-		let full = connected && self.voice_focus.is_some() && !self.voice_focus_participants;
-		let body = if full {
-			rect
-		} else {
-			egui::Rect::from_min_max(
-				rect.left_top() + egui::vec2(STAGE_MARGIN, STAGE_MARGIN),
-				egui::pos2(rect.right() - STAGE_MARGIN, rect.bottom() - bottom),
-			)
-		};
-		let mut body_ui = ui.new_child(
-			egui::UiBuilder::new()
-				.max_rect(body)
-				.layout(egui::Layout::top_down(egui::Align::Min)),
-		);
-		// A short stage clips notices and tiles instead of drawing them over the call bar.
-		body_ui.set_clip_rect(body.intersect(ui.clip_rect()));
-		stage_notices(&mut body_ui, &notices);
-		call_failure(
-			&mut body_ui,
-			state
-				.voice
-				.active
-				.as_ref()
-				.filter(|c| c.channel == channel)
-				.and_then(|c| c.error),
-			STAGE_TEXT,
-		);
-
-		let entries = stage_participants(state, channel);
-		if entries.is_empty() {
-			body_ui.add_space((body_ui.available_height() * 0.4).max(0.0));
-			body_ui.vertical_centered(|ui| {
-				ui.label(
-					design::semibold(
-						ui,
-						crate::i18n::translate_if_key(if !state.demo && !state.gateway_connected {
-							"voice-voice-channel-participant-list-unavailable-while-disconnected"
-						} else {
-							"voice-voice-channel-no-one-s-here-yet"
-						}),
-						18.0,
-					)
-					.color(STAGE_TEXT),
-				);
-			});
-		} else {
-			if !state.demo && !state.gateway_connected {
-				body_ui.label(
-					RichText::new(crate::i18n::translate(
-						"voice-voice-channel-last-known-participants-a-reconnect-to-refresh",
-					))
-					.small()
-					.color(STAGE_MUTED),
-				);
-			}
+		let focused = connected && self.voice_focus.is_some();
+		let full = focused && !self.voice_focus_participants;
+		if dm {
+			let top = rect.top() + header;
+			let bar_top = rect.bottom() - CONTROL_HEIGHT - STAGE_MARGIN - TILE_GAP;
+			let notice_rect = egui::Rect::from_min_max(
+				egui::pos2(rect.left() + STAGE_MARGIN, top + STAGE_MARGIN),
+				egui::pos2(rect.right() - STAGE_MARGIN, bar_top),
+			);
+			let mut notice_ui = ui.new_child(
+				egui::UiBuilder::new()
+					.max_rect(notice_rect)
+					.layout(egui::Layout::top_down(egui::Align::Min)),
+			);
+			notice_ui.set_clip_rect(notice_rect.intersect(ui.clip_rect()));
+			stage_notices(&mut notice_ui, &notices);
+			call_failure(&mut notice_ui, error, STAGE_TEXT);
+			// Without notices the avatars may use the whole height of a shrunken panel.
+			let body_top = if notices.is_empty() && error.is_none() {
+				top + TILE_GAP
+			} else {
+				notice_ui.cursor().top() + TILE_GAP
+			};
+			// An enlarged video fills the whole stage under the hover chrome, like
+			// Discord; the grid keeps clear of the header and the call bar.
+			let body = if focused {
+				egui::Rect::from_min_max(
+					rect.min,
+					egui::pos2(rect.right(), if full { rect.bottom() } else { bar_top }),
+				)
+			} else {
+				egui::Rect::from_min_max(
+					egui::pos2(rect.left() + STAGE_MARGIN, body_top),
+					egui::pos2(rect.right() - STAGE_MARGIN, bar_top.max(body_top)),
+				)
+			};
+			let mut body_ui = ui.new_child(
+				egui::UiBuilder::new()
+					.max_rect(body)
+					.layout(egui::Layout::top_down(egui::Align::Min)),
+			);
+			body_ui.set_clip_rect(body.intersect(ui.clip_rect()));
 			self.voice_chrome_hidden = 1.0 - reveal;
-			self.participant_tiles(&mut body_ui, state, channel, &entries, false);
+			self.participant_tiles(
+				&mut body_ui,
+				state,
+				channel,
+				&stage_participants(state, channel),
+				true,
+			);
 			self.voice_chrome_hidden = 0.0;
+			if focused {
+				chrome_shade(ui, rect, 72.0, true, reveal);
+			}
+		} else {
+			let body = if full {
+				rect
+			} else {
+				egui::Rect::from_min_max(
+					rect.left_top() + egui::vec2(STAGE_MARGIN, STAGE_MARGIN),
+					egui::pos2(rect.right() - STAGE_MARGIN, rect.bottom() - bottom),
+				)
+			};
+			let mut body_ui = ui.new_child(
+				egui::UiBuilder::new()
+					.max_rect(body)
+					.layout(egui::Layout::top_down(egui::Align::Min)),
+			);
+			// A short stage clips notices and tiles instead of drawing them over the call bar.
+			body_ui.set_clip_rect(body.intersect(ui.clip_rect()));
+			stage_notices(&mut body_ui, &notices);
+			call_failure(&mut body_ui, error, STAGE_TEXT);
+			let entries = stage_participants(state, channel);
+			if entries.is_empty() {
+				body_ui.add_space((body_ui.available_height() * 0.4).max(0.0));
+				body_ui.vertical_centered(|ui| {
+					ui.label(
+						design::semibold(
+							ui,
+							crate::i18n::translate_if_key(
+								if !state.demo && !state.gateway_connected {
+									"voice-voice-channel-participant-list-unavailable-while-disconnected"
+								} else {
+									"voice-voice-channel-no-one-s-here-yet"
+								},
+							),
+							18.0,
+						)
+						.color(STAGE_TEXT),
+					);
+				});
+			} else {
+				if !state.demo && !state.gateway_connected {
+					body_ui.label(
+						RichText::new(crate::i18n::translate(
+							"voice-voice-channel-last-known-participants-a-reconnect-to-refresh",
+						))
+						.small()
+						.color(STAGE_MUTED),
+					);
+				}
+				self.voice_chrome_hidden = 1.0 - reveal;
+				self.participant_tiles(&mut body_ui, state, channel, &entries, false);
+				self.voice_chrome_hidden = 0.0;
+			}
 		}
-
 		self.apply_watch_request(state);
+		if (dm && focused) || full {
+			chrome_shade(ui, rect, 96.0, false, reveal);
+		}
 		let bar = egui::Rect::from_min_max(
 			egui::pos2(rect.left(), rect.bottom() - bottom),
 			rect.right_bottom(),
 		);
-		if full {
-			chrome_shade(ui, rect, 96.0, false, reveal);
-		}
 		let mut bar_ui = ui.new_child(egui::UiBuilder::new().max_rect(bar).layout(
 			egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
 		));
 		if connected {
 			bar_ui.set_opacity(reveal);
-			self.call_controls(&mut bar_ui, state, channel, commands);
+			self.call_controls(&mut bar_ui, state, channel, popout, commands);
 		} else {
 			bar_ui.horizontal_centered(|ui| {
 				ui.add_space((ui.available_width() - 160.0).max(0.0) * 0.5);
@@ -1088,14 +1525,25 @@ impl MessagingUi {
 		if tiles.is_empty() {
 			return;
 		}
+		// Only the call's own stage owns the shared focus; a browsed channel never clears it.
+		let owns_focus = state
+			.voice
+			.active
+			.as_ref()
+			.is_some_and(|call| call.channel == channel && call.phase != Phase::Failed);
 		// Focus survives only while that tile still shows video; Escape restores the grid.
 		let focus = self.voice_focus.filter(|focus| {
-			tiles
-				.iter()
-				.any(|tile| tile.focus() == *focus && self.tile_has_video(state, channel, tile))
+			owns_focus
+				&& tiles
+					.iter()
+					.any(|tile| tile.focus() == *focus && self.tile_has_video(state, channel, tile))
 		});
-		let focus = focus.filter(|_| !ui.input(|input| input.key_pressed(egui::Key::Escape)));
-		self.voice_focus = focus;
+		let focus = focus.filter(|_| {
+			self.voice_stage_escape_held || !ui.input(|input| input.key_pressed(egui::Key::Escape))
+		});
+		if owns_focus {
+			self.voice_focus = focus;
+		}
 		// A live share turns the avatar-only DM stage into boxed tiles, as in Discord.
 		let video = tiles.iter().any(|tile| {
 			matches!(tile, Tile::Stream(_) | Tile::LocalScreen)
@@ -1185,7 +1633,7 @@ impl MessagingUi {
 				}
 			}
 		}
-		if let Some(focus) = toggle {
+		if let Some(focus) = toggle.filter(|_| owns_focus) {
 			self.voice_focus = (self.voice_focus != Some(focus)).then_some(focus);
 		}
 	}
@@ -2032,7 +2480,7 @@ impl MessagingUi {
 		ring: bool,
 		commands: &mut Vec<Command>,
 	) {
-		let _ = self.request_call_audio(state, channel, ring, None, commands);
+		let _ = self.request_call_audio(state, channel, ring, None, true, commands);
 	}
 
 	pub(crate) fn request_call_with_audio(
@@ -2044,15 +2492,25 @@ impl MessagingUi {
 		deafened: bool,
 		commands: &mut Vec<Command>,
 	) -> Result<(), String> {
-		self.request_call_audio(state, channel, ring, Some((muted, deafened)), commands)
+		self.request_call_audio(
+			state,
+			channel,
+			ring,
+			Some((muted, deafened)),
+			true,
+			commands,
+		)
 	}
 
+	/// Joins `channel` with the given audio state and opens the call window when asked; returns
+	/// why the call was refused.
 	pub(crate) fn request_call_audio(
 		&mut self,
 		state: &mut State,
 		channel: Id,
 		ring: bool,
 		audio: Option<(bool, bool)>,
+		popout: bool,
 		commands: &mut Vec<Command>,
 	) -> Result<(), String> {
 		if let Some(reason) = self.call_unavailable(state, channel) {
@@ -2066,6 +2524,7 @@ impl MessagingUi {
 				generation: state.generation,
 				confirmed_at: None,
 				audio,
+				popout,
 			});
 		} else {
 			let (muted, deafened) = audio.unwrap_or((self.voice_muted, self.voice_deafened));
@@ -2077,10 +2536,13 @@ impl MessagingUi {
 				self.voice_deafened = deafened;
 			}
 			commands.push(command);
+			self.auto_popout(channel, popout);
 		}
 		Ok(())
 	}
 
+	/// Drives the switch-call confirmation: once the current call leaves, joins the requested
+	/// channel with the retained audio state.
 	pub(super) fn show_call_switch(
 		&mut self,
 		ctx: &egui::Context,
@@ -2113,6 +2575,7 @@ impl MessagingUi {
 						self.voice_deafened = deafened;
 					}
 					commands.push(command);
+					self.auto_popout(switch.channel, switch.popout);
 				}
 			} else if started.elapsed() >= std::time::Duration::from_secs(12) {
 				self.voice_switch = None;
@@ -2499,6 +2962,8 @@ impl MessagingUi {
 		}
 	}
 
+	/// Draws the voice settings body shared by the settings page and the compact call-window
+	/// panel.
 	pub(super) fn voice_settings_content(
 		&mut self,
 		ui: &mut egui::Ui,
@@ -2542,6 +3007,12 @@ impl MessagingUi {
 				);
 			}
 		});
+		design::switch(
+			ui,
+			"settings-voice-popout-auto",
+			Some("settings-voice-popout-auto-description"),
+			&mut self.voice_popout_auto,
+		);
 		if !compact {
 			crate::keybinds::show_voice(
 				ui,
@@ -3167,12 +3638,14 @@ impl MessagingUi {
 		response
 	}
 
-	/// Discord's call control bar: one media pill and the red hang-up button.
+	/// Discord's call control bar: one media pill and the red hang-up button. In the call
+	/// window (`popout`) Fullscreen drives that window and Pop Out is not offered.
 	fn call_controls(
 		&mut self,
 		ui: &mut egui::Ui,
 		state: &mut State,
 		channel: Id,
+		popout: bool,
 		commands: &mut Vec<Command>,
 	) {
 		let colors = design::palette(ui);
@@ -3205,13 +3678,23 @@ impl MessagingUi {
 		// share/more) before anything overlaps; mute, camera and hang-up always stay.
 		let actions = 2.0 * 48.0;
 		let essential = 2.0 * 48.0 + BAR_GAP + HANG_UP;
-		let side = [watched.is_some(), focused, screen_focused]
+		let fullscreen_shown = screen_focused || popout;
+		let mut side = [watched.is_some(), focused, fullscreen_shown]
 			.iter()
 			.filter(|shown| **shown)
 			.count() as f32
 			* 44.0;
 		let side_shown = bar.width() - 2.0 * STAGE_MARGIN >= essential + BAR_GAP + side;
-		let side = if side_shown { side } else { 0.0 };
+		if !side_shown {
+			side = 0.0;
+		}
+		// Pop Out is the extra slot: it sheds before Fullscreen and the participant strip.
+		let pop_out_shown = !popout
+			&& side_shown
+			&& bar.width() - 2.0 * STAGE_MARGIN >= essential + BAR_GAP + side + 44.0;
+		if pop_out_shown {
+			side += 44.0;
+		}
 		let room = bar.width() - 2.0 * STAGE_MARGIN - if side > 0.0 { side + BAR_GAP } else { 0.0 };
 		let chevrons = room >= 2.0 * 28.0 + actions + BAR_GAP + essential;
 		let media = if chevrons {
@@ -3410,14 +3893,46 @@ impl MessagingUi {
 				.layout(egui::Layout::right_to_left(egui::Align::Center)),
 		);
 		view.spacing_mut().item_spacing.x = 4.0;
-		if screen_focused && side_shown {
-			let fullscreen = fullscreen_control(&mut view, STAGE_TEXT);
+		if pop_out_shown {
+			// Phosphor's arrow-square-out is Discord's arrow-out-of-box Pop Out glyph.
+			let pop_out = control(
+				&mut view,
+				crate::icons::Icon::External,
+				40.0,
+				true,
+				STAGE_TEXT,
+				"voice-pop-out",
+				"voice-pop-out",
+			);
+			if pop_out.clicked() {
+				self.exit_voice_fullscreen();
+				self.voice_popout = Some(channel);
+			}
+		}
+		if fullscreen_shown && side_shown {
+			let fullscreen = fullscreen_control(
+				&mut view,
+				STAGE_TEXT,
+				match (popout, self.voice_popout_fullscreen) {
+					(false, _) => ("Fullscreen", "View this screen share in fullscreen"),
+					(true, false) => ("voice-popout-fullscreen", "voice-popout-fullscreen-hint"),
+					(true, true) => (
+						"voice-popout-exit-fullscreen",
+						"voice-popout-exit-fullscreen-hint",
+					),
+				},
+			);
 			if fullscreen.clicked() {
-				let previous = view.input(|input| input.viewport().fullscreen.unwrap_or(false));
-				self.voice_fullscreen = self
-					.voice_focus
-					.map(|focus| (focus, view.ctx().clone(), previous, fullscreen.id));
-				self.voice_fullscreen_request = Some(true);
+				if popout {
+					self.voice_popout_fullscreen = !self.voice_popout_fullscreen;
+					self.voice_popout_fullscreen_request = Some(self.voice_popout_fullscreen);
+				} else {
+					let previous = view.input(|input| input.viewport().fullscreen.unwrap_or(false));
+					self.voice_fullscreen = self
+						.voice_focus
+						.map(|focus| (focus, view.ctx().clone(), previous, fullscreen.id));
+					self.voice_fullscreen_request = Some(true);
+				}
 			}
 		}
 		if focused && side_shown {
@@ -3552,6 +4067,7 @@ impl MessagingUi {
 			.as_ref()
 			.filter(|call| call.guild.is_none() && Some(call.channel) == state.selected)
 			.map(|call| call.channel)
+			.filter(|channel| self.voice_popout != Some(*channel))
 	}
 
 	/// DM call stage above the conversation, plus the incoming-call banner. `header` carries
@@ -3565,13 +4081,20 @@ impl MessagingUi {
 	) {
 		let colors = design::palette(ui);
 		let selected = state.selected;
-		if let Some(channel) = state
+		if state
 			.voice
 			.active
 			.as_ref()
-			.filter(|call| call.guild.is_none() && Some(call.channel) == selected)
-			.map(|call| call.channel)
+			.is_some_and(|call| call.guild.is_none() && Some(call.channel) == selected)
+			&& selected == self.voice_popout
 		{
+			egui::Panel::top("dm-call-popout")
+				.resizable(false)
+				.exact_size(120.0)
+				.show_separator_line(false)
+				.frame(egui::Frame::NONE)
+				.show(ui, |ui| self.voice_popout_placeholder(ui));
+		} else if let Some(channel) = self.dm_call_stage(state) {
 			let stage = self.stage_shows_video(state, channel) || state.is_group_dm(channel);
 			// The stage also carries the conversation header when it draws one.
 			let height = if stage {
@@ -3596,77 +4119,15 @@ impl MessagingUi {
 				.frame(egui::Frame::new().fill(STAGE_FILL))
 				.show(ui, |ui| {
 					let rect = ui.max_rect();
-					// The children below do not grow this Ui; claim the whole panel so its
-					// background follows a resize and egui keeps the dragged size.
-					ui.expand_to_include_rect(rect);
 					let reveal = chrome_reveal(ui, rect, "dm-call-chrome");
-					let top = rect.top() + if header.is_some() { 48.0 } else { 0.0 };
-					let notices = self.stage_notices(state, channel, true);
-					let error = state.voice.active.as_ref().and_then(|c| c.error);
-					let bar_top = rect.bottom() - CONTROL_HEIGHT - STAGE_MARGIN - TILE_GAP;
-					let notice_rect = egui::Rect::from_min_max(
-						egui::pos2(rect.left() + STAGE_MARGIN, top + STAGE_MARGIN),
-						egui::pos2(rect.right() - STAGE_MARGIN, bar_top),
-					);
-					let mut notice_ui = ui.new_child(
-						egui::UiBuilder::new()
-							.max_rect(notice_rect)
-							.layout(egui::Layout::top_down(egui::Align::Min)),
-					);
-					notice_ui.set_clip_rect(notice_rect.intersect(ui.clip_rect()));
-					stage_notices(&mut notice_ui, &notices);
-					call_failure(&mut notice_ui, error, STAGE_TEXT);
-					// Without notices the avatars may use the whole height of a shrunken panel.
-					let body_top = if notices.is_empty() && error.is_none() {
-						top + TILE_GAP
-					} else {
-						notice_ui.cursor().top() + TILE_GAP
-					};
-					// An enlarged video fills the whole stage under the hover chrome, like
-					// Discord; the grid keeps clear of the header and the call bar.
-					let body = if self.voice_focus.is_some() {
-						egui::Rect::from_min_max(
-							rect.min,
-							egui::pos2(
-								rect.right(),
-								if self.voice_focus_participants {
-									bar_top
-								} else {
-									rect.bottom()
-								},
-							),
-						)
-					} else {
-						egui::Rect::from_min_max(
-							egui::pos2(rect.left() + STAGE_MARGIN, body_top),
-							egui::pos2(rect.right() - STAGE_MARGIN, bar_top.max(body_top)),
-						)
-					};
-					let mut body_ui = ui.new_child(
-						egui::UiBuilder::new()
-							.max_rect(body)
-							.layout(egui::Layout::top_down(egui::Align::Min)),
-					);
-					body_ui.set_clip_rect(body.intersect(ui.clip_rect()));
-					self.voice_chrome_hidden = 1.0 - reveal;
-					self.participant_tiles(
-						&mut body_ui,
-						state,
-						channel,
-						&stage_participants(state, channel),
-						true,
-					);
-					self.voice_chrome_hidden = 0.0;
-					if self.voice_focus.is_some() {
-						chrome_shade(ui, rect, 72.0, true, reveal);
-						chrome_shade(ui, rect, 96.0, false, reveal);
-					}
+					let top = if header.is_some() { 48.0 } else { 0.0 };
+					self.voice_stage(ui, state, channel, top, false, commands);
 					if let Some((selected_voice, show_members, wide_members)) = header {
 						let mut header_ui = ui.new_child(
 							egui::UiBuilder::new()
 								.max_rect(egui::Rect::from_min_max(
 									egui::pos2(rect.left() + 16.0, rect.top()),
-									egui::pos2(rect.right() - 16.0, top),
+									egui::pos2(rect.right() - 16.0, rect.top() + top),
 								))
 								.layout(egui::Layout::left_to_right(egui::Align::Center)),
 						);
@@ -3682,17 +4143,6 @@ impl MessagingUi {
 							commands,
 						);
 					}
-					let bar = egui::Rect::from_min_max(
-						egui::pos2(rect.left(), rect.bottom() - CONTROL_HEIGHT - STAGE_MARGIN),
-						egui::pos2(rect.right(), rect.bottom() - STAGE_MARGIN),
-					);
-					let mut bar_ui = ui.new_child(
-						egui::UiBuilder::new()
-							.max_rect(bar)
-							.layout(egui::Layout::left_to_right(egui::Align::Center)),
-					);
-					bar_ui.set_opacity(reveal);
-					self.call_controls(&mut bar_ui, state, channel, commands);
 				});
 			self.apply_watch_request(state);
 		}
@@ -4515,7 +4965,14 @@ fn control(
 	response.on_hover_text(hint)
 }
 
-fn fullscreen_control(ui: &mut egui::Ui, color: egui::Color32) -> egui::Response {
+/// `text` is the (label, hover hint) pair; either may be a Fluent key.
+fn fullscreen_control(
+	ui: &mut egui::Ui,
+	color: egui::Color32,
+	text: (&str, &str),
+) -> egui::Response {
+	let label = crate::i18n::translate_if_key(text.0);
+	let hint = crate::i18n::translate_if_key(text.1);
 	let (rect, response) =
 		ui.allocate_exact_size(egui::vec2(48.0, CONTROL_HEIGHT), egui::Sense::click());
 	if response.hovered() || response.has_focus() {
@@ -4528,8 +4985,8 @@ fn fullscreen_control(ui: &mut egui::Ui, color: egui::Color32) -> egui::Response
 		egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(22.0)),
 		color,
 	);
-	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, "Fullscreen"));
-	response.on_hover_text("View this screen share in fullscreen")
+	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &label));
+	response.on_hover_text(hint)
 }
 
 /// Circular filled action (answer/decline) used by the incoming-call banner.
@@ -4880,6 +5337,30 @@ fn device_combo(
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn popout_middle_is_kept_out_of_egui_and_fed_to_autoscroll() {
+		let ctx = egui::Context::default();
+		let mut plugin = MiddleButton::default();
+		let pos = egui::pos2(10.0, 20.0);
+		let mut input = egui::RawInput {
+			viewport_id: popout_viewport_id(),
+			..Default::default()
+		};
+		input.events.push(egui::Event::PointerButton {
+			pos,
+			button: egui::PointerButton::Middle,
+			pressed: true,
+			modifiers: egui::Modifiers::NONE,
+		});
+		egui::Plugin::input_hook(&mut plugin, &ctx, &mut input);
+		assert!(
+			input.events.is_empty(),
+			"egui must not see the middle press"
+		);
+		assert_eq!(plugin.middle.pressed, Some(pos));
+		assert!(plugin.middle.down);
+	}
 
 	#[test]
 	fn explicit_join_audio_waits_for_call_switch_and_survives_teardown() {
@@ -6036,6 +6517,84 @@ mod tests {
 			messaging.stream_preview_request.is_none(),
 			"An uninterrupted hover requests only once"
 		);
+	}
+
+	#[test]
+	fn auto_popout_only_on_join_or_accept() {
+		fn press(messaging: &mut MessagingUi, state: &mut State, channel: Id) -> Vec<Command> {
+			let ctx = egui::Context::default();
+			let mut commands = vec![];
+			ctx.run_ui(Default::default(), |ui| {
+				messaging
+					.call_button(ui, state, channel, &mut commands)
+					.request_focus();
+			})
+			.drop_without_applying_deltas();
+			let enter = egui::RawInput {
+				events: vec![egui::Event::Key {
+					key: egui::Key::Enter,
+					physical_key: None,
+					pressed: true,
+					repeat: false,
+					modifiers: egui::Modifiers::NONE,
+				}],
+				..Default::default()
+			};
+			ctx.run_ui(enter, |ui| {
+				messaging.call_button(ui, state, channel, &mut commands);
+			})
+			.drop_without_applying_deltas();
+			commands
+		}
+		let joined = |commands: &[Command], channel| matches!(commands, [Command::Voice(client_core::voice::Command::Join { channel: c, .. })] if *c == channel);
+		let live = |state: &mut State| {
+			state.demo = false;
+			state.gateway_connected = true;
+			MessagingUi {
+				voice_available: true,
+				voice_popout_auto: true,
+				..Default::default()
+			}
+		};
+		// Join Voice in a guild channel and Answer on an incoming DM call both pop out.
+		for (channel, incoming) in [(Id(25), false), (Id(22), true)] {
+			let mut state = test_support::demo_state();
+			let mut messaging = live(&mut state);
+			if incoming {
+				state.voice.incoming = Some(channel);
+			}
+			assert!(joined(&press(&mut messaging, &mut state, channel), channel));
+			assert_eq!(messaging.voice_popout(), Some(channel));
+			// Once docked, reconnects and phase changes on the same call keep it docked.
+			messaging.close_voice_popout();
+			let request = state.voice.active.as_ref().unwrap().request;
+			state.reconnect_call(request, 1, "synthetic drop");
+			state.voice.active.as_mut().unwrap().phase = Phase::Connected;
+			messaging.sync_voice_popout(&state);
+			assert_eq!(messaging.voice_popout(), None);
+		}
+		// A Watch Stream join from a roster preview stays docked.
+		let mut state = test_support::demo_state();
+		let mut messaging = live(&mut state);
+		state.voice.roster = vec![RosterEntry {
+			guild: Id(10),
+			channel: Id(25),
+			participant: client_core::voice::Participant {
+				user: Id(2),
+				muted: false,
+				deafened: false,
+				server_muted: false,
+				server_deafened: false,
+				video: false,
+				streaming: true,
+			},
+			member: None,
+		}];
+		messaging.stream_preview_watch = Some((Id(25), Id(2)));
+		let mut commands = vec![];
+		messaging.apply_stream_preview_watch(&mut state, &mut commands);
+		assert!(joined(&commands, Id(25)));
+		assert_eq!(messaging.voice_popout(), None);
 	}
 
 	#[test]

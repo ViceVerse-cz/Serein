@@ -172,6 +172,24 @@ pub(super) fn contents(
 	action: &mut Option<Action>,
 	view: Option<ShortcutView<'_>>,
 ) {
+	contents_in(ui, state, user, place, profile, action, view, None);
+}
+
+/// [`contents`] for a menu opened outside the main window's selection.
+///
+/// `channel` is the channel the menu was opened from. Roles and mentions then follow that
+/// channel's server instead of whichever one the main window happens to show.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn contents_in(
+	ui: &mut egui::Ui,
+	state: &State,
+	user: &User,
+	place: Place,
+	profile: &mut crate::profiles::ProfileSession,
+	action: &mut Option<Action>,
+	view: Option<ShortcutView<'_>>,
+	channel: Option<model::Id>,
+) {
 	let colors = crate::design::palette(ui);
 	ui.set_min_width(200.0);
 	ui.spacing_mut().button_padding = egui::vec2(8.0, 6.0);
@@ -212,7 +230,9 @@ pub(super) fn contents(
 		profile.open_full(user.clone());
 		ui.close();
 	}
+	// A mention lands in the main window's composer, so it only fits a menu from that channel.
 	if !user.webhook
+		&& channel.is_none_or(|channel| state.selected == Some(channel))
 		&& state.selected.is_some_and(|id| {
 			state
 				.channel(id)
@@ -226,10 +246,7 @@ pub(super) fn contents(
 	}
 	if !user.webhook {
 		crate::profiles::copy_username_button(ui, state, user);
-		if let Some(guild) = state
-			.selected
-			.and_then(|id| state.channel(id).and_then(|channel| channel.guild))
-		{
+		if let Some(guild) = menu_guild(state, channel) {
 			roles_menu(ui, state, guild, user.id, action);
 		}
 	}
@@ -434,6 +451,13 @@ pub(super) fn contents(
 		ui.close();
 	}
 	crate::profiles::report_button(ui, user);
+}
+
+/// The server a user menu acts on: the channel it was opened from, else the main window's.
+fn menu_guild(state: &State, channel: Option<model::Id>) -> Option<model::Id> {
+	channel
+		.or(state.selected)
+		.and_then(|id| state.channel(id).and_then(|channel| channel.guild))
 }
 
 /// Toggles assignable server roles on a member shown in the selected channel's live list.
@@ -901,5 +925,30 @@ mod tests {
 			);
 			assert!(render(&mut view, &mut state, vec![]).0.is_empty());
 		}
+	}
+
+	#[test]
+	fn participant_menu_uses_the_call_channel_server_not_the_main_selection() {
+		let channel = |id, guild| model::Channel {
+			icon: None,
+			last_message: None,
+			id: model::Id(id),
+			guild: Some(model::Id(guild)),
+			parent_id: None,
+			position: 0,
+			name: "Synthetic".into(),
+			kind: 2,
+			recipients: vec![],
+			member_list_id: None,
+			message_count: None,
+			tags: None,
+		};
+		let state = State {
+			selected: Some(model::Id(1)),
+			channels: vec![channel(1, 20), channel(10, 30)],
+			..Default::default()
+		};
+		assert_eq!(menu_guild(&state, Some(model::Id(10))), Some(model::Id(30)));
+		assert_eq!(menu_guild(&state, None), Some(model::Id(20)));
 	}
 }

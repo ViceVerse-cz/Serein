@@ -204,6 +204,28 @@ Every run above kept focus for the whole sample. Runs that lost focus or receive
 discarded and repeated; input detection was added for the final batch, and two of the
 setting-off runs come from an earlier batch without it. PresentMon records presents and flips,
 not the panel's refresh, so display-side VRR behavior is not measured here.
+## Voice call popout window — November 4, 2026
+
+Baseline `7e71af5` (main) and the popout branch were built as optimized release binaries with
+`--features demo`, Rust 1.98.1 and locked dependencies, on Windows x64 (10.0.26300), AMD Ryzen 9
+9900X3D (24 logical CPUs), 31 GiB RAM, WGPU/DX12 on an RTX 5070 Ti at 100% scale. Each run
+launched `--demo --demo-voice-video` minimized, warmed up for 10 s, and then sampled the process
+every 1 s for 30 s. CPU is the share of all logical CPUs; memory is working set and private bytes.
+The three configurations were interleaved for three rounds. The ranges below cover rounds 2–3,
+because round 1's first runs were still warming caches (baseline WS 236.7 MB).
+
+| Metric / method | Baseline | Branch, docked | Branch, popped out |
+| --- | ---: | ---: | ---: |
+| Release demo executable | 94,754,816 B | 94,821,376 B (+66,560 B, +0.07%) | same |
+| Idle CPU median / max (all cores) | 0% / ≤0.06% | 0% / ≤0.06% | 0% / ≤0.26% |
+| Settled working set | 177.0–177.2 MB | 177.1–177.4 MB | 181.3–185.1 MB (+4–8 MB) |
+| Settled private bytes | 257.1–275.1 MB | 250.9–259.0 MB | 261.2–267.6 MB |
+
+Opening the popout adds about 4–8 MB of working set, from its second swap chain and surface.
+The docked branch matches the baseline within noise. The static fixture keeps idle CPU near zero
+in all three configurations. Frame latency, a live call, a second monitor and video while the
+main window is hidden to the tray were not measured. Screenshots are in
+[the evidence folder](pr-evidence/voice-popout/).
 
 ## Push-to-talk notification cues — October 29, 2026
 

@@ -377,6 +377,8 @@ impl Surface {
 #[derive(Default)]
 struct Pointer {
 	menu: bool,
+	/// The viewport whose right-click opened the copy menu; only it draws the popup.
+	menu_owner: Option<egui::ViewportId>,
 	silent: bool,
 	cached: String,
 	/// Where the latest primary press landed: a label selection starts there, so a menu can
@@ -459,6 +461,7 @@ impl egui::Plugin for Pointer {
 			self.selection_secondary |= secondary;
 			if secondary {
 				self.cached = String::new();
+				self.menu_owner = Some(input.viewport_id);
 			}
 			input.events.retain(|event| {
 				!matches!(
@@ -521,10 +524,19 @@ impl egui::Plugin for Pointer {
 /// Draw outside a Plugin hook: egui notifies plugins when a popup widget is under
 /// the pointer, so creating it while holding Pointer's plugin mutex would reenter it.
 pub(crate) fn show_menu(ctx: &egui::Context) {
-	let requested = ctx
-		.plugin_opt::<Pointer>()
-		.is_some_and(|plugin| plugin.lock().menu);
+	let (requested, owner) = ctx.plugin_opt::<Pointer>().map_or((false, None), |plugin| {
+		let plugin = plugin.lock();
+		(plugin.menu, plugin.menu_owner)
+	});
 	let id = Id::unique("chat-selection-copy");
+	// The popup state is shared by every viewport; only the window whose right-click opened
+	// it may draw it, or the call window and the main window would both show the menu.
+	if owner.is_some_and(|owner| owner != ctx.viewport_id()) {
+		if ctx.input(|input| input.pointer.any_pressed()) {
+			Popup::close_id(ctx, id);
+		}
+		return;
+	}
 	if !Popup::is_id_open(ctx, id) && (!requested || Popup::is_any_open(ctx)) {
 		return;
 	}

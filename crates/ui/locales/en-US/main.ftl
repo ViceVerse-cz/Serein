@@ -4621,6 +4621,15 @@ public-upload-error-missing = Select the file again before uploading publicly
 message-preview-limit = This message exceeds the native text layout limit.
 voice-call-moved-to-another-client = This device's call session was replaced
 
+voice-pop-out = Pop Out
+voice-popout-docked = Call is in another window
+voice-popout-bring-back = Bring back
+voice-popout-chat-elsewhere = Chat is open in the call window
+voice-popout-fullscreen = Fullscreen
+voice-popout-fullscreen-hint = Make the call window fullscreen
+voice-popout-exit-fullscreen = Exit fullscreen
+voice-popout-exit-fullscreen-hint = Exit fullscreen (Esc)
+
 # Synchronized favorite GIFs (unofficial account settings).
 gif-favorites-sync-refresh = Refresh from Discord
 gif-favorites-sync-failed = Sync failed; local favorites are kept. Refresh before trying another synced change.
@@ -4717,6 +4726,8 @@ settings-convert-emoticons = Automatically convert emoticons in your messages to
 settings-convert-emoticons-description = Convert standalone emoticons such as :) to 🙂 when sending or editing messages. Code and links stay unchanged.
 settings-preload-on-hover = Preload on hover
 settings-preload-on-hover-description = Load a conversation, a profile or the GIF picker while the pointer rests on it, so it opens instantly. Uses the same requests as opening it, at most 12 per minute for each kind.
+settings-voice-popout-auto = Open calls in a separate window
+settings-voice-popout-auto-description = Calls start in their own window, ready for a second monitor.
 settings-auto-idle = Go idle when away
 settings-auto-idle-description = Show as Idle after the time below without keyboard or mouse input, or right away when you lock your computer. Not during voice calls.
 settings-idle-after = Idle after

@@ -142,7 +142,7 @@ use client_core::{Command, MAX_DRAFT_BYTES, NavStep, State};
 use egui::{RichText, TextEdit};
 use model::{Freshness, Id};
 pub use verification::VerificationUi;
-pub use voice::{StageFocus, VOICE_DEVICES_LOADED, VOICE_DEVICES_LOOKING};
+pub use voice::{StageFocus, VOICE_DEVICES_LOADED, VOICE_DEVICES_LOOKING, popout_viewport_id};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct VoiceGain {
@@ -265,6 +265,8 @@ pub struct MessagingUi {
 	pub convert_emoticons: bool,
 	/// Device preference: request a conversation's page while the pointer rests on it.
 	pub preload_on_hover: bool,
+	/// Device preference: start every call that begins in its own window.
+	pub voice_popout_auto: bool,
 	preload: preload::Preload,
 	pub image_share_requested: Option<(u64, Id, Vec<model::ImageShare>, String)>,
 	pub interaction_file_request: Option<String>,
@@ -318,6 +320,9 @@ pub struct MessagingUi {
 	new_message: new_message::NewMessageUi,
 	forum: forum::ForumUi,
 	scroll: scroll::Session,
+	/// The call window's own autoscroll session; its frame numbers and input are separate from
+	/// the main window's, so sharing one session let either window cancel the other's drive.
+	popout_scroll: scroll::Session,
 	side_press: scroll::SidePress,
 	timeline: timeline::TimelineView,
 	edit_modified: Option<(Id, Id, bool)>,
@@ -493,6 +498,30 @@ pub struct MessagingUi {
 	voice_fullscreen: Option<(voice::StageFocus, egui::Context, bool, egui::Id)>,
 	/// Native window transition for the desktop to apply after this UI frame.
 	voice_fullscreen_request: Option<bool>,
+	/// The call channel whose stage is in the call window instead of this one.
+	voice_popout: Option<Id>,
+	/// The call window shows the call channel's chat beside its stage.
+	voice_popout_chat: bool,
+	/// Whether the call window is fullscreen on its monitor.
+	voice_popout_fullscreen: bool,
+	/// Native transition for the call window, applied by the desktop after this frame.
+	voice_popout_fullscreen_request: Option<bool>,
+	/// The call window's own notices, for actions taken there.
+	voice_popout_toasts: toasts::Toasts,
+	/// Whether the call window is minimized, reported by the desktop each popout frame.
+	voice_popout_minimized: bool,
+	/// The open profile card was opened from the call window, so that window draws it.
+	profile_in_popout: bool,
+	/// The profile card's dialogs (image viewer, contact editor, friend removal) belong to the
+	/// call window.
+	profile_dialogs_in_popout: bool,
+	/// The pending link confirmation was opened from the call window, so that window draws it.
+	popout_links: bool,
+	/// The pending file picker request came from the call window's composer.
+	attach_in_popout: bool,
+	/// Set during the call window's stage pass when Escape belongs to a dialog, picker or
+	/// fullscreen, so the stage keeps its enlarged tile.
+	voice_stage_escape_held: bool,
 	/// Whether the other participants stay visible as a strip under the enlarged tile.
 	pub voice_focus_participants: bool,
 	/// How far the call stage's hover chrome (and tile name badges) has faded out: 0 shown.
@@ -1067,6 +1096,14 @@ impl MessagingUi {
 	#[cfg(any(test, feature = "demo"))]
 	pub fn preview_pins(&mut self) {
 		self.search.preview_pins();
+	}
+	/// Fixture-only: open the active call in its own window, optionally with its chat panel.
+	#[cfg(feature = "demo")]
+	pub fn preview_voice_popout(&mut self, state: &State, chat: bool) {
+		if let Some(call) = &state.voice.active {
+			self.voice_popout = Some(call.channel);
+			self.voice_popout_chat = chat;
+		}
 	}
 	/// Fixture-only: open the account popout above the footer card at startup.
 	#[cfg(any(test, feature = "demo"))]
@@ -4600,6 +4637,469 @@ impl MessagingUi {
 		}
 	}
 
+	/// Dialogs the composer opens; drawn by the window that draws the composer.
+	fn poll_creator_overlay(
+		&mut self,
+		ctx: &egui::Context,
+		state: &mut State,
+		commands: &mut Vec<Command>,
+	) {
+		if let Some(action) = self.poll_creator.show(ctx, state, &mut self.avatars)
+			&& let Some(command) = state.prepare_poll(None, action)
+		{
+			commands.push(command);
+		}
+	}
+
+	/// External link confirmations; drawn by the window whose link asked for them.
+	fn link_confirmations(&mut self, ctx: &egui::Context) {
+		let truncated = self.timeline.truncated_translation.is_some()
+			&& self.timeline.truncated_translation == self.timeline.browser_opening;
+		markdown::confirm_external_link_noting(
+			ctx,
+			&mut self.timeline.browser_opening,
+			self.reading_preferences.confirm_external_links,
+			truncated,
+		);
+		if !truncated || self.timeline.browser_opening.is_none() {
+			self.timeline.truncated_translation = None;
+		}
+		markdown::confirm_external_link(
+			ctx,
+			&mut self.timeline.opening,
+			self.reading_preferences.confirm_external_links,
+		);
+	}
+
+	/// The open profile card; drawn by the window whose pointer opened it.
+	fn profile_overlay(
+		&mut self,
+		ui: &mut egui::Ui,
+		state: &mut State,
+		commands: &mut Vec<Command>,
+	) {
+		let ctx = ui.ctx().clone();
+		// While the card's DM waits on a captcha, step aside for the dialog but keep its draft.
+		let direct_verifying = self.user_direct.is_some()
+			&& matches!(
+				state.verification(),
+				Some((client_core::captcha::Verification::Direct { .. }, _))
+			);
+		if let Some(user) = self.profile.open_user().cloned()
+			&& !direct_verifying
+		{
+			// A card in the call window belongs to the call's server, not the main window's.
+			let profile_guild = if self.profile_in_popout {
+				self.voice_popout
+					.and_then(|id| state.channel(id))
+					.and_then(|channel| channel.guild)
+			} else {
+				self.profile_guild(state)
+			};
+			self.sync_profile(state, commands, &user, profile_guild);
+			if let Some(command) = profile_note(state, &mut self.profile, &user) {
+				commands.push(command);
+			}
+			self.profile
+				.own_status
+				.clone_from(&self.own_presence.custom_status);
+			let anchor = self.profile.anchor_or_place(&ctx, user.id);
+			self.profile.ingest_opener_rect(&ctx);
+			let action = profiles::show_with_session(
+				ui,
+				&user,
+				state.profile.as_ref(),
+				state,
+				&mut self.avatars,
+				&mut self.profile_link,
+				&mut self.profile_formatted,
+				self.reading_preferences.confirm_external_links,
+				anchor,
+				&mut self.profile,
+			);
+			if let Some(action) = action {
+				// The window that owns the card also owns what its actions open.
+				self.profile_dialogs_in_popout = self.profile_in_popout;
+				self.profile_action(&ctx, state, commands, &user, profile_guild, action);
+			}
+			if self.drain_profile(state, commands)
+				&& let Some(user) = self.profile.open_user().cloned()
+			{
+				self.sync_profile(state, commands, &user, profile_guild);
+			}
+		} else {
+			self.profile_link = None;
+		}
+	}
+
+	/// The profile card's image viewer and contact editor, drawn by the window that owns them.
+	fn profile_dialogs(
+		&mut self,
+		ui: &mut egui::Ui,
+		state: &mut State,
+		commands: &mut Vec<Command>,
+	) {
+		let ctx = ui.ctx().clone();
+		self.contact_editor.show(&ctx, state, commands);
+		if let Some(image) = &self.profile_image
+			&& (image.generation != state.generation
+				|| attachments::viewer(
+					ui,
+					std::slice::from_ref(&image.attachment),
+					image.attachment.id,
+					image.floor,
+					&mut self.avatars,
+					&mut self.timeline.download,
+					&mut self.timeline.opening,
+					state.demo,
+				)
+				.is_none())
+		{
+			self.profile_image = None;
+		}
+	}
+
+	/// Returns dialog ownership once every popout-owned dialog has closed, so the main window
+	/// opens the next one again. A pending menu action may still open one, so it waits.
+	fn release_profile_dialogs(&mut self) {
+		if self.profile_dialogs_in_popout
+			&& self.profile_image.is_none()
+			&& !self.contact_editor.is_open()
+			&& self.friend_removal.is_none()
+			&& self.user_action.is_none()
+		{
+			self.profile_dialogs_in_popout = false;
+		}
+	}
+
+	/// Dialogs the conversation owns: public upload, forward and the delete confirmation.
+	/// The window that draws the conversation draws these too.
+	fn conversation_overlays(
+		&mut self,
+		ui: &mut egui::Ui,
+		state: &mut State,
+		commands: &mut Vec<Command>,
+	) {
+		let ctx = ui.ctx().clone();
+		self.external_upload
+			.show(&ctx, state, &mut self.draft_changes);
+		if let Some(message) = self.timeline.forward_request.take() {
+			self.forwarding.open(state, message);
+		}
+		self.forwarding
+			.show(&ctx, state, &mut self.avatars, commands);
+		if self.deleting.is_some_and(|(channel, message)| {
+			state.selected != Some(channel) || state.timeline.get(message).is_none()
+		}) {
+			self.deleting = None;
+		}
+		if let Some((channel, message)) = self.deleting {
+			let allowed = state.can_delete(channel, message);
+			let conversation = state
+				.channel(channel)
+				.map_or("this conversation", |c| c.name.as_str());
+			let mut confirm = dialog::Confirm::new(
+				"delete-message",
+				"Delete message?",
+				format!(
+					"This permanently removes the selected message from {conversation} for everyone."
+				),
+			)
+			.danger()
+			.confirm_label("Delete")
+			.cancel_label("Keep Message")
+			.enabled(allowed);
+			if !allowed {
+				confirm = confirm.note(
+					dialog::Level::Warning,
+					"Deleting this message is unavailable.",
+				);
+			}
+			match confirm.show(&ctx) {
+				Some(dialog::Choice::Confirmed) => {
+					if let Some(command) = state.prepare_delete(channel, message) {
+						commands.push(command);
+					}
+					self.deleting = None;
+				}
+				Some(dialog::Choice::Cancelled) => self.deleting = None,
+				None => {}
+			}
+		}
+	}
+
+	/// Timeline and composer of the selected conversation, filling `ui`. They are single
+	/// instance, so exactly one window draws them in a frame.
+	fn conversation(
+		&mut self,
+		ui: &mut egui::Ui,
+		state: &mut State,
+		channel: Id,
+		message_fill: Option<(egui::layers::ShapeIdx, f32)>,
+		commands: &mut Vec<Command>,
+	) {
+		let colors = crate::design::palette(ui);
+		let background = crate::design::window_palette(ui);
+		let message_surface =
+			design::section_surface(ui, background.chat, design::ImageSection::MessageList);
+		let ctx = ui.ctx().clone();
+		egui::Panel::bottom("composer")
+			.show_separator_line(false)
+			.frame(
+				egui::Frame::new()
+					// The central panel already paints the chat surface; a second
+					// coat would band a darker strip under a see-through timeline.
+					.fill(if design::has_section_background(ui) {
+						design::section_surface(ui, background.chat, design::ImageSection::Composer)
+					} else {
+						egui::Color32::TRANSPARENT
+					})
+					// The bottom inset matches the account card's, so the input and the
+					// account pill sit on one line across the window.
+					.inner_margin(egui::Margin {
+						left: 16,
+						right: 16,
+						top: 2,
+						bottom: 8,
+					}),
+			)
+			.show(ui, |ui| {
+				if state.message_request(channel) {
+					self.message_request_bar(ui, state, channel);
+				}
+				self.composer(ui, state, channel, &ctx, commands);
+			});
+		if let Some((shape, top)) = message_fill {
+			let remaining = ui.available_rect_before_wrap();
+			ui.painter().set(
+				shape,
+				egui::Shape::rect_filled(
+					egui::Rect::from_min_max(
+						egui::pos2(remaining.left(), top),
+						remaining.right_bottom(),
+					),
+					0.0,
+					message_surface,
+				),
+			);
+		}
+		let notices: Vec<String> = [
+			match state.freshness {
+				Freshness::Fresh | Freshness::Loading => None,
+				Freshness::Stale => Some("Cached history · awaiting sync"),
+				Freshness::Unavailable => Some("Conversation unavailable"),
+			}
+			.map(str::to_owned),
+			state.read_state.status(channel).map(str::to_owned),
+			(state.archived_thread.is_some() && state.archived_thread == state.selected)
+				.then(|| "Opened from archive".to_owned()),
+		]
+		.into_iter()
+		.flatten()
+		.collect();
+		if !notices.is_empty() {
+			egui::Frame::new()
+				.inner_margin(egui::Margin::symmetric(16, 4))
+				.show(ui, |ui| {
+					ui.label(
+						RichText::new(notices.join(" · "))
+							.size(11.0)
+							.color(colors.muted),
+					);
+				});
+		}
+		egui::Frame::new()
+			.inner_margin(egui::Margin {
+				left: 0,
+				right: 0,
+				top: 4,
+				bottom: 0,
+			})
+			.show(ui, |ui| {
+				design::paint_chat_background(ui, ui.available_rect_before_wrap());
+				self.timeline.hide_media_links = self.reading_preferences.hide_media_links;
+				self.timeline.compact_messages = self.reading_preferences.compact_messages;
+				self.timeline.double_click_reaction = self
+					.reading_preferences
+					.double_click_reaction_enabled
+					.then_some(self.reading_preferences.double_click_emoji());
+				self.timeline.instant_scrolling = !self.reading_preferences.smooth_scrolling;
+				self.timeline.extension_actions = self.extensions.message_actions();
+				self.timeline.quick_reactions = Some(self.reaction_picker.quick_reactions(state));
+				let mut seen = std::collections::BTreeSet::new();
+				let author_lookup: Vec<_> = state
+					.timeline
+					.iter()
+					.rev()
+					.filter(|message| !message.author.webhook)
+					.map(|message| message.author.id)
+					.filter(|id| seen.insert(*id))
+					.take(client_core::member_search::LIMIT)
+					.collect();
+				if let Some(command) = state.request_author_members(&author_lookup) {
+					commands.push(command);
+				}
+				self.timeline.show_with_scroll(
+					ui,
+					state,
+					&mut self.editing,
+					&mut self.deleting,
+					(&mut self.avatars, &mut self.profile),
+					self.pending_upload.as_ref(),
+					if ui.ctx().viewport_id() == voice::popout_viewport_id() {
+						&mut self.popout_scroll
+					} else {
+						&mut self.scroll
+					},
+				);
+				if let Some((id, action)) = self.timeline.poll_action.take()
+					&& let Some(command) = state.prepare_poll(Some(id), action)
+				{
+					commands.push(command);
+				}
+				if let Some(id) = self.timeline.sticker_request.take() {
+					if let Some(command) = state.request_sticker(id) {
+						commands.push(command);
+					}
+					if let Some(command) = state.request_sticker_packs() {
+						commands.push(command);
+					}
+				}
+				if let Some(sticker) = self.timeline.browse_sticker.take() {
+					self.emoji_picker.open_stickers(Some(&sticker));
+				}
+				if let Some(command) = state.request_author_members(&self.timeline.visible_authors)
+				{
+					commands.push(command);
+				}
+				if let Some((action, text, target)) = self.timeline.extension_request.take() {
+					self.extensions
+						.invoke_message(action, text, target, state, ui.ctx());
+				}
+				if let Some((message, anchor, trigger)) = self.timeline.reaction_picker.take() {
+					self.emoji_picker.dismiss(state, commands);
+					self.reaction_picker
+						.open_reaction(state, message, anchor, trigger);
+				}
+				self.reaction_picker.hide_nitro_emojis = self.hide_nitro_emojis;
+				self.reaction_picker
+					.show_reaction(ui, state, &mut self.avatars, commands);
+				if let Some((message, emoji, open)) = self.timeline.reaction_users.take()
+					&& let Some(command) = state.request_reaction_users(message, emoji, open)
+				{
+					commands.push(command);
+				}
+				crate::reactions::show_users(ui.ctx(), state, &mut self.avatars, commands);
+				if let Some((channel, message)) = self.timeline.quick_delete.take()
+					&& let Some(command) = state.prepare_delete(channel, message)
+				{
+					commands.push(command);
+				}
+				if let Some(id) = self.timeline.remove_preserved.take() {
+					state.discard_preserved_deleted(id);
+				}
+				if let Some(nonce) = self.timeline.restore_pending.take() {
+					if state
+						.pending
+						.iter()
+						.any(|p| p.nonce == nonce && p.sticker.is_some())
+					{
+						state.discard_pending_sticker(&nonce);
+					} else {
+						self.restore_pending(state, channel, &nonce);
+					}
+				}
+				if let Some(nonce) = self.timeline.dismiss_pending.take()
+					&& let Some(channel) = state.discard_pending(&nonce)
+				{
+					// The recovery draft may have been the dismissed caption; save it again.
+					self.draft_changes.push(channel);
+				}
+				self.cancel_upload_requested |= std::mem::take(&mut self.timeline.cancel_upload);
+				if let Some(gif) = self.timeline.gif_favorite.take() {
+					state.toggle_gif_favorite(&gif);
+				}
+				match self.timeline.invite_action.take() {
+					Some(invites::Action::OpenGuild(guild)) if state.guild(guild).is_some() => {
+						self.guild = Some(guild);
+						if let Some(command) = state.select_guild(guild) {
+							commands.push(command);
+						}
+					}
+					Some(invites::Action::OpenChannel(channel))
+						if state.channel(channel).is_some() =>
+					{
+						if let Some(command) = state.select(channel) {
+							commands.push(command);
+						}
+					}
+					Some(invites::Action::JoinVoice(channel))
+						if state.channel(channel).is_some() =>
+					{
+						// The invite's button cannot know every call condition; say why
+						// a join did not start instead of ignoring the click.
+						if let Err(reason) =
+							self.request_call_audio(state, channel, false, None, true, commands)
+						{
+							self.toasts.push(design::Level::Error, reason);
+						}
+					}
+					Some(invites::Action::Join(code)) => {
+						if state.invite_join.code == code && state.invite_challenge().is_some() {
+							self.verification.active = false;
+						} else if let Some(command) = state.join_invite(code) {
+							commands.push(command);
+						}
+					}
+					_ => {}
+				}
+				for code in std::mem::take(&mut self.timeline.invite_requests) {
+					if let Some(command) = state.request_invite(code) {
+						commands.push(command);
+					}
+				}
+				if std::mem::take(&mut self.timeline.edit_started) {
+					self.edit_modified = None;
+					self.edit_undo_cleared = false;
+					self.composer_edit = None;
+					self.edit_sent = None;
+				}
+				if std::mem::take(&mut self.timeline.reply_started) {
+					self.focus_switched_composer = true;
+					ctx.request_repaint();
+				}
+				if let Some(target) = self.timeline.reply_target.take() {
+					if let Some(command) = state.open_reply_target(target) {
+						commands.push(command);
+					}
+					ctx.request_repaint();
+				} else if std::mem::take(&mut self.timeline.unread_jump) {
+					if let Some(command) = state.open_unread() {
+						commands.push(command);
+					}
+					ctx.request_repaint();
+				} else if std::mem::take(&mut self.timeline.load_newer)
+					| (std::mem::take(&mut self.timeline.fill_newer)
+								// A scroll up outranks filling; it asks for older messages.
+								&& !self.timeline.load_older
+								// A history request cancels a loading search; only a scroll may.
+								&& !state.search.as_ref().is_some_and(|s| s.loading)
+								&& !state.archives.as_ref().is_some_and(|a| a.loading))
+				{
+					if let Some(command) = state.newer_history() {
+						commands.push(command);
+					}
+					ctx.request_repaint();
+				} else if std::mem::take(&mut self.timeline.latest) {
+					commands.push(state.history(None));
+				} else if std::mem::take(&mut self.timeline.load_older)
+					&& let Some(command) = state.older_history()
+				{
+					commands.push(command);
+				}
+			});
+	}
+
 	/// Whether an enabled plugin switched `tweak` on.
 	pub fn interface_tweak_on(&self, tweak: extensions::InterfaceTweak) -> bool {
 		self.interface_tweaks.contains(&tweak)
@@ -4623,6 +5123,12 @@ impl MessagingUi {
 			state.user.as_ref().map(|user| user.id),
 			state.selected,
 		);
+		// The call window never outlives its call, and chat returns once another opens here.
+		self.sync_voice_popout(state);
+		// The call window's input bypasses `raw_input_hook`, so its own filter must know
+		// whether a binding owns the middle button before that window's pass begins.
+		voice::install_middle_button(ui.ctx());
+		voice::set_middle_claimed(ui.ctx(), self.button_claimed(egui::PointerButton::Middle));
 		self.avatars.cosmetics = self.cosmetics;
 		name_styles::set_enabled(self.cosmetics.name_styles);
 		role_names::set_gradients(!self.cosmetics.solid_names);
@@ -4720,10 +5226,15 @@ impl MessagingUi {
 		commands.extend(state.navigate_after_join());
 		// A chat link to an unloaded thread opens once its bounded channel read admits it.
 		commands.extend(state.resolve_pending_link());
-		if let Some(action) = self.poll_creator.show(ui.ctx(), state, &mut self.avatars)
-			&& let Some(command) = state.prepare_poll(None, action)
-		{
-			commands.push(command);
+		let profile_before = self.profile.open_requests();
+		let attach_before = self.attach_requested;
+		let links_before = (
+			self.timeline.opening.clone(),
+			self.timeline.browser_opening.clone(),
+		);
+		if !self.voice_popout_owns_chat(state) {
+			let ctx = ui.ctx().clone();
+			self.poll_creator_overlay(&ctx, state, &mut commands);
 		}
 		// Bound side buttons run their binding instead of history navigation.
 		let back = side.back && !self.button_claimed(egui::PointerButton::Extra1);
@@ -4737,7 +5248,9 @@ impl MessagingUi {
 				.rect_filled(ui.max_rect(), 0, egui::Color32::BLACK);
 			return commands;
 		}
-		if self.timeline.show_fullscreen_video(ui.ctx(), state) {
+		if !self.timeline.video.fullscreen_in_popout()
+			&& self.timeline.show_fullscreen_video(ui.ctx(), state)
+		{
 			ui.painter()
 				.rect_filled(ui.max_rect(), 0, egui::Color32::BLACK);
 			return commands;
@@ -4815,7 +5328,9 @@ impl MessagingUi {
 			ui.disable();
 		}
 		// Foreground confirmation handles Escape before background search/archive shortcuts.
-		self.confirm_friend_removal(&ctx, state, &mut commands);
+		if !self.profile_dialogs_in_popout {
+			self.confirm_friend_removal(&ctx, state, &mut commands);
+		}
 		if let Some(link) = self
 			.timeline
 			.opening
@@ -4829,22 +5344,9 @@ impl MessagingUi {
 				Err(message) => state.status = message,
 			}
 		}
-		let truncated = self.timeline.truncated_translation.is_some()
-			&& self.timeline.truncated_translation == self.timeline.browser_opening;
-		markdown::confirm_external_link_noting(
-			&ctx,
-			&mut self.timeline.browser_opening,
-			self.reading_preferences.confirm_external_links,
-			truncated,
-		);
-		if !truncated || self.timeline.browser_opening.is_none() {
-			self.timeline.truncated_translation = None;
+		if !self.popout_links {
+			self.link_confirmations(&ctx);
 		}
-		markdown::confirm_external_link(
-			&ctx,
-			&mut self.timeline.opening,
-			self.reading_preferences.confirm_external_links,
-		);
 		let colors = crate::design::palette(ui);
 		let background = crate::design::window_palette(ui);
 		if !settings_open
@@ -5389,286 +5891,17 @@ impl MessagingUi {
 					);
 					return;
 				}
-				egui::Panel::bottom("composer")
-					.show_separator_line(false)
-					.frame(
-						egui::Frame::new()
-							// The central panel already paints the chat surface; a second
-							// coat would band a darker strip under a see-through timeline.
-							.fill(if design::has_section_background(ui) {
-								design::section_surface(
-									ui,
-									background.chat,
-									design::ImageSection::Composer,
-								)
-							} else {
-								egui::Color32::TRANSPARENT
-							})
-							// The bottom inset matches the account card's, so the input and the
-							// account pill sit on one line across the window.
-							.inner_margin(egui::Margin {
-								left: 16,
-								right: 16,
-								top: 2,
-								bottom: 8,
-							}),
-					)
-					.show(ui, |ui| {
-						if state.message_request(channel) {
-							self.message_request_bar(ui, state, channel);
-						}
-						self.composer(ui, state, channel, &ctx, &mut commands);
+				if self.voice_popout_owns_chat(state) {
+					ui.add_space((ui.available_height() * 0.4).max(24.0));
+					ui.vertical_centered(|ui| {
+						ui.label(
+							RichText::new(language.text("voice-popout-chat-elsewhere"))
+								.color(colors.muted),
+						);
 					});
-				if let Some((shape, top)) = message_fill {
-					let remaining = ui.available_rect_before_wrap();
-					ui.painter().set(
-						shape,
-						egui::Shape::rect_filled(
-							egui::Rect::from_min_max(
-								egui::pos2(remaining.left(), top),
-								remaining.right_bottom(),
-							),
-							0.0,
-							message_surface,
-						),
-					);
+					return;
 				}
-				let notices: Vec<String> = [
-					match state.freshness {
-						Freshness::Fresh | Freshness::Loading => None,
-						Freshness::Stale => Some("Cached history · awaiting sync"),
-						Freshness::Unavailable => Some("Conversation unavailable"),
-					}
-					.map(str::to_owned),
-					state.read_state.status(channel).map(str::to_owned),
-					(state.archived_thread.is_some() && state.archived_thread == state.selected)
-						.then(|| "Opened from archive".to_owned()),
-				]
-				.into_iter()
-				.flatten()
-				.collect();
-				if !notices.is_empty() {
-					egui::Frame::new()
-						.inner_margin(egui::Margin::symmetric(16, 4))
-						.show(ui, |ui| {
-							ui.label(
-								RichText::new(notices.join(" · "))
-									.size(11.0)
-									.color(colors.muted),
-							);
-						});
-				}
-				egui::Frame::new()
-					.inner_margin(egui::Margin {
-						left: 0,
-						right: 0,
-						top: 4,
-						bottom: 0,
-					})
-					.show(ui, |ui| {
-						design::paint_chat_background(ui, ui.available_rect_before_wrap());
-						self.timeline.hide_media_links = self.reading_preferences.hide_media_links;
-						self.timeline.compact_messages = self.reading_preferences.compact_messages;
-						self.timeline.double_click_reaction = self
-							.reading_preferences
-							.double_click_reaction_enabled
-							.then_some(self.reading_preferences.double_click_emoji());
-						self.timeline.instant_scrolling =
-							!self.reading_preferences.smooth_scrolling;
-						self.timeline.extension_actions = self.extensions.message_actions();
-						self.timeline.quick_reactions =
-							Some(self.reaction_picker.quick_reactions(state));
-						let mut seen = std::collections::BTreeSet::new();
-						let author_lookup: Vec<_> = state
-							.timeline
-							.iter()
-							.rev()
-							.filter(|message| !message.author.webhook)
-							.map(|message| message.author.id)
-							.filter(|id| seen.insert(*id))
-							.take(client_core::member_search::LIMIT)
-							.collect();
-						if let Some(command) = state.request_author_members(&author_lookup) {
-							commands.push(command);
-						}
-						self.timeline.show_with_scroll(
-							ui,
-							state,
-							&mut self.editing,
-							&mut self.deleting,
-							(&mut self.avatars, &mut self.profile),
-							self.pending_upload.as_ref(),
-							&mut self.scroll,
-						);
-						if let Some((id, action)) = self.timeline.poll_action.take()
-							&& let Some(command) = state.prepare_poll(Some(id), action)
-						{
-							commands.push(command);
-						}
-						if let Some(id) = self.timeline.sticker_request.take() {
-							if let Some(command) = state.request_sticker(id) {
-								commands.push(command);
-							}
-							if let Some(command) = state.request_sticker_packs() {
-								commands.push(command);
-							}
-						}
-						if let Some(sticker) = self.timeline.browse_sticker.take() {
-							self.emoji_picker.open_stickers(Some(&sticker));
-						}
-						if let Some(command) =
-							state.request_author_members(&self.timeline.visible_authors)
-						{
-							commands.push(command);
-						}
-						if let Some((action, text, target)) = self.timeline.extension_request.take()
-						{
-							self.extensions
-								.invoke_message(action, text, target, state, ui.ctx());
-						}
-						if let Some((message, anchor, trigger)) =
-							self.timeline.reaction_picker.take()
-						{
-							self.emoji_picker.dismiss(state, &mut commands);
-							self.reaction_picker
-								.open_reaction(state, message, anchor, trigger);
-						}
-						self.reaction_picker.hide_nitro_emojis = self.hide_nitro_emojis;
-						self.reaction_picker.show_reaction(
-							ui,
-							state,
-							&mut self.avatars,
-							&mut commands,
-						);
-						if let Some((message, emoji, open)) = self.timeline.reaction_users.take()
-							&& let Some(command) =
-								state.request_reaction_users(message, emoji, open)
-						{
-							commands.push(command);
-						}
-						crate::reactions::show_users(
-							ui.ctx(),
-							state,
-							&mut self.avatars,
-							&mut commands,
-						);
-						if let Some((channel, message)) = self.timeline.quick_delete.take()
-							&& let Some(command) = state.prepare_delete(channel, message)
-						{
-							commands.push(command);
-						}
-						if let Some(id) = self.timeline.remove_preserved.take() {
-							state.discard_preserved_deleted(id);
-						}
-						if let Some(nonce) = self.timeline.restore_pending.take() {
-							if state
-								.pending
-								.iter()
-								.any(|p| p.nonce == nonce && p.sticker.is_some())
-							{
-								state.discard_pending_sticker(&nonce);
-							} else {
-								self.restore_pending(state, channel, &nonce);
-							}
-						}
-						if let Some(nonce) = self.timeline.dismiss_pending.take()
-							&& let Some(channel) = state.discard_pending(&nonce)
-						{
-							// The recovery draft may have been the dismissed caption; save it again.
-							self.draft_changes.push(channel);
-						}
-						self.cancel_upload_requested |=
-							std::mem::take(&mut self.timeline.cancel_upload);
-						if let Some(gif) = self.timeline.gif_favorite.take() {
-							state.toggle_gif_favorite(&gif);
-						}
-						match self.timeline.invite_action.take() {
-							Some(invites::Action::OpenGuild(guild))
-								if state.guild(guild).is_some() =>
-							{
-								self.guild = Some(guild);
-								if let Some(command) = state.select_guild(guild) {
-									commands.push(command);
-								}
-							}
-							Some(invites::Action::OpenChannel(channel))
-								if state.channel(channel).is_some() =>
-							{
-								if let Some(command) = state.select(channel) {
-									commands.push(command);
-								}
-							}
-							Some(invites::Action::JoinVoice(channel))
-								if state.channel(channel).is_some() =>
-							{
-								// The invite's button cannot know every call condition; say why
-								// a join did not start instead of ignoring the click.
-								if let Err(reason) = self.request_call_audio(
-									state,
-									channel,
-									false,
-									None,
-									&mut commands,
-								) {
-									self.toasts.push(design::Level::Error, reason);
-								}
-							}
-							Some(invites::Action::Join(code)) => {
-								if state.invite_join.code == code
-									&& state.invite_challenge().is_some()
-								{
-									self.verification.active = false;
-								} else if let Some(command) = state.join_invite(code) {
-									commands.push(command);
-								}
-							}
-							_ => {}
-						}
-						for code in std::mem::take(&mut self.timeline.invite_requests) {
-							if let Some(command) = state.request_invite(code) {
-								commands.push(command);
-							}
-						}
-						if std::mem::take(&mut self.timeline.edit_started) {
-							self.edit_modified = None;
-							self.edit_undo_cleared = false;
-							self.composer_edit = None;
-							self.edit_sent = None;
-						}
-						if std::mem::take(&mut self.timeline.reply_started) {
-							self.focus_switched_composer = true;
-							ctx.request_repaint();
-						}
-						if let Some(target) = self.timeline.reply_target.take() {
-							if let Some(command) = state.open_reply_target(target) {
-								commands.push(command);
-							}
-							ctx.request_repaint();
-						} else if std::mem::take(&mut self.timeline.unread_jump) {
-							if let Some(command) = state.open_unread() {
-								commands.push(command);
-							}
-							ctx.request_repaint();
-						} else if std::mem::take(&mut self.timeline.load_newer)
-							| (std::mem::take(&mut self.timeline.fill_newer)
-								// A scroll up outranks filling; it asks for older messages.
-								&& !self.timeline.load_older
-								// A history request cancels a loading search; only a scroll may.
-								&& !state.search.as_ref().is_some_and(|s| s.loading)
-								&& !state.archives.as_ref().is_some_and(|a| a.loading))
-						{
-							if let Some(command) = state.newer_history() {
-								commands.push(command);
-							}
-							ctx.request_repaint();
-						} else if std::mem::take(&mut self.timeline.latest) {
-							commands.push(state.history(None));
-						} else if std::mem::take(&mut self.timeline.load_older)
-							&& let Some(command) = state.older_history()
-						{
-							commands.push(command);
-						}
-					});
+				self.conversation(ui, state, channel, message_fill, &mut commands);
 			});
 		if state
 			.archives
@@ -5690,8 +5923,6 @@ impl MessagingUi {
 		{
 			commands.push(command);
 		}
-		self.external_upload
-			.show(&ctx, state, &mut self.draft_changes);
 		self.search
 			.overlays(&ctx, state, &mut self.avatars, &mut commands);
 		if state.invite_challenge().is_none() {
@@ -5849,12 +6080,6 @@ impl MessagingUi {
 			}
 		}
 
-		if let Some(message) = self.timeline.forward_request.take() {
-			self.forwarding.open(state, message);
-		}
-		self.forwarding
-			.show(&ctx, state, &mut self.avatars, &mut commands);
-
 		if let Some((message, custom_id, values)) = self.timeline.component_action.take()
 			&& let Some(command) = state.prepare_component(message, &custom_id, values)
 		{
@@ -5960,106 +6185,35 @@ impl MessagingUi {
 				commands.push(command);
 			}
 		}
-		self.contact_editor.show(&ctx, state, &mut commands);
+		if !self.profile_dialogs_in_popout {
+			self.profile_dialogs(ui, state, &mut commands);
+		}
 		self.drain_profile(state, &mut commands);
-		// While the card's DM waits on a captcha, step aside for the dialog but keep its draft.
-		let direct_verifying = self.user_direct.is_some()
-			&& matches!(
-				state.verification(),
-				Some((client_core::captcha::Verification::Direct { .. }, _))
-			);
-		if let Some(user) = self.profile.open_user().cloned()
-			&& !direct_verifying
-		{
-			let profile_guild = self.profile_guild(state);
-			self.sync_profile(state, &mut commands, &user, profile_guild);
-			if let Some(command) = profile_note(state, &mut self.profile, &user) {
-				commands.push(command);
-			}
-			self.profile
-				.own_status
-				.clone_from(&self.own_presence.custom_status);
-			let anchor = self.profile.anchor_or_place(&ctx, user.id);
-			self.profile.ingest_opener_rect(&ctx);
-			let action = profiles::show_with_session(
-				ui,
-				&user,
-				state.profile.as_ref(),
-				state,
-				&mut self.avatars,
-				&mut self.profile_link,
-				&mut self.profile_formatted,
-				self.reading_preferences.confirm_external_links,
-				anchor,
-				&mut self.profile,
-			);
-			if let Some(action) = action {
-				self.profile_action(&ctx, state, &mut commands, &user, profile_guild, action);
-			}
-			if self.drain_profile(state, &mut commands)
-				&& let Some(user) = self.profile.open_user().cloned()
-			{
-				self.sync_profile(state, &mut commands, &user, profile_guild);
-			}
-		} else {
-			self.profile_link = None;
-		}
-
-		if let Some(image) = &self.profile_image
-			&& (image.generation != state.generation
-				|| attachments::viewer(
-					ui,
-					std::slice::from_ref(&image.attachment),
-					image.attachment.id,
-					image.floor,
-					&mut self.avatars,
-					&mut self.timeline.download,
-					&mut self.timeline.opening,
-					state.demo,
-				)
-				.is_none())
-		{
-			self.profile_image = None;
-		}
 
 		self.reconcile_edit(state);
-		if self.deleting.is_some_and(|(channel, message)| {
-			state.selected != Some(channel) || state.timeline.get(message).is_none()
-		}) {
-			self.deleting = None;
+		if !self.voice_popout_owns_chat(state) {
+			self.conversation_overlays(ui, state, &mut commands);
 		}
-		if let Some((channel, message)) = self.deleting {
-			let allowed = state.can_delete(channel, message);
-			let conversation = state
-				.channel(channel)
-				.map_or("this conversation", |c| c.name.as_str());
-			let mut confirm = dialog::Confirm::new(
-				"delete-message",
-				"Delete message?",
-				format!(
-					"This permanently removes the selected message from {conversation} for everyone."
-				),
-			)
-			.danger()
-			.confirm_label("Delete")
-			.cancel_label("Keep Message")
-			.enabled(allowed);
-			if !allowed {
-				confirm = confirm.note(
-					dialog::Level::Warning,
-					"Deleting this message is unavailable.",
-				);
+		// A card opened or reopened from this window comes back here from the call window,
+		// and is placed at this window's pointer rather than where the other one put it.
+		if self.profile.open_requests() != profile_before {
+			if self.profile_in_popout {
+				self.profile.reset_anchor();
 			}
-			match confirm.show(&ctx) {
-				Some(dialog::Choice::Confirmed) => {
-					if let Some(command) = state.prepare_delete(channel, message) {
-						commands.push(command);
-					}
-					self.deleting = None;
-				}
-				Some(dialog::Choice::Cancelled) => self.deleting = None,
-				None => {}
-			}
+			self.profile_in_popout = false;
+		}
+		if self.attach_requested && !attach_before {
+			self.attach_in_popout = false;
+		}
+		// So does a link confirmation this window asked for; the newest request wins the slot.
+		if (self.timeline.opening != links_before.0 && self.timeline.opening.is_some())
+			|| (self.timeline.browser_opening != links_before.1
+				&& self.timeline.browser_opening.is_some())
+		{
+			self.popout_links = false;
+		}
+		if !self.profile_in_popout {
+			self.profile_overlay(ui, state, &mut commands);
 		}
 		select::show_menu(&ctx);
 		self.show_call_switch(&ctx, state, &mut commands);
@@ -6932,6 +7086,91 @@ mod composer_tests {
 			.unwrap();
 		state.drafts.insert(Id(10), "Unsent draft 👋".into());
 		state
+	}
+
+	#[test]
+	fn popout_owns_conversation_dialogs() {
+		let main = egui::Context::default();
+		let window = egui::Context::default();
+		let mut state = edit_state();
+		state.voice.active = Some(client_core::voice::Call {
+			channel: Id(10),
+			guild: None,
+			connected_at: None,
+			channel_started_at: None,
+			server_muted: false,
+			server_deafened: false,
+			request: 1,
+			phase: client_core::voice::Phase::Connected,
+			muted: false,
+			deafened: false,
+			participants: vec![],
+			camera: false,
+			watching: None,
+			error: None,
+			reconnecting: None,
+		});
+		let mut view = MessagingUi {
+			voice_popout: Some(Id(10)),
+			voice_popout_chat: true,
+			..Default::default()
+		};
+		view.deleting = Some((Id(10), Id(20)));
+		let labels =
+			|ctx: &egui::Context, root: bool, state: &mut State, view: &mut MessagingUi| {
+				let output = ctx.run_ui(
+					egui::RawInput {
+						screen_rect: Some(egui::Rect::from_min_size(
+							egui::Pos2::ZERO,
+							egui::vec2(960.0, 640.0),
+						)),
+						..Default::default()
+					},
+					|ui| {
+						if root {
+							let _ = view.show(ui, state);
+						} else {
+							let _ = view.show_voice_popout(ui, state);
+						}
+					},
+				);
+				let mut labels = vec![];
+				fn walk(shape: &egui::Shape, labels: &mut Vec<String>) {
+					match shape {
+						egui::Shape::Text(text) => labels.push(text.galley.job.text.clone()),
+						egui::Shape::Vec(shapes) => {
+							for shape in shapes {
+								walk(shape, labels);
+							}
+						}
+						_ => {}
+					}
+				}
+				for shape in &output.shapes {
+					walk(&shape.shape, &mut labels);
+				}
+				output.drop_without_applying_deltas();
+				labels
+			};
+		view.poll_creator.open(&state, Id(10));
+		view.reading_preferences.confirm_external_links = true;
+		view.timeline.opening = Some("https://example.com/popout".into());
+		view.popout_links = true;
+		let dialogs = ["Delete message?", "Create a Poll", "Open external link?"];
+		let drawn = labels(&window, false, &mut state, &mut view);
+		for dialog in dialogs {
+			assert!(
+				drawn.iter().any(|text| text == dialog),
+				"the call window draws {dialog:?}"
+			);
+		}
+		let drawn = labels(&main, true, &mut state, &mut view);
+		for dialog in dialogs {
+			assert!(
+				!drawn.iter().any(|text| text == dialog),
+				"the main window must not draw the popout's {dialog:?}"
+			);
+		}
 	}
 
 	fn edit_frame(
@@ -9525,6 +9764,98 @@ mod composer_tests {
 			assert_eq!(state.profile.as_ref().unwrap().guild, guild);
 			output.drop_without_applying_deltas();
 		}
+	}
+
+	#[test]
+	fn popout_profile_dialogs_release_ownership_when_they_close() {
+		let mut state = test_support::demo_state();
+		let user = state.user.clone().unwrap();
+		let mut messaging = MessagingUi {
+			profile_dialogs_in_popout: true,
+			// The old guard also required this to be cleared, which the viewer never did.
+			profile_in_popout: true,
+			..Default::default()
+		};
+		// A dialog that is still open keeps the call window's ownership.
+		let _ = messaging
+			.contact_editor
+			.open(user.clone(), false, &mut state);
+		messaging.release_profile_dialogs();
+		assert!(messaging.profile_dialogs_in_popout);
+		// A queued menu action may still open one, so ownership is not released yet.
+		messaging.contact_editor = Default::default();
+		messaging.user_action = Some(user_menu::Action::Note(user.clone()));
+		messaging.release_profile_dialogs();
+		assert!(messaging.profile_dialogs_in_popout);
+		// With nothing left open, the next dialog belongs to the main window again.
+		messaging.user_action = None;
+		messaging.release_profile_dialogs();
+		assert!(!messaging.profile_dialogs_in_popout);
+	}
+
+	#[test]
+	fn popout_profile_uses_call_server_not_main_window_server() {
+		let channel = |id, guild| model::Channel {
+			last_message: None,
+			id: Id(id),
+			guild: Some(Id(guild)),
+			parent_id: None,
+			position: 0,
+			name: "Synthetic".into(),
+			kind: if id == 10 { 2 } else { 0 },
+			recipients: vec![],
+			member_list_id: None,
+			tags: None,
+			message_count: None,
+			icon: None,
+		};
+		let mut state = State {
+			demo: true,
+			selected: Some(Id(1)),
+			channels: vec![channel(1, 20), channel(10, 30)],
+			..Default::default()
+		};
+		state.voice.active = Some(client_core::voice::Call {
+			channel: Id(10),
+			guild: Some(Id(30)),
+			connected_at: None,
+			channel_started_at: None,
+			server_muted: false,
+			server_deafened: false,
+			request: 1,
+			phase: client_core::voice::Phase::Connected,
+			muted: false,
+			deafened: false,
+			participants: vec![],
+			camera: false,
+			watching: None,
+			error: None,
+			reconnecting: None,
+		});
+		let mut messaging = MessagingUi {
+			voice_popout: Some(Id(10)),
+			profile_in_popout: true,
+			profile: {
+				let mut profile = profiles::ProfileSession::default();
+				profile.command_open(test_support::message(1, Id(1)).author);
+				profile
+			},
+			..Default::default()
+		};
+		let output = egui::Context::default().run_ui(
+			egui::RawInput {
+				screen_rect: Some(egui::Rect::from_min_size(
+					egui::Pos2::ZERO,
+					egui::vec2(1120.0, 900.0),
+				)),
+				..Default::default()
+			},
+			|ui| {
+				messaging.show_voice_popout(ui, &mut state);
+			},
+		);
+		output.drop_without_applying_deltas();
+		assert_eq!(state.profile.as_ref().unwrap().guild, Some(Id(30)));
 	}
 
 	#[test]
