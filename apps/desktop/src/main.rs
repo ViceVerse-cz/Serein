@@ -1021,6 +1021,10 @@ struct Desktop {
 	pointer: pointer::Pointer,
 	downloads: downloads::Downloads,
 	audio: audio::Audio,
+	/// Whether the last ui pass found the playing audio's card in the timeline. Only
+	/// that audio is revalidated against the timeline; search and pin cards play
+	/// messages the timeline never loaded.
+	audio_in_timeline: bool,
 	video: video::Video,
 	/// Synthetic stream/camera textures the demo view borrows by id.
 	_demo_textures: Vec<egui::TextureHandle>,
@@ -2372,6 +2376,7 @@ impl Desktop {
 			pointer: pointer::Pointer::default(),
 			downloads: downloads::Downloads::default(),
 			audio: audio::Audio::default(),
+			audio_in_timeline: false,
 			video: video::Video::default(),
 			_demo_textures: demo_textures,
 			demo_video_autoplay: if std::env::args().any(|arg| arg == "--demo-video-paused") {
@@ -5962,14 +5967,17 @@ impl eframe::App for Desktop {
 		// A deletion or eviction applied in this logic pass must stop the audio the
 		// same way a rendered card leaving view does; a minimized window runs no ui
 		// pass to notice it. A retained deleted message keeps its card and playback.
-		if self
-			.messaging
-			.audio()
-			.active
-			.as_ref()
-			.is_some_and(|(channel, id, attachment)| {
-				!audio_attachment_rendered(&self.state, *channel, *id, attachment)
-			}) {
+		// Audio started from a search or pin card was never in the timeline, so its
+		// absence there says nothing; the ui pass's visibility check covers it.
+		if self.audio_in_timeline
+			&& self
+				.messaging
+				.audio()
+				.active
+				.as_ref()
+				.is_some_and(|(channel, id, attachment)| {
+					!audio_attachment_rendered(&self.state, *channel, *id, attachment)
+				}) {
 			self.audio.stop();
 			self.messaging.audio().stop();
 		}
@@ -6483,6 +6491,14 @@ impl eframe::App for Desktop {
 					ui::AudioCommand::Stop => self.audio.stop(),
 				}
 			}
+			self.audio_in_timeline =
+				self.messaging
+					.audio()
+					.active
+					.as_ref()
+					.is_some_and(|(channel, id, attachment)| {
+						audio_attachment_rendered(&self.state, *channel, *id, attachment)
+					});
 			let player = self.messaging.video();
 			if self.state.demo
 				&& let Some(pause) = self.demo_video_autoplay
