@@ -3523,6 +3523,9 @@ settings-appearance-settings-choose-primary-color = Choose primary color
 # Context: appearance_settings
 # Context: appearance_settings
 settings-appearance-settings-primary-color = Primary color
+settings-appearance-calls = Calls
+settings-appearance-call-background = Call background
+settings-appearance-call-background-description = Choose a color for the call stage. Reset follows the active theme.
 # Context: appearance_settings
 settings-appearance-settings-reset = Reset
 # Context: appearance_settings

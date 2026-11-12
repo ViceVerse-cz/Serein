@@ -62,6 +62,9 @@ pub struct AppPreferences {
 	/// On by default, including for saved preferences from before the setting existed.
 	pub custom_title_bar: bool,
 	pub primary_color: Option<[u8; 3]>,
+	/// Opaque RGB override for the call stage. An absent value follows the active theme.
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub voice_stage_color: Option<[u8; 3]>,
 	pub transparency_blur: bool,
 	pub transparency: u8,
 	pub blur: u8,
@@ -126,6 +129,7 @@ impl Default for AppPreferences {
 			hide_window_decorations: false,
 			custom_title_bar: true,
 			primary_color: None,
+			voice_stage_color: None,
 			transparency_blur: false,
 			transparency: 15,
 			blur: 50,
@@ -2191,6 +2195,7 @@ mod tests {
 			serde_json::from_str(r#"{"voice_noise_suppression":true}"#).unwrap();
 		assert!(legacy.voice_processing.is_none());
 		assert!(legacy.voice_noise_suppression);
+		assert!(legacy.voice_stage_color.is_none());
 		// Existing installs run first-run setup once, like a fresh one.
 		assert!(!legacy.setup_done);
 		// Existing serialized bindings omit the newly optional diagnostics shortcut.
@@ -2252,6 +2257,7 @@ mod tests {
 			notifications_enabled: true,
 			hide_title_bar: true,
 			primary_color: Some([80, 120, 220]),
+			voice_stage_color: Some([0, 0, 0]),
 			transparency_blur: true,
 			transparency: 30,
 			blur: 60,

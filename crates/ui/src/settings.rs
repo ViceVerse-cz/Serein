@@ -1099,6 +1099,33 @@ impl MessagingUi {
 		);
 		design::group(
 			ui,
+			&crate::i18n::translate("settings-appearance-calls"),
+			|ui| {
+				design::row(
+					ui,
+					"settings-appearance-call-background",
+					Some("settings-appearance-call-background-description"),
+					|ui| {
+						if self.voice_stage_color.is_some()
+							&& design::text_action(
+								ui,
+								&crate::i18n::translate("settings-appearance-settings-reset"),
+							)
+							.clicked()
+						{
+							self.voice_stage_color = None;
+						}
+						let [r, g, b, _] = colors.chat.to_array();
+						let mut color = self.voice_stage_color.unwrap_or([r, g, b]);
+						if design::color_edit(ui, &mut color).changed() {
+							self.voice_stage_color = Some(color);
+						}
+					},
+				);
+			},
+		);
+		design::group(
+			ui,
 			&crate::i18n::translate("settings-appearance-settings-window-effects"),
 			|ui| {
 				design::switch(

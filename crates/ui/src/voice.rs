@@ -30,6 +30,13 @@ pub(super) struct CallSwitch {
 }
 
 impl MessagingUi {
+	fn voice_stage_background(&self, theme_background: egui::Color32) -> egui::Color32 {
+		self.voice_stage_color
+			.map_or(theme_background, |[r, g, b]| {
+				egui::Color32::from_rgb(r, g, b)
+			})
+	}
+
 	pub(super) fn exit_voice_fullscreen(&mut self) {
 		if let Some((_, ctx, previous, focus)) = self.voice_fullscreen.take() {
 			self.voice_fullscreen_request = Some(previous);
@@ -74,6 +81,7 @@ impl MessagingUi {
 			return false;
 		};
 		let screen = ctx.content_rect();
+		let background = self.voice_stage_background(design::palette_for(ctx).chat);
 		let id = egui::Id::unique("voice-fullscreen");
 		let mut exit =
 			ctx.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
@@ -83,12 +91,12 @@ impl MessagingUi {
 					.anchor(egui::Align2::LEFT_TOP, egui::Vec2::ZERO)
 					.fade_in(false),
 			)
-			.backdrop_color(egui::Color32::BLACK)
+			.backdrop_color(background)
 			.frame(egui::Frame::NONE)
 			.show(ctx, |ui| {
 				ui.set_min_size(screen.size());
 				let rect = egui::Rect::from_min_size(screen.min, screen.size());
-				ui.painter().rect_filled(rect, 0, STAGE_FILL);
+				ui.painter().rect_filled(rect, 0, background);
 				match focus {
 					StageFocus::LocalScreen => self.screen_tile(ui, rect, false),
 					StageFocus::Stream(user) => {
@@ -1034,7 +1042,7 @@ impl MessagingUi {
 		}
 	}
 
-	/// Guild voice channel: Discord-style black stage with participant tiles and, when
+	/// Guild voice channel: a themed stage with participant tiles and, when
 	/// connected, the call control bar; otherwise a Join Voice button.
 	pub(super) fn voice_channel(
 		&mut self,
@@ -1049,7 +1057,10 @@ impl MessagingUi {
 			.as_ref()
 			.is_some_and(|call| call.channel == channel);
 		let stage = ui.available_rect_before_wrap();
-		ui.painter().rect_filled(stage, 0, STAGE_FILL);
+		let colors = design::palette(ui);
+		let background = self.voice_stage_background(colors.chat);
+		let (text, muted) = stage_foreground(colors, background);
+		ui.painter().rect_filled(stage, 0, background);
 		let (rect, _) = ui.allocate_exact_size(stage.size(), egui::Sense::hover());
 		let notices = self.stage_notices(state, channel, connected);
 		let bottom = CONTROL_HEIGHT + 2.0 * STAGE_MARGIN;
@@ -1075,7 +1086,7 @@ impl MessagingUi {
 		);
 		// A short stage clips notices and tiles instead of drawing them over the call bar.
 		body_ui.set_clip_rect(body.intersect(ui.clip_rect()));
-		stage_notices(&mut body_ui, &notices);
+		stage_notices(&mut body_ui, &notices, text, muted);
 		call_failure(
 			&mut body_ui,
 			state
@@ -1084,7 +1095,7 @@ impl MessagingUi {
 				.as_ref()
 				.filter(|c| c.channel == channel)
 				.and_then(|c| c.error),
-			STAGE_TEXT,
+			text,
 		);
 
 		let entries = stage_participants(state, channel);
@@ -1101,7 +1112,7 @@ impl MessagingUi {
 						}),
 						18.0,
 					)
-					.color(STAGE_TEXT),
+					.color(text),
 				);
 			});
 		} else {
@@ -1111,7 +1122,7 @@ impl MessagingUi {
 						"voice-voice-channel-last-known-participants-a-reconnect-to-refresh",
 					))
 					.small()
-					.color(STAGE_MUTED),
+					.color(muted),
 				);
 			}
 			self.voice_chrome_hidden = 1.0 - reveal;
@@ -1863,7 +1874,12 @@ impl MessagingUi {
 			// The badge scales down with small avatars so it never hides the face.
 			let radius = (avatar_size * 0.2).clamp(7.0, 12.0);
 			let badge = avatar.rect.right_bottom() - egui::Vec2::splat(avatar_size * 0.14);
-			ui.painter().circle_filled(badge, radius, STAGE_FILL);
+			let surround = if frameless {
+				self.voice_stage_background(colors.chat)
+			} else {
+				TILE_FILL
+			};
+			ui.painter().circle_filled(badge, radius, surround);
 			ui.painter()
 				.circle_filled(badge, radius - 2.0, colors.badge_fill());
 			crate::icons::paint(
@@ -3775,12 +3791,14 @@ impl MessagingUi {
 			} else {
 				"dm-call-voice"
 			};
+			let background = self.voice_stage_background(colors.chat);
+			let (text, muted) = stage_foreground(colors, background);
 			egui::Panel::top(id)
 				.resizable(true)
 				.default_size(height)
 				.size_range(180.0..=maximum)
 				.show_separator_line(false)
-				.frame(egui::Frame::new().fill(STAGE_FILL))
+				.frame(egui::Frame::new().fill(background))
 				.show(ui, |ui| {
 					let rect = ui.max_rect();
 					// The children below do not grow this Ui; claim the whole panel so its
@@ -3801,8 +3819,8 @@ impl MessagingUi {
 							.layout(egui::Layout::top_down(egui::Align::Min)),
 					);
 					notice_ui.set_clip_rect(notice_rect.intersect(ui.clip_rect()));
-					stage_notices(&mut notice_ui, &notices);
-					call_failure(&mut notice_ui, error, STAGE_TEXT);
+					stage_notices(&mut notice_ui, &notices, text, muted);
+					call_failure(&mut notice_ui, error, text);
 					// Without notices the avatars may use the whole height of a shrunken panel.
 					let body_top = if notices.is_empty() && error.is_none() {
 						top + TILE_GAP
@@ -3857,8 +3875,9 @@ impl MessagingUi {
 								))
 								.layout(egui::Layout::left_to_right(egui::Align::Center)),
 						);
-						// The stage stays black in every theme, so its header reads as dark.
-						header_ui.visuals_mut().dark_mode = true;
+						// Enlarged video draws a dark scrim behind the header.
+						header_ui.visuals_mut().dark_mode =
+							self.voice_focus.is_some() || design::luminance(background) < 0.179;
 						header_ui.set_opacity(reveal);
 						self.channel_header_row(
 							&mut header_ui,
@@ -4426,8 +4445,7 @@ fn card_action(
 	response.on_hover_text(hint)
 }
 
-/// Discord's call stage is black in every appearance; pills and tiles sit on it in fixed greys.
-const STAGE_FILL: egui::Color32 = egui::Color32::BLACK;
+/// Participant tiles and controls keep their own surfaces over the stage or video.
 const TILE_FILL: egui::Color32 = egui::Color32::from_rgb(0x2b, 0x2d, 0x31);
 const PILL_FILL: egui::Color32 = egui::Color32::from_rgb(0x1e, 0x1f, 0x22);
 const STAGE_TEXT: egui::Color32 = egui::Color32::from_rgb(0xdb, 0xde, 0xe1);
@@ -4712,14 +4730,35 @@ fn call_failure(ui: &mut egui::Ui, error: Option<&str>, color: egui::Color32) {
 	});
 }
 
-fn stage_notices(ui: &mut egui::Ui, notices: &[(String, bool)]) {
+fn stage_foreground(
+	colors: design::Palette,
+	background: egui::Color32,
+) -> (egui::Color32, egui::Color32) {
+	let readable = |color| {
+		if design::contrast(color, background) >= 4.5 {
+			color
+		} else if design::luminance(background) < 0.179 {
+			egui::Color32::WHITE
+		} else {
+			egui::Color32::BLACK
+		}
+	};
+	(readable(colors.text_strong), readable(colors.muted))
+}
+
+fn stage_notices(
+	ui: &mut egui::Ui,
+	notices: &[(String, bool)],
+	text_color: egui::Color32,
+	muted: egui::Color32,
+) {
 	ui.spacing_mut().item_spacing.y = 2.0;
 	for (text, strong) in notices {
 		ui.add(
 			egui::Label::new(
 				RichText::new(text)
 					.size(if *strong { 13.0 } else { 12.0 })
-					.color(if *strong { STAGE_TEXT } else { STAGE_MUTED }),
+					.color(if *strong { text_color } else { muted }),
 			)
 			.truncate()
 			.selectable(false),

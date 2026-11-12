@@ -3488,6 +3488,9 @@ settings-appearance-settings-choose-primary-color = Выберите основ�
 # Context: appearance_settings
 # Context: appearance_settings
 settings-appearance-settings-primary-color = Основной цвет
+settings-appearance-calls = Звонки
+settings-appearance-call-background = Фон звонка
+settings-appearance-call-background-description = Выберите цвет сцены звонка. Сброс вернёт цвет текущей темы.
 # Context: appearance_settings
 settings-appearance-settings-reset = Сбросить
 # Context: appearance_settings
