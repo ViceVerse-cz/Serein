@@ -251,7 +251,8 @@ fn api_client(route: &proxy::ApiProxy) -> Result<Client, Failure> {
 }
 /// How long a profile card waits for its optional board-game names and collectible artwork;
 /// a card without them is still complete, so it opens rather than waiting on a slow read.
-const PROFILE_EXTRAS: Duration = Duration::from_millis(600);
+/// Matches the badge catalog wait it runs beside, so it adds no latency of its own.
+const PROFILE_EXTRAS: Duration = Duration::from_secs(2);
 impl DiscordApi {
 	pub fn new(secret: Arc<SessionSecret>) -> Result<Self, Failure> {
 		Self::with_proxy(

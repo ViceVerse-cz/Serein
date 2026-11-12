@@ -14,6 +14,9 @@ use std::{
 pub const CACHE_ENTRIES: usize = 32;
 pub const CACHE_BYTES: usize = 1024 * 1024;
 pub const CACHE_TTL: Duration = Duration::from_secs(15 * 60);
+/// A profile whose board games arrived without names (the optional lookup was slow or
+/// failed) is asked for again soon rather than shown with placeholders for the full TTL.
+pub const INCOMPLETE_TTL: Duration = Duration::from_secs(60);
 #[derive(Default)]
 pub struct ProfileCache {
 	entries: VecDeque<CachedProfile>,
@@ -24,10 +27,25 @@ struct CachedProfile {
 	fetched: Instant,
 	data: UserProfile,
 }
+impl CachedProfile {
+	fn fresh(&self, now: Instant) -> bool {
+		let incomplete = self
+			.data
+			.board
+			.iter()
+			.flatten()
+			.any(|widget| widget.games.iter().any(|game| game.name.is_none()));
+		let ttl = if incomplete {
+			INCOMPLETE_TTL
+		} else {
+			CACHE_TTL
+		};
+		now.saturating_duration_since(self.fetched) < ttl
+	}
+}
 impl ProfileCache {
 	fn get(&mut self, user: Id, guild: Option<Id>, now: Instant) -> Option<&UserProfile> {
-		self.entries
-			.retain(|entry| now.saturating_duration_since(entry.fetched) < CACHE_TTL);
+		self.entries.retain(|entry| entry.fresh(now));
 		self.entries
 			.iter()
 			.find(|entry| entry.user == user && entry.guild == guild)
@@ -54,21 +72,15 @@ impl ProfileCache {
 	}
 	/// Whether an unexpired profile for `(user, guild)` is cached, without evicting anything.
 	fn contains(&self, user: Id, guild: Option<Id>, now: Instant) -> bool {
-		self.entries.iter().any(|entry| {
-			entry.user == user
-				&& entry.guild == guild
-				&& now.saturating_duration_since(entry.fetched) < CACHE_TTL
-		})
+		self.entries
+			.iter()
+			.any(|entry| entry.user == user && entry.guild == guild && entry.fresh(now))
 	}
 	/// A cached, unexpired global profile, without refreshing or evicting anything.
 	fn peek(&self, user: Id, now: Instant) -> Option<&UserProfile> {
 		self.entries
 			.iter()
-			.find(|entry| {
-				entry.user == user
-					&& entry.guild.is_none()
-					&& now.saturating_duration_since(entry.fetched) < CACHE_TTL
-			})
+			.find(|entry| entry.user == user && entry.guild.is_none() && entry.fresh(now))
 			.map(|entry| &entry.data)
 	}
 	/// Updates every cached view of `user` in place.
@@ -1426,6 +1438,26 @@ mod tests {
 					.is_some()
 			);
 			assert!(state.profile_cache.is_empty());
+			// Games left without names by a slow lookup are not served for the full TTL.
+			let mut unnamed = *profile(Id(1));
+			unnamed.board = Some(vec![model::ProfileGameWidget {
+				kind: model::ProfileGameWidgetKind::Favorite,
+				games: vec![model::ProfileGame {
+					id: Id(5),
+					name: None,
+					icon: None,
+					cover: None,
+					comment: None,
+					tags: vec![],
+				}],
+			}]);
+			state.profile_cache.insert(Id(1), None, unnamed, now);
+			assert!(state.request_profile_at(Id(1), None, now).is_none());
+			assert!(
+				state
+					.request_profile_at(Id(1), None, now + INCOMPLETE_TTL + Duration::from_secs(1))
+					.is_some()
+			);
 			// Bounded by entries and bytes; session invalidation clears everything.
 			for id in 1..=(CACHE_ENTRIES as u64 + 8) {
 				state
