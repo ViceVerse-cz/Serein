@@ -1,4 +1,4 @@
-use std::{fmt, future::Future};
+use std::fmt;
 use zeroize::Zeroizing;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -16,6 +16,12 @@ pub enum Failure {
 	Expired,
 	#[error("Verification challenge unsupported; complete it in an official flow")]
 	Challenged,
+	#[error(
+		"Discord restricted this account; authenticated traffic stopped; check the official client"
+	)]
+	AccountRestricted,
+	#[error("Discord blocked this client request; connection stopped; check the official client")]
+	ServiceBlocked,
 	#[error("Permission denied")]
 	Forbidden,
 	#[error("Rate limited; wait for the service cooldown before retrying")]
@@ -50,6 +56,12 @@ impl Failure {
 			Self::Expired => "Session expired · reconnect explicitly; drafts remain in RAM",
 			Self::Challenged => "Security challenge · unsupported here; connection stopped",
 			Self::Forbidden => "Permission denied",
+			Self::AccountRestricted => {
+				"Discord requires account attention · connection stopped; check the official client"
+			}
+			Self::ServiceBlocked => {
+				"Discord blocked this request · connection stopped; check the official client"
+			}
 			Self::RateLimited => "Rate limited · wait before retrying",
 			Self::Network => "Connection failed",
 			Self::Ambiguous => "Outcome unknown · check the official client before retrying",
@@ -63,6 +75,8 @@ impl Failure {
 		matches!(
 			self,
 			Self::Expired
+				| Self::AccountRestricted
+				| Self::ServiceBlocked
 				| Self::Challenged
 				| Self::Capacity
 				| Self::CapacityAt(_)
@@ -99,9 +113,6 @@ impl fmt::Debug for SessionSecret {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		f.write_str("SessionSecret([REDACTED])")
 	}
-}
-pub trait AuthProvider {
-	fn authenticate(&mut self) -> impl Future<Output = Result<model::User, Failure>> + Send;
 }
 #[cfg(test)]
 mod tests {

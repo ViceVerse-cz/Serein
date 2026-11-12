@@ -9,6 +9,8 @@ model.workspace = true
 session-cache.workspace = true
 zeroize.workspace = true
 thiserror.workspace = true
+sys-locale = "=0.3.2"
+iana-time-zone = "=0.1.65"
 wreq = { workspace = true, optional = true }
 wreq-util = { workspace = true, optional = true }
 tokio-tungstenite = { workspace = true, optional = true }

@@ -3541,7 +3541,7 @@ impl Desktop {
 				.iter()
 				.any(|p| p.nonce == *nonce && !p.attachments.is_empty())
 		{
-			let channel = *channel;
+			let (channel, nonce) = (*channel, nonce.clone());
 			let available = attachment_send_allowed(&self.state, channel)
 				&& !self.fixture_only
 				&& self.connection.is_some();
@@ -3552,6 +3552,7 @@ impl Desktop {
 					tokio::sync::watch::channel(discord_api::upload::Status::Preparing);
 				let (cancel, _) = tokio::sync::watch::channel(false);
 				if self.uploads.begin_upload(receive, cancel.clone()).is_ok() {
+					self.uploads.sends(&nonce);
 					let request = uploads::UploadRequest {
 						command,
 						source,
@@ -4439,10 +4440,12 @@ impl Desktop {
 						.ok_or(Failure::Protocol),
 				},
 				// The offline fixture never issues challenges, so it never resumes one.
-				Command::VerifiedSend { nonce, .. } => Event::SendResult {
-					nonce,
-					result: Err(Failure::Protocol),
-				},
+				Command::VerifiedSend { nonce, .. } | Command::VerifiedUpload { nonce, .. } => {
+					Event::SendResult {
+						nonce,
+						result: Err(Failure::Protocol),
+					}
+				}
 				Command::Forward {
 					message,
 					channel,
@@ -6175,6 +6178,17 @@ impl eframe::App for Desktop {
 			self.state.user.is_some() && self.state.gateway_connected,
 			&ctx,
 		);
+		// A dismissed, expired or refused check releases the upload still waiting on it, so
+		// its message is reported as not sent instead of holding the composer.
+		if self.uploads.verifying().is_some_and(|nonce| {
+			!self
+				.state
+				.pending
+				.iter()
+				.any(|p| p.nonce == nonce && p.delivery == Delivery::Sending)
+		}) {
+			self.uploads.cancel_transfer();
+		}
 		if let Some(command) = self.uploads.image_send(&mut self.state, can_attach)
 			&& !self.state.demo
 		{
