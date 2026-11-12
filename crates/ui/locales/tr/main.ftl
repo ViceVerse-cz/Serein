@@ -4855,6 +4855,7 @@ time-format-12-hour = 12 saat
 time-format-24-hour = 24 saat
 profiles-status-edit = Durumu düzenle
 profiles-status-clear = Durumu temizle
+audio-playback-speed = Oynatma hızı
 send-throttled-title = Hop, biraz yavaş!
 send-throttled-body = Mesajları çok hızlı gönderiyorsun!
 send-throttled-dismiss = Tamam, yavaşlıyorum

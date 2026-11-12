@@ -4852,6 +4852,7 @@ time-format-12-hour = 12時間制
 time-format-24-hour = 24時間制
 profiles-status-edit = ステータスを編集
 profiles-status-clear = ステータスを消去
+audio-playback-speed = 再生速度
 send-throttled-title = ちょっと待って、刺激が強すぎ
 send-throttled-body = メッセージの送信が速すぎます！
 send-throttled-dismiss = チルゾーンへ

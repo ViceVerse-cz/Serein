@@ -4869,6 +4869,7 @@ time-format-12-hour = 12 heures
 time-format-24-hour = 24 heures
 profiles-status-edit = Modifier le statut
 profiles-status-clear = Effacer le statut
+audio-playback-speed = Vitesse de lecture
 send-throttled-title = Holà, beaucoup trop épicé
 send-throttled-body = Vous envoyez des messages trop rapidement !
 send-throttled-dismiss = Entrer dans la zone zen

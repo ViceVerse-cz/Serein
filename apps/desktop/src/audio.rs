@@ -3,6 +3,8 @@
 mod source;
 #[path = "audio/streaming.rs"]
 mod streaming;
+#[path = "audio/stretch.rs"]
+mod stretch;
 use model::Attachment;
 #[cfg(any(test, all(debug_assertions, feature = "demo")))]
 use std::io::Cursor;
@@ -52,6 +54,8 @@ struct Gate {
 	generation: AtomicU64,
 	paused: AtomicBool,
 	volume: AtomicU32,
+	/// Playback speed as `f32` bits; 1.0 plays the source untouched.
+	speed: AtomicU32,
 	seek_millis: AtomicU64,
 	position_frames: AtomicU64,
 	failed: AtomicBool,
@@ -66,6 +70,7 @@ impl Default for Gate {
 			generation: AtomicU64::new(0),
 			paused: AtomicBool::new(false),
 			volume: AtomicU32::new(1.0f32.to_bits()),
+			speed: AtomicU32::new(1.0f32.to_bits()),
 			seek_millis: AtomicU64::new(NO_SEEK),
 			position_frames: AtomicU64::new(0),
 			failed: AtomicBool::new(false),
@@ -236,6 +241,28 @@ impl Audio {
 			self.gate
 				.volume
 				.store(volume.clamp(0.0, 1.0).to_bits(), Ordering::Release);
+		}
+	}
+	/// Pitch-preserving speed, like Discord's 0.75–2× voice message control. Playing audio
+	/// restarts from where it is, so the new speed is heard at once.
+	pub fn speed(&mut self, speed: f32) {
+		if !speed.is_finite() {
+			return;
+		}
+		let speed = speed.clamp(0.5, 2.0);
+		let previous = f32::from_bits(self.gate.speed.swap(speed.to_bits(), Ordering::AcqRel));
+		if previous != speed
+			&& matches!(
+				self.status.state,
+				State::Playing | State::Paused | State::Loading
+			) {
+			let rate = self.gate.sample_rate.load(Ordering::Acquire);
+			if rate > 0 {
+				let at = self.gate.position_frames.load(Ordering::Acquire) as f64 / f64::from(rate);
+				self.seek(Duration::from_secs_f64(at));
+			} else {
+				self.seek(Duration::ZERO);
+			}
 		}
 	}
 	pub fn stop(&mut self) {
@@ -1058,6 +1085,21 @@ impl Playback {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[test]
+	fn speed_change_restarts_loading_and_preserves_paused_position() {
+		let mut audio = Audio::default();
+		audio.status.state = State::Loading;
+		audio.speed(1.5);
+		assert_eq!(audio.gate.seek_millis.swap(NO_SEEK, Ordering::AcqRel), 0);
+		audio.status.state = State::Paused;
+		audio.gate.paused.store(true, Ordering::Release);
+		audio.gate.sample_rate.store(48000, Ordering::Release);
+		audio.gate.position_frames.store(96000, Ordering::Release);
+		audio.speed(2.0);
+		assert_eq!(audio.gate.seek_millis.load(Ordering::Acquire), 2000);
+		assert!(audio.gate.paused.load(Ordering::Acquire));
+	}
+
 	#[test]
 	fn start_admits_large_attachments_and_rejects_invalid_sizes() {
 		check_large_attachment_admission();
