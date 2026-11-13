@@ -74,6 +74,9 @@ pub(super) struct Moderation {
 	/// A request is in flight; its result closes the dialog or becomes `error`.
 	submitted: bool,
 	error: Option<&'static str>,
+	/// The last request may have applied despite its failure, so this dialog must not
+	/// repeat it; only a new confirmation opened from the menu may.
+	uncertain: bool,
 }
 
 impl Moderation {
@@ -81,14 +84,16 @@ impl Moderation {
 		if self.submitted {
 			return;
 		}
-		self.error = None;
-		self.target = Some(Target {
-			guild,
-			user,
-			kind,
-			choice: 0,
-			generation: state.generation,
-		});
+		*self = Self {
+			target: Some(Target {
+				guild,
+				user,
+				kind,
+				choice: 0,
+				generation: state.generation,
+			}),
+			..Self::default()
+		};
 	}
 	/// `settings_open` leaves the shared administration state to Server Settings.
 	pub fn show(
@@ -101,7 +106,8 @@ impl Moderation {
 		if self.submitted && !state.server_admin.pending {
 			self.submitted = false;
 			self.error = state.server_admin.error;
-			// The failure is kept here, so drop the reload fence it would leave behind.
+			self.uncertain = state.server_admin.needs_refresh;
+			// The failure and its retry block are kept here, so release the shared state.
 			if !settings_open {
 				state.close_server_admin();
 			}
@@ -119,6 +125,7 @@ impl Moderation {
 		let (guild, kind) = (target.guild, target.kind);
 		let action = kind.action(target.user.id, target.choice);
 		let ready = !self.submitted
+			&& !self.uncertain
 			&& !state.server_admin.pending
 			&& !state.server_admin.needs_refresh
 			&& !state.server_settings.saving
@@ -193,7 +200,7 @@ impl Moderation {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
 	use super::*;
 	use client_core::auth::Failure;
 	use egui::{Event, Modifiers, PointerButton, Pos2, Rect};
@@ -234,8 +241,8 @@ mod tests {
 			}
 			text
 		}
-		/// Clicks the confirming button and returns the request it sent.
-		fn confirm(&mut self, label: &str) -> (Id, u64, Action) {
+		/// Clicks the confirming button and returns the request it sent, if any.
+		fn confirm(&mut self, label: &str) -> Option<(Id, u64, Action)> {
 			let text = self.frame(vec![]);
 			let (_, rect) = text
 				.iter()
@@ -252,15 +259,14 @@ mod tests {
 					},
 				]);
 			}
-			let Some(Command::ServerAdmin {
-				guild,
-				request,
-				action,
-			}) = self.commands.pop()
-			else {
-				panic!("{label} sends a request")
-			};
-			(guild, request, *action)
+			match self.commands.pop() {
+				Some(Command::ServerAdmin {
+					guild,
+					request,
+					action,
+				}) => Some((guild, request, *action)),
+				_ => None,
+			}
 		}
 		fn deliver(&mut self, request: u64, result: Result<model::server_admin::Result, Failure>) {
 			self.state.apply(client_core::Envelope {
@@ -274,9 +280,8 @@ mod tests {
 		}
 	}
 
-	#[test]
-	fn a_refused_ban_stays_open_with_its_failure_and_a_retry_that_succeeds_closes() {
-		// You own the synthetic server; Mika is listed in the open channel.
+	/// You own the synthetic server; Mika is listed in the open channel.
+	pub(crate) fn owned_server_with_member() -> (State, User) {
 		let mut state = test_support::demo_state();
 		let own = state.user.clone().unwrap();
 		let mut permissions = test_support::permission_snapshot(&state);
@@ -314,15 +319,21 @@ mod tests {
 			groups: vec![],
 			ranges: vec![],
 		});
+		(state, mika)
+	}
+
+	#[test]
+	fn a_refusal_can_be_retried_but_an_uncertain_result_needs_a_new_confirmation() {
+		let (state, mika) = owned_server_with_member();
 		let mut h = Harness {
 			ctx: egui::Context::default(),
 			state,
 			view: Moderation::default(),
 			commands: vec![],
 		};
-		h.view.open(Id(10), mika, Kind::Ban, &h.state);
+		h.view.open(Id(10), mika.clone(), Kind::Ban, &h.state);
 
-		let (guild, request, action) = h.confirm("Ban");
+		let (guild, request, action) = h.confirm("Ban").unwrap();
 		assert_eq!(guild, Id(10));
 		assert!(matches!(
 			action,
@@ -339,7 +350,16 @@ mod tests {
 			"the refusal is shown in the dialog: {text:?}"
 		);
 
-		let (_, request, _) = h.confirm("Ban");
+		// A definite refusal changed nothing, so the same dialog may try again.
+		let (_, request, _) = h.confirm("Ban").unwrap();
+		h.deliver(request, Err(Failure::Ambiguous));
+		assert!(
+			h.confirm("Ban").is_none(),
+			"a ban that may have applied is not repeated from the same dialog"
+		);
+
+		h.view.open(Id(10), mika, Kind::Ban, &h.state);
+		let (_, request, _) = h.confirm("Ban").unwrap();
 		h.deliver(request, Ok(model::server_admin::Result::Kicked(Id(77))));
 		assert!(h.frame(vec![]).is_empty(), "a completed ban closes");
 		assert!(!h.state.server_admin.pending && h.state.server_admin.guild.is_none());

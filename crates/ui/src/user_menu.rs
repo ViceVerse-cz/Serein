@@ -15,6 +15,17 @@ pub(crate) enum Place {
 	Nowhere,
 }
 
+impl Place {
+	/// The row's conversation, with `Open` resolved to the selected one.
+	fn channel(self, state: &State) -> Option<model::Id> {
+		match self {
+			Self::Open => state.selected,
+			Self::Conversation(id) => Some(id),
+			Self::Nowhere => None,
+		}
+	}
+}
+
 #[derive(Clone, PartialEq, Eq)]
 pub enum Action {
 	Note(User),
@@ -183,12 +194,7 @@ pub(super) fn contents(
 	ui.set_min_width(200.0);
 	ui.spacing_mut().button_padding = egui::vec2(8.0, 6.0);
 	if !user.webhook {
-		let channel = match place {
-			Place::Open => state.selected,
-			Place::Conversation(id) => Some(id),
-			Place::Nowhere => None,
-		}
-		.and_then(|id| state.channel(id));
+		let channel = place.channel(state).and_then(|id| state.channel(id));
 		let mut targets = vec![extensions::MenuTarget::User {
 			user_id: user.id.to_string(),
 			guild_id: channel.and_then(|c| c.guild).map(|g| g.to_string()),
@@ -441,8 +447,9 @@ pub(super) fn contents(
 		ui.close();
 	}
 	crate::profiles::report_button(ui, user);
-	if let Some(guild) = state
-		.selected
+	// The row's own server: a DM or friends row never moderates in the selected server.
+	if let Some(guild) = place
+		.channel(state)
 		.and_then(|id| state.channel(id).and_then(|channel| channel.guild))
 	{
 		moderation_menu(ui, state, guild, user, action);
@@ -594,18 +601,14 @@ mod tests {
 	}
 
 	fn menu_labels(state: &State, user: &User) -> Vec<String> {
+		labels_at(state, user, Place::Open)
+	}
+
+	fn labels_at(state: &State, user: &User, place: Place) -> Vec<String> {
 		let ctx = egui::Context::default();
 		let (mut profile, mut action) = (crate::profiles::ProfileSession::default(), None);
 		let output = ctx.run_ui(egui::RawInput::default(), |ui| {
-			contents(
-				ui,
-				state,
-				user,
-				Place::Open,
-				&mut profile,
-				&mut action,
-				None,
-			);
+			contents(ui, state, user, place, &mut profile, &mut action, None);
 		});
 		let mut text = vec![];
 		for shape in &output.shapes {
@@ -826,6 +829,26 @@ mod tests {
 				);
 			}
 		}
+	}
+
+	#[test]
+	fn moderation_rows_follow_the_clicked_rows_server_not_the_selected_one() {
+		let (state, mika) = crate::moderation::tests::owned_server_with_member();
+		let rows = |place| {
+			labels_at(&state, &mika, place)
+				.iter()
+				.filter(|label| label.starts_with("Ban "))
+				.count()
+		};
+		assert_eq!(rows(Place::Open), 1, "a member row of the open server");
+		let dm = state
+			.channels
+			.iter()
+			.find(|channel| channel.guild.is_none() && channel.kind == 1)
+			.unwrap()
+			.id;
+		assert_eq!(rows(Place::Conversation(dm)), 0, "a DM row");
+		assert_eq!(rows(Place::Nowhere), 0, "a row with no conversation");
 	}
 
 	#[test]

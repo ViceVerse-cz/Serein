@@ -166,7 +166,10 @@ with only `communication_disabled_until` (at most 28 days ahead, null to remove)
 bounded 64 KiB member reply must identify the requested user and echo whether a timeout
 is set. These routes are documented for bots; normal-account acceptance is unofficial
 and live-unverified. Existing REST deadlines, write ambiguity handling and the single
-administration request apply, and a failure stays in the confirmation.
+administration request apply, and a failure stays in the confirmation. A definite
+refusal can be retried there; a result that may already have applied cannot, and needs
+a new confirmation opened from the menu. The server is always the clicked row's own:
+a DM, friends or other row without a server never offers moderation in the selected one.
 
 No audit-log reason is sent, bans cannot be listed or removed, and a user who is not a
 loaded member cannot be banned by ID. Synthetic tests cover the permission and hierarchy

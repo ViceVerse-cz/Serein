@@ -368,6 +368,13 @@ impl State {
 	pub fn can_kick_guild_member(&self, guild: Id, user: Id) -> bool {
 		self.can_moderate_member(guild, user, p::KICK_MEMBERS)
 	}
+	/// Holds Kick, Ban or Moderate Members. Context-menu moderation uses the administration
+	/// state with these alone, so access cleanup must not treat it as settings-only.
+	pub(crate) fn can_moderate_guild(&self, guild: Id) -> bool {
+		[p::KICK_MEMBERS, p::BAN_MEMBERS, p::MODERATE_MEMBERS]
+			.into_iter()
+			.any(|permission| self.guild_permission(guild, permission))
+	}
 	/// Discord does not time out administrators, whatever their rank.
 	fn can_timeout_guild_member(&self, guild: Id, user: Id) -> bool {
 		self.can_moderate_member(guild, user, p::MODERATE_MEMBERS)
@@ -1506,13 +1513,23 @@ mod moderation_tests {
 		) else {
 			panic!("a permitted ban is requested")
 		};
-		state
-			.apply_server_admin(Event {
-				guild: Id(2),
-				request,
-				result: Err(Failure::Forbidden),
-			})
-			.unwrap();
+		// Delivered through `State::apply`, whose access cleanup runs after every event.
+		let deliver = |state: &mut State, request| {
+			state.apply(crate::Envelope {
+				generation: state.generation,
+				event: crate::Event::ServerAdmin(Event {
+					guild: Id(2),
+					request,
+					result: Err(Failure::Forbidden),
+				}),
+			});
+		};
+		deliver(&mut state, request.wrapping_add(1));
+		assert!(
+			state.server_admin.pending,
+			"an unrelated event leaves the request in flight"
+		);
+		deliver(&mut state, request);
 		assert!(!state.server_admin.pending);
 		assert_eq!(
 			state.server_admin.error,
