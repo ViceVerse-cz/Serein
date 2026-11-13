@@ -279,6 +279,7 @@ mod tests {
 			channels: [10, 11]
 				.into_iter()
 				.map(|id| Channel {
+					user_limit: None,
 					id: Id(id),
 					guild: None,
 					parent_id: None,

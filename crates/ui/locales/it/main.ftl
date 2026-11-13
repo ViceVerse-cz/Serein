@@ -4103,6 +4103,10 @@ verification-show-one-quick-check = Un rapido controllo
 verification-show-verification-required = Verifica richiesta
 # Context: show
 verification-show-verify = Verificare
+# Context: show
+verification-show-safer-in-the-official-discord-app = È più sicuro completare questa verifica nell’app ufficiale di Discord. Dopo una verifica risolta in Serein, Discord può chiedere agli account recenti di verificare un numero di telefono.
+# Context: show
+verification-show-open-discord = Apri Discord
 
 ## crates/ui/src/video.rs
 # Context: show_player
@@ -4900,3 +4904,33 @@ new-message-hint = Aggiungi amici per avviare un messaggio diretto o un gruppo.
 new-message-no-people-found = Nessuno corrisponde a questa ricerca.
 new-message-create = Crea messaggio
 new-message-cancel = Annulla
+# Context: moderation
+moderation-menu-timeout = Metti in timeout { $name }
+# Context: moderation
+moderation-menu-kick = Espelli { $name }
+# Context: moderation
+moderation-menu-ban = Banna { $name }
+# Context: moderation
+moderation-timeout-detail = Non potrà inviare messaggi, reagire o entrare nei canali vocali fino al termine del timeout.
+# Context: moderation
+moderation-kick-detail = Potrà rientrare con un nuovo invito.
+# Context: moderation
+moderation-ban-detail = Non potrà rientrare finché il ban non viene rimosso.
+# Context: moderation
+moderation-duration-60-seconds = 60 secondi
+# Context: moderation
+moderation-remove-timeout = Rimuovi timeout
+# Context: moderation
+moderation-delete-history = Elimina cronologia messaggi
+# Context: moderation
+moderation-delete-none = Non eliminare nulla
+# Context: moderation
+moderation-delete-hour = Ultima ora
+# Context: moderation
+moderation-delete-day = Ultime 24 ore
+# Context: moderation
+moderation-delete-week = Ultimi 7 giorni
+# Context: moderation
+moderation-confirm-timeout = Timeout
+# Context: moderation
+moderation-confirm-ban = Banna

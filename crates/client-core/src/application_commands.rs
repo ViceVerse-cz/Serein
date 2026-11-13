@@ -293,6 +293,7 @@ mod tests {
 			freshness: Freshness::Fresh,
 			selected: Some(Id(2)),
 			channels: vec![Channel {
+				user_limit: None,
 				id: Id(2),
 				guild: None,
 				name: "Synthetic bot DM".into(),

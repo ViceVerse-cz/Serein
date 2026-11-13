@@ -4135,6 +4135,10 @@ verification-show-one-quick-check = 一次快速检查
 verification-show-verification-required = 需要验证
 # Context: show
 verification-show-verify = 验证
+# Context: show
+verification-show-safer-in-the-official-discord-app = 在官方 Discord 应用中完成此验证更安全。在 Serein 中完成验证后，Discord 可能会要求较新的账户验证手机号码。
+# Context: show
+verification-show-open-discord = 打开 Discord
 
 ## crates/ui/src/video.rs
 # Context: show_player
@@ -4997,3 +5001,33 @@ new-message-hint = 添加好友以开始私信或群组。
 new-message-no-people-found = 没有匹配的结果。
 new-message-create = 创建消息
 new-message-cancel = 取消
+# Context: moderation
+moderation-menu-timeout = 禁言 { $name }
+# Context: moderation
+moderation-menu-kick = 移出 { $name }
+# Context: moderation
+moderation-menu-ban = 封禁 { $name }
+# Context: moderation
+moderation-timeout-detail = 禁言结束前，对方无法发送消息、添加反应或加入语音频道。
+# Context: moderation
+moderation-kick-detail = 对方可以通过新的邀请重新加入。
+# Context: moderation
+moderation-ban-detail = 封禁解除前，对方无法重新加入。
+# Context: moderation
+moderation-duration-60-seconds = 60 秒
+# Context: moderation
+moderation-remove-timeout = 解除禁言
+# Context: moderation
+moderation-delete-history = 删除消息记录
+# Context: moderation
+moderation-delete-none = 不删除
+# Context: moderation
+moderation-delete-hour = 过去 1 小时
+# Context: moderation
+moderation-delete-day = 过去 24 小时
+# Context: moderation
+moderation-delete-week = 过去 7 天
+# Context: moderation
+moderation-confirm-timeout = 禁言
+# Context: moderation
+moderation-confirm-ban = 封禁

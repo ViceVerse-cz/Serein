@@ -485,9 +485,20 @@ impl MessagingUi {
 		);
 		channel_marks::paint(ui.painter(), access, row, glyph, text_color);
 		let marks = channel_marks::trailing(access);
+		let occupancy = channel.user_limit.map(|limit| {
+			let people = state
+				.voice
+				.roster
+				.iter()
+				.filter(|r| r.channel == channel.id)
+				.count();
+			(people, limit)
+		});
+		let limit_width = if occupancy.is_some() { 56.0 } else { 0.0 };
 		let elapsed_width = if elapsed.is_some() { 64.0 } else { 0.0 };
 		let badge_width = if count > 0 { 34.0 } else { 0.0 };
-		let name_width = (row.width() - 40.0 - elapsed_width - badge_width - marks).max(10.0);
+		let name_width =
+			(row.width() - 40.0 - limit_width - elapsed_width - badge_width - marks).max(10.0);
 		let mut name_job = egui::text::LayoutJob::simple_singleline(
 			channel.name.clone(),
 			egui::FontId::new(15.0, design::medium_family(ui.ctx())),
@@ -504,9 +515,17 @@ impl MessagingUi {
 		ui.painter()
 			.with_clip_rect(name_rect)
 			.galley(name_rect.min, name, text_color);
+		if let Some((people, limit)) = occupancy {
+			user_limit_pill(
+				ui,
+				row.right_center() - egui::vec2(8.0 + marks, 0.0),
+				people,
+				limit,
+			);
+		}
 		if let Some(elapsed) = &elapsed {
 			ui.painter().text(
-				row.right_center() - egui::vec2(8.0 + marks, 0.0),
+				row.right_center() - egui::vec2(8.0 + marks + limit_width, 0.0),
 				egui::Align2::RIGHT_CENTER,
 				elapsed,
 				egui::FontId::monospace(11.0),
@@ -516,7 +535,7 @@ impl MessagingUi {
 		if count > 0 {
 			crate::notifications::badge(
 				ui,
-				row.right_center() - egui::vec2(20.0 + marks + elapsed_width, 0.0),
+				row.right_center() - egui::vec2(20.0 + marks + limit_width + elapsed_width, 0.0),
 				count,
 				if selected {
 					colors.selected
@@ -537,9 +556,12 @@ impl MessagingUi {
 				viewable,
 				selected,
 				format!(
-					"{} {}{}{}{}; {} {}",
+					"{} {}{}{}{}{}; {} {}",
 					channel.name,
 					crate::i18n::translate("voice-voice-channel-button-voice-channel"),
+					occupancy.map_or(String::new(), |(people, limit)| format!(
+						", {people}/{limit}"
+					)),
 					channel_marks::label(access),
 					if connected {
 						crate::i18n::translate("voice-voice-channel-button-connected")
@@ -558,8 +580,11 @@ impl MessagingUi {
 		});
 		response.on_hover_text_with(|| {
 			format!(
-				"{} · View voice channel{}{}",
+				"{} · View voice channel{}{}{}",
 				channel.name,
+				occupancy.map_or(String::new(), |(people, limit)| format!(
+					" · {people} of {limit} people"
+				)),
 				channel_marks::label(access),
 				if connected { " · Connected" } else { "" }
 			)
@@ -2019,11 +2044,9 @@ impl MessagingUi {
 				Some("You are already in this call.")
 			} else if !state.can_call(channel) {
 				Some("Joining this channel is unavailable with current permission information.")
-			} else if state.call_full(channel) {
-				// Refused here, before any switch leaves the current call for a full room.
-				Some(client_core::voice::CALL_FULL)
 			} else {
-				None
+				// Refused here, before any switch leaves the current call for a full room.
+				state.call_full(channel)
 			}
 		})
 	}
@@ -2158,6 +2181,10 @@ impl MessagingUi {
 	pub(super) fn apply_voice_join(&mut self, state: &mut State, commands: &mut Vec<Command>) {
 		if let Some(channel) = self.voice_join.take() {
 			self.request_call(state, channel, false, commands);
+			// A double-clicked row has no disabled button to explain why nothing joined.
+			if let Some(full) = state.call_full(channel) {
+				self.toasts.push(crate::design::Level::Error, full);
+			}
 		}
 	}
 
@@ -2195,6 +2222,8 @@ impl MessagingUi {
 			return Err(reason.into());
 		}
 		if let Some(call) = &state.voice.active {
+			// A failed call has nothing left to keep, so it is ended without asking.
+			let failed = call.phase == Phase::Failed;
 			self.voice_switch = Some(CallSwitch {
 				from: (call.channel, call.request),
 				channel,
@@ -2204,6 +2233,13 @@ impl MessagingUi {
 				audio,
 				open: None,
 			});
+			if failed && let Some(command) = state.leave_call() {
+				self.voice_switch
+					.as_mut()
+					.expect("pending switch")
+					.confirmed_at = Some(std::time::Instant::now());
+				commands.push(command);
+			}
 		} else {
 			let (muted, deafened) = audio.unwrap_or((self.voice_muted, self.voice_deafened));
 			let command = state.try_start_call(channel, ring, muted, deafened)?;
@@ -2230,7 +2266,7 @@ impl MessagingUi {
 		if let Some(switch) = self
 			.voice_switch
 			.as_mut()
-			.filter(|switch| switch.channel == channel && switch.confirmed_at.is_none())
+			.filter(|switch| switch.channel == channel)
 		{
 			switch.open = Some(guild);
 		} else if state
@@ -2278,7 +2314,10 @@ impl MessagingUi {
 		if let Some(started) = switch.confirmed_at {
 			if state.voice.active.is_some() {
 				self.voice_switch = None;
-			} else if state.voice.departed == Some(switch.from) && self.voice_switch_ready {
+			} else if (state.voice.departed == Some(switch.from)
+				|| state.voice.abandoned == Some(switch.from))
+				&& self.voice_switch_ready
+			{
 				let switch = self.voice_switch.take().expect("pending switch");
 				let (muted, deafened) = switch
 					.audio
@@ -2299,7 +2338,7 @@ impl MessagingUi {
 				}
 			} else if started.elapsed() >= std::time::Duration::from_secs(12) {
 				self.voice_switch = None;
-				state.status = "Call switch cancelled: previous call did not finish disconnecting. Reconnect before calling again.";
+				state.status = "Call switch cancelled: previous call did not finish disconnecting. Try joining again.";
 			} else {
 				ctx.request_repaint_after(std::time::Duration::from_millis(100));
 			}
@@ -5152,6 +5191,43 @@ fn device_combo(
 		.on_hover_text(&label)
 }
 
+/// Discord's two-part occupancy pill, people then limit, right-aligned to `right`.
+fn user_limit_pill(ui: &egui::Ui, right: egui::Pos2, people: usize, limit: u16) {
+	let colors = design::palette(ui);
+	let pill = egui::Rect::from_min_size(right - egui::vec2(48.0, 10.0), egui::vec2(48.0, 20.0));
+	let (left, right) = pill.split_left_right_at_fraction(0.5);
+	let painter = ui.painter();
+	painter.rect_filled(
+		left,
+		egui::CornerRadius {
+			nw: 10,
+			sw: 10,
+			ne: 0,
+			se: 0,
+		},
+		colors.base,
+	);
+	painter.rect_filled(
+		right,
+		egui::CornerRadius {
+			nw: 0,
+			sw: 0,
+			ne: 10,
+			se: 10,
+		},
+		colors.raised,
+	);
+	for (rect, value) in [(left, people.min(99)), (right, usize::from(limit.min(99)))] {
+		painter.text(
+			rect.center(),
+			egui::Align2::CENTER_CENTER,
+			format!("{value:02}"),
+			egui::FontId::monospace(11.0),
+			colors.text,
+		);
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -6603,6 +6679,7 @@ mod tests {
 			auth: AuthState::Authenticated,
 			gateway_connected: true,
 			channels: vec![model::Channel {
+				user_limit: None,
 				last_message: None,
 				id: Id(1),
 				guild: None,

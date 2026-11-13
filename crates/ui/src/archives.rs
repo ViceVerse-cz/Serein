@@ -384,6 +384,7 @@ mod tests {
 
 	fn channel(id: u64, kind: u8, parent_id: Option<Id>) -> Channel {
 		Channel {
+			user_limit: None,
 			id: Id(id),
 			guild: Some(Id(100)),
 			parent_id,

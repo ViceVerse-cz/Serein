@@ -210,6 +210,9 @@ pub struct ChannelDto {
 	pub permission_overwrites: Option<Vec<Overwrite>>,
 	#[serde(default)]
 	pub message_count: Option<u32>,
+	/// Zero means unlimited.
+	#[serde(default, deserialize_with = "lossy::null_default")]
+	pub user_limit: u32,
 	#[serde(default, deserialize_with = "lossy::null_default")]
 	pub is_message_request: bool,
 	#[serde(default, deserialize_with = "lossy::null_default")]
@@ -304,8 +307,14 @@ impl ChannelDto {
 			recipients,
 			member_list_id: None,
 			message_count: self.message_count,
+			user_limit: user_limit(self.user_limit),
 		}
 	}
+}
+/// [Documented](https://docs.discord.com/developers/resources/channel#channel-object) voice
+/// limits stay within 0..=10000; zero and anything unrepresentable mean unlimited.
+fn user_limit(limit: u32) -> Option<u16> {
+	u16::try_from(limit).ok().filter(|limit| *limit > 0)
 }
 #[derive(Deserialize)]
 pub struct ChannelPatchDto {
@@ -328,6 +337,8 @@ pub struct ChannelPatchDto {
 	pub flags: Patch<u64>,
 	#[serde(default)]
 	pub message_count: Patch<u32>,
+	#[serde(default)]
+	pub user_limit: Patch<u32>,
 	#[serde(default)]
 	pub is_message_request: Patch<bool>,
 	#[serde(default)]
@@ -430,6 +441,11 @@ impl ChannelPatchDto {
 			),
 			kind: self.kind,
 			message_count: self.message_count,
+			user_limit: match self.user_limit {
+				Patch::Value(limit) => user_limit(limit).map_or(Patch::Null, Patch::Value),
+				Patch::Null => Patch::Null,
+				Patch::Absent => Patch::Absent,
+			},
 		}
 	}
 }

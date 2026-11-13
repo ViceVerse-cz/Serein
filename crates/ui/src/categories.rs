@@ -1824,6 +1824,7 @@ mod tests {
 	}
 	fn channel(id: u64, kind: u8, position: i32, parent_id: Option<Id>) -> Channel {
 		Channel {
+			user_limit: None,
 			last_message: None,
 			id: Id(id),
 			guild: Some(Id(100)),
@@ -2798,6 +2799,13 @@ mod tests {
 		let mut state = test_support::voice_demo_state();
 		state.demo = false;
 		state.gateway_connected = true;
+		// The fixture reuses id 26 for its quiet room, so every row with that id is set.
+		let limit = |state: &mut State, limit| {
+			for channel in state.channels.iter_mut().filter(|c| c.id == Id(26)) {
+				channel.user_limit = limit;
+			}
+		};
+		limit(&mut state, None);
 		let mut view = MessagingUi {
 			guild: Some(Id(10)),
 			voice_available: true,
@@ -2867,6 +2875,12 @@ mod tests {
 		assert_eq!(picked, Some(Id(26)));
 		assert!(commands.is_empty() && view.voice_switch.is_some());
 		view.voice_switch = None;
+
+		// A full room refuses before any switch would leave the current call.
+		limit(&mut state, Some(2));
+		let (_, commands) = click(&mut view, &mut state, "Quiet room", 2);
+		assert!(commands.is_empty() && view.voice_switch.is_none());
+		limit(&mut state, None);
 
 		// Double-clicking the current call's channel is a no-op.
 		let (_, commands) = click(&mut view, &mut state, "Room 3,5", 2);

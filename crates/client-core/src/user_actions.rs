@@ -2868,6 +2868,7 @@ mod tests {
 			gateway_connected: true,
 			selected: Some(Id(10)),
 			channels: vec![model::Channel {
+				user_limit: None,
 				id: Id(10),
 				guild: None,
 				kind: 1,

@@ -365,6 +365,8 @@ pub struct Channel {
 	pub member_list_id: Option<String>,
 	/// Thread reply count reported by the service; None for non-threads or unknown.
 	pub message_count: Option<u32>,
+	/// Voice or stage channel user limit; None when unlimited or unknown.
+	pub user_limit: Option<u16>,
 	/// Forum tags offered by a forum or media channel, or applied to one of its posts.
 	pub tags: Option<Box<forum::Tags>>,
 }
@@ -392,6 +394,8 @@ pub struct ChannelPatch {
 	pub position: Patch<i32>,
 	pub kind: Patch<u8>,
 	pub message_count: Patch<u32>,
+	/// Null clears a limit; zero arrives as Null.
+	pub user_limit: Patch<u16>,
 	/// Channel updates carry whole objects, so present tags replace the known ones.
 	pub tags: Patch<Box<forum::Tags>>,
 }

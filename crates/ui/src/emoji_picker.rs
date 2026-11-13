@@ -3603,6 +3603,7 @@ mod tests {
 				),
 			}],
 			channels: vec![model::Channel {
+				user_limit: None,
 				id: Id(2),
 				guild: None,
 				parent_id: None,

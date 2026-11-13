@@ -128,6 +128,7 @@ mod text_menu;
 mod thumbhash;
 #[cfg(feature = "demo")]
 pub use polls::debug_poll_check;
+mod moderation;
 mod timeline;
 #[cfg(test)]
 mod title_bar_tests;
@@ -334,6 +335,7 @@ pub struct MessagingUi {
 	menu_role_change: bool,
 	pending_mention: Option<Id>,
 	contact_editor: contact_editor::ContactEditor,
+	moderation: moderation::Moderation,
 	profile_link: Option<String>,
 	/// The docked DM card's link awaiting confirmation, apart from the popout's.
 	dm_profile_link: Option<String>,
@@ -5995,6 +5997,11 @@ impl MessagingUi {
 					self.profile.hide();
 					self.contact_editor.open(user, true, state)
 				}
+				user_menu::Action::Moderate { guild, user, kind } => {
+					self.profile.hide();
+					self.moderation.open(guild, user, kind, state);
+					None
+				}
 				user_menu::Action::Shortcut(intent) => {
 					self.apply_shortcut(state, intent);
 					None
@@ -6014,6 +6021,8 @@ impl MessagingUi {
 			}
 		}
 		self.contact_editor.show(&ctx, state, &mut commands);
+		self.moderation
+			.show(&ctx, state, &mut commands, self.server_settings.is_open());
 		self.drain_profile(state, &mut commands);
 		// While the card's DM waits on a captcha, step aside for the dialog but keep its draft.
 		let direct_verifying = self.user_direct.is_some()
@@ -6926,6 +6935,7 @@ mod composer_tests {
 		let mut state = State {
 			selected: Some(Id(10)),
 			channels: vec![model::Channel {
+				user_limit: None,
 				id: Id(10),
 				guild: None,
 				parent_id: None,
@@ -8874,6 +8884,7 @@ mod composer_tests {
 				.unwrap();
 			state.selected = Some(Id(11));
 			state.channels.push(model::Channel {
+				user_limit: None,
 				id: Id(11),
 				guild: None,
 				kind: 1,
@@ -8947,6 +8958,7 @@ mod composer_tests {
 			demo: true,
 			selected: Some(Id(1)),
 			channels: vec![model::Channel {
+				user_limit: None,
 				last_message: None,
 				id: Id(1),
 				guild: Some(Id(2)),
@@ -9140,6 +9152,7 @@ mod composer_tests {
 				cosmetics: None,
 			}),
 			channels: vec![model::Channel {
+				user_limit: None,
 				last_message: None,
 				id: Id(1),
 				guild: None,
@@ -9541,6 +9554,7 @@ mod composer_tests {
 				demo: true,
 				selected: Some(Id(1)),
 				channels: vec![model::Channel {
+					user_limit: None,
 					last_message: None,
 					id: Id(1),
 					guild,
@@ -10031,6 +10045,7 @@ mod composer_tests {
 		let mut state = State {
 			selected: Some(Id(1)),
 			channels: vec![model::Channel {
+				user_limit: None,
 				last_message: None,
 				id: Id(1),
 				guild: None,

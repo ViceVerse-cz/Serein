@@ -351,8 +351,42 @@ impl State {
 		roles.sort_by(|(a, _), (b, _)| b.cmp_hierarchy(a));
 		roles
 	}
+	/// A member's roles from the settings member page, else the open channel's live rows.
+	fn loaded_member_roles(&self, guild: Id, user: Id) -> Option<&[Id]> {
+		self.admin_member(guild, user)
+			.map(|member| member.roles.as_slice())
+			.or_else(|| self.live_member_role_ids(guild, user))
+	}
+	/// Kick, ban and timeout need the permission and a loaded member you outrank. A member
+	/// whose roles are not loaded is refused, since their rank is unknown here.
+	fn can_moderate_member(&self, guild: Id, user: Id, permission: u128) -> bool {
+		self.guild_permission(guild, permission)
+			&& self
+				.loaded_member_roles(guild, user)
+				.is_some_and(|roles| self.outranks_member(guild, user, roles))
+	}
 	pub fn can_kick_guild_member(&self, guild: Id, user: Id) -> bool {
-		self.guild_permission(guild, p::KICK_MEMBERS) && self.above_admin_member(guild, user)
+		self.can_moderate_member(guild, user, p::KICK_MEMBERS)
+	}
+	/// Holds Kick, Ban or Moderate Members. Context-menu moderation uses the administration
+	/// state with these alone, so access cleanup must not treat it as settings-only.
+	pub(crate) fn can_moderate_guild(&self, guild: Id) -> bool {
+		[p::KICK_MEMBERS, p::BAN_MEMBERS, p::MODERATE_MEMBERS]
+			.into_iter()
+			.any(|permission| self.guild_permission(guild, permission))
+	}
+	/// Discord does not time out administrators, whatever their rank.
+	fn can_timeout_guild_member(&self, guild: Id, user: Id) -> bool {
+		self.can_moderate_member(guild, user, p::MODERATE_MEMBERS)
+			&& !self.loaded_member_roles(guild, user).is_some_and(|roles| {
+				self.guild_roles(guild)
+					.unwrap_or_default()
+					.iter()
+					.any(|role| {
+						(role.id == guild || roles.contains(&role.id))
+							&& role.bits & p::ADMINISTRATOR != 0
+					})
+			})
 	}
 	pub fn can_edit_guild_nickname(&self, guild: Id, user: Id) -> bool {
 		if self.user.as_ref().is_some_and(|own| own.id == user) {
@@ -445,6 +479,8 @@ impl State {
 			Action::SetRole { user, role, .. } => self.can_edit_member_role(guild, *user, *role),
 			Action::SetNickname { user, .. } => self.can_edit_guild_nickname(guild, *user),
 			Action::Kick { user } => self.can_kick_guild_member(guild, *user),
+			Action::Ban { user, .. } => self.can_moderate_member(guild, *user, p::BAN_MEMBERS),
+			Action::Timeout { user, .. } => self.can_timeout_guild_member(guild, *user),
 			Action::Prune { days, execute } => {
 				self.can_prune_guild(guild)
 					&& (!execute
@@ -641,6 +677,8 @@ impl State {
 					}
 					_ => false,
 				}
+			} else if let Some(permission) = moderation_permission(action) {
+				!self.guild_permission(event.guild, permission)
 			} else {
 				!self.can_open_member_settings(event.guild)
 			}
@@ -767,10 +805,16 @@ impl State {
 				_ => false,
 			},
 			(
-				Some(Action::SetRole { user, .. } | Action::SetNickname { user, .. }),
+				Some(
+					Action::SetRole { user, .. }
+					| Action::SetNickname { user, .. }
+					| Action::Timeout { user, .. },
+				),
 				Outcome::Member(member),
 			) => *user == member.user.id,
-			(Some(Action::Kick { user }), Outcome::Kicked(id)) => user == id,
+			(Some(Action::Kick { user } | Action::Ban { user, .. }), Outcome::Kicked(id)) => {
+				user == id
+			}
 			(Some(action), Outcome::Stickers(page)) if action.sticker() => {
 				page.items
 					.iter()
@@ -998,6 +1042,17 @@ impl State {
 	}
 }
 
+/// The permission a member moderation needs. Context menus hold it without Manage Server,
+/// so their results are not tied to the settings member page.
+fn moderation_permission(action: &Action) -> Option<u128> {
+	match action {
+		Action::Kick { .. } => Some(p::KICK_MEMBERS),
+		Action::Ban { .. } => Some(p::BAN_MEMBERS),
+		Action::Timeout { .. } => Some(p::MODERATE_MEMBERS),
+		_ => None,
+	}
+}
+
 #[cfg(test)]
 mod invite_tests {
 	use super::*;
@@ -1180,7 +1235,7 @@ mod invite_tests {
 mod sticker_tests {
 	use super::*;
 
-	fn user(id: u64, name: &str) -> model::User {
+	pub(super) fn user(id: u64, name: &str) -> model::User {
 		model::User {
 			primary_guild: None,
 			cosmetics: None,
@@ -1207,7 +1262,7 @@ mod sticker_tests {
 			uploader: Some(user(uploader, "Uploader")),
 		}
 	}
-	fn state(bits: u128) -> State {
+	pub(super) fn state(bits: u128) -> State {
 		let mut state = State {
 			auth: AuthState::Authenticated,
 			gateway_connected: true,
@@ -1325,5 +1380,161 @@ mod sticker_tests {
 				Id(6)
 			);
 		}
+	}
+}
+
+#[cfg(test)]
+mod moderation_tests {
+	use super::{
+		sticker_tests::{state, user},
+		*,
+	};
+
+	fn role(id: u64, position: i32, bits: u128) -> p::Role {
+		p::Role {
+			id: Id(id),
+			name: format!("Role {id}"),
+			bits,
+			color: 0,
+			secondary_color: None,
+			tertiary_color: None,
+			position,
+			hoist: false,
+			managed: false,
+		}
+	}
+	fn person(id: u64, roles: &[u64]) -> Option<model::MemberSlot> {
+		Some(model::MemberSlot::Person(model::Member {
+			roles: roles.iter().map(|id| Id(*id)).collect(),
+			user: user(id, "Member"),
+			nick: None,
+			status: None,
+			custom_status: None,
+			activities: vec![],
+			clients: Default::default(),
+		}))
+	}
+	/// You are user 1 in server 2 (owned by user 99), holding role 30 with `bits` at rank 2.
+	/// The open channel lists members below (5), above (6) and below with Administrator (7).
+	fn moderator(bits: u128) -> State {
+		let mut state = state(0);
+		let metadata = state.permissions.guilds.get_mut(&Id(2)).unwrap();
+		metadata.roles.as_mut().unwrap().extend([
+			role(30, 2, bits),
+			role(31, 1, 0),
+			role(32, 3, 0),
+			role(33, 1, p::ADMINISTRATOR),
+		]);
+		metadata.member.as_mut().unwrap().roles = vec![Id(30)];
+		state.permissions.clear_cache();
+		state.server_admin.guild = None;
+		state.selected = Some(Id(20));
+		state.members = Some(model::MemberList {
+			guild: Some(Id(2)),
+			channel: Id(20),
+			request: 0,
+			start: 0,
+			slots: vec![
+				person(1, &[30]),
+				person(5, &[31]),
+				person(6, &[32]),
+				person(7, &[33]),
+				person(99, &[]),
+			],
+			total: 5,
+			lazy: true,
+			freshness: model::Freshness::Fresh,
+			groups: vec![],
+			ranges: vec![],
+		});
+		state
+	}
+	fn allowed(state: &State, user: u64) -> [bool; 3] {
+		let user = Id(user);
+		[
+			Action::Kick { user },
+			Action::Ban {
+				user,
+				delete_seconds: 0,
+			},
+			Action::Timeout {
+				user,
+				seconds: Some(60),
+			},
+		]
+		.map(|action| state.server_admin_action_allowed(Id(2), &action))
+	}
+
+	#[test]
+	fn moderation_needs_its_permission_and_a_loaded_member_of_lower_rank() {
+		let state = moderator(p::KICK_MEMBERS | p::BAN_MEMBERS | p::MODERATE_MEMBERS);
+		assert_eq!(allowed(&state, 5), [true; 3], "lower rank");
+		assert_eq!(allowed(&state, 6), [false; 3], "higher rank");
+		assert_eq!(
+			allowed(&state, 7),
+			[true, true, false],
+			"administrators are never timed out"
+		);
+		assert_eq!(allowed(&state, 99), [false; 3], "owner");
+		assert_eq!(allowed(&state, 1), [false; 3], "yourself");
+		assert_eq!(allowed(&state, 8), [false; 3], "roles not loaded");
+		assert_eq!(
+			allowed(&moderator(p::BAN_MEMBERS), 5),
+			[false, true, false],
+			"each action needs its own permission"
+		);
+		for action in [
+			Action::Ban {
+				user: Id(5),
+				delete_seconds: model::server_admin::MAX_BAN_DELETE_SECONDS + 1,
+			},
+			Action::Timeout {
+				user: Id(5),
+				seconds: Some(0),
+			},
+			Action::Timeout {
+				user: Id(5),
+				seconds: Some(model::server_admin::MAX_TIMEOUT_SECONDS + 1),
+			},
+		] {
+			assert!(!state.server_admin_action_allowed(Id(2), &action));
+		}
+	}
+
+	#[test]
+	fn a_refused_ban_keeps_its_failure_without_manage_server() {
+		let mut state = moderator(p::BAN_MEMBERS);
+		let Some(Command::ServerAdmin { request, .. }) = state.request_server_admin(
+			Id(2),
+			Action::Ban {
+				user: Id(5),
+				delete_seconds: 3600,
+			},
+		) else {
+			panic!("a permitted ban is requested")
+		};
+		// Delivered through `State::apply`, whose access cleanup runs after every event.
+		let deliver = |state: &mut State, request| {
+			state.apply(crate::Envelope {
+				generation: state.generation,
+				event: crate::Event::ServerAdmin(Event {
+					guild: Id(2),
+					request,
+					result: Err(Failure::Forbidden),
+				}),
+			});
+		};
+		deliver(&mut state, request.wrapping_add(1));
+		assert!(
+			state.server_admin.pending,
+			"an unrelated event leaves the request in flight"
+		);
+		deliver(&mut state, request);
+		assert!(!state.server_admin.pending);
+		assert_eq!(
+			state.server_admin.error,
+			Some(Failure::Forbidden.label()),
+			"the context menu shows why the ban did not happen"
+		);
 	}
 }
