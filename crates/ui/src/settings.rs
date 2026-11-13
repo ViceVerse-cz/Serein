@@ -136,7 +136,7 @@ impl Page {
 				"general windows macos linux login menu bar startup autostart automatically open minimized minimize close tray background title bar caption window buttons decorations borderless tiling graphics gpu adapter render discrete integrated hardware acceleration performance battery vrr variable refresh rate steady refresh rate g-sync gsync freesync adaptive sync flicker flickering steady frame rate fps vsync"
 			}
 			Self::Appearance => {
-				"appearance customization font typography import ttf otf primary accent hex window effects transparency blur gradient names cosmetics decorations theme dark light system mode zoom scale layout sidebar width people members member list reset colour color preset"
+				"appearance customization font typography import ttf otf primary accent hex window effects transparency blur gradient names cosmetics decorations theme dark light system mode zoom scale layout sidebar width people members member list reset colour color preset calls call background voice stage"
 			}
 			Self::Chat => {
 				"chat messages media reading animate animated gifs autoplay hide image links confirm confirmation external browser smooth scrolling scroll speed motion trackpad wheel hidden channels channel list reset emoji emojis nitro fake suggestions autocomplete locked emoticons chat box automatically convert"
@@ -1095,6 +1095,33 @@ impl MessagingUi {
 			&crate::i18n::translate("settings-appearance-settings-accent"),
 			|ui| {
 				self.primary_color_row(ui);
+			},
+		);
+		design::group(
+			ui,
+			&crate::i18n::translate("settings-appearance-calls"),
+			|ui| {
+				design::row(
+					ui,
+					"settings-appearance-call-background",
+					Some("settings-appearance-call-background-description"),
+					|ui| {
+						if self.voice_stage_color.is_some()
+							&& design::text_action(
+								ui,
+								&crate::i18n::translate("settings-appearance-settings-reset"),
+							)
+							.clicked()
+						{
+							self.voice_stage_color = None;
+						}
+						let [r, g, b, _] = colors.chat.to_array();
+						let mut color = self.voice_stage_color.unwrap_or([r, g, b]);
+						if design::color_edit(ui, &mut color).changed() {
+							self.voice_stage_color = Some(color);
+						}
+					},
+				);
 			},
 		);
 		design::group(

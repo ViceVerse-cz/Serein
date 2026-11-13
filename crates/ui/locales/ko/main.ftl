@@ -3520,6 +3520,9 @@ settings-appearance-settings-choose-primary-color = 기본 색상 선택
 # Context: appearance_settings
 # Context: appearance_settings
 settings-appearance-settings-primary-color = 기본 색상
+settings-appearance-calls = 통화
+settings-appearance-call-background = 통화 배경
+settings-appearance-call-background-description = 통화 화면의 배경색을 선택하세요. 초기화하면 현재 테마의 색상을 사용합니다.
 # Context: appearance_settings
 settings-appearance-settings-reset = 초기화
 # Context: appearance_settings
@@ -5073,6 +5076,22 @@ timestamp-style-full = 전체 날짜 및 시간
 timestamp-style-relative = 상대 시간
 timestamp-style-short-date-time = 짧은 날짜 및 시간
 timestamp-style-short-date-seconds = 초를 포함한 짧은 날짜 및 시간
+steady-refresh-prompt-title = G-SYNC 디스플레이가 감지되었습니다
+steady-refresh-prompt-body = Serein은 화면에 변경 사항이 있을 때만 다시 그리므로, 활성 창일 때 G-SYNC 디스플레이가 깜박일 수 있습니다. 고정 주사율을 켜면 디스플레이의 주사율에 맞춰 화면을 그려 깜박임을 방지하지만 전력을 더 사용합니다. 켜시겠습니까?
+steady-refresh-prompt-turn-on = 켜기
+steady-refresh-prompt-keep-off = 끄기 유지
+steady-refresh-prompt-settings = 나중에 설정 > { $page } > { $group }에서 변경할 수 있습니다.
+voice-connection-title = 연결
+voice-connection-ping-value = { $millis }ms
+voice-connection-ping-pending = 첫 번째 핑 응답을 기다리는 중…
+voice-connection-average-ping = 평균 핑: { $value }
+voice-connection-last-ping = 최근 핑: { $value }
+voice-connection-ping-description = 음성 시그널링 서버까지의 왕복 시간입니다.
+profiles-in-voice-server = { $server }에서
+profiles-in-voice-join = 참가
+profiles-in-voice-joined = 이 음성 채널에 참가 중입니다.
+profiles-in-voice-failed = 실패한 통화를 닫은 후 다시 참가하세요.
+profiles-in-voice-unavailable = 지금은 이 음성 채널에 참가할 수 없습니다.
 # Context: moderation
 moderation-menu-timeout = { $name } 님 타임아웃
 # Context: moderation

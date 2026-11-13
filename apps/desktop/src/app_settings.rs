@@ -65,6 +65,7 @@ impl Settings {
 			steady_refresh_rate: ui.steady_refresh_rate,
 			steady_refresh_prompted: ui.steady_refresh_prompted,
 			primary_color: ui.primary_color,
+			voice_stage_color: ui.voice_stage_color,
 			transparency_blur: ui.transparency_blur,
 			transparency: ui.transparency,
 			blur: ui.blur,
@@ -121,6 +122,7 @@ impl Settings {
 		// Like setup below: unreadable preferences must not ask again on every launch.
 		ui.steady_refresh_prompted = !self.loaded || value.steady_refresh_prompted;
 		ui.primary_color = value.primary_color;
+		ui.voice_stage_color = value.voice_stage_color;
 		ui.transparency_blur = value.transparency_blur;
 		ui.transparency = value.transparency;
 		ui.blur = value.blur;
@@ -519,17 +521,21 @@ mod tests {
 		settings.current.language = Some("cs".into());
 		settings.current.notification_options.current_channel = true;
 		settings.current.graphics_api = model::GraphicsApi::OpenGl;
+		settings.current.voice_stage_color = Some([0, 0, 0]);
 		settings.loaded = true;
 		settings.apply(&mut ui);
 		settings.observe(&ui);
 		assert_eq!(ui.language, ui::i18n::Language::Czech);
 		assert!(ui.notification_options.current_channel);
 		assert_eq!(ui.graphics_api, model::GraphicsApi::OpenGl);
+		assert_eq!(ui.voice_stage_color, Some([0, 0, 0]));
 		assert!(!settings.state.touched);
 		assert!(!settings.state.dirty);
 		ui.graphics_api = model::GraphicsApi::Vulkan;
+		ui.voice_stage_color = None;
 		settings.observe(&ui);
 		assert_eq!(settings.current.graphics_api, model::GraphicsApi::Vulkan);
+		assert_eq!(settings.current.voice_stage_color, None);
 		assert!(settings.state.dirty);
 	}
 
