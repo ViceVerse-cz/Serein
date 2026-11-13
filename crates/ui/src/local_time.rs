@@ -1,6 +1,9 @@
 //! Converts UTC instants to the user's local zone for display.
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
+/// Coarse refresh for relative timestamps in messages and the composer preview.
+pub(crate) const TIMESTAMP_REFRESH: std::time::Duration = std::time::Duration::from_secs(20);
+
 /// Whether times of day use a 12-hour clock; set from Settings › Language & Time.
 static TWELVE_HOUR: AtomicBool = AtomicBool::new(false);
 /// The [`DateOrder`] of numeric dates; follows the display language or system locale.
@@ -191,17 +194,34 @@ pub fn discord_timestamp(seconds: i64, style: u8) -> Option<String> {
 	if style == b'R' {
 		return Some(relative(instant - time::OffsetDateTime::now_utc()));
 	}
-	let at = local(instant);
+	Some(format_discord_timestamp(
+		local(instant),
+		style,
+		DateOrder::current(),
+		TWELVE_HOUR.load(Ordering::Relaxed),
+	))
+}
+
+fn format_discord_timestamp(
+	at: time::OffsetDateTime,
+	style: u8,
+	order: DateOrder,
+	twelve: bool,
+) -> String {
 	let date = at.date();
-	let clock = clock(at);
-	Some(match style {
+	let clock = format_clock(at, false, twelve);
+	match style {
 		b't' => clock,
-		b'T' => clock_seconds(at),
-		b'd' => format!(
-			"{:02}/{:02}/{}",
-			u8::from(date.month()),
-			date.day(),
-			date.year()
+		b'T' => format_clock(at, true, twelve),
+		b'd' => order.date(date),
+		b's' | b'S' => format!(
+			"{}, {}",
+			order.date(date),
+			if style == b'S' {
+				format_clock(at, true, twelve)
+			} else {
+				clock
+			}
 		),
 		b'D' => format!("{} {}, {}", date.month(), date.day(), date.year()),
 		b'F' => format!(
@@ -212,7 +232,7 @@ pub fn discord_timestamp(seconds: i64, style: u8) -> Option<String> {
 			date.year()
 		),
 		_ => format!("{} {}, {} {clock}", date.month(), date.day(), date.year()),
-	})
+	}
 }
 /// A message header's time as Discord writes it: just the time today, "Yesterday at 11:22", and
 /// older days as the locale's numeric date and time, e.g. `14/04/2025 11:22`.
@@ -321,16 +341,36 @@ fn relative(delta: time::Duration) -> String {
 		} else if seconds < 60 {
 			format!("{seconds} seconds")
 		} else if minutes < 60 {
-			if minutes == 1 { "1 minute".to_owned() } else { format!("{minutes} minutes") }
+			if minutes == 1 {
+				"1 minute".to_owned()
+			} else {
+				format!("{minutes} minutes")
+			}
 		} else if hours < 24 {
-			if hours == 1 { "1 hour".to_owned() } else { format!("{hours} hours") }
+			if hours == 1 {
+				"1 hour".to_owned()
+			} else {
+				format!("{hours} hours")
+			}
 		} else if days < 30 {
-			if days == 1 { "1 day".to_owned() } else { format!("{days} days") }
+			if days == 1 {
+				"1 day".to_owned()
+			} else {
+				format!("{days} days")
+			}
 		} else if days < 365 {
 			let months = (days / 30).max(1);
-			if months == 1 { "1 month".to_owned() } else { format!("{months} months") }
+			if months == 1 {
+				"1 month".to_owned()
+			} else {
+				format!("{months} months")
+			}
 		} else {
-			if years == 1 { "1 year".to_owned() } else { format!("{years} years") }
+			if years == 1 {
+				"1 year".to_owned()
+			} else {
+				format!("{years} years")
+			}
 		}
 	} else {
 		// Rounded like the web client: 47 hours reads "2 days", not "1 day".
@@ -557,31 +597,13 @@ mod tests {
 	#[test]
 	fn dont_round_my_timestamps_preserves_floor_precision() {
 		super::set_dont_round_timestamps(true);
-		assert_eq!(
-			super::relative(time::Duration::seconds(70)),
-			"in 1 minute"
-		);
-		assert_eq!(
-			super::relative(time::Duration::hours(-47)),
-			"1 day ago"
-		);
-		assert_eq!(
-			super::relative(time::Duration::days(-360)),
-			"12 months ago"
-		);
-		assert_eq!(
-			super::relative(time::Duration::days(-364)),
-			"12 months ago"
-		);
-		assert_eq!(
-			super::relative(time::Duration::days(-365)),
-			"1 year ago"
-		);
+		assert_eq!(super::relative(time::Duration::seconds(70)), "in 1 minute");
+		assert_eq!(super::relative(time::Duration::hours(-47)), "1 day ago");
+		assert_eq!(super::relative(time::Duration::days(-360)), "12 months ago");
+		assert_eq!(super::relative(time::Duration::days(-364)), "12 months ago");
+		assert_eq!(super::relative(time::Duration::days(-365)), "1 year ago");
 		super::set_dont_round_timestamps(false);
-		assert_eq!(
-			super::relative(time::Duration::hours(-47)),
-			"2 days ago"
-		);
+		assert_eq!(super::relative(time::Duration::hours(-47)), "2 days ago");
 	}
 
 	#[test]
@@ -591,13 +613,36 @@ mod tests {
 			(b't', "22:13"),
 			(b'T', "22:13:20"),
 			(b'd', "11/14/2023"),
+			(b's', "11/14/2023, 22:13"),
+			(b'S', "11/14/2023, 22:13:20"),
 			(b'D', "November 14, 2023"),
 			(b'f', "November 14, 2023 22:13"),
 			(b'F', "Tuesday, November 14, 2023 22:13"),
 		] {
 			assert_eq!(
-				super::discord_timestamp(at, style).as_deref(),
-				Some(expected)
+				super::format_discord_timestamp(
+					time::OffsetDateTime::from_unix_timestamp(at).unwrap(),
+					style,
+					super::DateOrder::MonthDayYear,
+					false
+				),
+				expected
+			);
+		}
+		let at = local_at("2026-11-06T15:04:05Z");
+		for (style, expected) in [
+			(b'd', "06.11.2026"),
+			(b's', "06.11.2026, 15:04"),
+			(b'S', "06.11.2026, 15:04:05"),
+		] {
+			assert_eq!(
+				super::format_discord_timestamp(
+					at,
+					style,
+					super::DateOrder::of_locale("cs-CZ"),
+					false
+				),
+				expected
 			);
 		}
 		assert_eq!(super::discord_timestamp(i64::MAX, b'f'), None);

@@ -12,8 +12,7 @@ pub fn set_disable_call_idle_enabled(enabled: bool) {
 }
 
 /// VenSerein (CustomIdle): Configurable idle timeout threshold in seconds.
-pub static CUSTOM_IDLE_SECS: std::sync::atomic::AtomicU64 =
-	std::sync::atomic::AtomicU64::new(0);
+pub static CUSTOM_IDLE_SECS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 #[allow(dead_code)]
 pub fn set_custom_idle_secs(secs: u64) {

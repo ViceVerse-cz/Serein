@@ -209,16 +209,14 @@ impl State {
 
 	/// Checks whether streamer mode is active (either explicitly or via streaming activity).
 	pub fn is_streamer_mode_active(&self) -> bool {
-		if streamer_mode_on_stream_enabled() {
-			if let Some(call) = self.voice.active.as_ref() {
-				if let Some(user) = self.user.as_ref() {
-					if call.participants.iter().any(|p| p.user == user.id && p.streaming) {
-						return true;
-					}
-				}
-			}
-		}
-		false
+		streamer_mode_on_stream_enabled()
+			&& self.voice.active.as_ref().is_some_and(|call| {
+				self.user.as_ref().is_some_and(|user| {
+					call.participants
+						.iter()
+						.any(|p| p.user == user.id && p.streaming)
+				})
+			})
 	}
 	/// Invalidates Online membership, without invalidating on activity-only updates.
 	/// Connection state and relationship visibility are separate cache keys.
@@ -1638,13 +1636,13 @@ mod tests {
 	fn auto_dnd_and_streamer_mode_toggles_and_effective_status() {
 		assert!(!auto_dnd_while_playing_enabled());
 		assert!(!streamer_mode_on_stream_enabled());
-		
+
 		set_auto_dnd_while_playing_enabled(true);
 		assert!(auto_dnd_while_playing_enabled());
-		
+
 		set_streamer_mode_on_stream_enabled(true);
 		assert!(streamer_mode_on_stream_enabled());
-		
+
 		let state = State::default();
 		// When no game activity is present, base status is kept
 		assert_eq!(state.effective_local_status("online"), "online");
@@ -1655,7 +1653,7 @@ mod tests {
 		active_state.demo = true;
 		active_state.local_game_activity = Some(activity());
 		assert_eq!(active_state.effective_local_status("online"), "dnd");
-		
+
 		set_auto_dnd_while_playing_enabled(false);
 		set_streamer_mode_on_stream_enabled(false);
 		assert!(!auto_dnd_while_playing_enabled());

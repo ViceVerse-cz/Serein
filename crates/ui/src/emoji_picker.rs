@@ -92,16 +92,16 @@ pub fn derive_gif_alt_text(title: &str, url: &str) -> String {
 	if !title.is_empty() {
 		return title.to_string();
 	}
-	if BETTER_GIF_ALT_TEXT_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
-		if let Some(slug) = url.rsplit('/').next() {
-			let cleaned = slug
-				.split('-')
-				.take_while(|p| !p.chars().all(|c| c.is_ascii_digit()))
-				.collect::<Vec<_>>()
-				.join(" ");
-			if !cleaned.is_empty() {
-				return cleaned;
-			}
+	if BETTER_GIF_ALT_TEXT_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+		&& let Some(slug) = url.rsplit('/').next()
+	{
+		let cleaned = slug
+			.split('-')
+			.take_while(|p| !p.chars().all(|c| c.is_ascii_digit()))
+			.collect::<Vec<_>>()
+			.join(" ");
+		if !cleaned.is_empty() {
+			return cleaned;
 		}
 	}
 	"GIF".to_owned()
@@ -138,13 +138,24 @@ pub(crate) fn insert(
 	remaining: usize,
 	editing: bool,
 ) -> Option<usize> {
+	let limit = composer_limit(draft, editing);
+	insert_with_limit(draft, text, range, remaining, limit)
+}
+
+pub(crate) fn insert_with_limit(
+	draft: &mut String,
+	text: &str,
+	range: Option<egui::text::CCursorRange>,
+	remaining: usize,
+	limit: usize,
+) -> Option<usize> {
 	let count = draft.chars().count();
 	let (start, end) = range.map_or((count, count), |range| {
 		let range = range.as_sorted_char_range();
 		(range.start.0.min(count), range.end.0.min(count))
 	});
 	let inserted = text.chars().count();
-	if count - (end - start) + inserted > composer_limit(draft, editing) {
+	if count - (end - start) + inserted > limit {
 		return None;
 	}
 	let byte_start = draft
@@ -197,7 +208,8 @@ pub(crate) fn complete_shortcode(
 		return None;
 	}
 	let name = &prefix[start + 1..];
-	if !(2..=64).contains(&name.chars().count()) {
+	// Discord's one-letter names (`:x:`, `:v:`, `:m:`) convert like any other.
+	if !(1..=64).contains(&name.chars().count()) {
 		return None;
 	}
 	let emoji =
@@ -985,7 +997,11 @@ impl Picker {
 	/// messages, as Discord's frequently used row; custom ones only while their server is
 	/// loaded. Filled with defaults.
 	fn favorites(&self, state: &State) -> Vec<Used> {
-		let limit = if fav_emoji_first_enabled() { 16 } else { FAVORITES };
+		let limit = if fav_emoji_first_enabled() {
+			16
+		} else {
+			FAVORITES
+		};
 		let ranking = &state.emoji_frecency.ranking;
 		let keys = if matches!(self.reaction, Some((Target::React(_), ..))) {
 			&ranking.reactions
@@ -1015,7 +1031,10 @@ impl Picker {
 			}
 		}
 		let defaults = if fav_emoji_first_enabled() {
-			&["👍", "❤️", "😂", "🎉", "👀", "✅", "🙏", "😢", "🔥", "🚀", "✨", "💯", "👏", "🥳", "🥺", "💀"][..]
+			&[
+				"👍", "❤️", "😂", "🎉", "👀", "✅", "🙏", "😢", "🔥", "🚀", "✨", "💯", "👏", "🥳",
+				"🥺", "💀",
+			][..]
 		} else {
 			&["👍", "❤️", "😂", "🎉", "👀", "✅", "🙏", "😢"][..]
 		};
@@ -1484,7 +1503,15 @@ impl Picker {
 											let search_id = ui.scope_id().with("picker-search");
 											// New Areas have an invisible sizing pass before they can take focus.
 											// Request before TextEdit runs so the first typed character is retained.
-											if self.focus
+											// The click that opened the picker landed outside the field and would
+											// take the focus straight back, so wait for it to finish.
+											let clicking = ui.input(|input| {
+												input.pointer.any_pressed()
+													|| input.pointer.any_released()
+											});
+											if self.focus && clicking {
+												ui.ctx().request_repaint();
+											} else if self.focus
 												&& !ui.is_sizing_pass() && ui.ctx().memory(
 												|memory| memory.allows_interaction(ui.layer_id()),
 											) {
@@ -2158,11 +2185,20 @@ impl Picker {
 						&& gif_trigger.is_none_or(|trigger| !trigger.rect.contains(pos))
 				})
 		});
-		self.open = !clicked_outside && selected.is_none();
+		// Shift keeps the popout open for another emoji or reaction, like Discord.
+		let keep = matches!(selected, Some(Pick::Insert(_) | Pick::React(..)))
+			&& ui.input(|i| i.modifiers.shift);
+		self.open = !clicked_outside && (selected.is_none() || keep);
 		if !self.open {
 			self.close_gifs(state, commands);
 		}
-		if selected.is_some() {
+		if keep {
+			self.focus = true;
+		} else if selected.is_some() {
+			if !self.query.is_empty() {
+				self.query.clear();
+				self.filter();
+			}
 			trigger.request_focus();
 		}
 		selected
@@ -2856,12 +2892,21 @@ mod tests {
 	#[test]
 	fn better_gif_alt_text_toggle_and_derive_works() {
 		assert!(!better_gif_alt_text_enabled());
-		assert_eq!(derive_gif_alt_text("", "https://tenor.com/view/funny-cat-dancing-12345"), "GIF");
+		assert_eq!(
+			derive_gif_alt_text("", "https://tenor.com/view/funny-cat-dancing-12345"),
+			"GIF"
+		);
 		set_better_gif_alt_text_enabled(true);
 		assert!(better_gif_alt_text_enabled());
-		assert_eq!(derive_gif_alt_text("", "https://tenor.com/view/funny-cat-dancing-12345"), "funny cat dancing");
+		assert_eq!(
+			derive_gif_alt_text("", "https://tenor.com/view/funny-cat-dancing-12345"),
+			"funny cat dancing"
+		);
 		set_better_gif_alt_text_enabled(false);
-		assert_eq!(derive_gif_alt_text("", "https://tenor.com/view/funny-cat-dancing-12345"), "GIF");
+		assert_eq!(
+			derive_gif_alt_text("", "https://tenor.com/view/funny-cat-dancing-12345"),
+			"GIF"
+		);
 	}
 
 	#[test]
@@ -3675,6 +3720,9 @@ mod tests {
 		let cursor = shortcode.chars().count();
 		assert!(complete_shortcode(&mut shortcode, cursor, 64, false).is_some());
 		assert!(shortcode.ends_with("❤️"));
+		let mut single = "no :x:".to_owned();
+		assert!(complete_shortcode(&mut single, 6, 64, false).is_some());
+		assert_eq!(single, "no ❌");
 		assert!(model::message_options::valid(
 			&shortcode,
 			client_core::MAX_CONTENT,
@@ -3972,5 +4020,4 @@ pub(crate) fn debug_gif_retry(state: &mut State) {
 		}
 		assert!(matches!(picked, Some(Err(GifAction::Retry(None)))));
 	}
-
 }

@@ -31,8 +31,7 @@ pub fn keep_current_channel_enabled() -> bool {
 	KEEP_CURRENT_CHANNEL_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
 }
 
-pub static LAST_ACTIVE_CHANNEL: std::sync::atomic::AtomicU64 =
-	std::sync::atomic::AtomicU64::new(0);
+pub static LAST_ACTIVE_CHANNEL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 #[allow(dead_code)]
 pub fn record_active_channel(channel: Id) {
@@ -342,6 +341,13 @@ pub enum Command {
 		content: String,
 		nonce: String,
 		reply: Option<Reply>,
+		captcha: Box<captcha::Retry>,
+	},
+	/// The user's solution for a challenged attachment send. It resumes the upload still
+	/// waiting on it, so staged files are never transferred twice; never automatic.
+	VerifiedUpload {
+		channel: Id,
+		nonce: String,
 		captcha: Box<captcha::Retry>,
 	},
 	Edit {
@@ -2629,6 +2635,7 @@ impl State {
 		}
 		if let Command::Send { nonce, .. }
 		| Command::VerifiedSend { nonce, .. }
+		| Command::VerifiedUpload { nonce, .. }
 		| Command::Forward { nonce, .. } = command
 		{
 			self.apply(Envelope {

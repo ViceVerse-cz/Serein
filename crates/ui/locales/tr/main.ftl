@@ -69,6 +69,11 @@ general-gpu-restart = Serein'in bir sonraki başlangıcında etkili olur.
 general-gpu-current-prefix = Şu anda çizim yapıyorum
 general-steady-refresh-rate = Sabit yenileme hızı
 general-steady-refresh-rate-description = Serein etkin pencereyken ekranın yenileme hızında çizer; böylece değişken yenileme hızlı (VRR, G-SYNC, FreeSync) ekranlar titremek yerine tek bir hızda kalabilir. Daha fazla güç tüketir.
+steady-refresh-prompt-title = G-SYNC ekran algılandı
+steady-refresh-prompt-body = Serein yalnızca bir şey değiştiğinde yeniden çizer; bu da Serein etkin pencereyken G-SYNC ekranın titremesine yol açabilir. Sabit yenileme hızı, ekranın yenileme hızında çizerek bunu önler ancak daha fazla güç tüketir. Açılsın mı?
+steady-refresh-prompt-turn-on = Aç
+steady-refresh-prompt-keep-off = Hayır, teşekkürler
+steady-refresh-prompt-settings = Bunu daha sonra ayarlarda { $page } > { $group } bölümünden değiştirebilirsiniz.
 gpu-automatic = Otomatik
 gpu-high-performance = Yüksek performans
 gpu-power-saving = Güç tasarrufu
@@ -1690,6 +1695,8 @@ markdown-confirm-external-link-open-external-link = Harici bağlantı açılsın
 # Context: confirm_external_link
 markdown-confirm-external-link-open-in-browser = Tarayıcıda Aç
 # Context: confirm_external_link
+markdown-confirm-external-link-only-the-start-fits = Bağlantıya bu mesajın yalnızca başı sığıyor; geri kalanı gönderilmez. Bu hedef varsayılan tarayıcınızda açılır.
+# Context: confirm_external_link
 markdown-confirm-external-link-this-destination-opens-in-your-default-browser = Bu hedef varsayılan tarayıcınızda açılır.
 # Context: show_emoji
 markdown-show-emoji-copy-emoji = Emojiyi kopyala
@@ -2274,6 +2281,8 @@ screen-body-send-what-your-mac-plays-along-with-the-screen-serein = Mac'inizin o
 screen-body-share-sound-from-other-apps-even-when-sharing-one-window = Bir pencereyi paylaşırken bile diğer uygulamalardaki sesi paylaşın. Serein'in kendi sesi dışarıda bırakıldı.
 # Context: body
 screen-body-share-system-audio = Sistem sesini paylaş
+# Context: body
+screen-body-share-the-shared-apps-sound-or-other-apps-for-a-screen = Paylaşılan uygulamanın sesini veya ekran paylaşırken diğer tüm uygulamaların sesini paylaşın. Serein'in kendi sesi dahil edilmez.
 # Context: body
 screen-body-show-cursor = İmleci göster
 # Context: body
@@ -3865,6 +3874,10 @@ timeline-message-actions-delete-message = Mesajı sil…
 timeline-message-actions-edit-message = Mesajı düzenle
 # Context: message_actions
 timeline-message-actions-extensions = Uzantılar
+# Context: menu
+extensions-ui-menu-group-user = Kullanıcı
+# Context: menu
+extensions-ui-menu-group-conversation = Sohbet
 # Context: message_actions
 timeline-message-actions-forward = İlet
 # Context: message_actions
@@ -3910,6 +3923,8 @@ timeline-show-with-scroll-history-is-not-available-yet-use-reload-to-try-again =
 timeline-show-with-scroll-loading-messages = Mesajlar yükleniyor…
 # Context: show_with_scroll
 timeline-show-with-scroll-message-deleted = Mesaj silindi
+# Context: show_with_scroll
+timeline-show-with-scroll-message-blocked = Engellenen mesaj
 # Context: show_with_scroll
 timeline-show-with-scroll-message-history-is-unavailable-with-current-permission-information = Mesaj geçmişi mevcut izin bilgileriyle kullanılamaz.
 # Context: show_with_scroll
@@ -4493,6 +4508,8 @@ voice-recipient-not-in-call = Aramada değil
 
 reconnect-now = Şimdi yeniden bağlan
 
+message-preview-limit = Bu mesaj, yerel metin düzeni sınırını aşıyor.
+
 voice-call-moved-to-another-client = Bu cihazın arama oturumu değiştirildi
 
 server-settings-page-safety = Güvenlik Kurulumu
@@ -4588,6 +4605,11 @@ profiles-board-empty = No games on this board yet.
 profiles-board-show-more = Show more
 profiles-board-show-less = Show less
 profiles-activity-empty = Paylaşılan etkinlik yok.
+profiles-in-voice-server = { $server } sunucusunda
+profiles-in-voice-join = Katıl
+profiles-in-voice-joined = Zaten bu ses kanalındasınız.
+profiles-in-voice-failed = Önce başarısız aramayı kapatın, sonra yeniden katılın.
+profiles-in-voice-unavailable = Şu anda bu ses kanalına katılamazsınız.
 profiles-mutuals-empty = Nothing to show here.
 
 reading-double-click-reaction = Double-click reaction

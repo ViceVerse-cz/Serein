@@ -583,7 +583,8 @@ fn category_header(
 	ui: &mut egui::Ui,
 	id: impl egui::AsIdSalt,
 	name: &str,
-	count: usize,
+	// `None` leaves the count out of the tooltip and accessible label.
+	count: Option<usize>,
 	collapsed: bool,
 	row_height: f32,
 	draggable: bool,
@@ -620,7 +621,7 @@ fn category_header(
 		color,
 	);
 	let mut job = egui::text::LayoutJob::simple_singleline(
-		name.to_uppercase(),
+		crate::emoji::presentation(name).to_uppercase(),
 		egui::FontId::new(12.0, crate::design::semibold_family(ui.ctx())),
 		color,
 	);
@@ -635,11 +636,19 @@ fn category_header(
 	ui.painter()
 		.with_clip_rect(label_rect)
 		.galley(label_rect.min, label, color);
+	let counted = |separator: &str| {
+		count.map_or_else(String::new, |count| {
+			format!(
+				"{separator}{count} {}",
+				crate::i18n::translate("categories-category-header-channels")
+			)
+		})
+	};
 	let response = response.on_hover_text_with(|| {
 		format!(
-			"{name} {} · {count} {} · {}",
+			"{name} {}{} · {}",
 			crate::i18n::translate("categories-category-header-category"),
-			crate::i18n::translate("categories-category-header-channels"),
+			counted(" · "),
 			crate::i18n::translate_if_key(if collapsed {
 				"categories-category-header-expand"
 			} else {
@@ -652,14 +661,14 @@ fn category_header(
 			egui::Role::Button,
 			true,
 			format!(
-				"{name} {}, {}, {count} {}",
+				"{name} {}, {}{}",
 				crate::i18n::translate("categories-category-header-category"),
 				crate::i18n::translate_if_key(if collapsed {
 					"categories-category-header-collapsed"
 				} else {
 					"categories-category-header-expanded"
 				}),
-				crate::i18n::translate("categories-category-header-channels")
+				counted(", ")
 			),
 		)
 	});
@@ -790,6 +799,8 @@ fn kind_label(kind: u8) -> &'static str {
 }
 
 impl MessagingUi {
+	/// Draws the conversation or channel sidebar for the current server or Home, with its
+	/// categories, request groups and voice participants, and returns a channel to open.
 	pub(super) fn channel_list(&mut self, ui: &mut egui::Ui, state: &mut State) -> Option<Id> {
 		let voice_users = crate::profiles::voice_users(state);
 		let language = self.language;
@@ -878,7 +889,7 @@ impl MessagingUi {
 			}
 			let mut participants = BTreeMap::<Id, Vec<_>>::new();
 			for entry in &state.voice.roster {
-				if Some(entry.guild) == self.guild && state.can_view(entry.channel) {
+				if Some(entry.guild) == self.guild {
 					participants.entry(entry.channel).or_default().push(entry);
 				}
 			}
@@ -967,25 +978,33 @@ impl MessagingUi {
 							}
 						}
 						CachedRow::Requests(count, collapsed) => {
+							// A plugin may hide request counts: badge, tooltip and label alike.
+							let hidden = crate::interface_tweaks::on(
+								ui.ctx(),
+								extensions::InterfaceTweak::HiddenRequestCounts,
+							);
 							let response = category_header(
 								ui,
 								"message-requests",
 								&crate::i18n::translate(Heading::MessageRequests.key()),
-								count,
+								(!hidden).then_some(count),
 								collapsed,
 								row_height,
 								false,
 							);
-							// The count stays visible while folded, so a hidden list still reports.
-							crate::notifications::badge(
-								ui,
-								egui::pos2(
-									response.rect.right() - 16.0,
-									response.rect.bottom() - 13.0,
-								),
-								u32::try_from(count).unwrap_or(u32::MAX),
-								colors.sidebar,
-							);
+							// The count stays visible while folded, so a hidden list still reports,
+							// unless a plugin hides request counts.
+							if !hidden {
+								crate::notifications::badge(
+									ui,
+									egui::pos2(
+										response.rect.right() - 16.0,
+										response.rect.bottom() - 13.0,
+									),
+									u32::try_from(count).unwrap_or(u32::MAX),
+									colors.sidebar,
+								);
+							}
 							if response.clicked() {
 								self.message_requests_collapsed = !collapsed;
 								self.channel_cache.key = None;
@@ -1015,7 +1034,7 @@ impl MessagingUi {
 								ui,
 								category.id,
 								&category.name,
-								count,
+								Some(count),
 								collapsed,
 								row_height,
 								draggable,
@@ -1341,6 +1360,7 @@ impl MessagingUi {
 											&avatar,
 											state,
 											user,
+											crate::user_menu::Place::Conversation(channel.id),
 											&mut self.profile,
 											&mut self.user_action,
 											Some(ShortcutView::new(
@@ -1388,11 +1408,15 @@ impl MessagingUi {
 								);
 							}
 							let has_draft = DRAFT_NAVIGATOR_ENABLED.load(Ordering::Relaxed)
-								&& state.drafts.get(&channel.id).is_some_and(|d| !d.trim().is_empty());
+								&& state
+									.drafts
+									.get(&channel.id)
+									.is_some_and(|d| !d.trim().is_empty());
+							let name = crate::emoji::presentation(state.conversation_name(channel));
 							let mut label = if has_draft {
-								format!("✏️ {}", state.conversation_name(channel))
+								format!("✏️ {name}")
 							} else {
-								String::from(state.conversation_name(channel))
+								name.into_owned()
 							};
 							if !enabled && visible {
 								label.push_str(" · unavailable");
@@ -1595,7 +1619,9 @@ impl MessagingUi {
 									- egui::vec2(8.0 + lane + label.size().x, label.size().y * 0.5);
 								ui.painter().galley(pos, label, colors.muted);
 							}
-							if count > 0 || (unread && UNREAD_BADGE_COUNT_ENABLED.load(Ordering::Relaxed)) {
+							if count > 0
+								|| (unread && UNREAD_BADGE_COUNT_ENABLED.load(Ordering::Relaxed))
+							{
 								crate::notifications::badge(
 									ui,
 									row.right_center()
@@ -1623,9 +1649,13 @@ impl MessagingUi {
 							}
 							let response = response.on_hover_text_with(|| {
 								let has_draft = DRAFT_NAVIGATOR_ENABLED.load(Ordering::Relaxed)
-									&& state.drafts.get(&channel.id).is_some_and(|d| !d.trim().is_empty());
+									&& state
+										.drafts
+										.get(&channel.id)
+										.is_some_and(|d| !d.trim().is_empty());
 								let display_name = clean_channel_name(&channel.name);
-								let badge_suffix = channel_badge_label(channel.kind).map_or(String::new(), |b| format!(" [{b}]"));
+								let badge_suffix = channel_badge_label(channel.kind)
+									.map_or(String::new(), |b| format!(" [{b}]"));
 								format!(
 									"{}{}{} · {}{}{}",
 									if has_draft { "✏️ " } else { "" },
@@ -1671,6 +1701,7 @@ impl MessagingUi {
 									&response,
 									state,
 									user,
+									crate::user_menu::Place::Conversation(channel.id),
 									&mut self.profile,
 									&mut self.user_action,
 									Some(ShortcutView::new(
@@ -2981,6 +3012,65 @@ mod tests {
 	}
 
 	#[test]
+	fn long_voice_channel_names_use_one_elided_row() {
+		fn find<'a>(shape: &'a egui::Shape, text: &str) -> Option<&'a egui::Galley> {
+			match shape {
+				egui::Shape::Text(text_shape) if text_shape.galley.job.text == text => {
+					Some(text_shape.galley.as_ref())
+				}
+				egui::Shape::Vec(children) => children.iter().find_map(|shape| find(shape, text)),
+				_ => None,
+			}
+		}
+
+		let long = "Quiet room with a deliberately long name that must not wrap";
+		let mut state = test_support::voice_demo_state();
+		state
+			.channels
+			.iter_mut()
+			.find(|c| c.id == Id(25))
+			.unwrap()
+			.name = long.into();
+		state.invalidate_navigation();
+		let mut view = MessagingUi {
+			guild: Some(Id(10)),
+			..Default::default()
+		};
+		let ctx = egui::Context::default();
+		let output = ctx.run_ui(
+			egui::RawInput {
+				screen_rect: Some(egui::Rect::from_min_size(
+					egui::Pos2::ZERO,
+					egui::vec2(180.0, 1600.0),
+				)),
+				..Default::default()
+			},
+			|ui| {
+				view.channel_list(ui, &mut state);
+			},
+		);
+		let galley = output
+			.shapes
+			.iter()
+			.find_map(|shape| find(&shape.shape, long))
+			.unwrap_or_else(|| {
+				let texts: Vec<_> = output
+					.shapes
+					.iter()
+					.filter_map(|shape| match &shape.shape {
+						egui::Shape::Text(text) => Some(text.galley.job.text.clone()),
+						_ => None,
+					})
+					.collect();
+				panic!("voice channel name missing; texts: {texts:?}");
+			});
+		let (elided, rows) = (galley.elided, galley.rows.len());
+		output.drop_without_applying_deltas();
+		assert!(elided, "long voice channel names should end in an ellipsis");
+		assert_eq!(rows, 1, "voice channel rows hold a single line");
+	}
+
+	#[test]
 	fn double_clicking_voice_row_joins_through_call_request() {
 		fn walk(shape: &egui::Shape, rows: &mut BTreeMap<String, egui::Pos2>) {
 			match shape {
@@ -3125,12 +3215,21 @@ mod venserein_batch1_categories_tests {
 		assert_eq!(clean_channel_name("📢・ᴀɴɴᴏᴜɴᴄᴇᴍᴇɴᴛs"), "announcements");
 		// When disabled, function returns a borrowed slice (no allocation).
 		set_clean_channel_name_enabled(false);
-		assert!(matches!(clean_channel_name("general"), std::borrow::Cow::Borrowed("general")));
+		assert!(matches!(
+			clean_channel_name("general"),
+			std::borrow::Cow::Borrowed("general")
+		));
 		set_clean_channel_name_enabled(true);
 		// Plain ASCII without special chars: borrowed, no allocation.
-		assert!(matches!(clean_channel_name("general"), std::borrow::Cow::Borrowed("general")));
+		assert!(matches!(
+			clean_channel_name("general"),
+			std::borrow::Cow::Borrowed("general")
+		));
 		// Decorated name: owned (allocation happens only when needed).
-		assert!(matches!(clean_channel_name("💬・chat"), std::borrow::Cow::Owned(_)));
+		assert!(matches!(
+			clean_channel_name("💬・chat"),
+			std::borrow::Cow::Owned(_)
+		));
 
 		assert!(channel_badges_enabled());
 		set_channel_badges_enabled(false);
@@ -3179,7 +3278,10 @@ mod venserein_batch1_categories_tests {
 			groups: vec![("online".to_string(), 12), ("offline".to_string(), 38)],
 			ranges: vec![],
 		});
-		assert_eq!(guild_member_counts(&mock_state, Id(123)), Some((50, Some(12))));
+		assert_eq!(
+			guild_member_counts(&mock_state, Id(123)),
+			Some((50, Some(12)))
+		);
 		assert_eq!(guild_member_counts(&mock_state, Id(999)), None);
 	}
 }

@@ -950,6 +950,4 @@ mod tests {
 		state.logout();
 		assert!(state.gifs.favorites.is_empty() && state.gifs.sync_remote.is_empty());
 	}
-
 }
-

@@ -339,7 +339,11 @@ impl AudioUi {
 					);
 					if voice && voice_download_enabled() {
 						ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-							if ui.small_button("Download").on_hover_text("Download voice message").clicked() {
+							if ui
+								.small_button("Download")
+								.on_hover_text("Download voice message")
+								.clicked()
+							{
 								self.download_request = Some(attachment.clone());
 							}
 						});
@@ -689,7 +693,7 @@ mod tests {
 		let seconds = seek(&mut audio).expect("release commits the drag");
 		assert!((seconds - 2.25).abs() < 0.15, "{seconds}");
 	}
-#[test]
+	#[test]
 	fn better_audio_player_timestamp_shows_tenths() {
 		assert_eq!(timestamp(125.4), "2:05");
 		set_better_audio_player_enabled(true);
@@ -697,4 +701,3 @@ mod tests {
 		set_better_audio_player_enabled(false);
 	}
 }
-

@@ -154,7 +154,7 @@ mod tests {
 		std::fs::write(&root, source.into_inner()).unwrap();
 		let (_, filename, bytes, preview) = read(root.clone(), &AtomicBool::new(false)).unwrap();
 		assert_eq!(filename, "sticker.png");
-		assert_eq!(preview.size, [320, 320]);
+		assert_eq!(preview.resolution(), [320, 320]);
 		assert!(bytes.starts_with(b"\x89PNG\r\n\x1a\n") && bytes.len() <= 512 * 1024);
 		std::fs::remove_file(root).unwrap();
 	}

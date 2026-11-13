@@ -595,11 +595,11 @@ impl MediaLibrary {
 		}
 		let limit = size.longest() as usize;
 		let Some(image) = image.filter(|image| {
-			image.size[0] > 0
-				&& image.size[1] > 0
-				&& image.size[0] <= limit
-				&& image.size[1] <= limit
-				&& image.pixels.len() == image.size[0] * image.size[1]
+			image.resolution()[0] > 0
+				&& image.resolution()[1] > 0
+				&& image.resolution()[0] <= limit
+				&& image.resolution()[1] <= limit
+				&& image.pixels().len() == image.resolution()[0] * image.resolution()[1]
 		}) else {
 			if motion == Motion::Animated && is_motion_video(source.as_str()) {
 				// Retrying cannot help a clip this decoder rejects, and it is not cached on disk.
@@ -693,14 +693,16 @@ impl MediaLibrary {
 		}
 		let now = Instant::now();
 		let total: Duration = frames.iter().map(|(delay, _)| *delay).sum();
-		let frame_bytes = || frames.iter().map(|(_, image)| image.pixels.len() * 4);
+		let frame_bytes = || frames.iter().map(|(_, image)| image.pixels().len() * 4);
 		let bytes = frame_bytes().sum::<usize>() + frame_bytes().max().unwrap_or(0);
 		let limit = size.longest() as usize;
 		if total.is_zero()
 			|| frames.len() > MAX_FRAMES
 			|| bytes > lane.frame_bytes()
 			|| frames.iter().any(|(delay, image)| {
-				*delay < Duration::from_millis(20) || image.size[0] > limit || image.size[1] > limit
+				*delay < Duration::from_millis(20)
+					|| image.resolution()[0] > limit
+					|| image.resolution()[1] > limit
 			}) {
 			// The decoder applies the same budget, so a retry would be rejected again.
 			slot.held.remove(index);
@@ -843,7 +845,7 @@ impl MediaLibrary {
 		for y in 0..height {
 			for x in 0..width {
 				let (u, v) = (x * 320 / width, y * 180 / height);
-				image.pixels[y * width + x] = if u < 8 || v < 8 || u >= 312 || v >= 172 {
+				image.pixels_mut()[y * width + x] = if u < 8 || v < 8 || u >= 312 || v >= 172 {
 					Color32::WHITE
 				} else if u % 40 < 4 || v % 40 < 4 {
 					Color32::from_rgb(80, 180, 160)
@@ -1189,7 +1191,7 @@ impl Avatars {
 				let texture = match &held.pixels {
 					Pixels::Still(still) | Pixels::Playing { still, .. } => still,
 				};
-				let [width, height] = texture.size();
+				let [width, height] = texture.resolution();
 				[width as u32, height as u32]
 			})
 			.max_by_key(|[width, height]| u64::from(*width) * u64::from(*height))

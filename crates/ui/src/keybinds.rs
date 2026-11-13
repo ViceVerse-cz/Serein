@@ -4,7 +4,8 @@ use egui::{Event, InputState, Key, Modifiers, RichText};
 use model::{CustomBinding, KeyChord, KeybindAction, Keybinds};
 
 /// VenSerein (KeyboardNavigation): Controls global keyboard navigation across channels, lists, and dialogs.
-pub static KEYBOARD_NAVIGATION_ENABLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+pub static KEYBOARD_NAVIGATION_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(true);
 
 #[allow(dead_code)]
 pub fn set_keyboard_navigation_enabled(enabled: bool) {

@@ -65,10 +65,18 @@ general-windows-tray-description = Closing the window keeps Serein in the notifi
 general-tray-unavailable = The tray is unavailable on this platform.
 general-graphics = Graphics
 general-render-with = Render with
+general-graphics-api = Graphics API
+general-graphics-api-description = Takes effect after restarting Serein. Uses Automatic if the selected API cannot draw this window.
+general-graphics-api-env-override = WGPU_BACKEND controls the API for this launch. Remove that environment override to use this setting.
 general-gpu-restart = Takes effect the next time Serein starts.
 general-gpu-current-prefix = Currently drawing with
 general-steady-refresh-rate = Steady refresh rate
 general-steady-refresh-rate-description = While Serein is the active window, draw at the display's refresh rate so variable refresh rate (VRR, G-SYNC, FreeSync) displays can hold one rate instead of flickering. Uses more power.
+steady-refresh-prompt-title = G-SYNC display detected
+steady-refresh-prompt-body = Serein only redraws when something changes, which can make a G-SYNC display flicker while Serein is the active window. Steady refresh rate avoids that by drawing at the display's refresh rate, and uses more power. Turn it on?
+steady-refresh-prompt-turn-on = Turn on
+steady-refresh-prompt-keep-off = No thanks
+steady-refresh-prompt-settings = Change it later in Settings > { $page } > { $group }.
 gpu-automatic = Automatic
 gpu-high-performance = High performance
 gpu-power-saving = Power saving
@@ -321,6 +329,20 @@ attachments-viewer-cancel = Cancel
 attachments-viewer-downloads-are-disabled-for-synthetic-attachments = Downloads are disabled for synthetic attachments
 # Context: viewer
 attachments-viewer-open-in-browser = Open in browser
+# Context: viewer
+attachments-viewer-zoom-in = Zoom in
+# Context: viewer
+attachments-viewer-more = More
+# Context: viewer
+attachments-viewer-copy-media-link = Copy Media Link
+# Context: viewer
+attachments-viewer-view-details = View Details
+# Context: viewer
+attachments-viewer-filename = Filename
+# Context: viewer
+attachments-viewer-size = Size
+# Context: viewer
+attachments-viewer-copy-attachment-id = Copy Attachment ID
 # Context: viewer
 attachments-viewer-scroll-to-zoom-drag-to-pan-double-click-to-reset = Scroll to zoom · Drag to pan · Double-click to reset
 
@@ -1706,6 +1728,8 @@ markdown-confirm-external-link-open-external-link = Open external link?
 # Context: confirm_external_link
 markdown-confirm-external-link-open-in-browser = Open in Browser
 # Context: confirm_external_link
+markdown-confirm-external-link-only-the-start-fits = Only the start of this message fits in the link; the rest is not sent. This destination opens in your default browser.
+# Context: confirm_external_link
 markdown-confirm-external-link-this-destination-opens-in-your-default-browser = This destination opens in your default browser.
 # Context: show_emoji
 markdown-show-emoji-copy-emoji = Copy emoji
@@ -2292,6 +2316,8 @@ screen-body-send-what-your-mac-plays-along-with-the-screen-serein = Send what yo
 screen-body-share-sound-from-other-apps-even-when-sharing-one-window = Share sound from other apps, even when sharing one window. Serein's own audio is left out.
 # Context: body
 screen-body-share-system-audio = Share system audio
+# Context: body
+screen-body-share-the-shared-apps-sound-or-other-apps-for-a-screen = Share the shared app's sound, or every other app's sound when sharing a screen. Serein's own audio is left out.
 # Context: body
 screen-body-show-cursor = Show cursor
 # Context: body
@@ -3544,9 +3570,6 @@ settings-storage-page-removes-cached-messages-and-media-drafts-and-your-login-st
 settings-storage-page-serein-does-not-collect-telemetry-or-upload-diagnostics-discord-retains = Serein does not collect telemetry or upload diagnostics. Discord retains service-side data according to its own policies.
 # Context: storage_page
 settings-storage-page-your-privacy = Your privacy
-settings-storage-page-saved-login = Saved login
-settings-storage-page-plaintext-login = Save login in plaintext without a keyring
-settings-storage-page-plaintext-login-description = Used only when no OS keyring (GNOME Keyring, KWallet, Keychain or Credential Manager) works. The token is stored unencrypted in a private file in Serein's data folder, where anyone with access to your user account can read it. Turning this off deletes those files.
 # Context: cosmetic_settings
 settings-cosmetics = Profile cosmetics
 # Context: cosmetic_settings
@@ -3889,6 +3912,10 @@ timeline-message-actions-delete-message = Delete message…
 timeline-message-actions-edit-message = Edit message
 # Context: message_actions
 timeline-message-actions-extensions = Extensions
+# Context: menu
+extensions-ui-menu-group-user = User
+# Context: menu
+extensions-ui-menu-group-conversation = Conversation
 # Context: message_actions
 timeline-message-actions-forward = Forward
 # Context: message_actions
@@ -3899,6 +3926,7 @@ timeline-message-actions-mark-unread = Mark Unread
 timeline-message-actions-pin-message = Pin message
 # Context: message_actions
 timeline-message-actions-reply = Reply
+timeline-message-actions-translate = Translate (opens browser)
 # Context: message_actions
 timeline-message-actions-unpin-message = Unpin message
 # Context: message_actions
@@ -3938,6 +3966,8 @@ timeline-show-with-scroll-history-is-not-available-yet-use-reload-to-try-again =
 timeline-show-with-scroll-loading-messages = Loading messages…
 # Context: show_with_scroll
 timeline-show-with-scroll-message-deleted = Message deleted
+# Context: show_with_scroll
+timeline-show-with-scroll-message-blocked = Blocked message
 # Context: show_with_scroll
 timeline-show-with-scroll-message-history-is-unavailable-with-current-permission-information = Message history is unavailable with current permission information.
 # Context: show_with_scroll
@@ -4234,6 +4264,13 @@ voice-voice-card-section-dismiss-call = Dismiss call
 voice-voice-card-section-reconnect-attempt = { $reason } · attempt { $attempt } of { $total }
 # Context: voice_card_section
 voice-voice-card-section-reconnecting = Reconnecting…
+
+voice-connection-title = Connection
+voice-connection-ping-value = { $millis } ms
+voice-connection-ping-pending = Waiting for the first ping…
+voice-connection-average-ping = Average ping: { $value }
+voice-connection-last-ping = Last ping: { $value }
+voice-connection-ping-description = Round-trip time to the voice signaling server.
 # Context: voice_card_section
 voice-voice-card-section-microphone-unavailable-a-still-connected-choose-another-input-in-audio = Microphone unavailable · still connected. Choose another input in Audio settings.
 # Context: voice_channel_button
@@ -4590,6 +4627,7 @@ public-upload-error-conversation = Return to the original conversation and revie
 public-upload-error-selection = Selection changed; review the file again before uploading publicly
 public-upload-error-missing = Select the file again before uploading publicly
 
+message-preview-limit = This message exceeds the native text layout limit.
 voice-call-moved-to-another-client = This device's call session was replaced
 
 # Synchronized favorite GIFs (unofficial account settings).
@@ -4703,6 +4741,11 @@ profiles-board-empty = No games on this board yet.
 profiles-board-show-more = Show more
 profiles-board-show-less = Show less
 profiles-activity-empty = No activity shared.
+profiles-in-voice-server = in { $server }
+profiles-in-voice-join = Join
+profiles-in-voice-joined = You’re in this voice channel.
+profiles-in-voice-failed = Dismiss the failed call first, then join again.
+profiles-in-voice-unavailable = You can’t join this voice channel right now.
 profiles-mutuals-empty = Nothing to show here.
 
 reading-double-click-reaction = Double-click reaction
@@ -5026,3 +5069,29 @@ setup-done = Done
 setup-run-again = Run first-time setup again
 setup-run-again-description = Walk through appearance, window, desktop, cosmetics, chat, notifications and voice again.
 setup-run-again-action = Start
+
+## Composer notification and timestamp shortcuts
+mention-shortcut-silent = @silent — send without push notifications
+mention-shortcut-time = @time — choose a timestamp
+message-silent-indicator = Silent
+message-silent-hint = Push and desktop notifications are suppressed. Mention badges still apply.
+timestamp-picker-title = Insert timestamp
+timestamp-picker-date = Date (YYYY-MM-DD)
+timestamp-picker-clock = Time (HH:MM:SS)
+timestamp-picker-offset = UTC offset (±HH:MM)
+timestamp-picker-offset-hint = Starts at your current local offset. Adjust for another time zone or daylight saving period.
+timestamp-picker-format = Display format
+timestamp-picker-invalid = Enter a valid date, time and UTC offset.
+timestamp-picker-rejected = The draft changed or the timestamp will not fit. Cancel and try again.
+timestamp-picker-cancel = Cancel
+timestamp-picker-insert = Insert
+timestamp-style-default = Default date and time
+timestamp-style-t = Short time
+timestamp-style-long-time = Time with seconds
+timestamp-style-d = Short date
+timestamp-style-long-date = Long date
+timestamp-style-f = Date and time
+timestamp-style-full = Full date and time
+timestamp-style-relative = Relative time
+timestamp-style-short-date-time = Short date and time
+timestamp-style-short-date-seconds = Short date and time with seconds

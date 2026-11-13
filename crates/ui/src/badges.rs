@@ -7,13 +7,13 @@ use crate::{
 	icons::{self, Icon},
 };
 use egui::{Color32, CornerRadius, Pos2, Rect, RichText, Sense, Stroke, Vec2, pos2, vec2};
-use model::{
-	Id, ProfileBadge,
-	badges::{BadgeCatalog, BadgeRarity, BadgeSettings, CatalogBadge, hideable, pinned},
-};
 #[allow(unused_imports)]
 pub use model::badges::{
 	SHOW_HIDDEN_THINGS_ENABLED, set_show_hidden_things_enabled, show_hidden_things_enabled,
+};
+use model::{
+	Id, ProfileBadge,
+	badges::{BadgeCatalog, BadgeRarity, BadgeSettings, CatalogBadge, hideable, pinned},
 };
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -1285,4 +1285,3 @@ mod tests {
 		assert!(show_badges_in_chat_enabled());
 	}
 }
-

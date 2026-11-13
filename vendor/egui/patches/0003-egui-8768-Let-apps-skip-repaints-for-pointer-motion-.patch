@@ -1,0 +1,378 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: x <x@x>
+Date: Mon, 9 Nov 2026 12:43:54 +0100
+Subject: [PATCH] egui#8768: Let apps skip repaints for pointer motion they
+ don't need
+
+Squashed from https://github.com/emilk/egui/pull/8768 at 48c1cebea9f6.
+---
+ crates/eframe/src/epi.rs                      | 28 ++++++++
+ crates/eframe/src/native/glow_integration.rs  | 19 ++++--
+ crates/eframe/src/native/wgpu_integration.rs  | 13 ++--
+ crates/eframe/src/native/winit_integration.rs | 66 +++++++++++++++++++
+ crates/egui/src/context.rs                    | 38 +++++++++++
+ crates/egui/src/data/input/raw_input.rs       | 16 +++++
+ crates/egui/src/input_state/mod.rs            | 16 ++++-
+ 7 files changed, 186 insertions(+), 10 deletions(-)
+
+diff --git a/crates/eframe/src/epi.rs b/crates/eframe/src/epi.rs
+index 3b618be66..2b477d814 100644
+--- a/crates/eframe/src/epi.rs
++++ b/crates/eframe/src/epi.rs
+@@ -280,6 +280,34 @@ pub trait App {
+     ///
+     /// This function does not return a value. Any changes to the input should be made directly to `_raw_input`.
+     fn raw_input_hook(&mut self, _ctx: &egui::Context, _raw_input: &mut egui::RawInput) {}
++
++    /// Decide whether a window event that egui would answer with a repaint should paint a frame.
++    ///
++    /// eframe calls this before it schedules the repaint for the event. The event is still
++    /// delivered to egui the next time a frame runs, so returning `Some(false)` only skips that
++    /// frame: call [`egui::Context::request_repaint`] (or return `Some(true)`) when the app needs
++    /// to react now. `None` keeps eframe's default.
++    ///
++    /// This lets an app ignore pointer motion that cannot change anything it shows, instead of
++    /// painting every frame the pointer moves.
++    ///
++    /// Only native windows have winit events; the web backend never calls this.
++    #[cfg(not(target_arch = "wasm32"))]
++    fn repaint_on_window_event(&mut self, _event: &winit::event::WindowEvent) -> Option<bool> {
++        None
++    }
++
++    /// Decide whether a device event that eframe would answer with a repaint should paint a
++    /// frame. This is [`Self::repaint_on_window_event`] for events that come from a device
++    /// rather than a window; on some platforms pointer motion arrives here
++    /// ([`winit::event::DeviceEvent::MouseMotion`]) instead of as a window event, so an app that
++    /// ignores pointer motion must answer both.
++    ///
++    /// Only native windows have winit events; the web backend never calls this.
++    #[cfg(not(target_arch = "wasm32"))]
++    fn repaint_on_device_event(&mut self, _event: &winit::event::DeviceEvent) -> Option<bool> {
++        None
++    }
+ }
+ 
+ /// Options controlling the behavior of a native window.
+diff --git a/crates/eframe/src/native/glow_integration.rs b/crates/eframe/src/native/glow_integration.rs
+index 0db54a27e..098536f55 100644
+--- a/crates/eframe/src/native/glow_integration.rs
++++ b/crates/eframe/src/native/glow_integration.rs
+@@ -563,7 +563,7 @@ impl WinitApp for GlowWinitApp<'_> {
+         _: winit::event::DeviceId,
+         event: winit::event::DeviceEvent,
+     ) -> crate::Result<EventResult> {
+-        if let winit::event::DeviceEvent::MouseMotion { delta } = event
++        if let winit::event::DeviceEvent::MouseMotion { delta } = &event
+             && let Some(running) = &mut self.running
+         {
+             // `MouseMotion` is not associated with any window, so we deliver it to
+@@ -575,12 +575,17 @@ impl WinitApp for GlowWinitApp<'_> {
+             let viewports = &mut glutin.viewports;
+             if let Some(window_id) = focused_viewport
+                 .and_then(|id| viewports.get_mut(&id))
+-                .and_then(|viewport| viewport.on_mouse_motion(delta))
++                .and_then(|viewport| viewport.on_mouse_motion(*delta))
+                 .or_else(|| {
+                     viewports
+                         .values_mut()
+-                        .find_map(|viewport| viewport.on_mouse_motion(delta))
++                        .find_map(|viewport| viewport.on_mouse_motion(*delta))
+                 })
++                && super::winit_integration::repaint_for_device_event(
++                    running.app.as_mut(),
++                    &event,
++                    true,
++                )
+             {
+                 return Ok(EventResult::RepaintNext(window_id));
+             }
+@@ -1108,7 +1113,13 @@ impl GlowWinitRunning<'_> {
+             log::trace!("Ignoring event: no viewport_id");
+         }
+ 
+-        if event_response.repaint {
++        let repaint = super::winit_integration::repaint_for_event(
++            self.app.as_mut(),
++            event,
++            event_response.repaint,
++        );
++
++        if repaint {
+             if repaint_asap {
+                 EventResult::RepaintNow(window_id)
+             } else {
+diff --git a/crates/eframe/src/native/wgpu_integration.rs b/crates/eframe/src/native/wgpu_integration.rs
+index 80fefd271..952f337ed 100644
+--- a/crates/eframe/src/native/wgpu_integration.rs
++++ b/crates/eframe/src/native/wgpu_integration.rs
+@@ -508,7 +508,7 @@ impl WinitApp for WgpuWinitApp<'_> {
+         _: winit::event::DeviceId,
+         event: winit::event::DeviceEvent,
+     ) -> crate::Result<EventResult> {
+-        if let winit::event::DeviceEvent::MouseMotion { delta } = event
++        if let winit::event::DeviceEvent::MouseMotion { delta } = &event
+             && let Some(running) = &mut self.running
+         {
+             // `MouseMotion` is not associated with any window, so we deliver it to
+@@ -520,12 +520,13 @@ impl WinitApp for WgpuWinitApp<'_> {
+             let viewports = &mut shared.viewports;
+             if let Some(window_id) = focused_viewport
+                 .and_then(|id| viewports.get_mut(&id))
+-                .and_then(|viewport| viewport.on_mouse_motion(delta))
++                .and_then(|viewport| viewport.on_mouse_motion(*delta))
+                 .or_else(|| {
+                     viewports
+                         .values_mut()
+-                        .find_map(|viewport| viewport.on_mouse_motion(delta))
++                        .find_map(|viewport| viewport.on_mouse_motion(*delta))
+                 })
++                && winit_integration::repaint_for_device_event(running.app.as_mut(), &event, true)
+             {
+                 return Ok(EventResult::RepaintNext(window_id));
+             }
+@@ -924,6 +925,7 @@ impl WgpuWinitRunning<'_> {
+         let Self {
+             integration,
+             shared,
++            app,
+             ..
+         } = self;
+         let mut shared = shared.borrow_mut();
+@@ -1068,9 +1070,12 @@ impl WgpuWinitRunning<'_> {
+             })
+             .unwrap_or_default();
+ 
++        let repaint =
++            winit_integration::repaint_for_event(app.as_mut(), event, event_response.repaint);
++
+         if integration.should_close() {
+             EventResult::CloseRequested
+-        } else if event_response.repaint {
++        } else if repaint {
+             if repaint_asap {
+                 EventResult::RepaintNow(window_id)
+             } else {
+diff --git a/crates/eframe/src/native/winit_integration.rs b/crates/eframe/src/native/winit_integration.rs
+index 2774b2a8e..7beb54702 100644
+--- a/crates/eframe/src/native/winit_integration.rs
++++ b/crates/eframe/src/native/winit_integration.rs
+@@ -17,6 +17,72 @@ pub fn is_invisible_or_minimized(window: &Window) -> bool {
+     window.is_visible() == Some(false) || window.is_minimized() == Some(true)
+ }
+ 
++/// The repaint an event asks for, after the app's [`crate::App::repaint_on_window_event`]
++/// override: `default` unless the app says otherwise.
++pub(crate) fn repaint_for_event(
++    app: &mut dyn crate::App,
++    event: &winit::event::WindowEvent,
++    default: bool,
++) -> bool {
++    app.repaint_on_window_event(event).unwrap_or(default)
++}
++
++/// [`repaint_for_event`] for a device event ([`crate::App::repaint_on_device_event`]).
++pub(crate) fn repaint_for_device_event(
++    app: &mut dyn crate::App,
++    event: &winit::event::DeviceEvent,
++    default: bool,
++) -> bool {
++    app.repaint_on_device_event(event).unwrap_or(default)
++}
++
++#[cfg(test)]
++mod tests {
++    use super::{repaint_for_device_event, repaint_for_event};
++
++    struct TestApp {
++        answer: Option<bool>,
++    }
++
++    impl crate::App for TestApp {
++        fn ui(&mut self, _ui: &mut egui::Ui, _frame: &mut crate::Frame) {}
++
++        fn repaint_on_window_event(&mut self, _event: &winit::event::WindowEvent) -> Option<bool> {
++            self.answer
++        }
++
++        fn repaint_on_device_event(&mut self, _event: &winit::event::DeviceEvent) -> Option<bool> {
++            self.answer
++        }
++    }
++
++    /// An app can suppress or force the repaint a window or device event asks for; `None` keeps
++    /// the default.
++    #[test]
++    fn the_app_can_override_the_repaint_an_event_asks_for() {
++        let window_event = winit::event::WindowEvent::Focused(true);
++        let device_event = winit::event::DeviceEvent::MouseMotion { delta: (1.0, 2.0) };
++        for (answer, default, expected) in [
++            (None, true, true),
++            (None, false, false),
++            (Some(false), true, false),
++            (Some(true), false, true),
++        ] {
++            let mut app = TestApp { answer };
++            assert_eq!(
++                repaint_for_event(&mut app, &window_event, default),
++                expected,
++                "{answer:?} over {default} for a window event"
++            );
++            assert_eq!(
++                repaint_for_device_event(&mut app, &device_event, default),
++                expected,
++                "{answer:?} over {default} for a device event"
++            );
++        }
++    }
++}
++
+ /// On Mac, a minimized window uses up all CPU:
+ /// <https://github.com/emilk/egui/issues/325>
+ ///
+diff --git a/crates/egui/src/context.rs b/crates/egui/src/context.rs
+index 081bc9b53..997a128b2 100644
+--- a/crates/egui/src/context.rs
++++ b/crates/egui/src/context.rs
+@@ -5264,6 +5264,44 @@ mod test {
+         );
+     }
+ 
++    /// Pointer motion alone may be asked not to schedule a frame; a click still does.
++    #[test]
++    fn pointer_motion_repaints_unless_asked_not_to() {
++        use crate::{Event, PointerButton, RawInput, pos2};
++
++        let run = |motion_repaints: bool, click: bool| {
++            let ctx = Context::default();
++            for _ in 0..3 {
++                let out = ctx.run_ui(RawInput::default(), |_| {});
++                out.drop_without_applying_deltas();
++            }
++            let mut input = RawInput {
++                repaint_on_pointer_move: motion_repaints,
++                ..Default::default()
++            };
++            input.events.push(Event::PointerMoved(pos2(10.0, 10.0)));
++            if click {
++                input.events.push(Event::PointerButton {
++                    pos: pos2(10.0, 10.0),
++                    button: PointerButton::Primary,
++                    pressed: true,
++                    modifiers: Default::default(),
++                });
++            }
++            let out = ctx.run_ui(input, |_| {});
++            let requested = ctx.has_requested_repaint();
++            out.drop_without_applying_deltas();
++            requested
++        };
++
++        assert!(!run(false, false), "motion alone must not repaint");
++        assert!(run(true, false), "motion repaints by default");
++        assert!(
++            run(false, true),
++            "a click repaints even when motion does not"
++        );
++    }
++
+     #[test]
+     fn test_single_pass() {
+         let ctx = Context::default();
+diff --git a/crates/egui/src/data/input/raw_input.rs b/crates/egui/src/data/input/raw_input.rs
+index e1272dcd3..d6a95f177 100644
+--- a/crates/egui/src/data/input/raw_input.rs
++++ b/crates/egui/src/data/input/raw_input.rs
+@@ -60,6 +60,14 @@ pub struct RawInput {
+     /// and/or the pointer (mouse/touch) with [`crate::Context::egui_is_using_pointer`].
+     pub events: Vec<Event>,
+ 
++    /// Whether pointer motion alone should ask for a repaint.
++    ///
++    /// When `false`, pointer motion still reaches the app on the next frame, but it does not
++    /// schedule that frame by itself. Clicks, scrolling, keys and other input still request a
++    /// repaint; call [`crate::Context::request_repaint`] when the app wants to react to the
++    /// motion now. Defaults to `true`.
++    pub repaint_on_pointer_move: bool,
++
+     /// Dragged files hovering over egui.
+     pub hovered_files: Vec<HoveredFile>,
+ 
+@@ -101,6 +109,7 @@ impl Default for RawInput {
+             time: None,
+             predicted_dt: 1.0 / 60.0,
+             events: vec![],
++            repaint_on_pointer_move: true,
+             hovered_files: Default::default(),
+             dropped_files: Default::default(),
+             focused: true, // integrations opt into global focus tracking
+@@ -135,6 +144,7 @@ impl RawInput {
+             time: self.time,
+             predicted_dt: self.predicted_dt,
+             events: core::mem::take(&mut self.events),
++            repaint_on_pointer_move: self.repaint_on_pointer_move,
+             hovered_files: self.hovered_files.clone(),
+             dropped_files: core::mem::take(&mut self.dropped_files),
+             focused: self.focused,
+@@ -152,6 +162,7 @@ impl RawInput {
+             time,
+             predicted_dt,
+             mut events,
++            repaint_on_pointer_move,
+             mut hovered_files,
+             mut dropped_files,
+             focused,
+@@ -166,6 +177,7 @@ impl RawInput {
+         self.time = time; // use latest time
+         self.predicted_dt = predicted_dt; // use latest dt
+         self.events.append(&mut events);
++        self.repaint_on_pointer_move = repaint_on_pointer_move;
+         self.hovered_files.append(&mut hovered_files);
+         self.dropped_files.append(&mut dropped_files);
+         self.focused = focused;
+@@ -184,6 +196,7 @@ impl RawInput {
+             time,
+             predicted_dt,
+             events,
++            repaint_on_pointer_move,
+             hovered_files,
+             dropped_files,
+             focused,
+@@ -192,6 +205,9 @@ impl RawInput {
+         } = self;
+ 
+         ui.label(format!("Active viewport: {viewport_id:?}"));
++        ui.label(format!(
++            "repaint_on_pointer_move: {repaint_on_pointer_move}"
++        ));
+         let ordered_viewports = viewports
+             .iter()
+             .map(|(id, value)| (*id, value))
+diff --git a/crates/egui/src/input_state/mod.rs b/crates/egui/src/input_state/mod.rs
+index 1aeecc764..197318981 100644
+--- a/crates/egui/src/input_state/mod.rs
++++ b/crates/egui/src/input_state/mod.rs
+@@ -674,9 +674,21 @@ impl InputState {
+     /// [`Self::consume_key`] will remove events from the vec, meaning those key presses wouldn't
+     /// cause a repaint.
+     pub(crate) fn wants_repaint_after(&self) -> Option<Duration> {
+-        if self.pointer.wants_repaint()
++        // Pointer motion is the one input that can be asked not to schedule a frame by itself
++        // (`RawInput::repaint_on_pointer_move`): it is still delivered on the next frame, but a
++        // still view that only sees the pointer move stays still until something else repaints.
++        let pointer_motion_only = self
++            .pointer
++            .pointer_events
++            .iter()
++            .all(|e| matches!(e, PointerEvent::Moved(_)))
++            && self
++                .events
++                .iter()
++                .all(|e| matches!(e, Event::PointerMoved(_) | Event::MouseMoved(_)));
++        let motion_asks = self.raw.repaint_on_pointer_move || !pointer_motion_only;
++        if ((self.pointer.wants_repaint() || !self.events.is_empty()) && motion_asks)
+             || self.wheel.unprocessed_wheel_delta.abs().max_elem() > 0.2
+-            || !self.events.is_empty()
+             || !self.raw.hovered_files.is_empty()
+             || !self.raw.dropped_files.is_empty()
+         {

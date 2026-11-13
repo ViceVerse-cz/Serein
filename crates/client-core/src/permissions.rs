@@ -6,7 +6,6 @@ use std::{
 	collections::{BTreeMap, BTreeSet},
 };
 
-
 /// VenSerein (PermissionFreeWill): Bypasses client-side send/compose locks, enabling typing and drafting in restricted channels.
 pub static PERMISSION_FREE_WILL_ENABLED: std::sync::atomic::AtomicBool =
 	std::sync::atomic::AtomicBool::new(false);
@@ -1087,10 +1086,7 @@ impl State {
 			};
 			self.revision += 1;
 		}
-		// Roster access is independent of whether this account has joined a call.
-		let mut roster = std::mem::take(&mut self.voice.roster);
-		roster.retain(|entry| self.can_view(entry.channel));
-		self.voice.roster = roster;
+		// The roster keeps participants of hidden channels; views decide whether to show them.
 		if self
 			.voice
 			.preview
@@ -1165,15 +1161,15 @@ mod tests {
 			tags: None,
 		};
 		state.channels.push(ch);
-		
+
 		// By default without permissions, can_compose is false
 		assert!(!state.can_compose(Id(555)));
-		
+
 		// With free will enabled, composer is unlocked for drafting
 		set_permission_free_will_enabled(true);
 		assert!(permission_free_will_enabled());
 		assert!(state.can_compose(Id(555)));
-		
+
 		set_permission_free_will_enabled(false);
 		assert!(!permission_free_will_enabled());
 		assert!(!state.can_compose(Id(555)));

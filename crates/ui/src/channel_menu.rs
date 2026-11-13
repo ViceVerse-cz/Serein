@@ -1,7 +1,7 @@
 //! Guild channel actions share one context menu and a session-scoped editor.
+use crate::shortcuts::ShortcutView;
 #[allow(unused_imports)]
 pub use crate::timeline::{jump_to_enabled, set_jump_to_enabled};
-use crate::shortcuts::ShortcutView;
 use crate::{design, dialog, icons, user_menu};
 use client_core::{
 	Command, State,
@@ -88,6 +88,8 @@ impl ChannelMenu {
 		self.generation = generation;
 	}
 
+	/// Shows a channel row's context menu, including plugin channel actions, and records the
+	/// chosen channel intent.
 	pub fn context(
 		&mut self,
 		response: &egui::Response,
@@ -123,6 +125,13 @@ impl ChannelMenu {
 				&& !state.channel_action_pending()
 				&& state.can_view(channel.id);
 			let mut intent = None;
+			crate::extensions_ui::context_menu_items(
+				ui,
+				extensions::MenuTarget::Channel {
+					channel_id: channel.id.to_string(),
+					guild_id: Some(guild.to_string()),
+				},
+			);
 			if row(
 				ui,
 				"channel-menu-context-mark-as-read",
@@ -298,6 +307,8 @@ impl ChannelMenu {
 		});
 	}
 
+	/// Shows the context menu for the empty channel-list area of a server, including plugin
+	/// server actions.
 	pub fn sidebar_context(
 		&mut self,
 		response: &egui::Response,
@@ -319,6 +330,12 @@ impl ChannelMenu {
 		.show(|ui| {
 			ui.set_width(232.0);
 			ui.spacing_mut().button_padding = egui::vec2(12.0, 8.0);
+			crate::extensions_ui::context_menu_items(
+				ui,
+				extensions::MenuTarget::Server {
+					guild_id: guild.to_string(),
+				},
+			);
 			if toggle_row(
 				ui,
 				"channel-menu-sidebar-context-hide-muted-channels",

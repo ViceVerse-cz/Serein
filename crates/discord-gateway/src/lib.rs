@@ -30,10 +30,7 @@ use tokio::{
 	sync::{Notify, mpsc, watch},
 	time::{Instant, interval_at, sleep, timeout},
 };
-use tokio_tungstenite::{
-	connect_async_with_config,
-	tungstenite::{Message as Frame, protocol::WebSocketConfig},
-};
+use tokio_tungstenite::tungstenite::{Message as Frame, protocol::WebSocketConfig};
 use zeroize::Zeroizing;
 
 /// Queues a redacted, user-copyable decode cause ahead of the fixed failure label.
@@ -61,13 +58,18 @@ pub enum Reconnect {
 	Identify,
 	Stop,
 }
+/// Serein conservatively stops on malformed traffic and rate-limit closes even where
+/// Discord permits reconnecting; replaying the same producer could repeat the violation.
 pub fn close_action(code: u16) -> Reconnect {
 	match code {
-		4004 | 4010..=4014 | 1008 | 1009 => Reconnect::Stop,
+		4001..=4005 | 4008 | 4010..=4014 | 1008 | 1009 => Reconnect::Stop,
 		4007 | 4009 => Reconnect::Identify,
 		_ => Reconnect::Resume,
 	}
 }
+/// The Gateway address the web client's page config names (unofficial; observed as
+/// `GATEWAY_ENDPOINT`). Serein does not ask REST for it. It still passes [`validated_url`].
+pub const GATEWAY_URL: &str = "wss://gateway.discord.gg";
 pub fn validated_url(value: &str) -> Result<String, Failure> {
 	let mut url = url::Url::parse(value).map_err(|_| Failure::Protocol)?;
 	let host = url.host_str().ok_or(Failure::Protocol)?;
@@ -158,7 +160,9 @@ impl ResumeState {
 				return Err(if code == 4004 {
 					Failure::Expired
 				} else {
-					Failure::Protocol
+					Failure::ProtocolAt(
+						"Gateway rejected the session or its traffic; reconnect explicitly",
+					)
 				});
 			}
 			Reconnect::Identify => *self = Self::default(),
@@ -1305,7 +1309,7 @@ async fn run_recoverable(
 		let Some(connection) = recoverable_wait(
 			timeout(
 				Duration::from_secs(15),
-				connect_async_with_config(url, Some(config), false),
+				client_core::fingerprint::websocket(url, config),
 			),
 			if was_ready { reconnect } else { None },
 		)
@@ -1314,7 +1318,7 @@ async fn run_recoverable(
 			skip_backoff = true;
 			continue;
 		};
-		let Ok(Ok((mut socket, _))) = connection else {
+		let Ok(Ok(mut socket)) = connection else {
 			state.failed();
 			attempt = next_attempt(attempt, None);
 			continue;
@@ -1367,8 +1371,8 @@ async fn run_recoverable(
 		let handshake = if let (Some(session), Some(sequence)) = (&state.session, state.sequence) {
 			serde_json::json!({"op":6,"d":{"token":secret.expose(),"session_id":session.as_str(),"seq":sequence}})
 		} else {
-			// Normal-user Identify with the same browser fingerprint as REST; a mismatched or
-			// custom identity is what gets the account quarantined as spam.
+			// Normal-user Identify with the same client properties as REST (unofficial). How
+			// the service weighs a mismatch between the two is unverified.
 			let properties: serde_json::Value =
 				serde_json::from_str(&client_core::fingerprint::properties()).unwrap_or_default();
 			serde_json::json!({"op":2,"d":{"token":secret.expose(),"compress":false,"properties":properties,"presence":outgoing_activity.identify_presence()}})
@@ -3099,6 +3103,13 @@ mod tests {
 			assert_eq!(next_attempt(5, None), 6);
 			assert_eq!(next_attempt(6, None), 6);
 			assert_eq!(next_attempt(u32::MAX, None), 6);
+			for code in [4002, 4008] {
+				let mut resume = ResumeState::default();
+				assert!(
+					resume.close(code).is_err(),
+					"rejected traffic must terminate recovery"
+				);
+			}
 			assert_eq!(close_action(4004), Reconnect::Stop);
 			assert_eq!(close_action(4007), Reconnect::Identify);
 			assert_eq!(close_action(1006), Reconnect::Resume);

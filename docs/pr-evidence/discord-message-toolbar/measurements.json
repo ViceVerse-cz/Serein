@@ -1,0 +1,127 @@
+{
+  "fixture": {
+    "command": "profile_preview --demo --page=chat --interactive --close-settings [--toolbar-hover=normal]",
+    "viewport_logical_pixels": [
+      1120,
+      760
+    ],
+    "framebuffer_pixels": [
+      2240,
+      1520
+    ],
+    "os": "Linux x86-64; kernel 7.3.1-1-cachyos",
+    "cpu": "AMD Ryzen 9 9900X 12-Core",
+    "ram": "30 GiB",
+    "renderer": "NVIDIA GeForce RTX 4070 (Vulkan)",
+    "display": "X11 3840x2160; Xft.dpi 192",
+    "rust": "1.98.1; locked dependencies",
+    "baseline_revision": "21f8870b3849f24f9b0fb0bb17b9e3e272e2b93a",
+    "current_revision": "678fdb5dcc6d8d81449263606e347d9cdc2c2f74",
+    "baseline_has_hover": false,
+    "current_has_hover": true,
+    "identical_fixture_source": true,
+    "helper_processes": 0,
+    "scenario": "Same chat_demo_state; baseline has no hover, current injects normal hover via RawInput."
+  },
+  "package": {
+    "baseline": {
+      "commit": "21f8870b3849f24f9b0fb0bb17b9e3e272e2b93a",
+      "executable_bytes": 95117576,
+      "regular_files": 477,
+      "regular_file_payload_bytes": 199279452,
+      "compressed_tar_gz_bytes": 113557397
+    },
+    "after": {
+      "executable_bytes": 95126280,
+      "regular_files": 477,
+      "regular_file_payload_bytes": 199298284,
+      "compressed_tar_gz_bytes": 113566452
+    },
+    "directory_package_regular_files": {
+      "baseline": 477,
+      "after": 477
+    },
+    "dpkg_available": false
+  },
+  "runtime": {
+    "warmup_seconds": 15,
+    "samples_per_run": 20,
+    "runs_per_revision": 3,
+    "baseline": {
+      "runs": [
+        {
+          "run": 1,
+          "idle_cpu_percent_one_core": 9.396388342630308,
+          "peak_combined_rss_kib": 235040,
+          "settled_combined_rss_kib": 235040,
+          "settled_main_rss_kib": 235040,
+          "child_count": 0,
+          "normal_hover_input": false,
+          "samples": 20
+        },
+        {
+          "run": 2,
+          "idle_cpu_percent_one_core": 9.246610158965682,
+          "peak_combined_rss_kib": 234416,
+          "settled_combined_rss_kib": 234416,
+          "settled_main_rss_kib": 234416,
+          "child_count": 0,
+          "normal_hover_input": false,
+          "samples": 20
+        },
+        {
+          "run": 3,
+          "idle_cpu_percent_one_core": 9.396549445155799,
+          "peak_combined_rss_kib": 234352,
+          "settled_combined_rss_kib": 234352,
+          "settled_main_rss_kib": 234352,
+          "child_count": 0,
+          "normal_hover_input": false,
+          "samples": 20
+        }
+      ],
+      "median_idle_cpu_percent_one_core": 9.396388342630308,
+      "peak_combined_rss_kib": 235040,
+      "median_settled_combined_rss_kib": 234416,
+      "after_has_hover_fixture": false
+    },
+    "after": {
+      "runs": [
+        {
+          "run": 1,
+          "idle_cpu_percent_one_core": 10.596043250959406,
+          "peak_combined_rss_kib": 234244,
+          "settled_combined_rss_kib": 234244,
+          "settled_main_rss_kib": 234244,
+          "child_count": 0,
+          "normal_hover_input": true,
+          "samples": 20
+        },
+        {
+          "run": 2,
+          "idle_cpu_percent_one_core": 8.49675930328923,
+          "peak_combined_rss_kib": 233660,
+          "settled_combined_rss_kib": 233660,
+          "settled_main_rss_kib": 233660,
+          "child_count": 0,
+          "normal_hover_input": true,
+          "samples": 20
+        },
+        {
+          "run": 3,
+          "idle_cpu_percent_one_core": 9.696321339312005,
+          "peak_combined_rss_kib": 233768,
+          "settled_combined_rss_kib": 233768,
+          "settled_main_rss_kib": 233768,
+          "child_count": 0,
+          "normal_hover_input": true,
+          "samples": 20
+        }
+      ],
+      "median_idle_cpu_percent_one_core": 9.696321339312005,
+      "peak_combined_rss_kib": 234244,
+      "median_settled_combined_rss_kib": 233768,
+      "after_has_hover_fixture": true
+    }
+  }
+}

@@ -2137,4 +2137,3 @@ mod tests {
 		assert!(shiki_codeblocks_enabled());
 	}
 }
-

@@ -27,7 +27,7 @@
 <p align="center">
   <a href="https://discord.gg/UqTDGCENaN"><img src="https://img.shields.io/badge/Discord-Join%20our%20Discord%20server%20for%20updates-5865F2?logo=discord&logoColor=white" alt="Discord" /></a>
   <a href="https://github.com/ViceVerse-cz/Serein/releases"><img src="https://img.shields.io/github/v/release/ViceVerse-cz/Serein?label=release&color=blue" alt="GitHub Release" /></a>
-  <a href="Cargo.toml"><img src="https://img.shields.io/badge/rust-1.98.1_pinned-blue.svg?logo=rust" alt="Rust 1.98.1 Pinned" /></a>
+  <a href="Cargo.toml"><img src="https://img.shields.io/badge/rust-1.99.1_pinned-blue.svg?logo=rust" alt="Rust 1.99.1 Pinned" /></a>
   <a href="crates/ui"><img src="https://img.shields.io/badge/ui-egui%20%2F%20wgpu-orange.svg" alt="UI egui/wgpu" /></a>
   <a href="docs/platform-support.md"><img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-informational.svg" alt="Platform Support" /></a>
   <a href="LICENSE-MIT"><img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-green.svg" alt="License: MIT or Apache-2.0" /></a>
@@ -103,7 +103,7 @@ echo 'net-im/serein ~amd64' | sudo tee /etc/portage/package.accept_keywords/sere
 sudo emerge --ask net-im/serein
 ```
 
-Use `net-im/serein-bin` in the keyword file and emerge command to install the prebuilt binary instead. The source ebuild requires Rust 1.98.1 or newer. The binary ebuild targets amd64 systems with glibc 2.43 or newer. The two ebuilds install the same files, so choose one.
+Use `net-im/serein-bin` in the keyword file and emerge command to install the prebuilt binary instead. The source ebuild requires Rust 1.99 or newer or newer. The binary ebuild targets amd64 systems with glibc 2.43 or newer. The two ebuilds install the same files, so choose one.
 
 #### 4. Nix (flake)
 
@@ -308,7 +308,7 @@ Download `serein-<version>-macOS-ARM64.zip` from [Releases](https://github.com/V
 ## Quick Start
 
 ### Prerequisites
-Rust **1.98.1** is pinned. Ensure you have the standard C/C++ toolchain and CMake installed for your platform:
+Rust **1.99.1** is pinned. Ensure you have the standard C/C++ toolchain, CMake, Git and libclang installed for your platform (the bundled BoringSSL TLS library is built from source):
 - **macOS:** Xcode command-line tools (`xcode-select --install`)
 - **Linux:** GCC/Clang, ALSA development headers, `pkg-config`, GTK 4, WebKitGTK 6.0, fontconfig, and Vulkan drivers (see [Platform Support](docs/platform-support.md))
 - **Windows:** Visual Studio C++ build tools and WebView2 Runtime
@@ -410,7 +410,7 @@ serein/
 - **Local Cache Bounds:** SQLite databases store recent channel history, drafts, settings, diagnostics, and image preview metadata within bounded byte and count limits. The local SQLite store is **not** encrypted by the application.
 - **Sanitary Logout:** Executing an explicit logout destroys active network sessions, purges active secrets from memory, deletes the token from the OS credential store, and erases that account's local cache and drafts.
 - **Zero Telemetry:** Serein contains no analytics, telemetry, background crash collectors, or tracking beacons.
-- **Platform Integrity:** No fingerprint spoofing, CAPTCHA/MFA bypasses, bot substitutions, token scrapers, or third-party relays.
+- **Platform Integrity:** No CAPTCHA/MFA bypasses, bot substitutions, token scrapers, or third-party relays. Every Discord connection presents one consistent browser identity matching the platform webview (unofficial; see [authentication](docs/authentication.md)); it is not randomized or rotated to evade detection.
 
 For full details, review the [Storage Policy](docs/storage-policy.md) and [Threat Model](docs/threat-model.md).
 

@@ -55,24 +55,22 @@ pub fn clean_embed_url(url: &str) -> String {
 		if is_spotify {
 			parsed.set_query(None);
 			return parsed.into();
-		} else if is_youtube {
-			if let Some(query) = parsed.query() {
-				let cleaned: Vec<&str> = query
-					.split('&')
-					.filter(|part| {
-						!part.starts_with("si=")
-							&& !part.starts_with("feature=")
-							&& !part.starts_with("utm_")
-					})
-					.collect();
-				if cleaned.is_empty() {
-					parsed.set_query(None);
-				} else {
-					let joined = cleaned.join("&");
-					parsed.set_query(Some(&joined));
-				}
-				return parsed.into();
+		} else if is_youtube && let Some(query) = parsed.query() {
+			let cleaned: Vec<&str> = query
+				.split('&')
+				.filter(|part| {
+					!part.starts_with("si=")
+						&& !part.starts_with("feature=")
+						&& !part.starts_with("utm_")
+				})
+				.collect();
+			if cleaned.is_empty() {
+				parsed.set_query(None);
+			} else {
+				let joined = cleaned.join("&");
+				parsed.set_query(Some(&joined));
 			}
+			return parsed.into();
 		}
 	}
 	url.to_owned()
@@ -83,11 +81,10 @@ pub fn has_spoilers(message: &Message) -> bool {
 	has_media_spoilers(message) || message.content.contains("||")
 }
 pub fn has_media_spoilers(message: &Message) -> bool {
-	message.attachments.iter().any(|a| {
-		a.spoiler
-			|| a.filename.starts_with("SPOILER_")
-			|| a.description.as_deref().is_some_and(|s| s.contains("||"))
-	}) || message.embeds.iter().any(|e| {
+	message.attachments.iter().any(attachment_spoiler) || has_embed_spoilers(message)
+}
+pub fn has_embed_spoilers(message: &Message) -> bool {
+	message.embeds.iter().any(|e| {
 		[&e.title, &e.description]
 			.into_iter()
 			.flatten()
@@ -101,6 +98,12 @@ pub fn has_media_spoilers(message: &Message) -> bool {
 				.any(|a| a.name.contains("||"))
 			|| e.footer.as_ref().is_some_and(|f| f.text.contains("||"))
 	})
+}
+/// One attachment the sender marked as a spoiler; its neighbours stay visible.
+pub fn attachment_spoiler(a: &model::Attachment) -> bool {
+	a.spoiler
+		|| a.filename.starts_with("SPOILER_")
+		|| a.description.as_deref().is_some_and(|s| s.contains("||"))
 }
 fn link(
 	ui: &mut egui::Ui,
@@ -1097,11 +1100,19 @@ mod tests {
 		assert!(fix_spotify_embeds_enabled());
 		assert!(fix_youtube_embeds_enabled());
 
-		let spotify_dirty = "https://open.spotify.com/track/12345?si=abcdef123456&context=spotify%3Aalbum";
-		assert_eq!(clean_embed_url(spotify_dirty), "https://open.spotify.com/track/12345");
+		let spotify_dirty =
+			"https://open.spotify.com/track/12345?si=abcdef123456&context=spotify%3Aalbum";
+		assert_eq!(
+			clean_embed_url(spotify_dirty),
+			"https://open.spotify.com/track/12345"
+		);
 
-		let yt_dirty = "https://www.youtube.com/watch?v=dQw4w9WgXcQ&si=tracking_token_123&feature=shared";
-		assert_eq!(clean_embed_url(yt_dirty), "https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+		let yt_dirty =
+			"https://www.youtube.com/watch?v=dQw4w9WgXcQ&si=tracking_token_123&feature=shared";
+		assert_eq!(
+			clean_embed_url(yt_dirty),
+			"https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+		);
 
 		let yt_short = "https://youtu.be/dQw4w9WgXcQ?si=tracking_123";
 		assert_eq!(clean_embed_url(yt_short), "https://youtu.be/dQw4w9WgXcQ");
@@ -1791,4 +1802,3 @@ fn author_name(
 		}
 	}
 }
-

@@ -177,7 +177,10 @@ impl MessagingUi {
 		let should_open_profile = account_panel_server_profile_enabled() && is_guild_channel;
 
 		if anchor.clicked() {
-			if should_open_profile && anchor.clicked_by(egui::PointerButton::Primary) && let Some(user) = &state.user {
+			if should_open_profile
+				&& anchor.clicked_by(egui::PointerButton::Primary)
+				&& let Some(user) = &state.user
+			{
 				self.account_menu.open = false;
 				self.profile.command_open(user.clone());
 			} else {
@@ -208,8 +211,16 @@ impl MessagingUi {
 		}
 		let colors = design::palette_for(&anchor.ctx);
 		let mut open = self.account_menu.open;
+		let id = anchor.id.with("account-menu");
+		let popup_anchor = egui::PopupAnchor::from(anchor);
+		const GAP: f32 = 6.0;
+		let available_height = popup_anchor.rect(id, &anchor.ctx).map_or(620.0, |rect| {
+			(rect.top() - anchor.ctx.content_rect().top() - GAP - 8.0).max(180.0)
+		});
 		egui::Popup::from_response(anchor)
-			.id(anchor.id.with("account-menu"))
+			.id(id)
+			.anchor(popup_anchor)
+			.gap(GAP)
 			.open_bool(&mut open)
 			.align(egui::RectAlign::TOP_START)
 			.close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
@@ -222,7 +233,7 @@ impl MessagingUi {
 			)
 			.show(|ui| {
 				ui.set_width(340.0);
-				let height = (ui.ctx().content_rect().height() - 90.0).clamp(180.0, 620.0);
+				let height = available_height;
 				egui::ScrollArea::vertical()
 					.min_scrolled_height(height)
 					.max_height(height)
@@ -1366,7 +1377,11 @@ mod tests {
 		let size = egui::vec2(300.0, 600.0);
 
 		// Case 1: Guild channel with feature enabled -> click opens profile
-		state.selected = state.channels.iter().find(|c| c.guild.is_some()).map(|c| c.id);
+		state.selected = state
+			.channels
+			.iter()
+			.find(|c| c.guild.is_some())
+			.map(|c| c.id);
 		let text = frame(&ctx, &mut view, &mut state, size, vec![]);
 		let pos = locate(&text, "You (synthetic)");
 		click(&ctx, &mut view, &mut state, size, pos);
@@ -1396,7 +1411,11 @@ mod tests {
 
 		// Case 2: DM channel with feature enabled -> click opens account menu
 		view.account_menu.open = false;
-		state.selected = state.channels.iter().find(|c| c.guild.is_none()).map(|c| c.id);
+		state.selected = state
+			.channels
+			.iter()
+			.find(|c| c.guild.is_none())
+			.map(|c| c.id);
 		let text = frame(&ctx, &mut view, &mut state, size, vec![]);
 		let pos = locate(&text, "You (synthetic)");
 		click(&ctx, &mut view, &mut state, size, pos);

@@ -69,6 +69,11 @@ general-gpu-restart = Entra en vigor la próxima vez que se inicie Serein.
 general-gpu-current-prefix = Actualmente dibujando con
 general-steady-refresh-rate = Frecuencia de actualización estable
 general-steady-refresh-rate-description = Mientras Serein es la ventana activa, se dibuja a la frecuencia de actualización de la pantalla, de modo que las pantallas con frecuencia de actualización variable (VRR, G-SYNC, FreeSync) pueden mantener una sola frecuencia en lugar de parpadear. Consume más energía.
+steady-refresh-prompt-title = Pantalla G-SYNC detectada
+steady-refresh-prompt-body = Serein solo redibuja cuando algo cambia, lo que puede hacer que una pantalla G-SYNC parpadee mientras Serein es la ventana activa. La frecuencia de actualización estable lo evita dibujando a la frecuencia de actualización de la pantalla, aunque consume más energía. ¿Activarla?
+steady-refresh-prompt-turn-on = Activar
+steady-refresh-prompt-keep-off = No, gracias
+steady-refresh-prompt-settings = Puedes cambiarlo más tarde en los ajustes, en { $page } > { $group }.
 gpu-automatic = Automático
 gpu-high-performance = Rendimiento alto
 gpu-power-saving = Ahorro de energía
@@ -1689,6 +1694,8 @@ markdown-confirm-external-link-open-external-link = ¿Abrir enlace externo?
 # Context: confirm_external_link
 markdown-confirm-external-link-open-in-browser = Abrir en el navegador
 # Context: confirm_external_link
+markdown-confirm-external-link-only-the-start-fits = Solo el comienzo de este mensaje cabe en el enlace; el resto no se envía. Este destino se abre en tu navegador predeterminado.
+# Context: confirm_external_link
 markdown-confirm-external-link-this-destination-opens-in-your-default-browser = Este destino se abre en su navegador predeterminado.
 # Context: show_emoji
 markdown-show-emoji-copy-emoji = Copiar emojis
@@ -2273,6 +2280,8 @@ screen-body-send-what-your-mac-plays-along-with-the-screen-serein = Envía lo qu
 screen-body-share-sound-from-other-apps-even-when-sharing-one-window = Comparte sonido de otras aplicaciones, incluso cuando compartes una ventana. El audio del propio Serein queda fuera.
 # Context: body
 screen-body-share-system-audio = Compartir audio del sistema
+# Context: body
+screen-body-share-the-shared-apps-sound-or-other-apps-for-a-screen = Comparte el sonido de la aplicación compartida, o el de todas las demás aplicaciones al compartir una pantalla. El audio propio de Serein se omite.
 # Context: body
 screen-body-show-cursor = Mostrar cursor
 # Context: body
@@ -3867,6 +3876,10 @@ timeline-message-actions-delete-message = Eliminar mensaje…
 timeline-message-actions-edit-message = Editar mensaje
 # Context: message_actions
 timeline-message-actions-extensions = Extensiones
+# Context: menu
+extensions-ui-menu-group-user = Usuario
+# Context: menu
+extensions-ui-menu-group-conversation = Conversación
 # Context: message_actions
 timeline-message-actions-forward = Reenviar
 # Context: message_actions
@@ -3916,6 +3929,8 @@ timeline-show-with-scroll-history-is-not-available-yet-use-reload-to-try-again =
 timeline-show-with-scroll-loading-messages = Cargando mensajes…
 # Context: show_with_scroll
 timeline-show-with-scroll-message-deleted = Mensaje eliminado
+# Context: show_with_scroll
+timeline-show-with-scroll-message-blocked = Mensaje bloqueado
 # Context: show_with_scroll
 timeline-show-with-scroll-message-history-is-unavailable-with-current-permission-information = El historial de mensajes no está disponible con la información de permisos actual.
 # Context: show_with_scroll
@@ -4507,6 +4522,8 @@ voice-recipient-not-in-call = Fuera de la llamada
 
 reconnect-now = Reconectar ahora
 
+message-preview-limit = Este mensaje supera el límite del diseño de texto nativo.
+
 voice-call-moved-to-another-client = Se reemplazó la sesión de llamada de este dispositivo
 
 server-settings-page-safety = Configuración de seguridad
@@ -4602,6 +4619,11 @@ profiles-board-empty = No games on this board yet.
 profiles-board-show-more = Show more
 profiles-board-show-less = Show less
 profiles-activity-empty = No hay actividad compartida.
+profiles-in-voice-server = en { $server }
+profiles-in-voice-join = Unirse
+profiles-in-voice-joined = Ya estás en este canal de voz.
+profiles-in-voice-failed = Descarta primero la llamada fallida y vuelve a unirte.
+profiles-in-voice-unavailable = Ahora no puedes unirte a este canal de voz.
 profiles-mutuals-empty = Nothing to show here.
 
 reading-double-click-reaction = Double-click reaction

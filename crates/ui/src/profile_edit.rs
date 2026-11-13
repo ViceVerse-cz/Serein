@@ -107,7 +107,10 @@ impl Editor {
 		self.choosing = false;
 		match result {
 			Ok(Some((uri, image))) => {
-				if !model::valid_avatar_uri(&uri) || image.size[0] > 512 || image.size[1] > 512 {
+				if !model::valid_avatar_uri(&uri)
+					|| image.resolution()[0] > 512
+					|| image.resolution()[1] > 512
+				{
 					return Err("That picture is too large; choose a simpler image");
 				}
 				let Some(draft) = self.draft.as_mut() else {

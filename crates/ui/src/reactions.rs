@@ -344,11 +344,12 @@ pub fn quick_button(ui: &mut egui::Ui, emoji: &str, reacted: bool) -> egui::Resp
 			},
 		);
 	}
-	let size = if response.hovered() && ui.is_enabled() {
-		20.0
+	let base = if response.hovered() && ui.is_enabled() {
+		24.0
 	} else {
-		18.0
+		22.0
 	};
+	let size = (base * crate::design::icon_scale()).min(26.0);
 	let target = egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(size));
 	let tint = if ui.is_enabled() {
 		egui::Color32::WHITE
@@ -447,14 +448,14 @@ pub fn show_users(
 							ui.label(crate::design::medium(ui, &user.name, 14.5));
 							let user_time = crate::timeline::timestamp(user.id);
 							let time_str = crate::local_time::full(user_time);
-							ui.add(
-								egui::Label::new(
-									egui::RichText::new(format!("Joined: {time_str}"))
-										.size(11.0)
-										.color(ui.visuals().weak_text_color()),
-								)
-							)
-							.on_hover_text("Account registration timestamp derived from user snowflake ID");
+							ui.add(egui::Label::new(
+								egui::RichText::new(format!("Joined: {time_str}"))
+									.size(11.0)
+									.color(ui.visuals().weak_text_color()),
+							))
+							.on_hover_text(
+								"Account registration timestamp derived from user snowflake ID",
+							);
 						});
 					} else {
 						ui.label(crate::design::medium(ui, &user.name, 15.0));
@@ -588,12 +589,12 @@ mod tests {
 		let sample_names = ["Alice", "Bob", "Charlie", "Dave", "Eve", "Frank"];
 		let default_str = reacting_names(sample_names.iter().copied(), 6);
 		assert!(default_str.contains("Alice, Bob, Charlie"));
-		
+
 		set_who_reacted_expanded(true);
 		assert!(who_reacted_expanded());
 		let expanded_str = reacting_names(sample_names.iter().copied(), 6);
 		assert_eq!(expanded_str, "Alice, Bob, Charlie, Dave, Eve, Frank");
-		
+
 		set_who_reacted_expanded(false);
 		assert!(!who_reacted_expanded());
 	}

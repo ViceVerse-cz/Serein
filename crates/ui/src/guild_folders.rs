@@ -69,7 +69,7 @@ pub fn is_server_hidden(id: Id) -> bool {
 	if !hide_servers_enabled() {
 		return false;
 	}
-	HIDDEN_SERVERS.read().map_or(false, |set| set.contains(&id))
+	HIDDEN_SERVERS.read().is_ok_and(|set| set.contains(&id))
 }
 
 /// VenSerein (CustomFolderIcons): Customize folder icons in the server rail.
@@ -190,7 +190,10 @@ impl FolderUi {
 					));
 				}
 				for &id in &folder.guild_ids {
-					if folder.id.is_none_or(shown) && state.guild(id).is_some() && !is_server_hidden(id) {
+					if folder.id.is_none_or(shown)
+						&& state.guild(id).is_some()
+						&& !is_server_hidden(id)
+					{
 						rows.push((
 							Item::Server(id),
 							folder.id.map(|folder_id| {
@@ -532,6 +535,8 @@ impl MessagingUi {
 			});
 	}
 
+	/// Draws the server rail with its folders, drag-and-drop ordering and each server's context
+	/// menu, including plugin server actions.
 	pub(super) fn server_folders(
 		&mut self,
 		ui: &mut egui::Ui,
@@ -740,16 +745,20 @@ impl MessagingUi {
 								ui.set_opacity(opacity);
 							}
 
-							let (unread, count) = folder.guild_ids.iter().fold((false, 0u32), |(has_unread, sum), g| {
-								let (mut u, mut c) = self.rail_cache.guild_badge(*g);
-								if muted_servers_activity_badge_enabled()
-									&& state.server_notification_settings(*g).muted == Some(true)
-								{
-									u = false;
-									c = 0;
-								}
-								(has_unread || u, sum.saturating_add(c))
-							});
+							let (unread, count) = folder.guild_ids.iter().fold(
+								(false, 0u32),
+								|(has_unread, sum), g| {
+									let (mut u, mut c) = self.rail_cache.guild_badge(*g);
+									if muted_servers_activity_badge_enabled()
+										&& state.server_notification_settings(*g).muted
+											== Some(true)
+									{
+										u = false;
+										c = 0;
+									}
+									(has_unread || u, sum.saturating_add(c))
+								},
+							);
 							// Always tracked so the pill shrinks away when the folder opens.
 							rail_indicator(
 								ui,
@@ -806,6 +815,12 @@ impl MessagingUi {
 					response.context_menu(|ui| {
 						if let Item::Server(id) = item {
 							ui.set_width(232.0);
+							crate::extensions_ui::context_menu_items(
+								ui,
+								extensions::MenuTarget::Server {
+									guild_id: id.to_string(),
+								},
+							);
 							// The invite dialog belongs to the active server, so choosing it
 							// from the rail also opens that server, like settings do.
 							let invite = self.server_menu.invite_item(ui, state, id);
@@ -822,7 +837,11 @@ impl MessagingUi {
 							}
 							if hide_servers_enabled() {
 								let hidden = is_server_hidden(id);
-								let label = if hidden { "Unhide Server" } else { "Hide Server" };
+								let label = if hidden {
+									"Unhide Server"
+								} else {
+									"Hide Server"
+								};
 								if ui.button(label).clicked() {
 									if hidden {
 										unhide_server(id);
@@ -1827,4 +1846,3 @@ mod tests {
 		assert_eq!(server_counter_label(150), "150/200");
 	}
 }
-

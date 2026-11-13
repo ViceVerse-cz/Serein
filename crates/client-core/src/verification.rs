@@ -134,21 +134,30 @@ impl State {
 		let pending = self.send_verification.pending.take()?;
 		let message = self.pending.iter().find(|p| p.nonce == pending.nonce)?;
 		let channel = message.channel;
+		let captcha = Box::new(captcha::Retry {
+			target: captcha::Target::Message {
+				channel,
+				nonce: pending.nonce.clone(),
+			},
+			request,
+			challenge: pending.challenge,
+			solution,
+			expires: pending.at + captcha::LIFETIME,
+		});
+		// A text resend would drop the files: only the waiting upload may finish this row.
+		if !message.attachments.is_empty() {
+			return Some(Command::VerifiedUpload {
+				channel,
+				nonce: pending.nonce,
+				captcha,
+			});
+		}
 		Some(Command::VerifiedSend {
 			sticker: message.sticker.as_ref().map(|sticker| sticker.id),
 			channel,
 			content: message.content.clone(),
 			reply: pending.reply,
-			captcha: Box::new(captcha::Retry {
-				target: captcha::Target::Message {
-					channel,
-					nonce: pending.nonce.clone(),
-				},
-				request,
-				challenge: pending.challenge,
-				solution,
-				expires: pending.at + captcha::LIFETIME,
-			}),
+			captcha,
 			nonce: pending.nonce,
 		})
 	}

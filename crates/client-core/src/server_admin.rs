@@ -8,7 +8,6 @@ use model::{
 	server_admin::{Action, Emojis, Members, Query, Result as Outcome, Stickers, VoiceChange},
 };
 
-
 /// VenSerein (PauseInvitesForever): Keeps guild invites paused indefinitely without expiring timeout.
 pub static PAUSE_INVITES_FOREVER_ENABLED: std::sync::atomic::AtomicBool =
 	std::sync::atomic::AtomicBool::new(false);
@@ -164,7 +163,10 @@ impl State {
 	}
 	pub fn request_pause_invites_forever(&mut self, guild: Id) -> Option<Command> {
 		if self.can_pause_guild_invites(guild) || pause_invites_forever_enabled() {
-			self.request_server_admin(guild, Action::Invites(model::server_invites::Action::SetPaused { paused: true }))
+			self.request_server_admin(
+				guild,
+				Action::Invites(model::server_invites::Action::SetPaused { paused: true }),
+			)
 		} else {
 			None
 		}

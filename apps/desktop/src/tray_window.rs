@@ -3,6 +3,10 @@ use super::egui;
 
 pub struct State {
 	pub hidden: bool,
+	/// The tray's Minimize action parked this window through compositor IPC where
+	/// minimization does not exist (Hyprland). Media treats it like a taskbar
+	/// minimize, not like hiding to the tray.
+	pub tray_minimized: bool,
 	exiting: bool,
 	close_after_show: bool,
 	/// The close came from the system (a session logout), so it must not stop at exit checks.
@@ -43,6 +47,7 @@ impl Default for State {
 	fn default() -> Self {
 		Self {
 			hidden: false,
+			tray_minimized: false,
 			exiting: false,
 			close_after_show: false,
 			system_close: false,
@@ -66,6 +71,7 @@ impl State {
 	}
 	pub fn show(&mut self, ctx: &egui::Context) {
 		self.hidden = false;
+		self.tray_minimized = false;
 		self.hide_pending = false;
 		if let Some(compositor) = &self.compositor {
 			compositor.show();
@@ -80,7 +86,12 @@ impl State {
 	#[allow(dead_code)]
 	pub fn minimize(&mut self, ctx: &egui::Context) {
 		if let Some(compositor) = usable(&self.compositor) {
-			self.hidden = compositor.minimize();
+			// The user asked to minimize, not to hide in the tray: media treats the
+			// parked window like a taskbar minimize. KWin minimizes through the
+			// window itself, which the viewport already reports.
+			let left_taskbar = compositor.minimize();
+			self.tray_minimized = left_taskbar;
+			self.hidden = left_taskbar;
 			ctx.request_repaint();
 			return;
 		}
@@ -178,9 +189,15 @@ impl State {
 		} else {
 			// Nobody can close a window they cannot see: a hidden window's close comes from the
 			// session ending (Plasma closes every window at logout), so exit instead of blocking it.
-			self.system_close |= !self.exiting && unseen;
+			let system_close = !self.exiting && unseen;
+			self.system_close |= system_close;
 			// Registration can finish while the existing exit dialog is open.
 			self.exiting = true;
+			// A hidden window runs only logic passes, and KWin does not show it again while the
+			// session ends, so let this close through instead of waiting for a ui pass.
+			if system_close {
+				return;
+			}
 			if unseen || self.close_after_show {
 				self.close_after_show = true;
 				self.show(ctx);

@@ -48,7 +48,8 @@ pub struct AppPreferences {
 	pub hide_nitro_emojis: bool,
 	/// Device-local opt-in; older saved preferences deserialize with conversion off.
 	pub convert_emoticons: bool,
-	/// Request a conversation's page while the pointer rests on it; older preferences enable it.
+	/// Request a conversation's page while the pointer rests on it. Off unless the owner turns
+	/// it on: the official client makes no such requests. A saved value is kept as it is.
 	pub preload_on_hover: bool,
 	/// Show as Idle after 10 minutes of system inactivity; older preferences enable it.
 	pub auto_idle: bool,
@@ -78,9 +79,14 @@ pub struct AppPreferences {
 	pub output_percent: u16,
 	/// Which GPU renders the window; applied on the next start.
 	pub gpu_preference: model::GpuPreference,
+	/// Preferred graphics API; applied on restart, with Automatic as a driver fallback.
+	pub graphics_api: model::GraphicsApi,
 	/// Repaint every display refresh while the window is focused, so variable refresh rate
 	/// displays hold one rate; older preferences deserialize with it off.
 	pub steady_refresh_rate: bool,
+	/// The one-time offer of the steady refresh rate on a G-SYNC display was answered; absent
+	/// in older preferences, so existing installs are asked once too.
+	pub steady_refresh_prompted: bool,
 	/// Device-local, account-independent keyboard bindings.
 	pub keybinds: model::Keybinds,
 	/// Expanded server folders, bounded so one device preference stays small.
@@ -95,8 +101,6 @@ pub struct AppPreferences {
 	pub image_cache: model::CachePreferences,
 	/// Clock style for message times; older preferences follow the language.
 	pub time_format: model::TimeFormat,
-	/// Owner opt-in: keep saved logins in private plain files when no OS keyring works.
-	pub plaintext_login: bool,
 	/// Owner opt-in diagnostic log; older preferences deserialize with logging off.
 	pub diagnostics_log: diagnostics::Level,
 	/// First-run setup finished or skipped; absent in older preferences, so existing installs
@@ -115,7 +119,7 @@ impl Default for AppPreferences {
 			show_hidden_channels: false,
 			hide_nitro_emojis: false,
 			convert_emoticons: false,
-			preload_on_hover: true,
+			preload_on_hover: false,
 			auto_idle: true,
 			hide_title_bar: false,
 			message_requests_collapsed: false,
@@ -135,7 +139,9 @@ impl Default for AppPreferences {
 			input_percent: 100,
 			output_percent: 100,
 			gpu_preference: Default::default(),
+			graphics_api: Default::default(),
 			steady_refresh_rate: false,
+			steady_refresh_prompted: false,
 			keybinds: Default::default(),
 			expanded_folders: Vec::new(),
 			user_volumes: Vec::new(),
@@ -143,7 +149,6 @@ impl Default for AppPreferences {
 			cosmetics: Default::default(),
 			image_cache: Default::default(),
 			time_format: Default::default(),
-			plaintext_login: false,
 			diagnostics_log: diagnostics::Level::Off,
 			setup_done: false,
 		}
@@ -2263,7 +2268,9 @@ mod tests {
 			voice_input: Some("synthetic microphone".into()),
 			output_percent: 75,
 			gpu_preference: model::GpuPreference::PowerSaving,
+			graphics_api: model::GraphicsApi::OpenGl,
 			steady_refresh_rate: true,
+			steady_refresh_prompted: true,
 			..Default::default()
 		};
 		store.save_app_preferences(&value).unwrap();
@@ -2313,6 +2320,7 @@ mod tests {
 		);
 		// Older rows show no cosmetics (they are opt-in) and keep the historical budgets.
 		let legacy: AppPreferences = serde_json::from_str("{}").unwrap();
+		assert_eq!(legacy.graphics_api, model::GraphicsApi::Automatic);
 		assert_eq!(legacy.cosmetics, model::CosmeticPreferences::default());
 		assert_eq!(legacy.image_cache, model::CachePreferences::default());
 		assert_eq!(legacy.time_format, model::TimeFormat::Auto);
@@ -2355,13 +2363,18 @@ mod tests {
 				.0
 				.execute(
 					"INSERT INTO app_preferences VALUES(1,?1)",
-					[r#"{"gpu_preference":"quantum-gpu"}"#],
+					[
+						r#"{"gpu_preference":"quantum-gpu","graphics_api":"future-api","steady_refresh_rate":true}"#,
+					],
 				)
 				.unwrap();
 			assert_eq!(
 				store.app_preferences().unwrap().gpu_preference,
 				model::GpuPreference::Automatic
 			);
+			let saved = store.app_preferences().unwrap();
+			assert_eq!(saved.graphics_api, model::GraphicsApi::Automatic);
+			assert!(saved.steady_refresh_rate);
 		}
 	}
 	use super::*;

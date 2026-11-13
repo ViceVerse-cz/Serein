@@ -8,23 +8,20 @@ mod badges;
 mod forwarding;
 mod role_names;
 pub use audio::{
-	AudioCommand, AudioState, AudioUi,
-	better_audio_player_enabled, set_better_audio_player_enabled,
-	media_playback_speed_enabled, set_media_playback_speed_enabled,
-	voice_messages_in_background_enabled, set_voice_messages_in_background_enabled,
+	AudioCommand, AudioState, AudioUi, better_audio_player_enabled, media_playback_speed_enabled,
+	set_better_audio_player_enabled, set_media_playback_speed_enabled,
+	set_voice_messages_in_background_enabled, voice_messages_in_background_enabled,
 };
 mod video;
 pub use video::{VideoCommand, VideoState, VideoUi};
 mod attachments;
 pub mod external_upload;
 pub use attachments::{
-	DownloadUi,
-	blur_nsfw_enabled, set_blur_nsfw_enabled,
-	zip_preview_enabled, set_zip_preview_enabled,
-	download_all_attachments_enabled, set_download_all_attachments_enabled,
-	clips_enhancements_enabled, set_clips_enhancements_enabled,
-	clip_upload_enabled, set_clip_upload_enabled,
-	voice_message_transcriber_enabled, set_voice_message_transcriber_enabled,
+	DownloadUi, blur_nsfw_enabled, clip_upload_enabled, clips_enhancements_enabled,
+	download_all_attachments_enabled, set_blur_nsfw_enabled, set_clip_upload_enabled,
+	set_clips_enhancements_enabled, set_download_all_attachments_enabled,
+	set_voice_message_transcriber_enabled, set_zip_preview_enabled,
+	voice_message_transcriber_enabled, zip_preview_enabled,
 };
 mod avatars;
 mod resample;
@@ -57,6 +54,7 @@ mod extension_admin_actions;
 mod extension_app;
 mod extension_server_actions;
 mod extensions_ui;
+mod interface_tweaks;
 mod new_message;
 pub mod proxy_auth;
 mod rich_presence;
@@ -94,9 +92,11 @@ mod pending;
 mod post_menu;
 mod preload;
 mod profiles;
+mod rtl;
 mod slash_builtin;
 mod slash_commands;
 mod stickers;
+mod timestamp_picker;
 /// Synthetic global profile used exclusively by the desktop's offline command adapter.
 #[cfg(any(test, feature = "demo"))]
 pub fn synthetic_own_profile(user: &model::User) -> model::UserProfile {
@@ -154,108 +154,102 @@ use egui::{RichText, TextEdit};
 use model::{Freshness, Id};
 pub use verification::VerificationUi;
 pub use voice::{
-	StageFocus, VOICE_DEVICES_LOADED, VOICE_DEVICES_LOOKING, set_vc_narrator_enabled, vc_narrator_enabled,
-	full_vc_pfp_enabled, set_full_vc_pfp_enabled,
-	disable_cameras_enabled, set_disable_cameras_enabled,
-	vc_panel_settings_uncollapsed, set_vc_panel_settings_uncollapsed,
-	voice_buttons_enabled, set_voice_buttons_enabled,
-	voice_stats_enabled, set_voice_stats_enabled,
-	voice_rejoin_enabled, set_voice_rejoin_enabled, last_voice_channel, record_last_voice_channel,
-	wait_for_slot_enabled, set_wait_for_slot_enabled, waiting_voice_channel, set_waiting_voice_channel,
-	follow_voice_user_enabled, set_follow_voice_user_enabled, followed_voice_user, set_followed_voice_user,
-	random_voice_enabled, set_random_voice_enabled, pick_random_voice_channel,
-	custom_sounds_enabled, set_custom_sounds_enabled,
-	exit_sounds_enabled, set_exit_sounds_enabled,
-	voice_join_messages_enabled, set_voice_join_messages_enabled,
-	voice_chat_utilities_enabled, set_voice_chat_utilities_enabled,
-	mic_loopback_tester_enabled, set_mic_loopback_tester_enabled, mic_loopback_active, set_mic_loopback_active,
-	never_pause_previews_enabled, set_never_pause_previews_enabled,
-	streaming_codec_disabler_enabled, set_streaming_codec_disabler_enabled,
+	StageFocus, VOICE_DEVICES_LOADED, VOICE_DEVICES_LOOKING, custom_sounds_enabled,
+	disable_cameras_enabled, exit_sounds_enabled, follow_voice_user_enabled, followed_voice_user,
+	full_vc_pfp_enabled, last_voice_channel, mic_loopback_active, mic_loopback_tester_enabled,
+	never_pause_previews_enabled, pick_random_voice_channel, random_voice_enabled,
+	record_last_voice_channel, set_custom_sounds_enabled, set_disable_cameras_enabled,
+	set_exit_sounds_enabled, set_follow_voice_user_enabled, set_followed_voice_user,
+	set_full_vc_pfp_enabled, set_mic_loopback_active, set_mic_loopback_tester_enabled,
+	set_never_pause_previews_enabled, set_random_voice_enabled,
+	set_streaming_codec_disabler_enabled, set_vc_narrator_enabled,
+	set_vc_panel_settings_uncollapsed, set_voice_buttons_enabled, set_voice_chat_utilities_enabled,
+	set_voice_join_messages_enabled, set_voice_rejoin_enabled, set_voice_stats_enabled,
+	set_wait_for_slot_enabled, set_waiting_voice_channel, streaming_codec_disabler_enabled,
+	vc_narrator_enabled, vc_panel_settings_uncollapsed, voice_buttons_enabled,
+	voice_chat_utilities_enabled, voice_join_messages_enabled, voice_rejoin_enabled,
+	voice_stats_enabled, wait_for_slot_enabled, waiting_voice_channel,
 };
-pub use account_menu::{account_panel_server_profile_enabled, set_account_panel_server_profile_enabled};
+mod voice_latency;
+pub use account_menu::{
+	account_panel_server_profile_enabled, set_account_panel_server_profile_enabled,
+};
+pub use badges::{set_show_badges_in_chat_enabled, show_badges_in_chat_enabled};
+pub use categories::{
+	channel_badge_label, channel_badges_enabled, channel_tabs_enabled, clean_channel_name,
+	clean_channel_name_enabled, cleaner_channel_groups_enabled, draft_navigator_enabled,
+	guild_member_counts, member_count_enabled, message_peek_enabled, set_channel_badges_enabled,
+	set_channel_tabs_enabled, set_clean_channel_name_enabled, set_cleaner_channel_groups_enabled,
+	set_draft_navigator_enabled, set_member_count_enabled, set_message_peek_enabled,
+	set_show_resource_channels_enabled, set_unread_badge_count_enabled,
+	show_resource_channels_enabled, unread_badge_count_enabled,
+};
 pub use embeds::{
 	fix_spotify_embeds_enabled, fix_youtube_embeds_enabled, set_fix_spotify_embeds_enabled,
 	set_fix_youtube_embeds_enabled,
 };
+pub use embeds::{set_show_message_embeds_enabled, show_message_embeds_enabled};
 pub use emoji_picker::{
 	better_gif_picker_enabled, greet_sticker_picker_enabled, set_better_gif_picker_enabled,
 	set_greet_sticker_picker_enabled,
 };
+pub use emoji_picker::{
+	drag_favorite_emotes_enabled, set_drag_favorite_emotes_enabled, set_whitelisted_emojis_enabled,
+	whitelisted_emojis_enabled,
+};
 pub use guild_folders::{
-	better_folders_close_others_enabled, better_folders_enabled,
+	better_folders_close_others_enabled, better_folders_enabled, custom_folder_icons_enabled,
+	hide_server, hide_servers_enabled, home_typing_enabled, is_server_hidden,
+	server_counter_enabled, server_counter_label, server_search_enabled,
 	set_better_folders_close_others_enabled, set_better_folders_enabled,
-	hide_servers_enabled, set_hide_servers_enabled, hide_server, unhide_server, is_server_hidden,
-	custom_folder_icons_enabled, set_custom_folder_icons_enabled,
-	server_search_enabled, set_server_search_enabled,
-	home_typing_enabled, set_home_typing_enabled,
-	server_counter_enabled, set_server_counter_enabled, server_counter_label,
+	set_custom_folder_icons_enabled, set_hide_servers_enabled, set_home_typing_enabled,
+	set_server_counter_enabled, set_server_search_enabled, unhide_server,
 };
 pub use highlight::{set_shiki_codeblocks_enabled, shiki_codeblocks_enabled};
+pub use keybinds::{
+	keyboard_navigation_enabled, set_keyboard_navigation_enabled, set_toggle_video_bind_enabled,
+	toggle_video_bind_enabled,
+};
+pub use local_time::{custom_timestamps_seconds_enabled, set_custom_timestamps_seconds_enabled};
+pub use markdown::{
+	content_warning_enabled, has_content_warning, markdown_tables_enabled, message_colors_enabled,
+	message_link_tooltip_enabled, set_content_warning_enabled, set_markdown_tables_enabled,
+	set_message_colors_enabled, set_message_link_tooltip_enabled,
+};
 pub use notifications::{server_list_indicators_enabled, set_server_list_indicators_enabled};
 pub use profiles::{
-	always_expand_profiles_enabled, banners_everywhere_enabled, platform_indicators_enabled,
-	set_always_expand_profiles_enabled, set_banners_everywhere_enabled,
-	set_platform_indicators_enabled, set_timezones_enabled, set_user_voice_show_enabled,
-	timezones_enabled, user_voice_show_enabled,
-	friendship_ranks_enabled, set_friendship_ranks_enabled, friendship_duration_text,
-	show_connections_enabled, set_show_connections_enabled,
+	always_expand_profiles_enabled, banners_everywhere_enabled, friendship_duration_text,
+	friendship_ranks_enabled, platform_indicators_enabled, set_always_expand_profiles_enabled,
+	set_banners_everywhere_enabled, set_friendship_ranks_enabled, set_platform_indicators_enabled,
+	set_show_connections_enabled, set_timezones_enabled, set_user_voice_show_enabled,
+	show_connections_enabled, timezones_enabled, user_voice_show_enabled,
+};
+pub use reactions::{reaction_timestamps_enabled, set_reaction_timestamps_enabled};
+pub use switcher::{
+	CommandPaletteAction, command_palette_enabled, frequent_quick_switcher_enabled,
+	friend_tags_enabled, recent_dm_switcher_enabled, set_command_palette_enabled,
+	set_frequent_quick_switcher_enabled, set_friend_tags_enabled, set_recent_dm_switcher_enabled,
+};
+pub use timeline::{
+	auto_jump_to_message_enabled, better_backreading_enabled, dragify_enabled,
+	hide_messages_enabled, jump_to_enabled, message_details_enabled, message_details_tooltip,
+	pin_icon_enabled, set_auto_jump_to_message_enabled, set_better_backreading_enabled,
+	set_dragify_enabled, set_hide_messages_enabled, set_jump_to_enabled,
+	set_message_details_enabled, set_pin_icon_enabled, set_show_roles_in_chat_enabled,
+	set_sidebar_chat_enabled, show_roles_in_chat_enabled, sidebar_chat_enabled,
 };
 pub use typing::{
 	set_typing_indicator_avatar_enabled, set_typing_tweaks_enabled,
 	typing_indicator_avatar_enabled, typing_tweaks_enabled,
 };
-pub use markdown::{
-	content_warning_enabled, has_content_warning, markdown_tables_enabled,
-	message_colors_enabled, message_link_tooltip_enabled, set_content_warning_enabled,
-	set_markdown_tables_enabled, set_message_colors_enabled, set_message_link_tooltip_enabled,
-};
-pub use reactions::{reaction_timestamps_enabled, set_reaction_timestamps_enabled};
-pub use badges::{show_badges_in_chat_enabled, set_show_badges_in_chat_enabled};
-pub use local_time::{custom_timestamps_seconds_enabled, set_custom_timestamps_seconds_enabled};
-pub use embeds::{set_show_message_embeds_enabled, show_message_embeds_enabled};
-pub use emoji_picker::{
-	set_whitelisted_emojis_enabled, whitelisted_emojis_enabled,
-	drag_favorite_emotes_enabled, set_drag_favorite_emotes_enabled,
-};
 pub use user_menu::{
-	last_active_enabled, set_last_active_enabled,
-	copy_user_mention_enabled, set_copy_user_mention_enabled,
-	copy_profile_colors_enabled, set_copy_profile_colors_enabled,
-	copy_status_urls_enabled, set_copy_status_urls_enabled,
-	cancel_friend_request_enabled, set_cancel_friend_request_enabled,
-	custom_user_colors_enabled, set_custom_user_colors_enabled,
-	custom_user_color, set_custom_user_color,
+	cancel_friend_request_enabled, copy_profile_colors_enabled, copy_status_urls_enabled,
+	copy_user_mention_enabled, custom_user_color, custom_user_colors_enabled, last_active_enabled,
+	set_cancel_friend_request_enabled, set_copy_profile_colors_enabled,
+	set_copy_status_urls_enabled, set_copy_user_mention_enabled, set_custom_user_color,
+	set_custom_user_colors_enabled, set_last_active_enabled,
 };
-pub use timeline::{
-	better_backreading_enabled, hide_messages_enabled, pin_icon_enabled,
-	set_better_backreading_enabled, set_hide_messages_enabled, set_pin_icon_enabled,
-	set_show_roles_in_chat_enabled, show_roles_in_chat_enabled,
-	auto_jump_to_message_enabled, jump_to_enabled, set_auto_jump_to_message_enabled,
-	set_jump_to_enabled, set_sidebar_chat_enabled, sidebar_chat_enabled,
-	dragify_enabled, set_dragify_enabled,
-	message_details_enabled, set_message_details_enabled, message_details_tooltip,
-};
-pub use categories::{
-	cleaner_channel_groups_enabled, message_peek_enabled,
-	set_cleaner_channel_groups_enabled, set_message_peek_enabled,
-	draft_navigator_enabled, set_draft_navigator_enabled,
-	clean_channel_name_enabled, set_clean_channel_name_enabled, clean_channel_name,
-	channel_badges_enabled, set_channel_badges_enabled, channel_badge_label,
-	channel_tabs_enabled, set_channel_tabs_enabled,
-	show_resource_channels_enabled, set_show_resource_channels_enabled,
-	unread_badge_count_enabled, set_unread_badge_count_enabled,
-	member_count_enabled, set_member_count_enabled, guild_member_counts,
-};
-pub use switcher::{
-	command_palette_enabled, frequent_quick_switcher_enabled, recent_dm_switcher_enabled,
-	set_command_palette_enabled, set_frequent_quick_switcher_enabled,
-	set_recent_dm_switcher_enabled, CommandPaletteAction,
-	friend_tags_enabled, set_friend_tags_enabled,
-};
-pub use keybinds::{
-	keyboard_navigation_enabled, set_keyboard_navigation_enabled,
-	toggle_video_bind_enabled, set_toggle_video_bind_enabled,
-};
+pub use voice_latency::VoiceLatency;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct VoiceGain {
@@ -370,6 +364,8 @@ pub const DEFAULT_IDLE_TIMEOUT_SECS: u32 = 10 * 60;
 
 #[derive(Default)]
 pub struct MessagingUi {
+	/// Interface tweaks switched on by enabled plugins.
+	interface_tweaks: std::sync::Arc<std::collections::BTreeSet<extensions::InterfaceTweak>>,
 	poll_creator: polls::Creator,
 	pub language: i18n::Language,
 	forwarding: forwarding::ForwardDialog,
@@ -459,8 +455,6 @@ pub struct MessagingUi {
 	pub image_cache: model::CachePreferences,
 	/// Clock style for message times.
 	pub time_format: model::TimeFormat,
-	/// Saved logins may fall back to plain files when no OS keyring works.
-	pub plaintext_login: bool,
 	/// First-run setup still to show; the desktop restores and persists it.
 	pub setup_pending: bool,
 	setup_step: usize,
@@ -474,9 +468,20 @@ pub struct MessagingUi {
 	pub custom_font: fonts::Settings,
 	/// Which GPU renders the window; the running adapter only changes on restart.
 	pub gpu_preference: model::GpuPreference,
+	/// Preferred graphics API on next launch.
+	pub graphics_api: model::GraphicsApi,
+	/// API requested when the running renderer started; reports name it, not a pending edit.
+	pub startup_graphics_api: model::GraphicsApi,
+	/// APIs compiled for this platform, populated by the desktop without probing drivers.
+	pub available_graphics_apis: Vec<model::GraphicsApi>,
+	pub graphics_api_env_override: bool,
 	/// Device preference: repaint every display refresh while focused, so variable refresh rate
 	/// displays hold one rate instead of flickering.
 	pub steady_refresh_rate: bool,
+	/// The desktop found a display with G-SYNC on, which follows this window's uneven redraws.
+	pub gsync_detected: bool,
+	/// The one-time offer to turn `steady_refresh_rate` on was answered; the desktop persists it.
+	pub steady_refresh_prompted: bool,
 	/// Adapter currently in use, shown next to the preference for bug reports.
 	pub gpu_adapter: String,
 	pub reading_status: &'static str,
@@ -560,6 +565,8 @@ pub struct MessagingUi {
 	pub external_upload: external_upload::ExternalUpload,
 	/// Transient problem and progress notices. Nothing here outlives its deadline.
 	pub toasts: toasts::Toasts,
+	/// Session generation and startup warnings already stated in a toast.
+	startup_warnings_toasted: (u64, model::account::Warnings),
 	pending_upload: Option<pending::Upload>,
 	pub clear_cache_requested: bool,
 	pub voice_available: bool,
@@ -570,6 +577,7 @@ pub struct MessagingUi {
 	pub voice_camera_status: &'static str,
 	pub voice_cameras: Vec<(String, String)>,
 	pub voice_camera_device: Option<String>,
+	pub voice_camera_rate: model::voice_settings::CameraFrameRate,
 	pub voice_refresh_cameras: bool,
 	pub voice_camera_device_status: &'static str,
 	pub voice_camera_devices_loading: bool,
@@ -605,6 +613,7 @@ pub struct MessagingUi {
 	ring_request: Option<(Id, u64, Id, bool)>,
 	voice_moderation: Option<(Id, Id, Id, model::server_admin::VoiceChange)>,
 	stream_preview_open: Option<((Id, Id, Id), u64)>,
+	stream_preview_hover: Option<((Id, Id, Id), egui::Rect)>,
 	stream_preview_request: Option<(Id, Id, Id)>,
 	stream_preview_watch: Option<(Id, Id)>,
 	/// Guild voice channel double-clicked in the channel list, joined after selection applies.
@@ -637,6 +646,7 @@ pub struct MessagingUi {
 	pub voice_ptt_active: bool,
 	pub voice_ptm_active: bool,
 	pub voice_privacy_code: Option<String>,
+	pub voice_latency: VoiceLatency,
 	/// Latest media activity, capped at 64 IDs (512 bytes) by the voice host.
 	pub voice_speaking: Vec<Id>,
 	pub voice_narrator_cache: std::collections::HashMap<Id, (String, bool)>,
@@ -683,11 +693,14 @@ pub struct MessagingUi {
 	edit_sent: Option<SubmittedEdit>,
 	deleting: Option<(Id, Id)>,
 	ime_active: bool,
+	/// A composer picker pick returns focus to the draft next frame, once its click is over.
+	refocus_composer: bool,
 	/// Enter the input method passed on after finishing a composition, replayed next frame.
 	ime_enter: Option<egui::Event>,
 	/// The composer claimed Tab last frame, so egui left it in the input for a suggestion menu.
 	composer_claims_tab: bool,
 	mention_menu: mentions::Menu,
+	timestamp_picker: timestamp_picker::Picker,
 	slash_commands: slash_commands::Menu,
 	slash_direct: Option<slash_builtin::PendingMessage>,
 	mention_lookup: member_search::Search,
@@ -700,7 +713,6 @@ pub struct MessagingUi {
 	pub transparency: u8,
 	pub blur: u8,
 }
-
 
 /// VenSerein (AddAttachments): Allows attaching files/images when editing an already sent message.
 pub static ADD_ATTACHMENTS_ENABLED: std::sync::atomic::AtomicBool =
@@ -780,7 +792,9 @@ pub fn parse_sticker_paste(text: &str) -> Option<(u64, u8)> {
 		.or_else(|| trimmed.strip_prefix("https://cdn.discordapp.com/stickers/"))
 	{
 		let (path_and_query, _) = rest.split_once('#').unwrap_or((rest, ""));
-		let (path, _) = path_and_query.split_once('?').unwrap_or((path_and_query, ""));
+		let (path, _) = path_and_query
+			.split_once('?')
+			.unwrap_or((path_and_query, ""));
 		let id_str = path.split(['.', '/']).next()?;
 		let id = id_str.parse::<u64>().ok()?;
 		let format_type = if path.ends_with(".gif") {
@@ -805,10 +819,7 @@ pub(crate) fn composer_placeholder(state: &State, channel: Id) -> String {
 		|| crate::i18n::translate("composer-placeholder"),
 		|c| {
 			if c.guild.is_some() {
-				crate::i18n::translate_args(
-					"composer-placeholder-channel",
-					&[("channel", &c.name)],
-				)
+				crate::i18n::translate_args("composer-placeholder-channel", &[("channel", &c.name)])
 			} else if full_user_in_chatbox_enabled()
 				&& c.kind == 1
 				&& let Some(user) = c.recipients.first()
@@ -823,10 +834,7 @@ pub(crate) fn composer_placeholder(state: &State, channel: Id) -> String {
 					Some(nick) if nick != user.name => format!("{nick} (@{tag})"),
 					_ => tag,
 				};
-				crate::i18n::translate_args(
-					"composer-placeholder-direct",
-					&[("name", &full_name)],
-				)
+				crate::i18n::translate_args("composer-placeholder-direct", &[("name", &full_name)])
 			} else {
 				crate::i18n::translate_args(
 					"composer-placeholder-direct",
@@ -1436,7 +1444,7 @@ impl MessagingUi {
 				} else if request
 					.image
 					.as_ref()
-					.is_some_and(|image| image.pixels.len() > 4 * 1024 * 1024)
+					.is_some_and(|image| image.pixels().len() > 4 * 1024 * 1024)
 				{
 					state.status = "Paste an image with at most 4 million pixels";
 				} else {
@@ -1509,6 +1517,13 @@ impl MessagingUi {
 			startup_busy: self.startup_busy,
 			startup_status: self.startup_status,
 			startup_disable_requested: self.startup_disable_requested,
+			// The renderer outlives the account; only startup knows its adapter and APIs.
+			gpu_adapter: std::mem::take(&mut self.gpu_adapter),
+			startup_graphics_api: self.startup_graphics_api,
+			available_graphics_apis: std::mem::take(&mut self.available_graphics_apis),
+			graphics_api_env_override: self.graphics_api_env_override,
+			// G-SYNC belongs to the device, and the desktop hands its finding over only once.
+			gsync_detected: self.gsync_detected,
 			..Self::default()
 		};
 		self.timeline.video.fullscreen_request = video_fullscreen_request;
@@ -2078,6 +2093,7 @@ impl MessagingUi {
 									&avatar,
 									state,
 									&member.user,
+									user_menu::Place::Open,
 									&mut self.profile,
 									&mut self.user_action,
 								);
@@ -2203,6 +2219,7 @@ impl MessagingUi {
 									&response,
 									state,
 									&member.user,
+									user_menu::Place::Open,
 									&mut self.profile,
 									&mut self.user_action,
 								);
@@ -2418,9 +2435,7 @@ impl MessagingUi {
 						ui.spacing_mut().item_spacing.x = 4.0;
 						ui.add(
 							egui::Label::new(
-								egui::RichText::new(label)
-									.size(11.0)
-									.color(colors.muted),
+								egui::RichText::new(label).size(11.0).color(colors.muted),
 							)
 							.truncate()
 							.selectable(false),
@@ -2502,9 +2517,17 @@ impl MessagingUi {
 					divider(ui);
 				}
 				if in_call {
+					if self.voice_stream_section(ui, state) {
+						divider(ui);
+					}
 					self.voice_card_section(ui, state, commands);
 					divider(ui);
 				}
+				// Reserved before the avatar so the identity hover fill stays behind it.
+				let highlight = ui.painter().add(egui::Shape::Noop);
+				let mut identity_hover = None;
+				let mut avatar_rect = None;
+				let mut avatar_focused = false;
 				egui::Frame::new()
 					.inner_margin(egui::Margin::symmetric(8, 6))
 					.show(ui, |ui| {
@@ -2513,6 +2536,8 @@ impl MessagingUi {
 							ui.spacing_mut().item_spacing.x = 8.0;
 							if let Some(user) = &state.user {
 								let avatar = self.avatars.show(ui, user, 32.0, state.demo);
+								avatar_rect = Some(avatar.rect);
+								avatar_focused = avatar.has_focus();
 								avatar.widget_info(|| {
 									egui::WidgetInfo::labeled(
 										egui::Role::Button,
@@ -2532,6 +2557,7 @@ impl MessagingUi {
 									&avatar,
 									state,
 									user,
+									user_menu::Place::Nowhere,
 									&mut self.profile,
 									&mut self.user_action,
 								);
@@ -2564,6 +2590,7 @@ impl MessagingUi {
 									ui.with_layout(
 										egui::Layout::left_to_right(egui::Align::Center),
 										|ui| {
+											let identity_right = ui.max_rect().right();
 											let identity = ui
 												.vertical(|ui| {
 													ui.spacing_mut().item_spacing.y = 0.0;
@@ -2636,6 +2663,47 @@ impl MessagingUi {
 													language.text("profile-and-status"),
 												)
 											});
+											let union = avatar_rect.map_or(identity.rect, |rect| {
+												rect.union(identity.rect)
+											});
+											let left = avatar_rect
+												.map_or(identity.rect.left(), |rect| rect.left());
+											let height = union.height().max(32.0) + 8.0;
+											let full_left = left - 4.0;
+											// Leave a gap before the voice controls, but never stop under long text.
+											let hover_right = (full_left
+												+ (identity_right - full_left) * 0.9)
+												.max(identity.rect.right() + 4.0)
+												.min(identity_right);
+											let hover_rect = egui::Rect::from_min_max(
+												egui::pos2(
+													full_left,
+													union.center().y - height * 0.5,
+												),
+												egui::pos2(
+													hover_right,
+													union.center().y + height * 0.5,
+												),
+											);
+											let focused = identity.has_focus() || avatar_focused;
+											// The empty tail of the hover rectangle joins the identity's click
+											// target without covering the avatar's own context menu. It spans
+											// the unpadded row so the menu anchor does not move up.
+											let space =
+												(identity.rect.right() < hover_right).then(|| {
+													ui.interact(
+														egui::Rect::from_min_max(
+															egui::pos2(
+																identity.rect.right(),
+																union.top(),
+															),
+															egui::pos2(hover_right, union.bottom()),
+														),
+														ui.scope_id()
+															.with("account-identity-space"),
+														egui::Sense::CLICK,
+													)
+												});
 											if let Some(avatar) = anchor.take() {
 												if identity.has_focus() {
 													ui.painter().rect_stroke(
@@ -2645,14 +2713,32 @@ impl MessagingUi {
 														egui::StrokeKind::Inside,
 													);
 												}
-												anchor = Some(avatar.union(identity));
+												let click = if let Some(space) = space {
+													identity.union(space)
+												} else {
+													identity
+												};
+												anchor = Some(avatar.union(click));
 											}
+											identity_hover = Some((hover_rect, focused));
 										},
 									);
 								},
 							);
 						});
 					});
+				if let Some((rect, focused)) = identity_hover
+					&& (focused || ui.rect_contains_pointer(rect))
+				{
+					ui.painter().set(
+						highlight,
+						egui::Shape::rect_filled(
+							rect,
+							6,
+							design::row_highlight(ui, colors.hover, 1.0),
+						),
+					);
+				}
 			});
 		// Painted over the frame rather than as its stroke, so the card keeps the composer's height.
 		ui.painter()
@@ -2760,6 +2846,7 @@ impl MessagingUi {
 								&avatar,
 								state,
 								user,
+								user_menu::Place::Conversation(c.id),
 								&mut self.profile,
 								&mut self.user_action,
 								Some(shortcuts::ShortcutView::new(
@@ -3283,7 +3370,9 @@ impl MessagingUi {
 			return;
 		}
 		let colors = crate::design::palette(ui);
-		let keyboard_enabled = !self.switcher_frame
+		let timestamp_blocked = self.timestamp_picker.is_open();
+		let keyboard_enabled = !timestamp_blocked
+			&& !self.switcher_frame
 			&& !self.switcher.is_open()
 			&& ctx.memory(|memory| memory.top_modal_layer().is_none());
 		fn ime_updates_text(event: &egui::Event) -> bool {
@@ -3323,6 +3412,13 @@ impl MessagingUi {
 			.filter(|(c, _, _)| *c == channel)
 			.map(|(c, id, _)| (*c, *id));
 		let editing_here = editing_key.is_some();
+		let timestamp_target = timestamp_picker::Target {
+			generation: state.generation,
+			channel,
+			editing: editing_key.map(|(_, id)| id),
+		};
+		let timestamp_pick = self.timestamp_picker.show(ctx, timestamp_target);
+
 		if let Some((_, id)) = editing_key {
 			if state.timeline.get(id).is_some() {
 				self.edit_undo_cleared = false;
@@ -3391,6 +3487,8 @@ impl MessagingUi {
 			design::glass_frame(ui, colors.raised, egui::Margin::symmetric(10, 6))
 				.corner_radius(8)
 				.show(ui, |ui| {
+					// The frame otherwise shrinks to the hint; span the composer row instead.
+					ui.set_min_width(ui.available_width());
 					let hint = "You don't have permission to send messages in this channel.";
 					ui.allocate_ui_with_layout(
 						egui::vec2(ui.available_width(), ui.spacing().interact_size.y),
@@ -3570,17 +3668,26 @@ impl MessagingUi {
 			}
 			return;
 		}
+		let composer_id = ui.make_persistent_id(if editing_here {
+			"message-edit"
+		} else {
+			"message-input"
+		});
+		// Input methods write into the focused field; with Wayland text-input every key in
+		// another field, such as the picker search, arrives as a commit and is not composing here.
+		let composer_ime = ctx.memory(|memory| memory.focused().is_none_or(|id| id == composer_id));
 		// Wayland/Fcitx can repeatedly emit empty preedits while idle. Only real
 		// composition blocks shortcuts; dismissing an active composition still does.
 		let ime_this_frame = keyboard_enabled
-			&& (self.ime_active || ctx.input(|i| i.events.iter().any(ime_updates_text)));
+			&& (self.ime_active
+				|| (composer_ime && ctx.input(|i| i.events.iter().any(ime_updates_text))));
 		if keyboard_enabled {
 			ctx.input(|i| {
 				for event in &i.events {
 					if let egui::Event::Ime(event) = event {
 						match event {
 							egui::ImeEvent::Preedit { text, .. } => {
-								self.ime_active = !text.is_empty()
+								self.ime_active = composer_ime && !text.is_empty()
 							}
 							egui::ImeEvent::Commit(_) => self.ime_active = false,
 							_ => {}
@@ -3614,11 +3721,6 @@ impl MessagingUi {
 		} else {
 			self.ime_enter = None;
 		}
-		let composer_id = ui.make_persistent_id(if editing_here {
-			"message-edit"
-		} else {
-			"message-input"
-		});
 		if editing_here {
 			self.edit_widget_id = Some(composer_id);
 		}
@@ -3645,7 +3747,8 @@ impl MessagingUi {
 					_ => false,
 				})
 			});
-		if focus_composer || typed {
+		let refocus = std::mem::take(&mut self.refocus_composer) && keyboard_enabled;
+		if focus_composer || typed || refocus {
 			ctx.memory_mut(|m| m.request_focus(composer_id));
 		}
 		if focus_edit || (focus_composer && !editing_here) {
@@ -3747,6 +3850,7 @@ impl MessagingUi {
 			.filter(|r| r.is_empty())
 			.map(|r| r.primary.index.0);
 		self.mention_menu.hide_nitro_emojis = self.hide_nitro_emojis;
+		self.mention_menu.editing = editing_here;
 		if std::mem::take(&mut self.mention_menu.retry_games) {
 			state.game_mentions.status = client_core::game_mentions::Status::Idle;
 		}
@@ -3763,11 +3867,13 @@ impl MessagingUi {
 			state.game_mentions.request();
 			ctx.request_repaint();
 		}
-		let mention_pick = if mention_enabled {
-			self.mention_menu.keys(ctx)
-		} else {
-			None
-		};
+		let mention_pick = timestamp_pick.or_else(|| {
+			if mention_enabled {
+				self.mention_menu.keys(ctx)
+			} else {
+				None
+			}
+		});
 		if std::mem::take(&mut self.composer_claims_tab) && ctx.memory(|m| m.has_focus(composer_id))
 		{
 			// A menu that closed this frame must not leave Tab for the editor to indent with.
@@ -3929,6 +4035,7 @@ impl MessagingUi {
                                     .show(ui, state, channel, &mut self.avatars, commands)
                             })
                             .inner;
+                        let picked = pick.is_some() && !self.emoji_picker.is_open();
                         // A chosen GIF is its own message; the typed draft stays untouched.
                         if self.emoji_picker.is_open() {
                             self.reaction_picker.dismiss(state, commands);
@@ -3967,9 +4074,9 @@ impl MessagingUi {
                             }
                             None => None,
                         };
-                        actions = Some((send, pick));
+                        actions = Some((send, pick, picked));
                         });
-                        let (send, pick) = actions.expect("composer actions ran");
+                        let (send, pick, picked) = actions.expect("composer actions ran");
                         let edit = ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                             ui.vertical(|ui| {
                                 ui.set_width(ui.available_width());
@@ -4049,7 +4156,7 @@ impl MessagingUi {
                             mention_changed = true;
                         }
                         if let Some(pick) = mention_pick
-                            && let Some(cursor) = mentions::insert(draft, pick, editing_here)
+                            && let Some(cursor) = self.timestamp_picker.accept(draft, pick, timestamp_target, remaining)
                         {
                             let mut edit_state =
                                 egui::text_edit::TextEditState::load(ctx, composer_id).unwrap_or_default();
@@ -4113,6 +4220,27 @@ impl MessagingUi {
                             rich_layout.select_deleted_inline(ctx, composer_id);
                         }
                         let selection = text_menu::selection_for_menu(ctx, composer_id);
+                        // Right-to-left drafts are drawn in visual order, so arrows follow the
+                        // reading direction of the paragraph holding the caret.
+                        let bidi_draft = rich_layout.bidi_active(draft);
+                        if bidi_draft
+                            && ctx.memory(|m| m.has_focus(composer_id))
+                            && egui::text_edit::TextEditState::load(ctx, composer_id)
+                                .and_then(|state| state.cursor.char_range())
+                                .is_some_and(|range| composer_text::paragraph_rtl(draft, range.primary.index.0))
+                        {
+                            ctx.input_mut(|input| {
+                                for event in &mut input.events {
+                                    if let egui::Event::Key { key, .. } = event {
+                                        *key = match *key {
+                                            egui::Key::ArrowLeft => egui::Key::ArrowRight,
+                                            egui::Key::ArrowRight => egui::Key::ArrowLeft,
+                                            other => other,
+                                        };
+                                    }
+                                }
+                            });
+                        }
                         let mut output = egui::ScrollArea::vertical()
                             .id_salt((composer_id, channel, editing_key))
                             .max_height(ui.ctx().viewport_rect().height() * 0.5)
@@ -4146,7 +4274,15 @@ impl MessagingUi {
                                 } else {
                                     egui::WidgetText::default()
                                 };
-                                let output = TextEdit::multiline(draft)
+                                let selection_slot = ui.painter().add(egui::Shape::Noop);
+                                let mut output = ui.scope(|ui| {
+                                // The composer paints the caret and selection of visual-order drafts.
+                                if bidi_draft {
+                                    let visuals = ui.visuals_mut();
+                                    visuals.text_cursor.stroke.color = egui::Color32::TRANSPARENT;
+                                    visuals.selection.bg_fill = egui::Color32::TRANSPARENT;
+                                }
+                                TextEdit::multiline(draft)
                                     .interactive(keyboard_enabled)
                                     .layouter(&mut layouter)
                                     .id(composer_id)
@@ -4162,8 +4298,13 @@ impl MessagingUi {
                                     .align(egui::Align2::LEFT_CENTER)
                                     .frame(egui::Frame::NONE)
                                     .hint_text(hint)
-                                    .show(ui);
+                                    .show(ui)
+                                }).inner;
+                                rich_layout.bidi_pointer(&mut output, ctx);
                                 rich_layout.paint(ui, &output, &mut self.avatars);
+                                if bidi_draft {
+                                    rich_layout.paint_bidi(ui, &output, selection_slot);
+                                }
                                 output
                             }).inner;
                         if !self.ime_active && !ime_this_frame {
@@ -4181,7 +4322,7 @@ impl MessagingUi {
                         self.mention_menu
                             .refresh(state, channel, draft, mention_cursor, &mention_users);
                         if let Some(pick) = self.mention_menu.show(ui, composer_anchor, &mut self.avatars, demo)
-                            && let Some(cursor) = mentions::insert(draft, pick, editing_here)
+                            && let Some(cursor) = self.timestamp_picker.accept(draft, pick, timestamp_target, remaining)
                         {
                             output
                                 .state
@@ -4247,6 +4388,12 @@ impl MessagingUi {
                         edit.response
                             }).inner
                         }).inner;
+                        // The picker hands focus to its button and the click surrenders the
+                        // draft's, so return to the draft on the next frame.
+                        if picked {
+                            self.refocus_composer = true;
+                            ctx.request_repaint();
+                        }
                         // Stack once three buttons fit beside the draft; unstack only at one line,
                         // so the width gained by stacking cannot flip the layout back and forth.
                         // The text edit reports its full content height; the scroll area shows at most half the viewport.
@@ -4298,6 +4445,9 @@ impl MessagingUi {
                         }
                     });
                 });
+                if !editing_here && state.drafts.get(&channel).is_some_and(|draft| model::message_options::content(draft).1) {
+                    timestamp_picker::silent_indicator(ui);
+                }
                 if let Some((edit_channel, message)) = editing_key {
                     if state.freshness != Freshness::Fresh || !state.can_edit(edit_channel, message) { ui.weak(crate::i18n::translate("lib-ime-updates-text-editing-this-message-is-unavailable-your-text-is-kept-until")); }
                 } else if !state.can_send(channel) && !application_command {
@@ -4488,6 +4638,7 @@ impl MessagingUi {
 			.is_none()
 			.then(|| state.known_profile(recipient.id))
 			.flatten();
+		self.dm_profile.calls_blocked = self.calls_unavailable(state);
 		let mut action = None;
 		// The panel shares the conversation surface, so the card floats on the chat itself.
 		egui::Panel::right("dm-profile-pane")
@@ -4635,6 +4786,13 @@ impl MessagingUi {
 					}
 				}
 			}
+			profiles::Action::JoinVoice { guild, channel } => {
+				match self.join_from_profile(state, guild, channel, commands) {
+					Ok(()) => self.profile.close(),
+					// The card stays open beside the reason.
+					Err(reason) => self.toasts.push(design::Level::Error, reason),
+				}
+			}
 			profiles::Action::EditStatus => self.open_custom_status_editor(),
 			profiles::Action::ClearStatus => self.clear_custom_status(),
 			profiles::Action::Close => {
@@ -4716,7 +4874,29 @@ impl MessagingUi {
 		}
 	}
 
+	/// Whether an enabled plugin switched `tweak` on.
+	pub fn interface_tweak_on(&self, tweak: extensions::InterfaceTweak) -> bool {
+		self.interface_tweaks.contains(&tweak)
+	}
+	/// Replaces the interface tweaks that enabled plugins switched on.
+	pub fn set_interface_tweaks(
+		&mut self,
+		tweaks: std::collections::BTreeSet<extensions::InterfaceTweak>,
+	) {
+		if *self.interface_tweaks != tweaks {
+			self.interface_tweaks = std::sync::Arc::new(tweaks);
+		}
+	}
+	/// Draws one frame of the signed-in client and returns the commands it produced for the
+	/// service layer.
 	pub fn show(&mut self, ui: &mut egui::Ui, state: &mut State) -> Vec<Command> {
+		interface_tweaks::publish(ui.ctx(), &self.interface_tweaks);
+		rtl::scope(
+			ui.ctx(),
+			state.generation,
+			state.user.as_ref().map(|user| user.id),
+			state.selected,
+		);
 		self.avatars.cosmetics = self.cosmetics;
 		name_styles::set_enabled(self.cosmetics.name_styles);
 		role_names::set_gradients(!self.cosmetics.solid_names);
@@ -4849,6 +5029,7 @@ impl MessagingUi {
 		let ctx = ui.ctx().clone();
 		user_menu::set_voice_available(&ctx, self.voice_available);
 		self.extensions.reset_theme_shortcut(&ctx);
+		self.extensions.context_menus(&ctx, state);
 		if self.extensions.has_result() {
 			self.settings.open = false;
 		}
@@ -4928,11 +5109,17 @@ impl MessagingUi {
 				Err(message) => state.status = message,
 			}
 		}
-		markdown::confirm_external_link(
+		let truncated = self.timeline.truncated_translation.is_some()
+			&& self.timeline.truncated_translation == self.timeline.browser_opening;
+		markdown::confirm_external_link_noting(
 			&ctx,
 			&mut self.timeline.browser_opening,
 			self.reading_preferences.confirm_external_links,
+			truncated,
 		);
+		if !truncated || self.timeline.browser_opening.is_none() {
+			self.timeline.truncated_translation = None;
+		}
 		markdown::confirm_external_link(
 			&ctx,
 			&mut self.timeline.opening,
@@ -4961,19 +5148,28 @@ impl MessagingUi {
 				(
 					input.consume_key(egui::Modifiers::COMMAND, egui::Key::Tab)
 						|| input.consume_key(egui::Modifiers::CTRL, egui::Key::Tab),
-					input.consume_key(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::Tab)
-						|| input.consume_key(egui::Modifiers::CTRL | egui::Modifiers::SHIFT, egui::Key::Tab),
+					input.consume_key(
+						egui::Modifiers::COMMAND | egui::Modifiers::SHIFT,
+						egui::Key::Tab,
+					) || input.consume_key(
+						egui::Modifiers::CTRL | egui::Modifiers::SHIFT,
+						egui::Key::Tab,
+					),
 				)
 			});
 			if ctrl_tab || ctrl_shift_tab {
 				let dms: Vec<Id> = state
 					.channels
 					.iter()
-					.filter(|c| c.guild.is_none() && (c.kind == 1 || c.kind == 3) && state.can_view(c.id))
+					.filter(|c| {
+						c.guild.is_none() && (c.kind == 1 || c.kind == 3) && state.can_view(c.id)
+					})
 					.map(|c| c.id)
 					.collect();
 				if !dms.is_empty() {
-					let current_idx = state.selected.and_then(|sel| dms.iter().position(|&id| id == sel));
+					let current_idx = state
+						.selected
+						.and_then(|sel| dms.iter().position(|&id| id == sel));
 					let next_idx = match current_idx {
 						Some(idx) => {
 							if ctrl_shift_tab {
@@ -4985,10 +5181,10 @@ impl MessagingUi {
 						None => 0,
 					};
 					let target_dm = dms[next_idx];
-					if state.selected != Some(target_dm) {
-						if let Some(command) = state.select(target_dm) {
-							commands.push(command);
-						}
+					if state.selected != Some(target_dm)
+						&& let Some(command) = state.select(target_dm)
+					{
+						commands.push(command);
 					}
 				}
 			}
@@ -5067,10 +5263,14 @@ impl MessagingUi {
 						categories::set_member_count_enabled(!categories::member_count_enabled());
 					}
 					switcher::CommandPaletteAction::ToggleServerCounter => {
-						guild_folders::set_server_counter_enabled(!guild_folders::server_counter_enabled());
+						guild_folders::set_server_counter_enabled(
+							!guild_folders::server_counter_enabled(),
+						);
 					}
 					switcher::CommandPaletteAction::ToggleShowConnections => {
-						profiles::set_show_connections_enabled(!profiles::show_connections_enabled());
+						profiles::set_show_connections_enabled(
+							!profiles::show_connections_enabled(),
+						);
 					}
 					switcher::CommandPaletteAction::ToggleMessageDetails => {
 						timeline::set_message_details_enabled(!timeline::message_details_enabled());
@@ -5078,6 +5278,18 @@ impl MessagingUi {
 				},
 			}
 		}
+		// Home and other views without a composer must also invalidate its pending dialog.
+		self.timestamp_picker.retain(state.selected.map(|channel| {
+			timestamp_picker::Target {
+				generation: state.generation,
+				channel,
+				editing: self
+					.editing
+					.as_ref()
+					.filter(|(c, _, _)| *c == channel)
+					.map(|(_, id, _)| *id),
+			}
+		}));
 		if self.navigation_channel != state.selected {
 			// A retained footer draft keeps focus instead of moving it to the new composer.
 			let profile_keeps_focus = self.profile.open_user().is_some_and(|user| {
@@ -5267,6 +5479,7 @@ impl MessagingUi {
 			self.search.focus_conversation(channel, state);
 		}
 		self.search.sync(&ctx, state, &mut commands);
+		self.search.extension_actions = self.extensions.message_actions();
 		let search_open =
 			self.search.results_visible(state) && state.selected.is_some() && !selected_voice;
 		let show_members = !selected_voice
@@ -5415,30 +5628,44 @@ impl MessagingUi {
 				if !warnings.presence {
 					self.friends.presence_warning_dismissed = None;
 				}
+				// Say once per connection what failed to load instead of keeping a banner up;
+				// a later category failing in the same session gets its own toast.
+				let (generation, toasted) = self.startup_warnings_toasted;
+				let toasted = if generation == state.generation {
+					toasted
+				} else {
+					Default::default()
+				};
 				let unavailable: Vec<_> = [
-					(warnings.read_state, "read status"),
-					(warnings.notifications, "notification settings"),
-					(warnings.sessions, "session status"),
-					(warnings.emojis, "some server emoji"),
-					(warnings.stickers, "some server stickers"),
-					(warnings.entries, "some malformed channels, DMs or contacts"),
+					(warnings.read_state && !toasted.read_state, "read status"),
+					(
+						warnings.notifications && !toasted.notifications,
+						"notification settings",
+					),
+					(warnings.sessions && !toasted.sessions, "session status"),
+					(warnings.emojis && !toasted.emojis, "some server emoji"),
+					(
+						warnings.stickers && !toasted.stickers,
+						"some server stickers",
+					),
+					(
+						warnings.entries && !toasted.entries,
+						"some channels or contacts",
+					),
 				]
 				.into_iter()
 				.filter_map(|(unavailable, label)| unavailable.then_some(label))
 				.collect();
 				if !unavailable.is_empty() {
-					egui::Frame::new()
-						.inner_margin(egui::Margin::symmetric(16, 6))
-						.show(ui, |ui| {
-							ui.colored_label(
-								colors.warning,
-								format!(
-									"Connected with some data unavailable: {}. Reconnect to retry.",
-									unavailable.join(", ")
-								),
-							);
-						});
+					self.toasts.push(
+						design::Level::Warning,
+						format!(
+							"Couldn't load {}. Reconnect to retry.",
+							unavailable.join(", ")
+						),
+					);
 				}
+				self.startup_warnings_toasted = (state.generation, warnings);
 				if state.selected.is_none() && self.guild.is_none() {
 					self.call_bar(ui, state, &mut commands, None);
 					self.timeline.download.show_status(ui);
@@ -5691,9 +5918,10 @@ impl MessagingUi {
 						{
 							commands.push(command);
 						}
-						if let Some((action, text)) = self.timeline.extension_request.take() {
+						if let Some((action, text, target)) = self.timeline.extension_request.take()
+						{
 							self.extensions
-								.invoke_message(action, text, state, ui.ctx());
+								.invoke_message(action, text, target, state, ui.ctx());
 						}
 						if let Some((message, anchor, trigger)) =
 							self.timeline.reaction_picker.take()
@@ -5892,6 +6120,10 @@ impl MessagingUi {
 		}
 		if let Some(link) = self.search.opening.take() {
 			self.timeline.opening = Some(link);
+		}
+		if let Some((action, text, target)) = self.search.extension_request.take() {
+			self.extensions
+				.invoke_message(action, text, target, state, &ctx);
 		}
 		if let Some(channel) = self.search.channel_reference.take() {
 			self.timeline.channel_reference = Some(channel);
@@ -6146,6 +6378,7 @@ impl MessagingUi {
 				.clone_from(&self.own_presence.custom_status);
 			let anchor = self.profile.anchor_or_place(&ctx, user.id);
 			self.profile.ingest_opener_rect(&ctx);
+			self.profile.calls_blocked = self.calls_unavailable(state);
 			let action = profiles::show_with_session(
 				ui,
 				&user,
@@ -6226,6 +6459,7 @@ impl MessagingUi {
 				None => {}
 			}
 		}
+		select::show_menu(&ctx);
 		self.show_call_switch(&ctx, state, &mut commands);
 		self.apply_ring_request(state, &mut commands);
 		if let Some((guild, channel, user, change)) = self.voice_moderation.take()
@@ -6263,6 +6497,8 @@ impl MessagingUi {
 		self.onboarding.show(&ctx, state, &mut commands);
 		if self.setup_pending {
 			self.show_setup(&ctx);
+		} else {
+			self.show_steady_refresh_prompt(&ctx);
 		}
 		self.scroll.clear_if_unbound(&ctx);
 		self.scroll.paint(&ctx);
@@ -7170,7 +7406,7 @@ mod composer_tests {
 	}
 
 	#[test]
-	fn quiet_composer_paste_allows_full_payload_and_marker_only_enter_preserves_draft() {
+	fn quiet_composer_completion_rejects_empty_text_and_paste_allows_full_payload() {
 		let ctx = egui::Context::default();
 		let mut view = MessagingUi {
 			focus_switched_composer: true,
@@ -7189,7 +7425,15 @@ mod composer_tests {
 			vec![edit_key(egui::Key::Enter)],
 		);
 		assert!(!command.iter().any(|c| matches!(c, Command::Send { .. })));
-		assert_eq!(state.drafts[&channel], "@silent");
+		assert_eq!(state.drafts[&channel], "@silent ");
+		let command = edit_frame(
+			&ctx,
+			&mut view,
+			&mut state,
+			vec![edit_key(egui::Key::Enter)],
+		);
+		assert!(!command.iter().any(|c| matches!(c, Command::Send { .. })));
+		assert_eq!(state.drafts[&channel], "@silent ");
 		assert!(state.pending.is_empty());
 		state.drafts.insert(channel, String::new());
 		let full = format!("@silent {}", "x".repeat(MAX_CONTENT));
@@ -9722,6 +9966,133 @@ mod composer_tests {
 	}
 
 	#[test]
+	fn in_voice_card_joins_a_visible_server_channel_without_ringing() {
+		use model::permissions as p;
+		let mut state = test_support::voice_demo_state();
+		state.demo = false;
+		state.gateway_connected = true;
+		state.voice.active = None;
+		state.select(Id(20));
+		// Robin shares room 25 with Fern and the account.
+		let user = test_support::message(1, Id(20)).author;
+		let spot = profiles::voice_spot(&state, user.id, None).expect("Robin is in a visible room");
+		assert_eq!(
+			(spot.guild.id, spot.channel.id, spot.count),
+			(Id(10), Id(25), 3)
+		);
+		assert_eq!(
+			spot.shown[0].participant.user, user.id,
+			"the owner leads the tile"
+		);
+		let mut view = MessagingUi {
+			voice_available: true,
+			..Default::default()
+		};
+		view.profile.command_open(user.clone());
+		// The card's Join is enabled exactly when the join path would accept it.
+		let agree = |view: &MessagingUi, state: &State| {
+			let blocked = profiles::join_blocked(state, Id(25), view.calls_unavailable(state));
+			assert_eq!(
+				blocked.is_none(),
+				view.call_unavailable(state, Id(25)).is_none()
+			);
+			blocked
+		};
+		assert_eq!(agree(&view, &state), None);
+		// Session-wide refusals disable Join too, with the reason the call buttons give.
+		view.voice_available = false;
+		assert_eq!(
+			agree(&view, &state).as_deref(),
+			view.calls_unavailable(&state)
+		);
+		view.voice_available = true;
+		let mut commands = vec![];
+		// A refused join (here a full room) keeps the card open and goes nowhere.
+		let mut crowd = state.voice.roster[2].clone();
+		for id in 100..161 {
+			crowd.participant.user = Id(id);
+			state.voice.roster.push(crowd.clone());
+		}
+		assert_eq!(
+			agree(&view, &state).as_deref(),
+			Some(client_core::voice::CALL_FULL)
+		);
+		let join = profiles::Action::JoinVoice {
+			guild: Id(10),
+			channel: Id(25),
+		};
+		view.profile_action(
+			&egui::Context::default(),
+			&mut state,
+			&mut commands,
+			&user,
+			None,
+			join,
+		);
+		assert!(commands.is_empty() && state.voice.active.is_none());
+		assert_eq!(state.selected, Some(Id(20)));
+		assert!(view.profile.open_user().is_some());
+		// Asking again still says why, although the status line already holds that reason.
+		assert_eq!(
+			view.join_from_profile(&mut state, Id(10), Id(25), &mut commands),
+			Err(client_core::voice::CALL_FULL.to_owned())
+		);
+		state.voice.roster.truncate(3);
+		view.profile_action(
+			&egui::Context::default(),
+			&mut state,
+			&mut commands,
+			&user,
+			None,
+			profiles::Action::JoinVoice {
+				guild: Id(10),
+				channel: Id(25),
+			},
+		);
+		let joins: Vec<_> = commands
+			.iter()
+			.filter_map(|command| match command {
+				Command::Voice(client_core::voice::Command::Join { channel, ring, .. }) => {
+					Some((*channel, *ring))
+				}
+				_ => None,
+			})
+			.collect();
+		assert_eq!(joins, [(Id(25), false)], "one join, never a ring");
+		assert_eq!(state.selected, Some(Id(25)), "the joined room opens");
+		assert!(view.profile.open_user().is_none());
+		assert_eq!(
+			agree(&view, &state),
+			Some(crate::i18n::translate("profiles-in-voice-joined"))
+		);
+		// A failed call is dismissed from its call card first; Join must not offer a retry
+		// that the join path then refuses.
+		state.voice.active.as_mut().unwrap().phase = client_core::voice::Phase::Failed;
+		assert_eq!(
+			agree(&view, &state),
+			Some(crate::i18n::translate("profiles-in-voice-failed"))
+		);
+		// Discord may report rosters for rooms this account cannot see; those stay hidden.
+		let mut snapshot = test_support::permission_snapshot(&state);
+		// The voice fixture reuses id 26 for its quiet room; a snapshot lists each id once.
+		let mut seen = std::collections::BTreeSet::new();
+		snapshot.channels.retain(|channel| seen.insert(channel.id));
+		snapshot
+			.channels
+			.iter_mut()
+			.find(|channel| channel.id == Id(25))
+			.unwrap()
+			.overwrites = Some(vec![p::Overwrite {
+			id: Id(10),
+			kind: 0,
+			allow: 0,
+			deny: p::VIEW_CHANNEL,
+		}]);
+		state.permissions.replace(snapshot).unwrap();
+		assert!(profiles::voice_spot(&state, user.id, None).is_none());
+	}
+
+	#[test]
 	fn profile_footer_open_chat_keeps_the_card_when_the_destination_has_text() {
 		let mut state = test_support::demo_state();
 		state.selected = Some(Id(20));
@@ -10073,7 +10444,10 @@ mod composer_tests {
 		set_gif_paste_enabled(true);
 		assert!(gif_paste_enabled());
 		let gif_url = "  https://tenor.com/view/funny-cat-12345  ";
-		assert_eq!(normalize_gif_paste(gif_url), "https://tenor.com/view/funny-cat-12345");
+		assert_eq!(
+			normalize_gif_paste(gif_url),
+			"https://tenor.com/view/funny-cat-12345"
+		);
 		let non_gif = "Hello world";
 		assert_eq!(normalize_gif_paste(non_gif), "Hello world");
 		set_gif_paste_enabled(false);
@@ -10085,11 +10459,20 @@ mod composer_tests {
 		let sticker_url = "https://media.discordapp.net/stickers/123456789.png?size=160";
 		assert_eq!(parse_sticker_paste(sticker_url), Some((123456789, 1)));
 		// Query parameters like ?name=.gif must not change format from png (1) to gif (4)
-		assert_eq!(parse_sticker_paste("https://media.discordapp.net/stickers/123456789.png?name=.gif"), Some((123456789, 1)));
+		assert_eq!(
+			parse_sticker_paste("https://media.discordapp.net/stickers/123456789.png?name=.gif"),
+			Some((123456789, 1))
+		);
 		// Fragment like #.gif must not change format from png (1) to gif (4)
-		assert_eq!(parse_sticker_paste("https://media.discordapp.net/stickers/123456789.png#.gif"), Some((123456789, 1)));
+		assert_eq!(
+			parse_sticker_paste("https://media.discordapp.net/stickers/123456789.png#.gif"),
+			Some((123456789, 1))
+		);
 		// Text following the URL must not be dropped; it should return None
-		assert_eq!(parse_sticker_paste("https://media.discordapp.net/stickers/123456789.png and caption"), None);
+		assert_eq!(
+			parse_sticker_paste("https://media.discordapp.net/stickers/123456789.png and caption"),
+			None
+		);
 		let animated_sticker = "https://cdn.discordapp.com/stickers/987654321.gif";
 		assert_eq!(parse_sticker_paste(animated_sticker), Some((987654321, 4)));
 		let invalid = "https://example.com/not_a_sticker";

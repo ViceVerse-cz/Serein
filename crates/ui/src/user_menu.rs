@@ -85,8 +85,9 @@ pub fn set_custom_user_colors_enabled(enabled: bool) {
 	CUSTOM_USER_COLORS_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
 }
 
-pub static CUSTOM_USER_COLORS: std::sync::RwLock<std::collections::BTreeMap<model::Id, egui::Color32>> =
-	std::sync::RwLock::new(std::collections::BTreeMap::new());
+pub static CUSTOM_USER_COLORS: std::sync::RwLock<
+	std::collections::BTreeMap<model::Id, egui::Color32>,
+> = std::sync::RwLock::new(std::collections::BTreeMap::new());
 
 #[allow(dead_code)]
 pub fn set_custom_user_color(user: model::Id, color: egui::Color32) {
@@ -100,7 +101,22 @@ pub fn custom_user_color(user: model::Id) -> Option<egui::Color32> {
 	if !custom_user_colors_enabled() {
 		return None;
 	}
-	CUSTOM_USER_COLORS.read().ok().and_then(|map| map.get(&user).copied())
+	CUSTOM_USER_COLORS
+		.read()
+		.ok()
+		.and_then(|map| map.get(&user).copied())
+}
+
+/// The conversation a user row belongs to. Plugin user actions receive it with the user, so
+/// a row outside the open conversation never reports that conversation's IDs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Place {
+	/// A row inside the open conversation, such as a message author or a member.
+	Open,
+	/// A row for a specific conversation, such as a sidebar DM or a voice channel.
+	Conversation(model::Id),
+	/// A row with no conversation, such as the friends list or your own account panel.
+	Nowhere,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -214,14 +230,16 @@ pub(super) fn popup(response: &egui::Response, id: egui::Id) -> egui::Popup<'_> 
 	popup
 }
 
+/// Opens a user's context menu from `response`; `place` is the conversation of that row.
 pub(super) fn show(
 	response: &egui::Response,
 	state: &State,
 	user: &User,
+	place: Place,
 	profile: &mut crate::profiles::ProfileSession,
 	action: &mut Option<Action>,
 ) {
-	show_with_pin(response, state, user, profile, action, None);
+	show_with_pin(response, state, user, place, profile, action, None);
 }
 
 /// `view` is `Some` only where the row is a direct message, so Pin DM stays off member lists.
@@ -229,12 +247,13 @@ pub(super) fn show_with_pin(
 	response: &egui::Response,
 	state: &State,
 	user: &User,
+	place: Place,
 	profile: &mut crate::profiles::ProfileSession,
 	action: &mut Option<Action>,
 	view: Option<ShortcutView<'_>>,
 ) {
 	popup(response, egui::Popup::default_response_id(response))
-		.show(|ui| contents(ui, state, user, profile, action, view));
+		.show(|ui| contents(ui, state, user, place, profile, action, view));
 }
 
 const VOICE_AVAILABLE: &str = "user-menu-voice-available";
@@ -248,10 +267,13 @@ fn voice_available(ui: &egui::Ui) -> bool {
 	ui.data(|data| data.get_temp::<bool>(egui::Id::unique(VOICE_AVAILABLE))) == Some(true)
 }
 
+/// Fills a user's context menu, including plugin user actions for non-webhook users. On a
+/// one-to-one DM row, plugin channel actions for that DM are offered alongside them.
 pub(super) fn contents(
 	ui: &mut egui::Ui,
 	state: &State,
 	user: &User,
+	place: Place,
 	profile: &mut crate::profiles::ProfileSession,
 	action: &mut Option<Action>,
 	view: Option<ShortcutView<'_>>,
@@ -266,6 +288,28 @@ pub(super) fn contents(
 		let text = format!("🕒 Last active: {}", crate::local_time::header(last_time));
 		ui.label(egui::RichText::new(text).size(11.0).color(colors.muted));
 		ui.separator();
+	}
+	if !user.webhook {
+		let channel = match place {
+			Place::Open => state.selected,
+			Place::Conversation(id) => Some(id),
+			Place::Nowhere => None,
+		}
+		.and_then(|id| state.channel(id));
+		let mut targets = vec![extensions::MenuTarget::User {
+			user_id: user.id.to_string(),
+			guild_id: channel.and_then(|c| c.guild).map(|g| g.to_string()),
+			channel_id: channel.map(|c| c.id.to_string()),
+		}];
+		if let Place::Conversation(_) = place
+			&& let Some(dm) = channel.filter(|c| c.guild.is_none() && c.kind == 1)
+		{
+			targets.push(extensions::MenuTarget::Channel {
+				channel_id: dm.id.to_string(),
+				guild_id: None,
+			});
+		}
+		crate::extensions_ui::context_menu_targets(ui, &targets);
 	}
 	if ui
 		.button(crate::i18n::translate("user-menu-contents-profile"))
@@ -307,12 +351,12 @@ pub(super) fn contents(
 				.filter(|p| p.user == user.id)
 				.and_then(|p| p.data.as_ref().and_then(|d| d.theme_colors))
 				.or_else(|| state.profile_cache.get_user_theme_colors(user.id));
-			if let Some(theme_colors) = theme_colors {
-				if ui.button("Copy Profile Colors").clicked() {
-					let hex = format!("#{:06X}, #{:06X}", theme_colors[0], theme_colors[1]);
-					ui.ctx().copy_text(hex);
-					ui.close();
-				}
+			if let Some(theme_colors) = theme_colors
+				&& ui.button("Copy Profile Colors").clicked()
+			{
+				let hex = format!("#{:06X}, #{:06X}", theme_colors[0], theme_colors[1]);
+				ui.ctx().copy_text(hex);
+				ui.close();
 			}
 		}
 		if let Some(guild) = state
@@ -621,7 +665,7 @@ mod tests {
 			},
 			|ui| {
 				let row = ui.button(&user.name);
-				show(&row, state, user, profile, action);
+				show(&row, state, user, Place::Open, profile, action);
 				response = Some(row);
 			},
 		);
@@ -644,7 +688,15 @@ mod tests {
 		let ctx = egui::Context::default();
 		let (mut profile, mut action) = (crate::profiles::ProfileSession::default(), None);
 		let output = ctx.run_ui(egui::RawInput::default(), |ui| {
-			contents(ui, state, user, &mut profile, &mut action, None);
+			contents(
+				ui,
+				state,
+				user,
+				Place::Open,
+				&mut profile,
+				&mut action,
+				None,
+			);
 		});
 		let mut text = vec![];
 		for shape in &output.shapes {
@@ -1036,6 +1088,9 @@ mod tests {
 		let test_user = model::Id(777);
 		assert_eq!(custom_user_color(test_user), None);
 		set_custom_user_color(test_user, egui::Color32::from_rgb(255, 128, 0));
-		assert_eq!(custom_user_color(test_user), Some(egui::Color32::from_rgb(255, 128, 0)));
+		assert_eq!(
+			custom_user_color(test_user),
+			Some(egui::Color32::from_rgb(255, 128, 0))
+		);
 	}
 }

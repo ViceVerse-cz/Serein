@@ -69,6 +69,11 @@ general-gpu-restart = Zaczyna obowiązywać przy następnym uruchomieniu Sereina
 general-gpu-current-prefix = Obecnie rysuję z
 general-steady-refresh-rate = Stała częstotliwość odświeżania
 general-steady-refresh-rate-description = Gdy Serein jest aktywnym oknem, rysuje z częstotliwością odświeżania ekranu, dzięki czemu ekrany o zmiennej częstotliwości odświeżania (VRR, G-SYNC, FreeSync) mogą utrzymać jedną częstotliwość zamiast migotać. Zużywa więcej energii.
+steady-refresh-prompt-title = Wykryto ekran G-SYNC
+steady-refresh-prompt-body = Serein rysuje ponownie tylko wtedy, gdy coś się zmienia, przez co ekran G-SYNC może migotać, gdy Serein jest aktywnym oknem. Stała częstotliwość odświeżania zapobiega temu, rysując z częstotliwością odświeżania ekranu, ale zużywa więcej energii. Włączyć ją?
+steady-refresh-prompt-turn-on = Włącz
+steady-refresh-prompt-keep-off = Nie, dziękuję
+steady-refresh-prompt-settings = Możesz to później zmienić w ustawieniach, w sekcji { $page } > { $group }.
 gpu-automatic = Automatyczny
 gpu-high-performance = Wysoka wydajność
 gpu-power-saving = Oszczędność energii
@@ -1689,6 +1694,8 @@ markdown-confirm-external-link-open-external-link = Otworzyć link zewnętrzny?
 # Context: confirm_external_link
 markdown-confirm-external-link-open-in-browser = Otwórz w przeglądarce
 # Context: confirm_external_link
+markdown-confirm-external-link-only-the-start-fits = W linku mieści się tylko początek tej wiadomości; reszta nie zostanie wysłana. Ten adres otworzy się w domyślnej przeglądarce.
+# Context: confirm_external_link
 markdown-confirm-external-link-this-destination-opens-in-your-default-browser = To miejsce docelowe otwiera się w Twojej domyślnej przeglądarce.
 # Context: show_emoji
 markdown-show-emoji-copy-emoji = Skopiuj emotikony
@@ -2273,6 +2280,8 @@ screen-body-send-what-your-mac-plays-along-with-the-screen-serein = Wysyłaj zaw
 screen-body-share-sound-from-other-apps-even-when-sharing-one-window = Udostępniaj dźwięk z innych aplikacji, nawet jeśli udostępniasz jedno okno. Własny dźwięk Sereina został pominięty.
 # Context: body
 screen-body-share-system-audio = Udostępnij dźwięk systemowy
+# Context: body
+screen-body-share-the-shared-apps-sound-or-other-apps-for-a-screen = Udostępnij dźwięk udostępnianej aplikacji lub, przy udostępnianiu ekranu, dźwięk wszystkich innych aplikacji. Własny dźwięk Serein jest pomijany.
 # Context: body
 screen-body-show-cursor = Pokaż kursor
 # Context: body
@@ -3869,6 +3878,10 @@ timeline-message-actions-delete-message = Usuń wiadomość…
 timeline-message-actions-edit-message = Edytuj wiadomość
 # Context: message_actions
 timeline-message-actions-extensions = Rozszerzenia
+# Context: menu
+extensions-ui-menu-group-user = Użytkownik
+# Context: menu
+extensions-ui-menu-group-conversation = Rozmowa
 # Context: message_actions
 timeline-message-actions-forward = Przekaż
 # Context: message_actions
@@ -3919,6 +3932,8 @@ timeline-show-with-scroll-history-is-not-available-yet-use-reload-to-try-again =
 timeline-show-with-scroll-loading-messages = Ładowanie wiadomości…
 # Context: show_with_scroll
 timeline-show-with-scroll-message-deleted = Wiadomość usunięta
+# Context: show_with_scroll
+timeline-show-with-scroll-message-blocked = Zablokowana wiadomość
 # Context: show_with_scroll
 timeline-show-with-scroll-message-history-is-unavailable-with-current-permission-information = Historia wiadomości jest niedostępna przy bieżących informacjach o uprawnieniach.
 # Context: show_with_scroll
@@ -4510,6 +4525,8 @@ voice-recipient-ringing = Dzwoni…
 voice-recipient-not-in-call = Poza rozmową
 reconnect-now = Połącz ponownie
 
+message-preview-limit = Ta wiadomość przekracza limit natywnego układu tekstu.
+
 voice-call-moved-to-another-client = Sesja połączenia na tym urządzeniu została zastąpiona
 
 server-settings-page-safety = Konfiguracja bezpieczeństwa
@@ -4604,6 +4621,11 @@ profiles-board-empty = No games on this board yet.
 profiles-board-show-more = Show more
 profiles-board-show-less = Show less
 profiles-activity-empty = Brak udostępnionej aktywności.
+profiles-in-voice-server = na serwerze { $server }
+profiles-in-voice-join = Dołącz
+profiles-in-voice-joined = Jesteś już na tym kanale głosowym.
+profiles-in-voice-failed = Najpierw zamknij nieudane połączenie, a potem dołącz ponownie.
+profiles-in-voice-unavailable = Nie możesz teraz dołączyć do tego kanału głosowego.
 profiles-mutuals-empty = Nothing to show here.
 
 reading-double-click-reaction = Double-click reaction

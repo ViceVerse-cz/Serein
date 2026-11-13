@@ -73,18 +73,78 @@ pub enum CommandPaletteAction {
 }
 
 pub const COMMAND_ACTIONS: &[(CommandPaletteAction, &str, &str, &str)] = &[
-	(CommandPaletteAction::OpenSettings, "Settings", "Open User Settings", ">settings"),
-	(CommandPaletteAction::MarkAllRead, "Mark All Read", "Mark all channels as read", ">mark-all-read"),
-	(CommandPaletteAction::ToggleMute, "Toggle Mute", "Mute or unmute microphone", ">mute"),
-	(CommandPaletteAction::ToggleDeafen, "Toggle Deafen", "Deafen or undeafen audio", ">deaf"),
-	(CommandPaletteAction::JumpToPresent, "Jump to Present", "Jump to newest message in channel", ">jump-present"),
-	(CommandPaletteAction::JumpToOldest, "Jump to Oldest", "Jump to oldest message in channel", ">jump-oldest"),
-	(CommandPaletteAction::OpenPins, "Pinned Messages", "Open channel pinned messages", ">pins"),
-	(CommandPaletteAction::OpenMentions, "Mentions Inbox", "Open recent mentions and inbox", ">inbox"),
-	(CommandPaletteAction::ToggleMemberCount, "Toggle Member Count", "Show or hide member count in server sidebar", ">member-count"),
-	(CommandPaletteAction::ToggleServerCounter, "Toggle Server Counter", "Show or hide server counter badge on rail", ">server-count"),
-	(CommandPaletteAction::ToggleShowConnections, "Toggle Show Connections", "Show connected accounts in user profile popouts", ">connections"),
-	(CommandPaletteAction::ToggleMessageDetails, "Toggle Message Details", "Show snowflake IDs and edit times in message timestamps", ">msg-details"),
+	(
+		CommandPaletteAction::OpenSettings,
+		"Settings",
+		"Open User Settings",
+		">settings",
+	),
+	(
+		CommandPaletteAction::MarkAllRead,
+		"Mark All Read",
+		"Mark all channels as read",
+		">mark-all-read",
+	),
+	(
+		CommandPaletteAction::ToggleMute,
+		"Toggle Mute",
+		"Mute or unmute microphone",
+		">mute",
+	),
+	(
+		CommandPaletteAction::ToggleDeafen,
+		"Toggle Deafen",
+		"Deafen or undeafen audio",
+		">deaf",
+	),
+	(
+		CommandPaletteAction::JumpToPresent,
+		"Jump to Present",
+		"Jump to newest message in channel",
+		">jump-present",
+	),
+	(
+		CommandPaletteAction::JumpToOldest,
+		"Jump to Oldest",
+		"Jump to oldest message in channel",
+		">jump-oldest",
+	),
+	(
+		CommandPaletteAction::OpenPins,
+		"Pinned Messages",
+		"Open channel pinned messages",
+		">pins",
+	),
+	(
+		CommandPaletteAction::OpenMentions,
+		"Mentions Inbox",
+		"Open recent mentions and inbox",
+		">inbox",
+	),
+	(
+		CommandPaletteAction::ToggleMemberCount,
+		"Toggle Member Count",
+		"Show or hide member count in server sidebar",
+		">member-count",
+	),
+	(
+		CommandPaletteAction::ToggleServerCounter,
+		"Toggle Server Counter",
+		"Show or hide server counter badge on rail",
+		">server-count",
+	),
+	(
+		CommandPaletteAction::ToggleShowConnections,
+		"Toggle Show Connections",
+		"Show connected accounts in user profile popouts",
+		">connections",
+	),
+	(
+		CommandPaletteAction::ToggleMessageDetails,
+		"Toggle Message Details",
+		"Show snowflake IDs and edit times in message timestamps",
+		">msg-details",
+	),
 ];
 
 const QUERY_CHARS: usize = 128;
@@ -220,7 +280,11 @@ pub(super) fn channel_matches(
 
 fn candidates(state: &State, query: &str) -> Vec<Candidate> {
 	if friend_tags_enabled() && query.trim_start().starts_with('&') {
-		let clean = query.trim_start().trim_start_matches('&').trim().to_lowercase();
+		let clean = query
+			.trim_start()
+			.trim_start_matches('&')
+			.trim()
+			.to_lowercase();
 		let words: Vec<&str> = clean.split_whitespace().collect();
 		let mut friend_choices = Vec::new();
 		for user in state.friends() {
@@ -250,13 +314,21 @@ fn candidates(state: &State, query: &str) -> Vec<Candidate> {
 		return friend_choices;
 	}
 	if command_palette_enabled() && query.trim_start().starts_with('>') {
-		let clean = query.trim_start().trim_start_matches('>').trim().to_lowercase();
+		let clean = query
+			.trim_start()
+			.trim_start_matches('>')
+			.trim()
+			.to_lowercase();
 		let words: Vec<&str> = clean.split_whitespace().collect();
 		let mut commands = Vec::new();
 		for &(action, name, desc, prefix) in COMMAND_ACTIONS {
 			let name_lower = name.to_lowercase();
 			let desc_lower = desc.to_lowercase();
-			if words.is_empty() || words.iter().all(|w| name_lower.contains(w) || desc_lower.contains(w) || prefix.contains(w)) {
+			if words.is_empty()
+				|| words
+					.iter()
+					.all(|w| name_lower.contains(w) || desc_lower.contains(w) || prefix.contains(w))
+			{
 				commands.push(Candidate {
 					target: Target::Action(action),
 					kind: Kind::Action,
@@ -289,7 +361,8 @@ fn candidates(state: &State, query: &str) -> Vec<Candidate> {
 	let recent_dms = recent_dm_switcher_enabled();
 	recent_first(&mut found, RESULTS, |c| {
 		let is_current = Some(c.id) == state.selected;
-		let is_unread = frequent && (state.channel_unread(c).is_some() || state.unread(c.id) == Some(true));
+		let is_unread =
+			frequent && (state.channel_unread(c).is_some() || state.unread(c.id) == Some(true));
 		let is_dm = recent_dms && c.guild.is_none();
 		let act = activity(c);
 		(is_current, is_unread, is_dm, act)
@@ -382,7 +455,11 @@ fn candidates(state: &State, query: &str) -> Vec<Candidate> {
 		for &(action, name, desc, prefix) in COMMAND_ACTIONS {
 			let name_lower = name.to_lowercase();
 			let desc_lower = desc.to_lowercase();
-			if words.iter().all(|w| name_lower.contains(w) || desc_lower.contains(w) || prefix.trim_start_matches('>').contains(w)) {
+			if words.iter().all(|w| {
+				name_lower.contains(w)
+					|| desc_lower.contains(w)
+					|| prefix.trim_start_matches('>').contains(w)
+			}) {
 				choices.push(Candidate {
 					target: Target::Action(action),
 					kind: Kind::Action,
@@ -1137,7 +1214,10 @@ mod tests {
 		let state = state();
 		let actions = candidates(&state, ">settings");
 		assert!(!actions.is_empty());
-		assert_eq!(actions[0].target, Target::Action(CommandPaletteAction::OpenSettings));
+		assert_eq!(
+			actions[0].target,
+			Target::Action(CommandPaletteAction::OpenSettings)
+		);
 		assert_eq!(actions[0].kind, Kind::Action);
 
 		let all_actions = candidates(&state, ">");
@@ -1150,4 +1230,3 @@ mod tests {
 		assert!(friend_tags_enabled());
 	}
 }
-

@@ -594,4 +594,3 @@ mod tests {
 		assert!(usrbg_enabled());
 	}
 }
-

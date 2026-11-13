@@ -187,7 +187,7 @@ Want to Play display service-supplied entries, comments and tags. Missing or
 restricted boards remain unavailable; failed metadata lookups retain the game ID
 without substituting another game's title or artwork. Application-provided stats
 widgets and board editing are not supported. The Activity tab uses current
-presence, including while profile metadata is loading; an empty presence snapshot shows “No activity shared.” Selected-user historical activity is not yet loaded. Optional board and collectible enrichment run together, each with a 600 ms deadline, so a slow read cannot hold the card; without it the card still opens complete, just without those names or artwork.
+presence, including while profile metadata is loading; an empty presence snapshot shows “No activity shared.” When the person is in a server voice channel that this account can view, the Activity tab and the compact card add an “In voice” card. It is built only from the voice states the Gateway already delivered (unofficial `READY` guild `voice_states` and `VOICE_STATE_UPDATE`), with no extra request. Its Join button uses the existing guild voice join, which never rings and asks before leaving another live call; the channel opens only once the join starts, and a refused join keeps the card open with its reason. Join is disabled, with the same reason the call buttons give, whenever that join would be refused: this device already holds a call in that channel (a failed one is dismissed from the call card first), the room already holds 64 people, `CONNECT` is missing, voice is unavailable, the account is offline or in the preview, or an earlier switch is still leaving its call. A full room is refused before any switch leaves the current call. Private calls are not listed there because their conversation already offers them. Selected-user historical activity is not yet loaded. Optional board and collectible enrichment run together, each with a 600 ms deadline, so a slow read cannot hold the card; without it the card still opens complete, just without those names or artwork.
 
 The primary reverse-engineering references are the Userdoccers
 [profile response](https://docs.discord.food/resources/user#get-user-profile),
@@ -463,8 +463,9 @@ a click would send, earlier, for a conversation the pointer rests on for 120 ms 
 It is not a crawl: one request in flight, at most twelve per minute, no repeat within five minutes
 for an unchanged conversation, no pagination. It uses only spare REST capacity and gives up
 during the shared cooldown instead of waiting, so it never delays a click. Hovers that never become
-clicks still cost requests, which the official client may not make; the owner can turn it off
-in Settings › Chat › Channel list. Resting on a person for 300 ms requests the same
+clicks still cost requests, which the official client does not make, so it is off by default
+since November 11, 2026; the owner can turn it on in Settings › Chat › Channel list, and a
+previously saved choice is kept. Resting on a person for 300 ms requests the same
 **unofficial** extended-profile route a card opens, with the same query and server context,
 under its own one-in-flight and twelve-per-minute limits; that route is rate-limit sensitive,
 so this is the preload most likely to meet a cooldown. Resting on the GIF button requests the
@@ -989,8 +990,11 @@ September 27 preview update: hovering a currently streaming guild participant re
 Discord's still preview and shows it in a compact 16:9 popover with a Watch Stream action.
 The response is accepted only when it names the requested stream under Discord's CDN/media
 host and passes the existing bounded image decoder. One newer request cancels the previous
-one; hidden previews show an unavailable state. Watching while idle first joins the voice
-channel and then reuses the existing receive-only stream negotiation. The request route and
+one; hidden previews show an unavailable state. The popover keeps its anchor while the preview
+loads, treats the preview frame itself as a watch target with a hover label, and labels your own
+share as streaming with its action disabled. Watching while idle first joins the voice
+channel and then reuses the existing receive-only stream negotiation; watching from the preview
+also opens that channel's stage with the share enlarged. The request route and
 normal-account response remain unofficial and live-unverified.
 
 A device-free localhost test runs the actual sender and viewer through an MLS exchange,
@@ -1035,9 +1039,11 @@ measured performance, packaging or live Discord interoperability.
 System audio extension (September 15, 2026): Linux PulseAudio/PipeWire application monitors
 and Windows process loopback feed the existing stereo Opus/DAVE stream audio sender.
 Both are opt-in and exclude Serein's playback, including received call and stream audio.
-Other applications are included even for a single-window share. macOS ScreenCaptureKit
-continues excluding the current process. Windows requires build 20348+ and uses native
-process-tree exclusion; unsupported systems fail visibly without whole-output fallback.
+Other applications are included even for a single-window share, except on Windows, where a
+window share carries only that window's application. macOS ScreenCaptureKit
+continues excluding the current process. Windows uses native process-tree exclusion on build
+20348+ and per-application inclusion on older Windows 10 builds; a capture that fails reports
+its error visibly, without whole-output fallback.
 Linux uses `pa_stream_set_monitor_stream` before connecting each recording stream,
 rejects Serein/unknown application identities and disables recording-stream movement.
 Audio access is separate from portal-approved video, using the existing PulseAudio socket.
@@ -1214,10 +1220,10 @@ Server identity tags (September 19): Discord's documented [User object](https://
 | User mentions | [Message formatting](https://docs.discord.com/developers/reference#message-formatting) | Documented syntax; normal-user notification behavior unverified | Local @ autocomplete, clickable names/profile cards, exact user allowlists, bounded SQLite metadata; tests and limits |
 | User profile cards | Normal session `/users/{id}/profile`; documented [User object](https://docs.discord.com/developers/resources/user#user-object); [public implementation](https://github.com/dolfies/discord.py-self/blob/master/discord/http.py) | Base server identity shape documented; extended route and normal-session delivery unofficial/live-unverified | Anchored popout with banner/avatar/bio/pronouns/badge artwork/server tag/theme colors/connections/mutual servers and retained presence/custom status, cancellable requests and visible failures. Bounded base-user identity supplies compact badge/tag chips in profile, member and direct-message rows while the extended profile is unavailable; badge CDN paths are observed, not documented; evidence |
 | History, send, edit, delete, replies | Normal session; [message resource](https://docs.discord.com/developers/resources/message) and Abaddon | Documented bot-facing resource; user compatibility unofficial | Experimental text adapter; owner permissions remain server-authoritative |
-| Realtime, resume | Normal session; [Gateway](https://docs.discord.com/developers/events/gateway), Abaddon Identify/READY | Documented lifecycle; normal-user Identify and dispatch differences unofficial | Bounded JSON transport; no compression requested; incompatible snapshots fail |
-| Rate limits | Credential-specific response headers/body; [rate limits](https://docs.discord.com/developers/topics/rate-limits) | Documented; do not assume bot quotas | Conservative shared cooldown; a message send rejected with 429 (documented as not processed) stays pending and is resent with its nonce after the service's wait, at most 30 times, with the official client's "sending too quickly" notice. No other write is retried. Idempotent reads wait out up to two short JSON 429 responses. An HTML or plain-text 429 from `discord.com` (a Cloudflare block, unofficial) moves this process to `ptb.discord.com` and retries one idempotent read there; whether every Cloudflare ban is limited to one hostname is unverified |
+| Realtime, resume | Normal session; [Gateway](https://docs.discord.com/developers/events/gateway), Abaddon Identify/READY | Documented lifecycle; normal-user Identify and dispatch differences unofficial | Bounded JSON transport; incompatible snapshots fail. The Gateway address is the fixed `wss://gateway.discord.gg` (unofficial: the web client's page config), not a `GET /gateway` answer, and READY supplies the account identity instead of `GET /users/@me` |
+| Rate limits | Credential-specific response headers/body; [rate limits](https://docs.discord.com/developers/topics/rate-limits) | Documented; do not assume bot quotas | Conservative shared cooldown; a message send rejected with a JSON 429 and a finite positive retry_after stays pending and is resent with its nonce after the service's wait, at most 30 times, with the official client's "sending too quickly" notice. No other write is retried. Idempotent reads wait out up to two short JSON 429 responses. An HTML or plain-text 429 (a Cloudflare block page, unofficial) never changes host and is never automatically retried, including by the outer message queue: it starts the shared cooldown from `Retry-After`, the reset header or a 60-second default and stops the connection with a non-retryable block reason. Missing or invalid JSON retry_after also prevents automatic resend. Account codes 40002 and 40004 stop authenticated traffic; 40003 and 50007 hold back the relevant writes; see "Flagging-risk corrections" below |
 | Nonce correlation | Message nonce; message resource | Documented finite deduplication; user applicability unverified | Correlate confirmations only; no automatic ambiguous resend or indefinite idempotency claim |
-| Native message formatting | Existing message content; [pulldown-cmark source](https://github.com/pulldown-cmark/pulldown-cmark) and [egui LayoutJob](https://docs.rs/egui/0.36.2/egui/text/struct.LayoutJob.html) | Local rendering; no additional service capability | Bounded emphasis/code/quotes/lists/strike, inert HTML, explicit HTTP(S) link confirmation, up to 32 inline text spoilers with separate media reveal; CommonMark differs from Discord Markdown; no automatic previews |
+| Native message formatting | Existing message content; [pulldown-cmark source](https://github.com/pulldown-cmark/pulldown-cmark) and [egui LayoutJob](https://docs.rs/egui/0.37.0/egui/text/struct.LayoutJob.html) | Local rendering; no additional service capability | Bounded emphasis/code/quotes/lists/strike, inert HTML, explicit HTTP(S) link confirmation, up to 32 inline text spoilers with separate media reveal; CommonMark differs from Discord Markdown; no automatic previews |
 | Read markers | Normal session; [discord.py-self HTTP](https://github.com/dolfies/discord.py-self/blob/master/discord/http.py) and [dispatch implementation](https://github.com/dolfies/discord.py-self/blob/master/discord/state.py) | Unofficial and unstable | Explicit per-message acknowledgement, optional manual mark-unread (`ack_message(manual=True)` plus the previous snowflake), guild `POST /guilds/{id}/ack`, bounded READY read state, MESSAGE_ACK and PASSIVE_UPDATE_V2; synthetic checks only, actual cross-device behavior unverified |
 | Relationships | Normal session or restricted Social SDK scopes; OAuth scope table and Abaddon | Unofficial / restricted | Unsupported |
 | Reactions | Normal session; [message reaction resource](https://docs.discord.com/developers/resources/message#reaction-object) and [Gateway reaction events](https://docs.discord.com/developers/events/gateway-events#message-reaction-add), rechecked September 10 | Documented routes/shapes; normal-user acceptance live-unverified | Native counts, eight-emoji picker, existing Unicode/custom emoji toggles, normal own-reaction PUT/DELETE and bounded message readback. Synthetic HTTP/Gateway/keyboard tests pass; no live validation |
@@ -1228,7 +1234,7 @@ Server identity tags (September 19): Discord's documented [User object](https://
 | One-to-one DM voice | Normal session + per-call credentials; [Discord voice](https://docs.discord.com/developers/topics/voice-connections), [DAVE](https://daveprotocol.com/), [discord.py-self signaling](https://github.com/dolfies/discord.py-self/blob/master/discord/gateway.py) | Voice transport/DAVE documented; normal-user DM entry/ringing unofficial; implementation live-unverified | Native Opus/CPAL/DAVE v1 path, call controls and bounded resume implemented; synthetic tests only. Physical audio and official-client two-way call gate blocked; voice included in every build |
 | Logout | Local credential/task disposal; OAuth revocation applies only to OAuth tokens | Local behavior implemented; remote session revocation unverified | Local logout only, does not delete sent messages or claim server token revocation |
 
-`messages.read` refers to local RPC; it is not a general REST chat grant. `rpc` needs approved-partner access and depends on the official application. Social SDK relationship access does not establish general desktop-client chat access. No client secret, token broker, fingerprint imitation, native password endpoint, CAPTCHA/MFA workaround, or harvested QR flow is implemented. The owner explicitly requested the official login page in an authentication-only webview and secure saved login; OAuth is not the product login.
+`messages.read` refers to local RPC; it is not a general REST chat grant. `rpc` needs approved-partner access and depends on the official application. Social SDK relationship access does not establish general desktop-client chat access. No client secret, token broker, native password endpoint, CAPTCHA/MFA workaround, or harvested QR flow is implemented. REST, uploads, the Gateway and the verification webview share one browser-shaped client identity (`client_core::fingerprint`). The owner explicitly requested the official login page in an authentication-only webview and secure saved login; OAuth is not the product login.
 
 Discord states DAVE is required for the listed call types from March 1, 2026. libdave supplies encryption components, not capture, playback, codecs, jitter handling, or a complete call engine. No legacy unencrypted fallback is acceptable.
 
@@ -1244,7 +1250,7 @@ The owner superseded the initial storage/login constraints during implementation
 
 The handoff is original code in `crates/platform/src/login-handoff.js` and the Linux WebKit resource observer. It observes an Authorization header only for this temporary webview’s own `https://discord.com/api/v*/` requests, after user-controlled authentication. It reads neither localStorage nor other applications, profiles or tabs, and does not inspect passwords or QR secrets. A random per-webview capability scopes the IPC handoff; Rust validates that capability, the IPC origin, and token length, then verifies the account via `/users/@me` and rejects bot accounts. This handoff is a technical hypothesis with offline tests; Discord’s current page may use an unsupported transport, reject the embedded engine, or change its behavior. Failure must not be called successful login.
 
-Navigation is limited to Discord’s HTTPS origin; new windows and downloads are blocked. Third-party challenge subframes are left to the platform engine; popup-dependent methods may fail. No spoofed official client user agent/properties are supplied. Resume URLs are restricted to recognized Discord gateway hosts.
+Navigation is limited to Discord’s HTTPS origin; new windows and downloads are blocked. Third-party challenge subframes are left to the platform engine; popup-dependent methods may fail. The login page keeps the platform engine; no official desktop-client user agent or properties are supplied. Serein's own connections present the browser identity described in [authentication](authentication.md) (unofficial, live-unverified). Resume URLs are restricted to recognized Discord gateway hosts.
 
 September 10 People/avatar continuation: the member subscription uses the opcode 14 shape found in the current original discord.py-self implementation. [Original lazy-guild research](https://arandomnewaccount.gitlab.io/discord-unofficial-docs/lazy_guilds.html) describes list positions including groups and ambiguous empty SYNC responses; it is unofficial evidence, not a service guarantee. A newer opcode 37 has also been [reported by Userdoccers](https://github.com/discord-userdoccers/discord-userdoccers/issues/191); Serein does not claim opcode 14 works for every account. Channel-specific list identities require the available everyone-role permissions and channel overwrites. The small noncryptographic Murmur3 identity calculation is implemented locally and checked against known vectors; no third-party client code blocks were copied. This identity selects a list; it grants no permissions. No complete member directory is fetched or persisted. Profile cards expose only available name, ID and avatar, not invented bios, roles or relationships. Server-specific custom avatars and full profile endpoints remain unsupported.
 
@@ -1302,11 +1308,74 @@ The local limit is **up to ten nonempty regular files totaling at most 500,000,0
 
 Application chunks are at most 64 KiB; negotiation and storage responses at most 64 KiB, signed URLs 4096 bytes, server upload names 1024 bytes, local paths 4096 encoded bytes and filenames 256 UTF-8 bytes. One upload job uses latest-value progress, not an expanding event queue. The PUT has a 300-second overall deadline, 10-second connection timeout and 30-second read timeout. Filesystem work stays outside rendering.
 
+### Flagging-risk corrections - November 11
+
+**Unofficial unless marked documented; observed in Discord's public web bundle fetched
+2026-11-11 (main file plus about 360 chunks). Nothing here was exercised against a live
+account, and no claim is made about how Discord classifies clients.**
+
+- **No host change on a block (unverified cause).** Serein used to move every request to
+  `ptb.discord.com` after an HTML or plain-text 429 and retry there. It now stays on
+  `discord.com`, stops the connection with a non-expiry block reason and prevents
+  new dispatches until the owner explicitly reconnects. Requests already in flight may finish.
+- **No REST requests to learn the account or the Gateway address.** The web client reads the
+  Gateway address from its page config (`GATEWAY_ENDPOINT`) and the account from READY. Serein
+  no longer sends `GET /users/@me` and `GET /gateway` before connecting. A saved login is
+  compared with READY's user id, a bot account is refused from READY, and a rejected token ends
+  the session through Gateway close 4004 (documented). A sign-in without a remembered status
+  still reads the account's status settings before Identify, as before; that read is not
+  something the web client was observed doing.
+- **Real locale and timezone.** `X-Discord-Timezone` is the operating system's IANA zone and
+  super-properties `system_locale` its BCP 47 locale, in place of fixed `UTC` and `en-US`.
+  `Accept-Language` on REST and the Gateway WebSocket lists the OS language preferences the way
+  the web client writes `navigator.languages` (first tag bare, then `;q=0.9` downwards).
+  `X-Discord-Locale` is the [documented Discord locale](https://docs.discord.com/developers/reference#locales)
+  nearest to the OS locale; the web client sends its interface language there, and Serein's own
+  interface-language setting is not sent. A value the OS does not report, or one that is not a
+  plain tag or zone name, falls back to `en-US` / `UTC`. The login and verification webviews
+  take their language from the same OS settings through the platform web engine.
+- **Account-restriction error codes (documented codes, local reactions).** 40003 (opening DMs
+  too fast) refuses further DM and group-DM creation locally for the response's `retry_after`,
+  capped at one hour, or ten minutes when none is given. 40002 (account verification required) and 40004 (message sending disabled)
+  now stop authenticated traffic until explicit reconnection and direct the owner to the official
+  client. This replaces the initial five-minute route-only hold. 50007 (cannot message this user) refuses further messages to that conversation until
+  the next connection. These periods are Serein's choices, not Discord's. The account-wide codes end the
+  session; none is retried automatically, and one held DM-opening route and at most 64 conversations are
+  remembered in RAM.
+- **Forwards are ordinary message creates.** A forward's body now has the same fixed fields
+  as a typed message (`mobile_network_type`, empty `content`, `tts:false`, `flags:0`, `nonce`)
+  beside its type-1 `message_reference`; `allowed_mentions` stays the explicit empty allowlist.
+  A captcha on a forward still fails locally with a bounded reason; it is never replayed as text.
+- **`X-Context-Properties`.** The web client's request helper sends its `context` option as
+  base64 JSON in this header, and its message location enum includes `chat_input` and
+  `forwarding`. Serein sends `{"location":"chat_input"}` on message creates (text, sticker and
+  attachment sends) and `{"location":"forwarding"}` on forwards. The call sites that pass these
+  two locations are in on-demand chunks that were not fetched, so which sends carry them is
+  unverified; a third-party client's protocol notes describe the same two values.
+- **`X-Failed-Requests` is not sent.** In the bundle this header counts the request helper's
+  own retries after a network error or one of the statuses 502, 504, 507, 522, 523, 524, 598
+  and 599. A 429 on message create is handled by the send queue, which builds a fresh request
+  without it. Serein never retries a write after a network error or 5xx (the outcome is
+  ambiguous), so it has no request that would carry the header, and its 429 resends match the
+  web client by omitting it.
+
+### Web-client request shapes and upload challenges - November 11
+
+**Unofficial, observed in Discord's public web bundle fetched 2026-11-11; live interoperability remains unverified.** The upload requests now follow the shapes the official web client builds. Identity headers, `X-Super-Properties` and the client fingerprint are unchanged by this section.
+
+- Staging stays one `POST /channels/{channel}/attachments` per file with `files:[{id,filename,file_size,is_clip:false,original_content_type}]`. `original_content_type` is the web client's browser `File.type`. Serein has no browser MIME registry, so it derives the value from a short table of well-known filename extensions and omits the field for every other extension, as the web client does for an unknown type. A browser's value for the same file can differ by platform.
+- The storage PUT sets `Content-Type: application/octet-stream` for every file. It previously sent a type guessed from the extension. Serein never recompresses a file, so it sends no MD5 header, matching the web client's path for unmodified files.
+- Message create (text and attachment sends) carries `mobile_network_type:"unknown"`, `tts:false` and an always-present integer `flags` (0, or the suppress-notifications bit for `@silent`), next to the existing `content`, `nonce`, optional `message_reference`, `sticker_ids` and `attachments:[{id,filename,uploaded_filename}]` with ids `"0"`, `"1"`, …
+- **Deliberate difference:** Serein still always sends an explicit `allowed_mentions` allowlist computed from the message text and reply choice. The web client omits the field when it has nothing to restrict. Dropping it was not shown to be behavior-identical, so mention behavior is unchanged.
+- **Remaining difference:** the web client stages and uploads files concurrently. Serein stages and uploads them one at a time, which keeps the single latest-value progress counter, the per-file completeness check and one visible challenge at a time.
+
+The web client answers any 400 whose body has `captcha_key` by showing hCaptcha with the response's parameters and replaying the same request with `X-Captcha-Key`, plus `X-Captcha-Rqtoken` and `X-Captcha-Session-Id` when present. Serein now does the same for an attachment message's staging request and its message create, through the existing user-operated verification panel and the same five-minute, single-use, redacted challenge types as text messages. Nothing is solved or bypassed automatically. The upload stays in place while the user decides, so a challenge on message create replays only that POST with the already staged `uploaded_filename` values and never transfers a file again, and a challenge on staging replays only that file's staging request. Each challenged request is replayed once; a second challenge on the replay fails the send with a bounded reason. Dismissing the panel, expiry, leaving the conversation or cancelling the upload reports the message as not sent; bytes already staged may remain remotely as described below. A challenged modal-file submission or forum-post upload has no pending message to verify and still fails with the existing "complete it in the official client" reason. One synthetic loopback test covers the message-create challenge, its three replay headers and the absence of a second staging request or PUT; no live challenge has been exercised.
+
 Path and open-file size/modification metadata are checked before transfer and again before message creation. Missing or observably changed files fail explicitly. These checks are not an immutable snapshot or a defense against a writer restoring identical metadata; no hidden recovery copy is created. Cancellation before message creation prevents the message POST, but staged bytes already sent may remain remotely; Serein does not claim remote deletion or a retention deadline. Cancellation after message POST begins reports an unknown outcome. No transfer or message write is automatically retried. Signed upload targets and local source paths are session-only.
 
 Synthetic tests cover actual loopback HTTP, credential isolation, redirects, file bounds/changes, cancellation during PUT and cancellation during message creation. They do not establish normal-user interoperability: an owner-controlled developer-session test with an official-client recipient remains required. Multiple attachments, tier-dependent larger files and remote staging cleanup remain unimplemented.
 
-File selection also accepts one native file dropped into the active conversation window. The pinned egui 0.36.2 DroppedFileHandle exposes a path; Serein moves the event handles, accepts only one absolute path within the existing path limit, and never invokes their whole-file bytes API. Drops reuse the picker validation and cancellation slot. They cannot replace an existing selection or active operation and never start an upload themselves. Unsupported/multiple drops and unavailable conversation states report an error. A composer hover hint explains the limit and explicit Send behavior. Native OS drag/drop delivery remains unverified; synthetic handle admission and late-result isolation are tested.
+File selection also accepts one native file dropped into the active conversation window. The pinned egui 0.37.0 DroppedFileHandle exposes a path; Serein moves the event handles, accepts only one absolute path within the existing path limit, and never invokes their whole-file bytes API. Drops reuse the picker validation and cancellation slot. They cannot replace an existing selection or active operation and never start an upload themselves. Unsupported/multiple drops and unavailable conversation states report an error. A composer hover hint explains the limit and explicit Send behavior. Native OS drag/drop delivery remains unverified; synthetic handle admission and late-result isolation are tested.
 
 Archived-thread browsing (September 10): [Discord public/private/joined-private archive endpoints](https://docs.discord.com/developers/resources/channel#list-public-archived-threads) describe public and private pages ordered by archive timestamp with an ISO8601 before cursor; joined-private pages use descending thread IDs and a snowflake cursor. The primary normal-user implementation exposes the [same three HTTP routes](https://github.com/dolfies/discord.py-self/blob/master/discord/http.py) and [channel archive selection](https://github.com/dolfies/discord.py-self/blob/master/discord/channel.py). These sources supply wire evidence, not live account acceptance. Serein makes only explicit GET requests, limits each page to 25 entries, checks archived metadata, guild/parent/type, duplicates and cursor progress, and ignores member summaries. Public/private timestamps preserve nanoseconds. Private archive enumeration requires the service permissions described by Discord, including MANAGE_THREADS; joined-private is a separate choice. Open loads history without a join/reopen mutation. No live account was used to validate these routes.
 
@@ -2471,7 +2540,9 @@ The offline debug command is `cargo run --locked -p serein --features demo -- --
 ### Outgoing message forwarding
 
 The message toolbar and context menu open a native searchable destination picker for up to
-five already-loaded, writable conversations. Forward creation uses the documented
+five already-loaded, writable conversations. Five is a local bound: the web client's forward
+dialog is loaded on demand and was not in the bundle chunks fetched on 2026-11-11, so its own
+destination limit is unverified. Forward creation uses the documented
 [`message_reference` type 1](https://github.com/discord/discord-api-docs/blob/main/developers/resources/message.mdx),
 including the source channel/message and guild when known. The service captures the snapshot;
 Serein does not download and re-upload source attachments. Basic supported message types are
@@ -2762,6 +2833,36 @@ eight-scalar marker allowance while the effective outgoing text retains its full
 literally. Existing per-draft byte ceilings and the session input budget remain
 in force. A quiet forwarding note affects only that separately sent note.
 
+### Composer shortcuts and timestamp references (November 6, 2026)
+
+New-message autocomplete offers `@silent` only at the beginning of the draft. The
+composer shows a quiet-send indicator while that prefix is active, and received
+messages show it when retained wire flags include `SUPPRESS_NOTIFICATIONS`, including
+cached history. Notification targeting remains session-only. These indicators
+describe intent/metadata; they do not establish notification delivery at a recipient.
+
+`@time` is a local Serein composer shortcut, including in message edits. Selecting it
+opens a bounded native dialog and does not send or modify the draft. Its date, time
+and explicit UTC offset initially represent the current local clock. The offset is
+editable, including for a different time zone or daylight saving period. Insert replaces
+the selected shortcut with the documented
+[`<t:UNIX_SECONDS[:STYLE]>` syntax](https://docs.discord.com/developers/reference#message-formatting),
+using no style suffix by default or one of `t`, `T`, `d`, `D`, `f`, `F`, `s`, `S`, `R`.
+The existing Markdown renderer resolves these references in message bodies and inline
+previews; escaped/code references and malformed syntax remain literal. Numeric date
+styles follow the selected locale’s date order. Relative formats
+refresh through the existing coarse repaint tick in messages and picker previews.
+Character and draft-byte budgets
+apply to replacement, and a changed draft or target cannot receive a stale insertion.
+Cancel/Escape leaves the original draft intact. No new service endpoint is used.
+
+The wire syntax and suppression flag are documented; normal-account acceptance remains
+unofficial and live-unverified. The `@time` shortcut is implemented locally without a
+claim of exact official-client picker parity. Synthetic tests cover composer keyboard
+routing, offset/calendar validation, stale insertion and budget rejection, plus body
+and preview rendering. Native screenshots and an owner-authorized live test could not
+be captured in this development session: computer use exposed no native applications.
+
 ## Public Catbox attachment links (October 2, 2026)
 
 Each staged message-composer file has a **Host file…** action. Selecting it shows
@@ -2803,6 +2904,34 @@ whose original compression request is not implemented. Synthetic localhost tests
 `--features demo -- --demo --demo-chat --demo-attachment=file --demo-external-upload`
 verify local behavior without any real hosted upload or Discord session. Live service
 acceptance, link embedding and other-platform native interaction remain unverified.
+
+### Arabic, Hebrew and mixed-direction message rendering
+
+Message paragraphs choose line breaks in logical order, apply Unicode bidi rules
+to each resulting line, and use the pinned native shaper's exact cluster ranges
+for painting and partial selection. Arabic joining/marks, Hebrew, Latin words,
+digits and inline objects share one bounded layout. Links, mentions, spoiler
+reveal, emoji details and search highlights retain their explicit native actions;
+unavailable custom artwork shows its bounded `:name:` label with original wire
+selection/copy, and offscreen runs do not request the image;
+copy, drafts, edits and stored service content keep logical text. No protocol
+capability or service endpoint changes. Serein's epaint patch (`vendor/egui`) exposes only
+opt-in direction and cluster metadata; ordinary native labels keep their default
+layout/selection behavior. macOS Control-click keeps logical RTL selection, and
+mapped context-menu Copy resolves current visible source before emitting text.
+Selection-popup drawing runs outside plugin locks; its button release keeps the
+menu open and its Copy action cannot reenter the rendering plugin.
+
+The message composer lays out drafts with Arabic or Hebrew letters the same way:
+logical line breaks, bidi order per row, right alignment for right-to-left
+paragraphs, and its own caret, selection and pointer mapping, with arrow keys
+following the paragraph direction. The draft and sent text stay in logical order.
+Composition text from an input method uses the same layout; complete application
+RTL mirroring and screen-reader parity are not covered. An oversized or
+excessively narrow/multiline message run shows the localized preview-limit
+notice within the limits documented in the storage policy. Native platform/font
+coverage still depends on the installed font fallback; synthetic evidence is not
+normal-account or every-platform validation.
 
 ## GIF favorites admission — October 6, 2026
 
@@ -3008,3 +3137,178 @@ In particular, the current settings model does not represent `MENTION_ON_ALL_MES
 not assumed disabled. Contributions depending on that switch remain unknown until authoritative
 count reconciliation. This is conservative local behavior, not a verified service-equivalence claim.
 No new service setting, protocol request or Identify capability is introduced.
+
+### Desktop metadata reference — November 12
+
+**Unofficial; static source comparison only, live interoperability unverified.**
+SakuraCord commit
+[`aa8a3da8d6805441a92dbf331eb0733f104d36e9`](https://github.com/SakuraCordApp/SakuraCord/tree/aa8a3da8d6805441a92dbf331eb0733f104d36e9)
+uses a native SwiftUI interface but advertises `browser: "Discord Client"`,
+an Electron user agent and desktop version fields in
+`DiscordClientMetadata.swift`. Its `DiscordProductionBaseline.swift` pins
+desktop 0.0.408, Electron 42.7.1 and Chromium 148.0.7778.280. These are its
+reference constants, not independently verified current Discord versions or
+proof that this identity prevents account restrictions.
+
+Serein retains that paired Electron/Chromium 148 transport baseline and client
+hints, but refreshes `client_version` and the user agent host version per platform
+from the official stable update manifests: Linux 1.0.169, Windows 1.0.9268 and
+macOS 0.0.422. The public web build is now 670026. Provenance and limitations
+are recorded below.
+The host OS and locale remain platform-derived. Embedded login and verification
+webviews keep their separate WebKit/WebView2 identity; changing a user agent
+does not turn them into Chromium or change Serein into an Electron application.
+Serein still uses its existing JSON Gateway encoding.
+
+SakuraCord additionally generates launch identifiers and a patterned launch
+signature, persists a server-issued installation ID, and sends analytics
+heartbeat metadata including Gateway opcode 41. Serein does not adopt those
+analytics or persistence mechanisms, native build claims or `has_client_mods:false`.
+Its CAPTCHA handler carries the challenge fields and permits one user-solved
+replay, consistent with the bounded replay already implemented here. No account
+importer or other application's credential storage was used in this comparison.
+The earlier claim that a WebKit/Chrome mismatch necessarily causes restrictions
+is unverified; this source comparison does not establish Discord's classification.
+
+### Networking audit follow-up — November 12
+
+**Documented error meanings; local conservative recovery policy.** Compared the
+current transports with Discord's public web request helper fetched November 11,
+the SakuraCord desktop reference above and
+[Discord's status-code reference](https://docs.discord.com/developers/topics/opcodes-and-status-codes).
+The public helper has request backoff and retry-after handling; this comparison
+does not establish the current Electron application's complete behavior.
+
+- Block responses and malformed/unstructured 429s cannot enter automatic message
+  resend. Only JSON 429s with a usable positive retry_after are retryable. Valid
+  API limits retain the bounded nonce-preserving send queue and shared cooldown.
+- 40002 and 40004 latch an account-wide stop on reads or writes, reported as
+  account attention required. Pending requests recheck the latch after admission,
+  cooldown and proxy configuration waits. Already dispatched requests may finish.
+  40001 stops the session as expired; 40012 remains a linked-resource refusal; a guild ban (40007) remains local.
+- Gateway 4001–4005 and 4008 stop recovery. Discord permits reconnection for
+  several of these; Serein deliberately requires explicit reconnection so a bad
+  producer cannot repeatedly send invalid or rate-limited payloads. Normal
+  network recovery and 4007/4009 fresh identification remain supported.
+- Voice 4021 (rate limit) and 4022 (call terminated) join 4014 in terminal call
+  handling, preventing the desktop automatic rejoin loop.
+- Attachment staging and storage PUT remain single-attempt, with one explicit
+  user-solved CAPTCHA replay of only the challenged API operation. Network/5xx
+  writes with uncertain outcomes are not replayed. Hover preloads remain opt-in;
+  typing coalescing and its eight-second resend interval remain unchanged.
+
+Known differences retained: REST-only proxy configuration does not cover Gateway,
+voice or the platform verification webview; JSON Gateway encoding differs from
+SakuraCord's desktop ETF baseline; analytics/launch-signature/installation
+mechanisms remain absent. No claim is made that these differences cause account
+restrictions, or that this audit proves Electron parity or prevents suspensions.
+Validation for this follow-up uses formatting and workspace Clippy under !fast;
+regression fixtures were updated but not executed, and no live account was used.
+
+### Fable review corrections — November 12
+
+Terminal failures are now latched with their original reason and exposed through
+a watch channel. The desktop connection selects on this channel independently of
+request event forwarding: Spotify and other background tasks cannot silently stop
+only REST while leaving Gateway/presence traffic running. Startup and upload stop
+checks retain the original reason, so an account-attention or block stop does not
+become Expired and invoke saved-credential removal. Generic teardown preserves the
+first terminal cause. Requests already in flight cannot be recalled.
+
+Error 40012 is a local resource-connection refusal, not proof that the Discord
+credential expired; in particular a revoked Spotify connection must not delete
+the saved Discord login. Account codes 40002/40004 retain the conservative global
+stop policy, without claiming that every such response means an account suspension.
+
+Block handling now includes HTML/plain-text 403 and documented code 40333 as well
+as HTML/unstructured 429. These stop the connection rather than releasing queued
+requests after a cooldown. The in-memory block cooldown has a minimum of 60 seconds;
+explicit reconnection or restarting creates a new connection and does not retain
+this cooldown. Presence-setting writes do not auto-retry on any failure; another
+explicit edit is needed. Origin is attached to REST writes, not GET requests.
+
+The desktop identity remains a partial compatibility profile. It retains web
+device/referrer fields and an empty os_version, omits the reference's architecture,
+native-build, OS-SDK, launch-ID and client-mod fields, combines observed web build
+670026 with platform-specific host versions, and retains the older paired
+Electron/Chromium transport baseline. It is not a verified complete
+platform-specific Electron identity. Verification still runs in
+WebKit/WebView2 while native submission advertises the desktop profile; the effect
+of that difference on login, CAPTCHA acceptance or restrictions is unknown.
+No consistency test here establishes that a synthesized profile matches a real
+current Electron build.
+
+The review identified these gaps by static analysis. Follow-up regression fixtures
+cover terminal wakeup/reason preservation, linked-service revocation, 403 blocks,
+and both kicked and rate-limited voice teardown; they remain unexecuted under !fast.
+
+The final review follow-up preserves the shared cooldown even when a 429 carries
+a scoped DM/conversation error. Desktop terminal publication now prefers the
+API's first latched reason and is itself first-wins, preventing an in-flight
+failure from replacing an earlier account-attention stop.
+
+### Reviewer follow-up — November 12
+
+Presence, idle-timeout and activity-sharing settings tasks now wait for the
+accepted READY identity before their settings operations can run. Status edits
+made while connecting remain queued; a saved-token account mismatch cannot
+write settings for the unexpected account. Failed status writes retain a separate
+unsaved-local flag, so later status notifications do not replace the local edit
+or clear its error; a successful subsequent explicit edit clears the flag.
+
+Header-identifiable HTML/plain-text 403/429 blocks stop before response-size
+checks or body reads. Oversized JSON 429 responses stop conservatively both when
+Content-Length announces the excess and when streaming crosses the byte limit.
+Malformed scoped 429s are classified before their local route failure can return.
+Other oversized replies retain the existing bounded-capacity failure.
+
+The existing staging replay fixture checks identical replay bodies and CAPTCHA
+headers with one storage PUT. A new cancellation-during-staging-verification
+fixture checks no replay, PUT or message create and release of the verification
+slot. These and the oversized/scoped block fixtures were compiled, not executed,
+under !fast. The earlier CAPTCHA write-lock and verification-slot findings were
+already fixed in the PR; no reviewer thread was resolved on their behalf.
+
+### Identity provenance and REST admission — November 12
+
+The owner's supplied Linux RPM (SHA-256
+`ade5550aa86cb4562116d5f5731d5af6110c7865d0712da5b25cdaf9d4137b61`)
+contains an updater bootstrap, not the complete client. Its stable repository's
+[Linux manifest](https://updates.discord.com/distributions/app/manifests/latest?channel=stable&platform=linux&arch=x64)
+provided host 1.0.169; the [Windows manifest](https://updates.discord.com/distributions/app/manifests/latest?channel=stable&platform=win&arch=x64)
+provided 1.0.9268 and the [macOS manifest](https://updates.discord.com/distributions/app/manifests/latest?channel=stable&platform=osx&arch=x64)
+provided 0.0.422. The fetched host and desktop-core packages matched the manifest's
+SHA-256 values. Core package metadata declares Electron 44.9.3; the
+[Electron release index](https://releases.electronjs.org/releases.json) pairs it
+with Chromium 152.0.7977.167. Those engine values are not adopted: pinned
+wreq-util has no Chromium 152 profile, and changing only the user agent would
+break the existing engine/profile pairing. A future paired upgrade needs separate
+wire validation; package metadata is not a runtime measurement.
+
+The fetched public `/app` HTML and its web/fast-connect scripts embed build 670026.
+The renderer is loaded remotely by the desktop core, so host and web versions are
+separate observations. Source inspection and manifest hashes establish provenance,
+not acceptance of synthesized metadata or prevention of spam-rule warnings. No
+signed-in client, challenge or private conversation was exercised.
+
+REST admission now serializes each normalized method/route until its response is
+processed. Routes that advertise the same `X-RateLimit-Bucket` share admission
+within their top-level channel/guild/webhook snowflake resource. Static route
+words such as `templates` do not invent a major resource. Queries do not split
+routes; non-major numeric IDs are normalized. Unknown cross-route aliases may still have
+one request each in flight before their shared bucket is learned. Missing or
+malformed headers, or a full bucket table, keep route serialization. Successful
+exhaustion holds only its route/bucket, including the existing one-second fallback
+when reset headers are missing; invalid delays still fail validation. The existing
+shared cooldown remains conservative across routes for 429 responses. No bot/user
+quota is hardcoded. This trades some same-bucket concurrency for predictable admission without out-of-order quota
+updates. Four total permits still bound requests. Typed request paths, not content
+or arbitrary URLs, select routes; only hashes are retained.
+
+Both mapping and bucket tables have at most 128 entries. Idle expired mappings can
+be evicted; in-flight buckets and active cooldowns cannot. If no safe space exists,
+new work fails locally with capacity instead of discarding an active hold.
+Speculative reads do not wait for occupied admission. Cancellation releases a
+reservation, and security stops wake admission/cooldown waiters before dispatch.
+A solved verification is rechecked for expiry after both waits, before submission.
+There are no new writes, retries, persistence, telemetry or proxy-routing changes.

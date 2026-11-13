@@ -323,6 +323,7 @@ impl MessagingUi {
 									&response,
 									state,
 									user,
+									user_menu::Place::Nowhere,
 									&mut self.profile,
 									&mut self.user_action,
 								);
@@ -403,6 +404,8 @@ impl MessagingUi {
 			commands.push(command);
 		}
 	}
+	/// Draws the Friends page: its tabs with the incoming request count on Pending, the selected
+	/// list and its actions.
 	pub(super) fn friends_page(
 		&mut self,
 		ui: &mut egui::Ui,
@@ -442,7 +445,13 @@ impl MessagingUi {
 									.filter(|(_, _, incoming)| *incoming)
 									.count()
 							})
-							.filter(|count| *count > 0);
+							.filter(|count| {
+								*count > 0
+									&& !crate::interface_tweaks::on(
+										ui.ctx(),
+										extensions::InterfaceTweak::HiddenRequestCounts,
+									)
+							});
 						if header_tab(ui, &title, count, self.friends.tab == tab, tab == Tab::Add)
 							.clicked() && self.friends.tab != tab
 						{
@@ -644,6 +653,7 @@ impl MessagingUi {
 									&response,
 									state,
 									user,
+									user_menu::Place::Nowhere,
 									&mut self.profile,
 									&mut self.user_action,
 								);
@@ -716,10 +726,11 @@ impl MessagingUi {
 											|status| profiles::presence_label(status).to_owned(),
 										)
 									});
-								if profiles::user_voice_show_enabled() && restricted.is_none() {
-									if let Some(ch_name) = profiles::user_voice_channel_name(state, user.id) {
-										subtitle = format!("{subtitle} · 🔊 {ch_name}");
-									}
+								if profiles::user_voice_show_enabled()
+									&& restricted.is_none() && let Some(ch_name) =
+									profiles::user_voice_channel_name(state, user.id)
+								{
+									subtitle = format!("{subtitle} · 🔊 {ch_name}");
 								}
 								text.horizontal(|ui| {
 									ui.spacing_mut().item_spacing.x = 4.0;
@@ -781,6 +792,7 @@ impl MessagingUi {
 										ui,
 										state,
 										user,
+										user_menu::Place::Nowhere,
 										&mut self.profile,
 										&mut self.user_action,
 										None,
