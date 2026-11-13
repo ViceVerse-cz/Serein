@@ -48,6 +48,12 @@ pub enum Action {
 		assigned: bool,
 	},
 	Shortcut(Intent),
+	/// Opens the timeout, kick or ban confirmation for a server member.
+	Moderate {
+		guild: model::Id,
+		user: User,
+		kind: crate::moderation::Kind,
+	},
 }
 impl std::fmt::Debug for Action {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -62,7 +68,8 @@ pub(super) fn prepare(action: Action, state: &mut State) -> Option<Command> {
 		| Action::Shortcut(_)
 		| Action::Mention(_)
 		| Action::Message(_)
-		| Action::StartCall(_) => None,
+		| Action::StartCall(_)
+		| Action::Moderate { .. } => None,
 		Action::AddFriend(user) => state.add_profile_friend(user.id),
 		Action::AcceptFriend(user) => state.resolve_friend_request(user, true),
 		Action::CloseDm(channel) => state.close_dm(channel),
@@ -434,6 +441,46 @@ pub(super) fn contents(
 		ui.close();
 	}
 	crate::profiles::report_button(ui, user);
+	if let Some(guild) = state
+		.selected
+		.and_then(|id| state.channel(id).and_then(|channel| channel.guild))
+	{
+		moderation_menu(ui, state, guild, user, action);
+	}
+}
+
+/// Timeout, kick and ban for a member of the selected server whom you may moderate.
+fn moderation_menu(
+	ui: &mut egui::Ui,
+	state: &State,
+	guild: model::Id,
+	user: &User,
+	action: &mut Option<Action>,
+) {
+	use crate::moderation::Kind;
+	let kinds: Vec<_> = [Kind::Timeout, Kind::Kick, Kind::Ban]
+		.into_iter()
+		.filter(|kind| state.server_admin_action_allowed(guild, &kind.action(user.id, 0)))
+		.collect();
+	if kinds.is_empty() {
+		return;
+	}
+	let danger = crate::design::palette(ui).danger;
+	ui.separator();
+	for kind in kinds {
+		let label = crate::i18n::translate_args(kind.menu_key(), &[("name", &user.name)]);
+		if ui
+			.button(egui::RichText::new(label).color(danger))
+			.clicked()
+		{
+			*action = Some(Action::Moderate {
+				guild,
+				user: user.clone(),
+				kind,
+			});
+			ui.close();
+		}
+	}
 }
 
 /// Toggles assignable server roles on a member shown in the selected channel's live list.

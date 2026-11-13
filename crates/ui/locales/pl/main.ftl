@@ -4902,3 +4902,33 @@ new-message-hint = Dodaj znajomych, aby rozpocząć wiadomość prywatną lub gr
 new-message-no-people-found = Nikt nie pasuje do tego wyszukiwania.
 new-message-create = Utwórz wiadomość
 new-message-cancel = Anuluj
+# Context: moderation
+moderation-menu-timeout = Wyślij { $name } na przerwę
+# Context: moderation
+moderation-menu-kick = Wyrzuć { $name }
+# Context: moderation
+moderation-menu-ban = Zbanuj { $name }
+# Context: moderation
+moderation-timeout-detail = Do końca przerwy ta osoba nie może wysyłać wiadomości, reagować ani dołączać do kanałów głosowych.
+# Context: moderation
+moderation-kick-detail = Ta osoba może dołączyć ponownie z nowym zaproszeniem.
+# Context: moderation
+moderation-ban-detail = Ta osoba nie dołączy ponownie, dopóki ban nie zostanie zdjęty.
+# Context: moderation
+moderation-duration-60-seconds = 60 sekund
+# Context: moderation
+moderation-remove-timeout = Zakończ przerwę
+# Context: moderation
+moderation-delete-history = Usuń historię wiadomości
+# Context: moderation
+moderation-delete-none = Nie usuwaj niczego
+# Context: moderation
+moderation-delete-hour = Ostatnia godzina
+# Context: moderation
+moderation-delete-day = Ostatnie 24 godziny
+# Context: moderation
+moderation-delete-week = Ostatnie 7 dni
+# Context: moderation
+moderation-confirm-timeout = Przerwa
+# Context: moderation
+moderation-confirm-ban = Zbanuj

@@ -4886,3 +4886,33 @@ new-message-hint = Bir doğrudan mesaj veya grup başlatmak için arkadaş ekley
 new-message-no-people-found = Bu aramayla eşleşen kimse yok.
 new-message-create = Mesaj Oluştur
 new-message-cancel = İptal
+# Context: moderation
+moderation-menu-timeout = { $name } için zaman aşımı
+# Context: moderation
+moderation-menu-kick = { $name } kullanıcısını at
+# Context: moderation
+moderation-menu-ban = { $name } kullanıcısını yasakla
+# Context: moderation
+moderation-timeout-detail = Zaman aşımı bitene kadar mesaj gönderemez, tepki ekleyemez ve ses kanallarına katılamaz.
+# Context: moderation
+moderation-kick-detail = Yeni bir davetle tekrar katılabilir.
+# Context: moderation
+moderation-ban-detail = Yasak kaldırılana kadar tekrar katılamaz.
+# Context: moderation
+moderation-duration-60-seconds = 60 saniye
+# Context: moderation
+moderation-remove-timeout = Zaman aşımını kaldır
+# Context: moderation
+moderation-delete-history = Mesaj geçmişini sil
+# Context: moderation
+moderation-delete-none = Hiçbirini silme
+# Context: moderation
+moderation-delete-hour = Son bir saat
+# Context: moderation
+moderation-delete-day = Son 24 saat
+# Context: moderation
+moderation-delete-week = Son 7 gün
+# Context: moderation
+moderation-confirm-timeout = Zaman aşımı
+# Context: moderation
+moderation-confirm-ban = Yasakla

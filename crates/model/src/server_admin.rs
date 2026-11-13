@@ -7,6 +7,10 @@ pub const MAX_IMAGE_BYTES: usize = 256 * 1024;
 pub const MAX_IMAGE_URI: usize = 24 + 4 * MAX_IMAGE_BYTES.div_ceil(3);
 pub const MAX_STICKER_FILE_BYTES: usize = 512 * 1024;
 pub const MEMBER_CHANNEL_FEATURE: &str = "ENABLED_MODERATION_EXPERIENCE_FOR_NON_COMMUNITY";
+/// Discord's longest member timeout, 28 days.
+pub const MAX_TIMEOUT_SECONDS: u32 = 28 * 86_400;
+/// A ban deletes at most the member's last seven days of messages.
+pub const MAX_BAN_DELETE_SECONDS: u32 = 7 * 86_400;
 #[derive(Clone)]
 pub struct Emoji {
 	pub emoji: CustomEmoji,
@@ -146,6 +150,16 @@ pub enum Action {
 	Kick {
 		user: Id,
 	},
+	/// Also deletes the member's messages from the last `delete_seconds`.
+	Ban {
+		user: Id,
+		delete_seconds: u32,
+	},
+	/// Times the member out for `seconds` from now; `None` removes the timeout.
+	Timeout {
+		user: Id,
+		seconds: Option<u32>,
+	},
 	Prune {
 		days: u8,
 		execute: bool,
@@ -266,6 +280,14 @@ impl Action {
 					&& !nick.chars().any(char::is_control)
 			}
 			Self::Kick { user } => user.0 != 0,
+			Self::Ban {
+				user,
+				delete_seconds,
+			} => user.0 != 0 && *delete_seconds <= MAX_BAN_DELETE_SECONDS,
+			Self::Timeout { user, seconds } => {
+				user.0 != 0
+					&& seconds.is_none_or(|seconds| (1..=MAX_TIMEOUT_SECONDS).contains(&seconds))
+			}
 			Self::Prune { days, .. } => (1..=30).contains(days),
 			_ => true,
 		}
@@ -282,6 +304,7 @@ pub enum Result {
 	Stickers(Stickers),
 	Members(Members),
 	Member(Member),
+	/// The member was removed by a kick or a ban.
 	Kicked(Id),
 	Pruned(Option<u64>),
 	ChannelList(bool),

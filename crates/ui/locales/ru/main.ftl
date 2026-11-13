@@ -4910,3 +4910,33 @@ new-message-hint = Добавьте друзей, чтобы начать лич
 new-message-no-people-found = Никто не найден.
 new-message-create = Создать сообщение
 new-message-cancel = Отмена
+# Context: moderation
+moderation-menu-timeout = Тайм-аут для { $name }
+# Context: moderation
+moderation-menu-kick = Выгнать { $name }
+# Context: moderation
+moderation-menu-ban = Забанить { $name }
+# Context: moderation
+moderation-timeout-detail = До конца тайм-аута участник не сможет отправлять сообщения, ставить реакции и заходить в голосовые каналы.
+# Context: moderation
+moderation-kick-detail = Участник сможет вернуться по новому приглашению.
+# Context: moderation
+moderation-ban-detail = Участник не сможет вернуться, пока бан не снят.
+# Context: moderation
+moderation-duration-60-seconds = 60 секунд
+# Context: moderation
+moderation-remove-timeout = Снять тайм-аут
+# Context: moderation
+moderation-delete-history = Удалить историю сообщений
+# Context: moderation
+moderation-delete-none = Ничего не удалять
+# Context: moderation
+moderation-delete-hour = Последний час
+# Context: moderation
+moderation-delete-day = Последние 24 часа
+# Context: moderation
+moderation-delete-week = Последние 7 дней
+# Context: moderation
+moderation-confirm-timeout = Тайм-аут
+# Context: moderation
+moderation-confirm-ban = Забанить
