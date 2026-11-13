@@ -310,6 +310,13 @@ pub enum Command {
 		reply: Option<Reply>,
 		captcha: Box<captcha::Retry>,
 	},
+	/// The user's solution for a challenged attachment send. It resumes the upload still
+	/// waiting on it, so staged files are never transferred twice; never automatic.
+	VerifiedUpload {
+		channel: Id,
+		nonce: String,
+		captcha: Box<captcha::Retry>,
+	},
 	Edit {
 		request: u64,
 		channel: Id,
@@ -2594,6 +2601,7 @@ impl State {
 		}
 		if let Command::Send { nonce, .. }
 		| Command::VerifiedSend { nonce, .. }
+		| Command::VerifiedUpload { nonce, .. }
 		| Command::Forward { nonce, .. } = command
 		{
 			self.apply(Envelope {

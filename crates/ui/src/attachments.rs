@@ -182,7 +182,7 @@ pub fn pending_card(
 	let (card, preview_rect) = pending_card_frame(ui);
 	match preview {
 		Some(texture) => {
-			let size = texture.size_vec2();
+			let size = texture.resolution_vec2();
 			let scale = (preview_rect.width() / size.x)
 				.min(preview_rect.height() / size.y)
 				.clamp(f32::EPSILON, 1.0);

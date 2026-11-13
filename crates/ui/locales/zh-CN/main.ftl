@@ -69,6 +69,11 @@ general-gpu-restart = 下次启动 Serein 时生效。
 general-gpu-current-prefix = 目前绘制使用
 general-steady-refresh-rate = 固定刷新率
 general-steady-refresh-rate-description = 当 Serein 是活动窗口时，会以显示器的刷新率绘制，让可变刷新率（VRR、G-SYNC、FreeSync）显示器可以保持同一刷新率而不会闪烁。会更耗电。
+steady-refresh-prompt-title = 检测到 G-SYNC 显示器
+steady-refresh-prompt-body = Serein 只在内容变化时重新绘制，因此当 Serein 是活动窗口时，G-SYNC 显示器可能会闪烁。固定刷新率会以显示器的刷新率绘制来避免闪烁，但会更耗电。要开启吗？
+steady-refresh-prompt-turn-on = 开启
+steady-refresh-prompt-keep-off = 不用了
+steady-refresh-prompt-settings = 之后可以在设置的 { $page } > { $group } 中更改。
 gpu-automatic = 自动
 gpu-high-performance = 高性能
 gpu-power-saving = 省电
@@ -1705,6 +1710,8 @@ markdown-confirm-external-link-open-external-link = 要打开外部链接吗？
 # Context: confirm_external_link
 markdown-confirm-external-link-open-in-browser = 在浏览器中开启
 # Context: confirm_external_link
+markdown-confirm-external-link-only-the-start-fits = 链接中只能放入此消息的开头部分，其余内容不会发送。此链接将在默认浏览器中打开。
+# Context: confirm_external_link
 markdown-confirm-external-link-this-destination-opens-in-your-default-browser = 这个链接会用你的默认浏览器开启。
 # Context: show_emoji
 markdown-show-emoji-copy-emoji = 复制表情符号
@@ -2304,6 +2311,8 @@ screen-body-send-what-your-mac-plays-along-with-the-screen-serein = 连同画面
 screen-body-share-sound-from-other-apps-even-when-sharing-one-window = 即使只分享一个窗口，也能送出其他应用程序的声音。不含 Serein 本身的音频。
 # Context: body
 screen-body-share-system-audio = 分享系统音频
+# Context: body
+screen-body-share-the-shared-apps-sound-or-other-apps-for-a-screen = 共享所共享应用的声音；共享屏幕时则共享其他所有应用的声音。Serein 自身的音频不会包含在内。
 # Context: body
 screen-body-show-cursor = 显示光标
 # Context: body
@@ -3900,6 +3909,10 @@ timeline-message-actions-delete-message = 删除消息…
 timeline-message-actions-edit-message = 编辑消息
 # Context: message_actions
 timeline-message-actions-extensions = 扩展
+# Context: menu
+extensions-ui-menu-group-user = 用户
+# Context: menu
+extensions-ui-menu-group-conversation = 对话
 # Context: message_actions
 timeline-message-actions-forward = 转发
 # Context: message_actions
@@ -3948,6 +3961,8 @@ timeline-show-with-scroll-history-is-not-available-yet-use-reload-to-try-again =
 timeline-show-with-scroll-loading-messages = 正在加载消息…
 # Context: show_with_scroll
 timeline-show-with-scroll-message-deleted = 消息已删除
+# Context: show_with_scroll
+timeline-show-with-scroll-message-blocked = 已屏蔽的消息
 # Context: show_with_scroll
 timeline-show-with-scroll-message-history-is-unavailable-with-current-permission-information = 依当前权限信息，无法查看消息历史。
 # Context: show_with_scroll
@@ -4700,9 +4715,15 @@ profiles-board-empty = 这个看板目前还没有游戏。
 profiles-board-show-more = 查看更多
 profiles-board-show-less = 收起
 profiles-activity-empty = 暂无共享活动。
+profiles-in-voice-server = 位于 { $server }
+profiles-in-voice-join = 加入
+profiles-in-voice-joined = 你已在此语音频道中。
+profiles-in-voice-failed = 请先关闭失败的通话，然后再重新加入。
+profiles-in-voice-unavailable = 你现在无法加入此语音频道。
 profiles-mutuals-empty = 这里没有可显示的内容。
 
 reading-double-click-reaction = 双击回应
+message-preview-limit = 此消息超出原生文本排版的限制。
 
 ## crates/platform/src/app_menu.rs
 # Context: macos_menu_bar

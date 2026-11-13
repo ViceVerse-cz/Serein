@@ -69,6 +69,11 @@ general-gpu-restart = Изменение этого параметра всту�
 general-gpu-current-prefix = Сейчас активна
 general-steady-refresh-rate = Постоянная частота обновления
 general-steady-refresh-rate-description = Пока окно Serein активно, отрисовка идёт с частотой обновления экрана, поэтому мониторы с переменной частотой обновления (VRR, G-SYNC, FreeSync) могут держать одну частоту и не мерцать. Расходует больше энергии.
+steady-refresh-prompt-title = Обнаружен дисплей с G-SYNC
+steady-refresh-prompt-body = Serein перерисовывает окно только при изменениях, из-за чего дисплей с G-SYNC может мерцать, пока окно Serein активно. Постоянная частота обновления устраняет это, отрисовывая с частотой обновления экрана, но расходует больше энергии. Включить её?
+steady-refresh-prompt-turn-on = Включить
+steady-refresh-prompt-keep-off = Нет, спасибо
+steady-refresh-prompt-settings = Это можно изменить позже в настройках: { $page } > { $group }.
 gpu-automatic = Автоматический
 gpu-high-performance = Высокая производительность
 gpu-power-saving = Экономия энергии
@@ -1690,6 +1695,8 @@ markdown-confirm-external-link-open-external-link = Открыть внешню�
 # Context: confirm_external_link
 markdown-confirm-external-link-open-in-browser = Открыть в браузере
 # Context: confirm_external_link
+markdown-confirm-external-link-only-the-start-fits = В ссылку помещается только начало этого сообщения; остальное не отправляется. Ссылка откроется в браузере по умолчанию.
+# Context: confirm_external_link
 markdown-confirm-external-link-this-destination-opens-in-your-default-browser = Этот пункт назначения открывается в браузере по умолчанию.
 # Context: show_emoji
 markdown-show-emoji-copy-emoji = Скопировать смайлик
@@ -2274,6 +2281,8 @@ screen-body-send-what-your-mac-plays-along-with-the-screen-serein = Отправ
 screen-body-share-sound-from-other-apps-even-when-sharing-one-window = Делитесь звуком из других приложений, даже если вы делитесь одним окном. Собственный звук Серейн не учитывается.
 # Context: body
 screen-body-share-system-audio = Поделиться системным звуком
+# Context: body
+screen-body-share-the-shared-apps-sound-or-other-apps-for-a-screen = Передавайте звук общего приложения или, при показе экрана, звук всех остальных приложений. Собственный звук Serein не передаётся.
 # Context: body
 screen-body-show-cursor = Показать курсор
 # Context: body
@@ -3870,6 +3879,10 @@ timeline-message-actions-delete-message = Удалить сообщение…
 timeline-message-actions-edit-message = Редактировать сообщение
 # Context: message_actions
 timeline-message-actions-extensions = Расширения
+# Context: menu
+extensions-ui-menu-group-user = Пользователь
+# Context: menu
+extensions-ui-menu-group-conversation = Беседа
 # Context: message_actions
 timeline-message-actions-forward = Переслать
 # Context: message_actions
@@ -3920,6 +3933,8 @@ timeline-show-with-scroll-history-is-not-available-yet-use-reload-to-try-again =
 timeline-show-with-scroll-loading-messages = Загрузка сообщений…
 # Context: show_with_scroll
 timeline-show-with-scroll-message-deleted = Сообщение удалено
+# Context: show_with_scroll
+timeline-show-with-scroll-message-blocked = Заблокированное сообщение
 # Context: show_with_scroll
 timeline-show-with-scroll-message-history-is-unavailable-with-current-permission-information = История сообщений недоступна с текущей информацией о разрешении.
 # Context: show_with_scroll
@@ -4214,6 +4229,13 @@ voice-voice-card-section-dismiss-call = Отклонить вызов
 voice-voice-card-section-reconnect-attempt = { $reason } · попытка { $attempt } из { $total }
 # Context: voice_card_section
 voice-voice-card-section-reconnecting = Переподключение…
+
+voice-connection-title = Соединение
+voice-connection-ping-value = { $millis } мс
+voice-connection-ping-pending = Ожидание первого замера…
+voice-connection-average-ping = Средний пинг: { $value }
+voice-connection-last-ping = Последний пинг: { $value }
+voice-connection-ping-description = Время ответа сервера управления голосовым соединением.
 # Context: voice_card_section
 voice-voice-card-section-microphone-unavailable-a-still-connected-choose-another-input-in-audio = Микрофон недоступен · все еще подключен. Выберите другой вход в настройках звука.
 # Context: voice_channel_button
@@ -4511,6 +4533,8 @@ voice-recipient-ringing = Вызов…
 voice-recipient-not-in-call = Не в звонке
 reconnect-now = Переподключиться
 
+message-preview-limit = Это сообщение превышает ограничение нативной раскладки текста.
+
 voice-call-moved-to-another-client = Сеанс звонка на этом устройстве был заменён
 
 server-settings-page-safety = Настройка безопасности
@@ -4605,6 +4629,11 @@ profiles-board-empty = No games on this board yet.
 profiles-board-show-more = Show more
 profiles-board-show-less = Show less
 profiles-activity-empty = Нет опубликованной активности.
+profiles-in-voice-server = на сервере { $server }
+profiles-in-voice-join = Присоединиться
+profiles-in-voice-joined = Вы уже в этом голосовом канале.
+profiles-in-voice-failed = Сначала закройте неудавшийся звонок, затем присоединитесь снова.
+profiles-in-voice-unavailable = Сейчас нельзя присоединиться к этому голосовому каналу.
 profiles-mutuals-empty = Nothing to show here.
 
 reading-double-click-reaction = Double-click reaction

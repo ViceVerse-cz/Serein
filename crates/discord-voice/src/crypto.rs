@@ -227,7 +227,7 @@ impl Encryption {
 		Some(compound)
 	}
 
-	fn parse_feedback(mut remaining: &[u8], video_ssrc: u32) -> Option<Feedback> {
+	pub(crate) fn parse_feedback(mut remaining: &[u8], video_ssrc: u32) -> Option<Feedback> {
 		let mut feedback = Feedback::default();
 		while !remaining.is_empty() {
 			if remaining.len() < 4 || remaining[0] >> 6 != 2 || !(192..=223).contains(&remaining[1])

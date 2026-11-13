@@ -208,7 +208,7 @@ mod tests {
 		.write_to(&mut png, image::ImageFormat::Png)
 		.unwrap();
 		let (uri, preview) = decode(png.get_ref(), 256).unwrap();
-		assert_eq!(preview.size, [256, 256]);
+		assert_eq!(preview.resolution(), [256, 256]);
 		assert!(uri.starts_with("data:image/png;base64,"));
 		assert!(decode(b"invalid", 256).is_err());
 		assert!(decode(&vec![0; MAX_INPUT + 1], 256).is_err());

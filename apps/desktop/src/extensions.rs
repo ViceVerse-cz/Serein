@@ -320,6 +320,8 @@ pub struct InstalledExtension {
 	pub image_sharing: bool,
 	pub rich_presence: Option<Box<extensions::CustomRichPresence>>,
 	pub api_proxy: Option<extensions::ApiProxyConfig>,
+	/// Interface tweaks the granted activation action switched on.
+	pub interface_tweaks: Vec<extensions::InterfaceTweak>,
 }
 
 pub enum Event {
@@ -503,6 +505,8 @@ struct Stored {
 }
 
 impl Stored {
+	/// Builds the installed entry by running the activation action, if any, with saved storage,
+	/// and records what its granted output switched on.
 	fn summary(&self, gate: &Gate, storage: Option<String>, active: bool) -> InstalledExtension {
 		let activation = self
 			.package
@@ -530,6 +534,11 @@ impl Stored {
 			}
 			if output.image_sharing && !self.grants.contains(&Capability::ImageSharing) {
 				return Err("Image sharing access was not granted".into());
+			}
+			if output.interface_tweaks.is_some()
+				&& !self.grants.contains(&Capability::InterfaceTweaks)
+			{
+				return Err("Interface tweaks were not granted".into());
 			}
 			Ok(output)
 		});
@@ -580,6 +589,11 @@ impl Stored {
 					}
 					_ => None,
 				}),
+			interface_tweaks: result
+				.as_ref()
+				.ok()
+				.and_then(|output| output.interface_tweaks.clone())
+				.unwrap_or_default(),
 			// Current protector packages have a no-op activation; consent still opts in.
 			preserve_deleted_messages: activation.is_some()
 				&& result.is_ok()
@@ -589,6 +603,8 @@ impl Stored {
 	}
 }
 
+/// Rejects a job whose IDs, account or invocation fail the host's limits before it reaches
+/// the worker, so a malformed request never runs plugin code.
 fn validate_job(job: &Job) -> Result<(), String> {
 	match job {
 		Job::Invoke {
@@ -616,6 +632,18 @@ fn validate_job(job: &Job) -> Result<(), String> {
 					.action
 					.len()
 					.saturating_add(invocation.selected_message.as_ref().map_or(0, String::len))
+					.saturating_add(
+						invocation
+							.selected_message_ref
+							.as_ref()
+							.map_or(0, |reference| reference.bytes()),
+					)
+					.saturating_add(
+						invocation
+							.menu_target
+							.as_ref()
+							.map_or(0, |target| target.bytes()),
+					)
 					.saturating_add(invocation.composer.as_ref().map_or(0, String::len))
 					.saturating_add(invocation.storage.as_ref().map_or(0, String::len))
 					.saturating_add(event_bytes)
@@ -665,6 +693,8 @@ fn validate_job(job: &Job) -> Result<(), String> {
 	Ok(())
 }
 
+/// Runs one validated job on the worker thread and returns its event; the gate aborts work
+/// that a newer job or logout made stale.
 fn run(root: &Path, job: Job, gate: &Gate) -> Result<Event, String> {
 	gate.check()?;
 	match job {
@@ -824,6 +854,8 @@ fn run(root: &Path, job: Job, gate: &Gate) -> Result<Event, String> {
 				|| invocation.message_event.is_some()
 					&& !stored.grants.contains(&Capability::MessageEvents)
 				|| invocation.app_event.is_some() && !stored.grants.contains(&Capability::AppEvents)
+				|| invocation.menu_target.is_some()
+					&& !stored.grants.contains(&Capability::ContextMenus)
 			{
 				return Err("Plugin access was not granted".into());
 			}
@@ -855,6 +887,11 @@ fn run(root: &Path, job: Job, gate: &Gate) -> Result<Event, String> {
 			if output.rich_presence.is_some() && !stored.grants.contains(&Capability::RichPresence)
 			{
 				return Err("Rich presence access was not granted".into());
+			}
+			if output.interface_tweaks.is_some()
+				&& !stored.grants.contains(&Capability::InterfaceTweaks)
+			{
+				return Err("Interface tweaks were not granted".into());
 			}
 			if let Some(data) = output.storage.take() {
 				if !stored.grants.contains(&Capability::Storage) || data.len() > MAX_STORAGE {
@@ -1066,6 +1103,8 @@ fn valid_id(id: &str) -> Result<(), String> {
 	Ok(())
 }
 
+/// Loads every installed theme and plugin for the account, retrying unfinished cleanup and
+/// recording a per-extension error instead of failing the whole load.
 fn load(
 	root: &Path,
 	account: Option<&str>,
@@ -1151,6 +1190,7 @@ fn load(
 							summary.preserve_deleted_messages = false;
 							summary.image_sharing = false;
 							summary.rich_presence = None;
+							summary.interface_tweaks.clear();
 							summary.error = Some(error);
 							summary
 						}
@@ -1185,6 +1225,7 @@ fn load(
 						image_sharing: false,
 						rich_presence: None,
 						api_proxy: None,
+						interface_tweaks: Vec::new(),
 					},
 				});
 			}
@@ -1578,24 +1619,24 @@ async fn download_https(raw: &str, limit: usize, gate: &Gate) -> Result<Vec<u8>,
 			return Err("Extension downloads cannot access private networks".into());
 		}
 		// Pin the validated DNS result; redirects receive a fresh validation and client.
-		let client = reqwest::Client::builder()
+		let client = wreq::Client::builder()
 			.no_proxy()
 			.no_gzip()
-			.redirect(reqwest::redirect::Policy::none())
-			.resolve_to_addrs(host, &addresses)
+			.redirect(wreq::redirect::Policy::none())
+			.resolve_to_addrs(host.to_owned(), addresses.iter().copied())
 			.timeout(Duration::from_secs(30))
 			.build()
 			.map_err(|_| "Extension downloader unavailable")?;
-		let mut response = client
-			.get(url.clone())
-			.header(reqwest::header::ACCEPT_ENCODING, "identity")
+		let response = client
+			.get(url.as_str())
+			.header(wreq::header::ACCEPT_ENCODING, "identity")
 			.send()
 			.await
 			.map_err(|_| "Extension download failed")?;
 		if response.status().is_redirection() {
 			let location = response
 				.headers()
-				.get(reqwest::header::LOCATION)
+				.get(wreq::header::LOCATION)
 				.and_then(|v| v.to_str().ok())
 				.ok_or("Invalid extension redirect")?;
 			url = url
@@ -1603,7 +1644,7 @@ async fn download_https(raw: &str, limit: usize, gate: &Gate) -> Result<Vec<u8>,
 				.map_err(|_| "Invalid extension redirect")?;
 			continue;
 		}
-		if response.status() != reqwest::StatusCode::OK {
+		if response.status() != wreq::StatusCode::OK {
 			return Err(
 				"Extension download unavailable; refresh the catalog or use a local package".into(),
 			);
@@ -1613,15 +1654,16 @@ async fn download_https(raw: &str, limit: usize, gate: &Gate) -> Result<Vec<u8>,
 			.is_some_and(|size| size > limit as u64)
 			|| response
 				.headers()
-				.get(reqwest::header::CONTENT_ENCODING)
+				.get(wreq::header::CONTENT_ENCODING)
 				.is_some_and(|encoding| encoding != "identity")
 		{
 			return Err("Extension download size or encoding is unsupported".into());
 		}
 		let mut bytes = Vec::new();
-		while let Some(chunk) = response
-			.chunk()
+		let mut response_body = std::pin::pin!(response.bytes_stream());
+		while let Some(chunk) = futures_util::StreamExt::next(&mut response_body)
 			.await
+			.transpose()
 			.map_err(|_| "Extension download interrupted")?
 		{
 			gate.check()?;
@@ -2299,7 +2341,10 @@ mod tests {
 		for format in [image::ImageFormat::Png, image::ImageFormat::Jpeg] {
 			let bytes = encoded(1280, 720, format);
 			let mut preview = metadata(&bytes);
-			assert_eq!(decode_preview(&bytes, &preview).unwrap().size, [640, 360]);
+			assert_eq!(
+				decode_preview(&bytes, &preview).unwrap().resolution(),
+				[640, 360]
+			);
 			preview.sha256 = "0".repeat(64);
 			assert!(decode_preview(&bytes, &preview).is_none());
 			preview = metadata(&bytes);

@@ -48,7 +48,8 @@ pub struct AppPreferences {
 	pub hide_nitro_emojis: bool,
 	/// Device-local opt-in; older saved preferences deserialize with conversion off.
 	pub convert_emoticons: bool,
-	/// Request a conversation's page while the pointer rests on it; older preferences enable it.
+	/// Request a conversation's page while the pointer rests on it. Off unless the owner turns
+	/// it on: the official client makes no such requests. A saved value is kept as it is.
 	pub preload_on_hover: bool,
 	/// Show as Idle after 10 minutes of system inactivity; older preferences enable it.
 	pub auto_idle: bool,
@@ -83,6 +84,9 @@ pub struct AppPreferences {
 	/// Repaint every display refresh while the window is focused, so variable refresh rate
 	/// displays hold one rate; older preferences deserialize with it off.
 	pub steady_refresh_rate: bool,
+	/// The one-time offer of the steady refresh rate on a G-SYNC display was answered; absent
+	/// in older preferences, so existing installs are asked once too.
+	pub steady_refresh_prompted: bool,
 	/// Device-local, account-independent keyboard bindings.
 	pub keybinds: model::Keybinds,
 	/// Expanded server folders, bounded so one device preference stays small.
@@ -97,8 +101,6 @@ pub struct AppPreferences {
 	pub image_cache: model::CachePreferences,
 	/// Clock style for message times; older preferences follow the language.
 	pub time_format: model::TimeFormat,
-	/// Owner opt-in: keep saved logins in private plain files when no OS keyring works.
-	pub plaintext_login: bool,
 	/// Owner opt-in diagnostic log; older preferences deserialize with logging off.
 	pub diagnostics_log: diagnostics::Level,
 	/// First-run setup finished or skipped; absent in older preferences, so existing installs
@@ -117,7 +119,7 @@ impl Default for AppPreferences {
 			show_hidden_channels: false,
 			hide_nitro_emojis: false,
 			convert_emoticons: false,
-			preload_on_hover: true,
+			preload_on_hover: false,
 			auto_idle: true,
 			hide_title_bar: false,
 			message_requests_collapsed: false,
@@ -139,6 +141,7 @@ impl Default for AppPreferences {
 			gpu_preference: Default::default(),
 			graphics_api: Default::default(),
 			steady_refresh_rate: false,
+			steady_refresh_prompted: false,
 			keybinds: Default::default(),
 			expanded_folders: Vec::new(),
 			user_volumes: Vec::new(),
@@ -146,7 +149,6 @@ impl Default for AppPreferences {
 			cosmetics: Default::default(),
 			image_cache: Default::default(),
 			time_format: Default::default(),
-			plaintext_login: false,
 			diagnostics_log: diagnostics::Level::Off,
 			setup_done: false,
 		}
@@ -2268,6 +2270,7 @@ mod tests {
 			gpu_preference: model::GpuPreference::PowerSaving,
 			graphics_api: model::GraphicsApi::OpenGl,
 			steady_refresh_rate: true,
+			steady_refresh_prompted: true,
 			..Default::default()
 		};
 		store.save_app_preferences(&value).unwrap();

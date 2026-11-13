@@ -4,9 +4,9 @@ use client_core::channel_actions::{
 	Action, Edit, ForumEdit, Mute, Outcome, PostDetails, REQUIRE_TAG,
 };
 use model::{Id, permissions};
-use reqwest::Method;
 use serde_json::{Value, json};
 use std::time::{SystemTime, UNIX_EPOCH};
+use wreq::Method;
 
 const MAX_CHANNEL_BYTES: usize = 64 * 1024;
 fn write_failure(failure: Failure) -> Failure {

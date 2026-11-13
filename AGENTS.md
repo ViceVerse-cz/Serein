@@ -7,9 +7,9 @@ backend, web wrapper, or separate voice service.
 
 - Voice ships in every build. Keep media processing outside UI rendering and audio callbacks.
 - Bound local caches, payloads and queues by bytes and item count.
-- Prefer the OS credential store for saved tokens. Allow plaintext login files only with the
-  owner's explicit Storage setting; keep files private, bounded and removable. Redact active
-  secrets in memory.
+- Prefer the OS credential store for saved tokens. Fall back to plaintext login files only when
+  no OS credential store exists (never for a locked or failing one); keep files private, bounded
+  and removable. Redact active secrets in memory.
 - Authentication and user-solved invite verification may use only the temporary webviews and
   handoff limits described in the relevant auth docs.
 - No credential extraction, challenge bypass, telemetry, unbounded logs, backend or account system.
@@ -30,7 +30,7 @@ local checks, synthetic screenshots and measurements when relevant, commit, push
 and create or update a PR. Follow `.agents/skills/serein-delivery/SKILL.md`. Reuse an open task
 PR. Mark complete implementations ready for review; only unfinished requested work belongs in draft.
 CI failures or unavailable evidence do not determine draft status. Report checks and limitations
-accurately. Never merge, force-push, deploy, release or change repository permissions.
+accurately. Never deploy, release or change repository permissions.
 
 After pushing changes to an open PR, request fresh review from its existing human reviewers
 and prompt the review bots that reviewed it using their supported re-review commands. This is

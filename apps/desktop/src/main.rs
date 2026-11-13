@@ -684,7 +684,10 @@ fn demo_check_updates() {
 	assert!(!messaging.updates.auto_update && messaging.updates.nightly);
 	messaging.open_update_settings();
 	let mut state = test_support::demo_state();
-	for size in [[1120.0, 760.0], [760.0, 520.0]] {
+	for size in [
+		[1120.0, 760.0],
+		app_settings::MIN_WINDOW_SIZE.map(|size| size as f32),
+	] {
 		for theme in [egui::ThemePreference::Dark, egui::ThemePreference::Light] {
 			ctx.set_theme(theme);
 			let output = ctx.run_ui(
@@ -1018,6 +1021,10 @@ struct Desktop {
 	pointer: pointer::Pointer,
 	downloads: downloads::Downloads,
 	audio: audio::Audio,
+	/// Whether the last ui pass found the playing audio's card in the timeline. Only
+	/// that audio is revalidated against the timeline; search and pin cards play
+	/// messages the timeline never loaded.
+	audio_in_timeline: bool,
 	video: video::Video,
 	/// Synthetic stream/camera textures the demo view borrows by id.
 	_demo_textures: Vec<egui::TextureHandle>,
@@ -1078,6 +1085,8 @@ struct Desktop {
 	registered_games: registered_games::Registered,
 	tray_setting: toggle_setting::Settings,
 	startup: startup::Startup,
+	/// Set by the startup G-SYNC check; taken once to offer the steady refresh rate.
+	gsync: std::sync::Arc<std::sync::atomic::AtomicBool>,
 	tray: Option<platform::tray::Tray>,
 	hotkeys: platform::hotkeys::Hotkeys,
 	/// Linux desktop light/dark preference; winit reports it everywhere else.
@@ -1097,11 +1106,6 @@ struct Desktop {
 	/// Written under the account's own entry on every READY, including a launch restore, so
 	/// the switcher can always get back to an account it lists.
 	pending_account_save: Option<Arc<SessionSecret>>,
-	/// Current login, sharing the connection allocation, so enabling plaintext storage
-	/// can save it without another authentication, including after disabling/re-enabling.
-	current_login: Option<Arc<SessionSecret>>,
-	/// The plaintext fallback choice last handed to the credential worker.
-	plaintext_login: bool,
 	/// Where the opt-in diagnostic log belongs, resolved once so a Settings change needs no lookup.
 	log_directory: Option<std::path::PathBuf>,
 	/// Whether the first frame has reported the start-up install's result to the settings page.
@@ -1110,8 +1114,6 @@ struct Desktop {
 	log_open_refused: bool,
 	/// A diagnostics file being written after the owner picked a destination.
 	diagnostics_save: Option<std::sync::mpsc::Receiver<Option<Result<std::path::PathBuf, ()>>>>,
-	/// Active/per-account fallback saves waiting for bounded credential-queue capacity.
-	plaintext_save_pending: [bool; 2],
 	account_presences: std::collections::BTreeMap<model::Id, model::OwnPresence>,
 	presence_load_pending: bool,
 	deferred_connect: Option<(SessionSecret, bool)>,
@@ -1559,12 +1561,8 @@ impl Desktop {
 			.enable_all()
 			.build()?;
 		// Configured before the worker's first read, so a plaintext login restores on launch.
-		let plaintext_login = !demo
-			&& preferences
-				.as_ref()
-				.is_ok_and(|preferences| preferences.plaintext_login);
 		if !demo {
-			platform::plaintext_login::configure(plaintext_login_dir(), plaintext_login);
+			platform::plaintext_login::configure(plaintext_login_dir());
 		}
 		let mut store = (!demo).then(|| credentials::Store::start(cc.egui_ctx.clone()));
 		let cache = (!demo).then(|| cache::Cache::start(cc.egui_ctx.clone()));
@@ -1801,6 +1799,12 @@ impl Desktop {
 			.last()
 			.map_or(10_000, |m| m.id.0.max(10_000));
 		let mut messaging = ui::MessagingUi::default();
+		#[cfg(feature = "demo")]
+		if demo && std::env::args().any(|arg| arg == "--demo-voice") {
+			for millis in [28, 31, 27, 104, 46, 33, 25, 29, 30, 28, 26, 29] {
+				messaging.voice_latency.push(Duration::from_millis(millis));
+			}
+		}
 		// Fixture video textures the view borrows by id; the desktop keeps them alive.
 		#[cfg_attr(not(feature = "demo"), allow(unused_mut))]
 		let mut demo_textures: Vec<egui::TextureHandle> = Vec::new();
@@ -1859,6 +1863,20 @@ impl Desktop {
 			gpu_video::install(render_state);
 		}
 		let startup = startup::Startup::new(&cc.egui_ctx, &runtime, &mut messaging, demo);
+		// A G-SYNC display follows this window's uneven presents and can flicker (#889), so the
+		// interface offers the steady refresh rate once. An answered offer never loads the driver
+		// library again, and fixtures ask only with `--demo-gsync-prompt`.
+		let gsync = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+		if !demo && !messaging.steady_refresh_rate && !messaging.steady_refresh_prompted {
+			let (found, wake) = (gsync.clone(), cc.egui_ctx.clone());
+			platform::gsync::detect(move |enabled| {
+				if enabled {
+					eprintln!("[Serein] G-SYNC display detected");
+					found.store(true, std::sync::atomic::Ordering::Relaxed);
+					wake.request_repaint();
+				}
+			});
+		}
 		// `--demo-update`: a pending release without any network check. The system title bar
 		// comes with it, since that is when the sidebar prompt stands in for the title strip.
 		#[cfg(feature = "demo")]
@@ -1893,6 +1911,14 @@ impl Desktop {
 		if demo && std::env::args().any(|arg| arg == "--demo-steady-refresh") {
 			messaging.steady_refresh_rate = true;
 		}
+		// `--demo-gsync-prompt`: the one-time steady refresh offer, without asking any driver.
+		#[cfg(feature = "demo")]
+		if demo && std::env::args().any(|arg| arg == "--demo-gsync-prompt") {
+			messaging.gsync_detected = true;
+			// Saved or unreadable preferences may already count as an answer.
+			messaging.steady_refresh_rate = false;
+			messaging.steady_refresh_prompted = false;
+		}
 		// `--demo-call-stream`: the direct-message peer shares a synthetic screen this device is
 		// watching, so the stream stage renders offline without any capture or network.
 		#[cfg(feature = "demo")]
@@ -1921,11 +1947,7 @@ impl Desktop {
 					)
 				})
 				.collect();
-			let image = egui::ColorImage {
-				size: [width, height],
-				source_size: egui::vec2(width as f32, height as f32),
-				pixels,
-			};
+			let image = egui::ColorImage::new([width, height], pixels);
 			let texture =
 				cc.egui_ctx
 					.load_texture("synthetic-stream", image, egui::TextureOptions::LINEAR);
@@ -1964,11 +1986,7 @@ impl Desktop {
 					egui::Color32::from_rgb((90.0 + 120.0 * x) as u8, (60.0 + 90.0 * y) as u8, 140)
 				})
 				.collect();
-			let image = egui::ColorImage {
-				size: [width, height],
-				source_size: egui::vec2(width as f32, height as f32),
-				pixels,
-			};
+			let image = egui::ColorImage::new([width, height], pixels);
 			let texture = cc.egui_ctx.load_texture(
 				"synthetic-remote-camera",
 				image,
@@ -2174,11 +2192,7 @@ impl Desktop {
 						}
 					})
 					.collect();
-				egui::ColorImage {
-					size: [width, height],
-					source_size: egui::vec2(width as f32, height as f32),
-					pixels,
-				}
+				egui::ColorImage::new([width, height], pixels)
 			};
 			messaging.preview_attachment(
 				"synthetic-holiday.png",
@@ -2346,7 +2360,11 @@ impl Desktop {
 		#[cfg(target_os = "windows")]
 		{
 			use winit::platform::windows::{CornerPreference, WindowExtWindows as _};
-			window.set_corner_preference(CornerPreference::Round);
+			window.set_corner_preference(if platform::window_effects::visual_styles() {
+				CornerPreference::Round
+			} else {
+				CornerPreference::DoNotRound
+			});
 			align_undecorated_surface(&window);
 		}
 		// The GPU surface and X11 visual are selected at startup. Opaque launches
@@ -2381,6 +2399,7 @@ impl Desktop {
 			pointer: pointer::Pointer::default(),
 			downloads: downloads::Downloads::default(),
 			audio: audio::Audio::default(),
+			audio_in_timeline: false,
 			video: video::Video::default(),
 			_demo_textures: demo_textures,
 			demo_video_autoplay: if std::env::args().any(|arg| arg == "--demo-video-paused") {
@@ -2453,6 +2472,7 @@ impl Desktop {
 			},
 			tray_setting,
 			startup,
+			gsync,
 			tray: None,
 			tray_window,
 			#[cfg(target_os = "macos")]
@@ -2466,13 +2486,10 @@ impl Desktop {
 			variant_changed: false,
 			pending_save: None,
 			pending_account_save: None,
-			current_login: None,
-			plaintext_login,
 			log_directory: local_store::data_dir().ok().map(|root| root.join("logs")),
 			log_verified: false,
 			log_open_refused: false,
 			diagnostics_save: None,
-			plaintext_save_pending: [false; 2],
 			account_presences: std::collections::BTreeMap::new(),
 			presence_load_pending,
 			deferred_connect: None,
@@ -2724,58 +2741,6 @@ impl Desktop {
 			self.diagnostics_save = None;
 		}
 	}
-	/// Hands the owner's plaintext saved-login choice to the credential worker, in order with
-	/// its other writes, and saves a login that failed earlier for want of a keyring.
-	fn sync_plaintext_login(&mut self) {
-		let enabled = self.messaging.plaintext_login;
-		let (Some(store), Some(directory)) = (&self.store, plaintext_login_dir()) else {
-			return;
-		};
-		if enabled != self.plaintext_login {
-			let operation = credentials::Operation::SetPlaintext { directory, enabled };
-			if store
-				.send
-				.try_send((self.state.generation, credentials::Request::NONE, operation))
-				.is_err()
-			{
-				return; // Retried after the worker wakes the UI.
-			}
-			self.plaintext_login = enabled;
-			self.plaintext_save_pending = [enabled; 2];
-		}
-		if !enabled || self.state.auth != AuthState::Authenticated {
-			return;
-		}
-		let Some(secret) = self.current_login.clone() else {
-			return;
-		};
-		if self.plaintext_save_pending[0]
-			&& store
-				.send
-				.try_send((
-					self.state.generation,
-					credentials::Request::NONE,
-					credentials::Operation::Save(secret.clone()),
-				))
-				.is_ok()
-		{
-			self.plaintext_save_pending[0] = false;
-		}
-		if self.plaintext_save_pending[1]
-			&& let Some(account) = self.state.user.as_ref().map(|user| user.id)
-			&& store
-				.send
-				.try_send((
-					self.state.generation,
-					credentials::Request::NONE,
-					credentials::Operation::SaveAccount(account, secret),
-				))
-				.is_ok()
-		{
-			self.plaintext_save_pending[1] = false;
-		}
-	}
-
 	fn save_app_preferences(&mut self) {
 		if self.fixture_only || self.state.demo {
 			return;
@@ -3545,7 +3510,7 @@ impl Desktop {
 				.iter()
 				.any(|p| p.nonce == *nonce && !p.attachments.is_empty())
 		{
-			let channel = *channel;
+			let (channel, nonce) = (*channel, nonce.clone());
 			let available = attachment_send_allowed(&self.state, channel)
 				&& !self.fixture_only
 				&& self.connection.is_some();
@@ -3556,6 +3521,7 @@ impl Desktop {
 					tokio::sync::watch::channel(discord_api::upload::Status::Preparing);
 				let (cancel, _) = tokio::sync::watch::channel(false);
 				if self.uploads.begin_upload(receive, cancel.clone()).is_ok() {
+					self.uploads.sends(&nonce);
 					let request = uploads::UploadRequest {
 						command,
 						source,
@@ -4443,10 +4409,12 @@ impl Desktop {
 						.ok_or(Failure::Protocol),
 				},
 				// The offline fixture never issues challenges, so it never resumes one.
-				Command::VerifiedSend { nonce, .. } => Event::SendResult {
-					nonce,
-					result: Err(Failure::Protocol),
-				},
+				Command::VerifiedSend { nonce, .. } | Command::VerifiedUpload { nonce, .. } => {
+					Event::SendResult {
+						nonce,
+						result: Err(Failure::Protocol),
+					}
+				}
 				Command::Forward {
 					message,
 					channel,
@@ -4955,7 +4923,6 @@ impl Desktop {
 			}
 		}
 		self.retry_history_clears();
-		self.sync_plaintext_login();
 		self.sync_diagnostics_log(ctx);
 		self.sync_diagnostics_save(ctx);
 		let mut results = Vec::new();
@@ -4975,10 +4942,8 @@ impl Desktop {
 		}
 		for (generation, outcome) in results {
 			if generation != self.state.generation
-				&& !matches!(
-					outcome,
-					credentials::Outcome::PlaintextSet(..) | credentials::Outcome::Reconciled(..)
-				) {
+				&& !matches!(outcome, credentials::Outcome::Reconciled(..))
+			{
 				continue;
 			}
 			match outcome {
@@ -5030,14 +4995,14 @@ impl Desktop {
 							"Login saved in the OS credential store"
 						}
 						platform::Saved::Plaintext => {
-							"Login saved in plaintext because no OS keyring is available"
+							"No OS keyring found, so the login is saved in a private file in Serein's data folder"
 						}
 					}
 				}
 				credentials::Outcome::Saved(Err(platform::CredentialError::NoStore)) => {
 					self.messaging.toasts.push(
 						ui::design::Level::Warning,
-						"No OS keyring found, so you will need to sign in again next launch. Settings › Storage can save it in plaintext instead.",
+						"No OS keyring found, so you will need to sign in again next launch.",
 					);
 				}
 				credentials::Outcome::Saved(Err(_)) => {
@@ -5060,16 +5025,6 @@ impl Desktop {
 						);
 					}
 				}
-				credentials::Outcome::PlaintextSet(enabled, result) => {
-					if result.is_err() {
-						self.messaging.toasts.push(
-							ui::design::Level::Error,
-							"Could not delete the plaintext saved logins in Serein's data folder",
-						);
-					} else if !enabled {
-						self.credential_status = "Plaintext saved logins deleted";
-					}
-				}
 				credentials::Outcome::Forgotten(result) => {
 					self.forgetting = false;
 					self.credential_status = match result {
@@ -5085,6 +5040,7 @@ impl Desktop {
 		}
 		let mut events = Vec::new();
 		let mut terminal = None;
+		let mut expiry = None;
 		if let Some(connection) = &mut self.connection {
 			for _ in 0..client_core::EVENT_SLOTS {
 				match connection.events.try_recv() {
@@ -5112,6 +5068,10 @@ impl Desktop {
 				events.push(failure);
 			}
 			terminal = *connection.terminal.borrow();
+			if terminal == Some(Failure::Expired) {
+				let ready = connection.ready.load(std::sync::atomic::Ordering::Relaxed);
+				expiry = Some((connection.expiry.get().cloned(), ready));
+			}
 		}
 		let mut persist_timeline = false;
 		let mut full_window = false;
@@ -5301,7 +5261,6 @@ impl Desktop {
 					// A token the owner just supplied replaces whatever was stored before.
 					let fresh_token = self.pending_save.is_some();
 					if let Some(secret) = self.pending_save.take() {
-						self.current_login = Some(secret.clone());
 						queued &= store
 							.send
 							.try_send((
@@ -5382,7 +5341,17 @@ impl Desktop {
 				diagnostics::Category::Session,
 				diagnostics::Level::Error,
 				"session stopped",
-				&[("reason", failure.label().into())],
+				&[
+					("reason", failure.label().into()),
+					(
+						"source",
+						expiry
+							.as_ref()
+							.and_then(|(cause, _)| cause.as_ref())
+							.map_or("unrecorded", |cause| cause.source)
+							.into(),
+					),
+				],
 			);
 			for (setting, scope) in [
 				("SEREIN_MEMBER_DIAGNOSTICS", "members"),
@@ -5402,7 +5371,6 @@ impl Desktop {
 			self.state.interrupt_emoji_frecency();
 			self.connection = None;
 			self.pending_save = None;
-			self.current_login = None;
 			self.pending_account_save = None;
 			self.voice.stop();
 			self.messaging.camera_test_requested = false;
@@ -5411,6 +5379,18 @@ impl Desktop {
 				generation: self.state.generation,
 				event: Event::Failure(failure),
 			});
+			if let Some((cause, ready)) = &expiry {
+				let cause = cause.as_ref().map_or_else(
+					|| "No expiry cause recorded".to_owned(),
+					ToString::to_string,
+				);
+				let stage = if *ready {
+					"after READY"
+				} else {
+					"before READY"
+				};
+				self.state.failure_detail = Some(format!("{cause} · {stage}").into());
+			}
 			if failure == Failure::RateLimited && self.state.failure_detail.is_none() {
 				self.state.failure_detail =
 					Some(ui::i18n::translate("main-sign-in-rate-limited-detail").into());
@@ -5556,6 +5536,40 @@ impl Desktop {
 			.then(|| Duration::from_secs_f64(1000.0 / f64::from(millihertz)))
 	}
 }
+/// Which players a logic pass stops. Signing out, hiding to the tray and closing
+/// end every player; minimizing ends only video, whose frames nobody sees, while
+/// attachment audio keeps playing like a call does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MediaStop {
+	Everything,
+	VideoOnly,
+	Nothing,
+}
+
+fn media_stop(active: bool, hidden_or_closing: bool, minimized: bool) -> MediaStop {
+	if !active || hidden_or_closing {
+		MediaStop::Everything
+	} else if minimized {
+		MediaStop::VideoOnly
+	} else {
+		MediaStop::Nothing
+	}
+}
+
+/// Whether the audio player's message still renders its attachment card the way
+/// the timeline would: a retained deleted message keeps its card and playback,
+/// while a removed row or an edited-away attachment does not.
+fn audio_attachment_rendered(
+	state: &State,
+	channel: model::Id,
+	id: model::Id,
+	attachment: &model::Attachment,
+) -> bool {
+	state.timeline.get_display(id).is_some_and(|message| {
+		message.channel == channel && message.attachments.iter().any(|a| a == attachment)
+	})
+}
+
 /// Whether the user's transparency settings, not just the rounded-corner mask, show through.
 fn effects_transparent() -> bool {
 	let (enabled, transparency, _) = ui::design::window_effects();
@@ -5573,6 +5587,11 @@ impl eframe::App for Desktop {
 	}
 	fn persist_egui_memory(&self) -> bool {
 		false
+	}
+	fn repaint_on_device_event(&mut self, event: &winit::event::DeviceEvent) -> Option<bool> {
+		// Raw motion duplicates the window's cursor events, which still repaint for hover;
+		// Serein never reads it (`PointerState::motion`).
+		matches!(event, winit::event::DeviceEvent::MouseMotion { .. }).then_some(false)
 	}
 	fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
 		// Before the pass begins, so the whole frame resolves System to the same theme.
@@ -5904,18 +5923,47 @@ impl eframe::App for Desktop {
 		// The hide command lands after this frame, so the flag leads reported visibility.
 		// Occlusion can occur during macOS fullscreen transitions; it is not a request
 		// to stop playback (which would also restore the window out of fullscreen).
-		let hidden_or_closing = self.tray_window.hidden
-			|| ctx.input(|input| {
-				input.viewport().minimized == Some(true) || input.viewport().close_requested()
-			});
-		if self.state.user.is_none()
-			|| (!self.state.demo && self.state.auth != AuthState::Authenticated)
-			|| hidden_or_closing
-		{
+		// The tray's Minimize action parks the window where minimization does not
+		// exist (Hyprland); it counts as minimized, not as hiding to the tray.
+		let hidden_or_closing = (self.tray_window.hidden && !self.tray_window.tray_minimized)
+			|| ctx.input(|input| input.viewport().close_requested());
+		let minimized = self.tray_window.tray_minimized
+			|| ctx.input(|input| input.viewport().minimized == Some(true));
+		let active = self.state.user.is_some()
+			&& (self.state.demo || self.state.auth == AuthState::Authenticated);
+		match media_stop(active, hidden_or_closing, minimized) {
+			MediaStop::Everything => {
+				self.audio.stop();
+				self.messaging.audio().stop();
+				self.video.stop();
+				self.messaging.video().stop();
+			}
+			// Minimizing keeps attachment audio playing, like a call does: the output
+			// stream and its decode worker run without a visible window, and restoring
+			// shows the indicator where the output clock reached. Video stops: its
+			// frames are only useful on screen.
+			MediaStop::VideoOnly => {
+				self.video.stop();
+				self.messaging.video().stop();
+			}
+			MediaStop::Nothing => {}
+		}
+		// A deletion or eviction applied in this logic pass must stop the audio the
+		// same way a rendered card leaving view does; a minimized window runs no ui
+		// pass to notice it. A retained deleted message keeps its card and playback.
+		// Audio started from a search or pin card was never in the timeline, so its
+		// absence there says nothing; the ui pass's visibility check covers it.
+		if self.audio_in_timeline
+			&& self
+				.messaging
+				.audio()
+				.active
+				.as_ref()
+				.is_some_and(|(channel, id, attachment)| {
+					!audio_attachment_rendered(&self.state, *channel, *id, attachment)
+				}) {
 			self.audio.stop();
 			self.messaging.audio().stop();
-			self.video.stop();
-			self.messaging.video().stop();
 		}
 		self.video.poll(self.messaging.video(), ctx);
 		let audio = self.audio.poll();
@@ -5996,6 +6044,9 @@ impl eframe::App for Desktop {
 			// Speaking, notices, remote video, devices, hotkeys and deadlines each wake the UI
 			// themselves; this heartbeat only bounds a missed wake, so a call does not repaint at 20 Hz.
 			ctx.request_repaint_after(std::time::Duration::from_secs(1));
+		}
+		if self.gsync.swap(false, std::sync::atomic::Ordering::Relaxed) {
+			self.messaging.gsync_detected = true;
 		}
 		// Variable refresh rate displays follow the focused window's presents, so redrawing only on
 		// change swings them between their limits and flickers (#889). The opt-in steady rate asks
@@ -6111,6 +6162,17 @@ impl eframe::App for Desktop {
 			self.state.user.is_some() && self.state.gateway_connected,
 			&ctx,
 		);
+		// A dismissed, expired or refused check releases the upload still waiting on it, so
+		// its message is reported as not sent instead of holding the composer.
+		if self.uploads.verifying().is_some_and(|nonce| {
+			!self
+				.state
+				.pending
+				.iter()
+				.any(|p| p.nonce == nonce && p.delivery == Delivery::Sending)
+		}) {
+			self.uploads.cancel_transfer();
+		}
 		if let Some(command) = self.uploads.image_send(&mut self.state, can_attach)
 			&& !self.state.demo
 		{
@@ -6395,6 +6457,7 @@ impl eframe::App for Desktop {
 				&self.window,
 				&ctx,
 				!self.fixture_only && !self.confirming_close && !self.confirming_logout,
+				self.api_proxy.borrow().as_ref(),
 			) {
 				commands.push(command);
 			}
@@ -6427,6 +6490,14 @@ impl eframe::App for Desktop {
 					ui::AudioCommand::Stop => self.audio.stop(),
 				}
 			}
+			self.audio_in_timeline =
+				self.messaging
+					.audio()
+					.active
+					.as_ref()
+					.is_some_and(|(channel, id, attachment)| {
+						audio_attachment_rendered(&self.state, *channel, *id, attachment)
+					});
 			let player = self.messaging.video();
 			if self.state.demo
 				&& let Some(pause) = self.demo_video_autoplay
@@ -7078,7 +7149,7 @@ impl eframe::App for Desktop {
 	}
 }
 
-/// Holds owner-enabled plaintext logins, inside the private local data directory.
+/// Holds logins saved where no OS keyring exists, inside the private local data directory.
 fn plaintext_login_dir() -> Option<std::path::PathBuf> {
 	local_store::data_dir()
 		.ok()
@@ -7088,6 +7159,62 @@ fn plaintext_login_dir() -> Option<std::path::PathBuf> {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[test]
+	fn minimizing_keeps_attachment_audio_playing() {
+		use MediaStop::{Everything, Nothing, VideoOnly};
+		// A signed-in session keeps audio through minimize; video has no audience.
+		assert_eq!(media_stop(true, false, true), VideoOnly);
+		assert_eq!(media_stop(true, false, false), Nothing);
+		// Hiding to the tray, closing and sign-out still end every player.
+		assert_eq!(media_stop(true, true, false), Everything);
+		assert_eq!(media_stop(false, false, true), Everything);
+	}
+	#[test]
+	fn deleted_audio_keeps_playing_only_while_its_card_is_retained() {
+		let mut state = test_support::audio_demo_state();
+		let channel = state.selected.unwrap();
+		let cards: Vec<_> = state
+			.timeline
+			.iter()
+			.filter(|message| !message.attachments.is_empty())
+			.cloned()
+			.collect();
+		let message = cards[0].id;
+		let attachment = cards[0].attachments[0].clone();
+		let other = cards[1].attachments[0].clone();
+		assert!(audio_attachment_rendered(
+			&state,
+			channel,
+			message,
+			&attachment
+		));
+		// Another message's attachment never keeps the player alive.
+		assert!(!audio_attachment_rendered(&state, channel, message, &other));
+		// A retained deleted message keeps its card, so playback continues.
+		state.set_preserve_deleted_messages(true);
+		state.apply(Envelope {
+			generation: state.generation,
+			event: Event::Delete {
+				channel,
+				id: message,
+			},
+		});
+		assert!(state.timeline.is_deleted(message));
+		assert!(audio_attachment_rendered(
+			&state,
+			channel,
+			message,
+			&attachment
+		));
+		// Dropping the retained payload removes the card with it.
+		state.set_preserve_deleted_messages(false);
+		assert!(!audio_attachment_rendered(
+			&state,
+			channel,
+			message,
+			&attachment
+		));
+	}
 	#[cfg(feature = "demo")]
 	#[test]
 	fn group_demo_loads_history_before_observing_typing() {

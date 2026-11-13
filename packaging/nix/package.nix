@@ -4,6 +4,7 @@
     rustPlatform,
     pkg-config,
     cmake,
+    git,
     makeWrapper,
     swift,
     swiftpm,
@@ -32,10 +33,10 @@
     alsa-lib,
     gst_all_1,
     pipewire,
-    libX11,
-    libXi,
-    libXrandr,
-    libXcursor,
+    libx11,
+    libxi,
+    libxrandr,
+    libxcursor,
     bubblewrap,
     xdg-dbus-proxy,
 }: let
@@ -66,10 +67,10 @@
     windowingDeps = [
         wayland
         libxkbcommon
-        libX11
-        libXi
-        libXrandr
-        libXcursor
+        libx11
+        libxi
+        libxrandr
+        libxcursor
     ];
 
     audioDeps = [
@@ -99,6 +100,11 @@ in
         # Keep bundled symbols local so each copy stays consistent.
         env.RUSTFLAGS = lib.optionalString isLinux "-C link-arg=-Wl,--exclude-libs,ALL";
 
+        # nixpkgs now points -sys crates at system libraries before configuring (AWS-LC,
+        # SQLite, OpenSSL, ...). The package does not provide them and links the bundled
+        # copies, as it did before; keep that.
+        dontCargoUseSystemLibs = true;
+
         src = ../../.;
 
         cargoLock = {
@@ -116,6 +122,10 @@ in
                 pkg-config
                 cmake
                 makeWrapper
+                # BoringSSL (wreq's TLS): btls-sys patches its bundled source with
+                # `git apply` and generates bindings through libclang.
+                git
+                rustPlatform.bindgenHook
             ]
             ++ lib.optionals isLinux [
                 wrapGAppsHook4

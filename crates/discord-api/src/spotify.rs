@@ -4,12 +4,12 @@
 use crate::{DiscordApi, Failure};
 use discord_protocol::spotify::{Activity, MAX_PLAYBACK_BYTES, decode_playback};
 use model::Id;
-use reqwest::{
+use serde::Deserialize;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use wreq::{
 	Client, Method, StatusCode,
 	header::{AUTHORIZATION, HeaderValue},
 };
-use serde::Deserialize;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use zeroize::Zeroizing;
 
 const MAX_CONNECTION_BYTES: usize = 64 * 1024;
@@ -34,8 +34,8 @@ impl Playback {
 			client: Client::builder()
 				.https_only(true)
 				.no_proxy()
-				.redirect(reqwest::redirect::Policy::none())
-				.retry(reqwest::retry::never())
+				.redirect(wreq::redirect::Policy::none())
+				.retry(wreq::retry::Policy::never())
 				.timeout(Duration::from_secs(10))
 				.connect_timeout(Duration::from_secs(5))
 				.build()
@@ -114,7 +114,7 @@ impl Playback {
 		));
 		let mut authorization = HeaderValue::from_str(&bearer).map_err(|_| Failure::Protocol)?;
 		authorization.set_sensitive(true);
-		let mut response = self
+		let response = self
 			.client
 			.get("https://api.spotify.com/v1/me/player")
 			.header(AUTHORIZATION, authorization)
@@ -158,7 +158,12 @@ impl Playback {
 			return Err(Failure::Capacity);
 		}
 		let mut bytes = Vec::new();
-		while let Some(chunk) = response.chunk().await.map_err(|_| Failure::Network)? {
+		let mut body = std::pin::pin!(response.bytes_stream());
+		while let Some(chunk) = futures_util::StreamExt::next(&mut body)
+			.await
+			.transpose()
+			.map_err(|_| Failure::Network)?
+		{
 			if bytes.len() + chunk.len() > MAX_PLAYBACK_BYTES {
 				return Err(Failure::Capacity);
 			}

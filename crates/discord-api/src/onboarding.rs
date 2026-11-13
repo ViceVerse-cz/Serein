@@ -5,7 +5,7 @@ use model::{
 	Id,
 	onboarding::{Form, Outcome, Submission},
 };
-use reqwest::Method;
+use wreq::Method;
 
 impl DiscordApi {
 	/// A missing or inaccessible form (404/403) means that step does not apply.

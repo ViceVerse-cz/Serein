@@ -69,6 +69,11 @@ general-gpu-restart = Prend effet au prochain démarrage de Serein.
 general-gpu-current-prefix = Je dessine actuellement avec
 general-steady-refresh-rate = Fréquence de rafraîchissement fixe
 general-steady-refresh-rate-description = Tant que Serein est la fenêtre active, le dessin se fait à la fréquence de rafraîchissement de l'écran, afin que les écrans à fréquence de rafraîchissement variable (VRR, G-SYNC, FreeSync) puissent garder une seule fréquence au lieu de scintiller. Consomme plus d'énergie.
+steady-refresh-prompt-title = Écran G-SYNC détecté
+steady-refresh-prompt-body = Serein ne redessine que lorsque quelque chose change, ce qui peut faire scintiller un écran G-SYNC tant que Serein est la fenêtre active. La fréquence de rafraîchissement fixe l'évite en dessinant à la fréquence de rafraîchissement de l'écran, mais consomme plus d'énergie. L'activer ?
+steady-refresh-prompt-turn-on = Activer
+steady-refresh-prompt-keep-off = Non merci
+steady-refresh-prompt-settings = Vous pourrez modifier ce choix plus tard dans les paramètres, sous { $page } > { $group }.
 gpu-automatic = Automatique
 gpu-high-performance = Hautes performances
 gpu-power-saving = Économie d'énergie
@@ -1689,6 +1694,8 @@ markdown-confirm-external-link-open-external-link = Ouvrir le lien externe ?
 # Context: confirm_external_link
 markdown-confirm-external-link-open-in-browser = Ouvrir dans le navigateur
 # Context: confirm_external_link
+markdown-confirm-external-link-only-the-start-fits = Seul le début de ce message tient dans le lien ; le reste n’est pas envoyé. Cette destination s’ouvre dans votre navigateur par défaut.
+# Context: confirm_external_link
 markdown-confirm-external-link-this-destination-opens-in-your-default-browser = Cette destination s'ouvre dans votre navigateur par défaut.
 # Context: show_emoji
 markdown-show-emoji-copy-emoji = Copier l'emoji
@@ -2273,6 +2280,8 @@ screen-body-send-what-your-mac-plays-along-with-the-screen-serein = Envoyez ce q
 screen-body-share-sound-from-other-apps-even-when-sharing-one-window = Partagez le son d'autres applications, même lorsque vous partagez une seule fenêtre. Le propre audio de Serein est laissé de côté.
 # Context: body
 screen-body-share-system-audio = Partager l'audio du système
+# Context: body
+screen-body-share-the-shared-apps-sound-or-other-apps-for-a-screen = Partagez le son de l'application partagée, ou celui de toutes les autres applications lors du partage d'un écran. Le son de Serein est exclu.
 # Context: body
 screen-body-show-cursor = Afficher le curseur
 # Context: body
@@ -3867,6 +3876,10 @@ timeline-message-actions-delete-message = Supprimer le message…
 timeline-message-actions-edit-message = Modifier le message
 # Context: message_actions
 timeline-message-actions-extensions = Rallonges
+# Context: menu
+extensions-ui-menu-group-user = Utilisateur
+# Context: menu
+extensions-ui-menu-group-conversation = Conversation
 # Context: message_actions
 timeline-message-actions-forward = Transférer
 # Context: message_actions
@@ -3916,6 +3929,8 @@ timeline-show-with-scroll-history-is-not-available-yet-use-reload-to-try-again =
 timeline-show-with-scroll-loading-messages = Chargement des messages…
 # Context: show_with_scroll
 timeline-show-with-scroll-message-deleted = Message supprimé
+# Context: show_with_scroll
+timeline-show-with-scroll-message-blocked = Message bloqué
 # Context: show_with_scroll
 timeline-show-with-scroll-message-history-is-unavailable-with-current-permission-information = L'historique des messages n'est pas disponible avec les informations d'autorisation actuelles.
 # Context: show_with_scroll
@@ -4505,6 +4520,8 @@ voice-recipient-ringing = Sonnerie…
 voice-recipient-not-in-call = Absent de l’appel
 reconnect-now = Se reconnecter
 
+message-preview-limit = Ce message dépasse la limite de mise en page du texte natif.
+
 voice-call-moved-to-another-client = La session d’appel de cet appareil a été remplacée
 
 server-settings-page-safety = Configuration de la sécurité
@@ -4599,6 +4616,11 @@ profiles-board-empty = No games on this board yet.
 profiles-board-show-more = Show more
 profiles-board-show-less = Show less
 profiles-activity-empty = Aucune activité partagée.
+profiles-in-voice-server = dans { $server }
+profiles-in-voice-join = Rejoindre
+profiles-in-voice-joined = Vous êtes déjà dans ce salon vocal.
+profiles-in-voice-failed = Fermez d'abord l'appel qui a échoué, puis rejoignez de nouveau le salon.
+profiles-in-voice-unavailable = Vous ne pouvez pas rejoindre ce salon vocal pour le moment.
 profiles-mutuals-empty = Nothing to show here.
 
 reading-double-click-reaction = Double-click reaction

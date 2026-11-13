@@ -7,10 +7,20 @@ use client_core::{
 	voice::Phase,
 };
 use model::Id;
+use std::borrow::Cow;
 
 pub enum Request {
 	Start(Settings),
 	Stop,
+}
+
+/// The source and quality chosen when this device's share started.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct LiveShare {
+	/// `None` when the platform picker exposes only a placeholder source name.
+	pub title: Option<String>,
+	pub height: u32,
+	pub fps: u32,
 }
 
 pub struct ScreenUi {
@@ -21,7 +31,12 @@ pub struct ScreenUi {
 	pub refresh_requested: bool,
 	pub request: Option<Request>,
 	pub busy: bool,
-	pub status: &'static str,
+	/// Capture has produced a frame for this device's live share.
+	pub sharing: bool,
+	/// Kept apart from the dialog so later picker changes do not relabel a running share.
+	pub(crate) started: Option<LiveShare>,
+	/// Owned when it carries a run-time detail such as a Windows error code.
+	pub status: Cow<'static, str>,
 	pub capture_status: Option<&'static str>,
 	pub supported: bool,
 	pub preview: Option<egui::TextureHandle>,
@@ -44,7 +59,9 @@ impl Default for ScreenUi {
 			refresh_requested: false,
 			request: None,
 			busy: false,
-			status: "",
+			sharing: false,
+			started: None,
+			status: Cow::Borrowed(""),
 			capture_status: None,
 			supported: false,
 			preview: None,
@@ -99,10 +116,10 @@ impl ScreenUi {
 				]
 			};
 			self.selected = self.sources.first().map(|source| source.id);
-			self.status = "Offline preview · no screen is captured";
+			self.status = "Offline preview · no screen is captured".into();
 		} else {
 			self.refresh_requested = true;
-			self.status = "Looking for screens and windows…";
+			self.status = "Looking for screens and windows…".into();
 		}
 	}
 	fn selected_source(&self) -> Option<&Source> {
@@ -117,9 +134,15 @@ impl ScreenUi {
 		})
 	}
 
+	/// Whether the selected source is sized only after the system picker.
+	fn sized_after_pick(&self) -> bool {
+		self.selected_source()
+			.is_some_and(|source| source.id.sized_after_pick())
+	}
+
 	fn align_quality(&mut self) {
 		let (width, height, refresh) = self.geometry();
-		let offered: Vec<_> = offered_resolutions(width, height).collect();
+		let offered: Vec<_> = offered_resolutions(width, height, self.sized_after_pick()).collect();
 		if offered.is_empty() {
 			return;
 		}
@@ -142,7 +165,12 @@ impl ScreenUi {
 
 	fn settings(&self) -> Option<Settings> {
 		let source = self.selected_source()?;
-		let (width, height) = picture(self.resolution, source.width, source.height)?;
+		let (width, height) = picture(
+			self.resolution,
+			source.width,
+			source.height,
+			source.id.sized_after_pick(),
+		)?;
 		let settings = Settings {
 			source: source.id,
 			width,
@@ -168,6 +196,8 @@ impl ScreenUi {
 			self.quality_for = None;
 			self.request = None;
 			self.refresh_requested = false;
+			self.sharing = false;
+			self.started = None;
 		}
 		if !self.open {
 			return;
@@ -206,8 +236,17 @@ impl ScreenUi {
 			});
 		});
 		cancel |= response.close;
-		if share && !cancel {
-			self.request = self.settings().map(Request::Start);
+		if share
+			&& !cancel
+			&& let Some(settings) = self.settings()
+		{
+			self.started = self.selected_source().map(|source| LiveShare {
+				title: (!matches!(source.id, SourceId::SystemPicker | SourceId::Portal))
+					.then(|| source.name.clone()),
+				height: settings.height,
+				fps: settings.fps,
+			});
+			self.request = Some(Request::Start(settings));
 		}
 		if cancel || share {
 			self.open = false;
@@ -238,7 +277,7 @@ impl ScreenUi {
 					self.quality_for = None;
 					self.sources.clear();
 					self.refresh_requested = true;
-					self.status = "Looking for screens and windows…";
+					self.status = "Looking for screens and windows…".into();
 				}
 			});
 		});
@@ -258,7 +297,7 @@ impl ScreenUi {
 		ui.add_space(6.0);
 		ui.horizontal_wrapped(|ui| {
 			ui.spacing_mut().item_spacing = egui::vec2(6.0, 6.0);
-			for resolution in offered_resolutions(width, height) {
+			for resolution in offered_resolutions(width, height, self.sized_after_pick()) {
 				let label = match resolution {
 					Resolution::Source => "screen-body-source".to_owned(),
 					Resolution::Preset { height, .. } => format!("{height}p"),
@@ -308,6 +347,8 @@ impl ScreenUi {
 				"screen-body-share-system-audio",
 				Some(if cfg!(target_os = "macos") {
 					"screen-body-send-what-your-mac-plays-along-with-the-screen-serein"
+				} else if cfg!(target_os = "windows") {
+					"screen-body-share-the-shared-apps-sound-or-other-apps-for-a-screen"
 				} else {
 					"screen-body-share-sound-from-other-apps-even-when-sharing-one-window"
 				}),
@@ -335,7 +376,7 @@ impl ScreenUi {
 					ui.set_width(ui.available_width());
 					ui.add(
 						egui::Label::new(
-							egui::RichText::new(self.status)
+							egui::RichText::new(&*self.status)
 								.size(12.0)
 								.color(colors.muted),
 						)
@@ -466,9 +507,10 @@ fn preferred_resolution(offered: &[Resolution]) -> Resolution {
 			.iter()
 			.copied()
 			.find(|item| matches!(item, Resolution::Preset { height: 720, .. }))
-			.unwrap_or(offered[0])
+			.unwrap_or(offered[offered.len() - 1])
 	} else {
-		offered[0]
+		// Source when the size is known, otherwise the largest preset (listed last).
+		offered[offered.len() - 1]
 	}
 }
 
@@ -533,5 +575,110 @@ mod tests {
 		assert!(picker.settings().is_some());
 		picker.sources.clear();
 		assert!(picker.settings().is_none());
+	}
+
+	#[test]
+	fn quality_row_runs_from_480p_to_source_for_any_source_size() {
+		let heights = |offered: &[Resolution]| -> Vec<u32> {
+			offered
+				.iter()
+				.map(|resolution| match resolution {
+					Resolution::Source => 0,
+					Resolution::Preset { height, .. } => *height,
+				})
+				.collect()
+		};
+		// Like Discord, every choice is offered even for a smaller source.
+		let offered: Vec<_> = offered_resolutions(1280, 720, false).collect();
+		assert_eq!(heights(&offered), [480, 720, 1080, 1440, 2160, 0]);
+		assert_eq!(
+			preferred_resolution(&offered),
+			if cfg!(target_os = "linux") {
+				Resolution::Preset {
+					width: 1280,
+					height: 720,
+				}
+			} else {
+				Resolution::Source
+			}
+		);
+		// The Linux portal is sized after the pick, so it offers them all too.
+		let portal: Vec<_> = offered_resolutions(0, 0, true).collect();
+		assert_eq!(heights(&portal), [480, 720, 1080, 1440, 2160, 0]);
+		// Other unknown sizes (macOS picker, whole X11 desktop) keep the 1080p cap.
+		let unknown: Vec<_> = offered_resolutions(0, 0, false).collect();
+		assert_eq!(heights(&unknown), [480, 720, 1080]);
+	}
+
+	#[test]
+	fn presets_bound_the_picture_without_upscaling() {
+		let preset = |width, height| Resolution::Preset { width, height };
+		// A 1080p window shared at 1440p or 2160p keeps its native size.
+		assert_eq!(
+			picture(preset(2560, 1440), 1920, 1080, false),
+			Some((1920, 1080))
+		);
+		assert_eq!(
+			picture(preset(3840, 2160), 1919, 1081, false),
+			Some((1918, 1080))
+		);
+		// A larger source is scaled into the preset, as before.
+		assert_eq!(
+			picture(preset(1920, 1080), 2560, 1440, false),
+			Some((1920, 1080))
+		);
+		assert_eq!(
+			picture(Resolution::Source, 2560, 1440, false),
+			Some((2560, 1440))
+		);
+		// The portal sends the bound; the worker narrows it to the picked display.
+		assert_eq!(picture(Resolution::Source, 0, 0, true), Some((3840, 2160)));
+		assert_eq!(picture(preset(2560, 1440), 0, 0, true), Some((2560, 1440)));
+		assert_eq!(picture(preset(2560, 1440), 0, 0, false), None);
+		assert_eq!(picture(Resolution::Source, 0, 0, false), None);
+		let bound = Settings {
+			source: SourceId::Portal,
+			width: 3840,
+			height: 2160,
+			fps: 30,
+			cursor: true,
+			audio: false,
+		};
+		let picked = bound.fitted_to(2560, 1440);
+		assert_eq!((picked.width, picked.height), (2560, 1440));
+		assert!(picked.bit_rate() < bound.bit_rate());
+		// Larger than the bound, or unknown: the bound stays.
+		let full_hd = Settings {
+			width: 1920,
+			height: 1080,
+			..bound
+		};
+		assert_eq!(full_hd.fitted_to(3440, 1440).width, 1920);
+		assert_eq!(bound.fitted_to(0, 0).width, 3840);
+	}
+
+	#[test]
+	fn system_picker_offers_every_choice_and_starts_with_the_bound() {
+		let mut picker = ScreenUi {
+			selected: Some(SourceId::Portal),
+			sources: vec![Source {
+				id: SourceId::Portal,
+				name: "Choose in the system picker".into(),
+				width: 0,
+				height: 0,
+				refresh_hz: 0,
+			}],
+			..Default::default()
+		};
+		picker.align_quality();
+		picker.resolution = Resolution::Source;
+		let settings = picker.settings().unwrap();
+		assert_eq!((settings.width, settings.height), (3840, 2160));
+		picker.resolution = Resolution::Preset {
+			width: 2560,
+			height: 1440,
+		};
+		let settings = picker.settings().unwrap();
+		assert_eq!((settings.width, settings.height), (2560, 1440));
 	}
 }

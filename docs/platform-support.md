@@ -8,7 +8,7 @@ supports it (including Linux X11); disconnected-monitor positions are ignored.
 Restoration fits the complete outer window to the selected monitor's dimensions,
 shrinking it and moving it inward when the display has become smaller. The normal
 minimum size is relaxed if necessary to fit that display and recalculated when
-the window moves or its native scale changes, restoring 760 × 520 logical pixels
+the window moves or its native scale changes, restoring 600 × 520 logical pixels
 when the current display can accommodate the window and its decorations.
 Minimized, hidden, maximized and fullscreen states do not replace normal geometry.
 Closing frames do not overwrite the saved geometry.
@@ -90,7 +90,7 @@ excludes the caption buttons area so edge/corner resizing does not intercept cor
 Close. Caption buttons keep their own actions; Windows double-click maximize/restore remains
 available. Synthetic egui input tests check command dispatch, including corner hit testing.
 On Windows, dragging the strip runs the OS move loop, which paints synchronously and waits for
-vsync before the next move. Through a patched egui-winit (see `vendor/egui-winit/SEREIN-PATCH.md`)
+vsync before the next move. Through Serein's patched egui-winit (see `vendor/egui/SEREIN-PATCH.md`)
 Serein therefore ignores raw mouse motion and repaints for window moves at most once per 500 ms,
 enough to sample and save where the window comes to rest; it also reapplies the minimum size only
 when it changes. An otherwise idle window follows the cursor like a native one. Continuous
@@ -110,11 +110,13 @@ requests are honored; native X11/Wayland verification of this toggle remains pen
 
 | Platform | Build/runtime requirements | Status |
 |---|---|---|
-| macOS | Rust 1.98.1, Xcode command-line tools; Metal/wgpu, system WKWebView, Keychain | Local arm64 build and native synthetic window tested on macOS 27.0 beta, Apple M1 Pro / 16 GiB |
-| Windows | Rust MSVC toolchain, Visual Studio C++ build tools, system graphics drivers, WebView2 Runtime 101+ (current supported runtime recommended), Credential Manager | Local x64 checks and unsigned release packaging on Windows 11 build 26200; synthetic process/window startup passed. Visual interaction, InPrivate behavior, IME and accessibility unverified |
-| Linux | Rust, C compiler, pkg-config, GTK >=4.10, WebKitGTK 6.0, fontconfig, libxkbcommon, X11/Wayland development packages, Vulkan-compatible GPU/driver, Secret Service session bus/keyring | Ubuntu 26.04 x64 / WSL2 text and voice releases and Debian package smoke passed; X11/Wayland rendering and login window unverified |
+| macOS | Rust 1.99.1, Xcode command-line tools, CMake; Metal/wgpu, system WKWebView, Keychain | Local arm64 build and native synthetic window tested on macOS 27.0 beta, Apple M1 Pro / 16 GiB |
+| Windows | Rust MSVC toolchain, Visual Studio C++ build tools, CMake, Git, LLVM (libclang), NASM on x64, system graphics drivers, WebView2 Runtime 101+ (current supported runtime recommended), Credential Manager | Local x64 checks and unsigned release packaging on Windows 11 build 26200; synthetic process/window startup passed. Visual interaction, InPrivate behavior, IME and accessibility unverified |
+| Linux | Rust, C/C++ compiler, CMake, Git, libclang, binutils, pkg-config, GTK >=4.10, WebKitGTK 6.0, fontconfig, libxkbcommon, X11/Wayland development packages, Vulkan-compatible GPU/driver, Secret Service session bus/keyring | Ubuntu 26.04 x64 / WSL2 text and voice releases and Debian package smoke passed; X11/Wayland rendering and login window unverified |
 
-Debian/Ubuntu development packages typically include `build-essential pkg-config libgtk-4-dev libwebkitgtk-6.0-dev libfontconfig1-dev libxkbcommon-dev libwayland-dev libx11-dev libxi-dev libxrandr-dev libxcursor-dev libvulkan-dev`. Package names vary by distribution. SQLite is bundled through rusqlite; it is an embedded client cache, with no database service.
+Debian/Ubuntu development packages typically include `build-essential cmake git libclang-dev pkg-config libgtk-4-dev libwebkitgtk-6.0-dev libfontconfig1-dev libxkbcommon-dev libwayland-dev libx11-dev libxi-dev libxrandr-dev libxcursor-dev libvulkan-dev`. Package names vary by distribution. SQLite is bundled through rusqlite; it is an embedded client cache, with no database service.
+
+TLS is BoringSSL, built from the source bundled in `btls-sys` (through wreq) on every platform; no system OpenSSL is used. Its build script needs CMake, Git (it applies its patches with `git apply`) and libclang (bindgen); set `LIBCLANG_PATH` when libclang is not on the default search path. On Linux the BoringSSL symbols are prefixed with `nm`/`objcopy` so they cannot collide with an OpenSSL loaded by WebKitGTK or GStreamer plugins. Windows x64 assembles BoringSSL with NASM; Windows ARM64 builds it without assembly (`packaging/windows/boringssl-arm64-msvc.cmake`, selected in `.cargo/config.toml`) because MSBuild cannot assemble BoringSSL's ARM64 sources, so TLS ciphers there use the portable C implementations.
 
 Linux packaging uses the target distribution's native tools: `dpkg-dev` for Debian,
 `rpm-build` for Fedora/openSUSE, or `makepkg` for Arch, plus Python 3 and
@@ -206,6 +208,16 @@ quarter of one core at 3840×2160 and 120 Hz in the November 5, 2026 entry of
 [performance findings](performance.md). Unfocused, minimized and hidden windows redraw only on
 change again. The setting applies immediately and is saved with the other device preferences.
 
+On Windows x64, Serein asks the NVIDIA driver at startup whether an attached display has G-SYNC
+switched on, and if so offers the setting once after first-run setup. Either answer is saved and
+ends the check; turning the setting on by hand does too. The check loads `nvapi64.dll` from the
+system directory only, on a worker thread, reads each display's variable refresh rate state
+through NVIDIA's published NVAPI interface, changes no driver setting and unloads the library
+again. It reported a display with G-SYNC on in about 27 ms on Windows 11 with an RTX PRO 6000
+(driver 32.0.16.2114). A display with G-SYNC switched off, a computer without an NVIDIA
+driver, and FreeSync or other variable refresh rate on AMD and Intel GPUs were not tested; the
+latter are not detected, so there the setting stays a manual choice.
+
 Excluding `serein.exe` from VRR in the graphics driver, such as NVIDIA's per-program Monitor
 Technology setting, avoids the swings without the extra frames. Present cadence was verified
 with PresentMon on Windows 11 with an RTX 5060 Ti; the panel's own refresh readout and macOS and
@@ -255,7 +267,7 @@ Apple Color Emoji was visually checked with a synthetic moon status on September
 Outgoing in-call capture uses AVFoundation on macOS, Media Foundation and DirectShow on Windows,
 and V4L2 on Linux. The existing camera button becomes available after the voice
 server negotiates H264; capture starts only after an explicit click in a connected
-call. All adapters send 640×480 video at most 15 encoded frames/s. Native capture now
+call. All adapters send 640×480 video at a selectable 15 or 30 encoded frames/s. Native capture now
 selects the closest supported dimensions/rate within a 1280×720 input ceiling
 (DirectShow preserves its existing 1920×1080 fallback) and
 converts to the existing encoder size; hardware negotiation remains unverified.
@@ -274,10 +286,10 @@ physical capture or delivery to an official Discord client; these remain unverif
 Invite verification uses a temporary WebView2 child on Windows, WKWebView child on
 macOS, and a separate GTK4/WebKit6 window on Linux. It
 loads a local verification page and hCaptcha's official widget after the user
-chooses Verify. The local custom-protocol origin is
-`https://serein-captcha.verification.invalid/` on Windows/Linux and
-`serein-captcha://verification.invalid/` on macOS; it is not a Discord page, public
-server or account-login surface. No account token enters it. Domain restrictions,
+chooses Verify. The page is addressed as `https://discord.com/channels/@me` but is never
+fetched: macOS and Linux load it as a string with that base URL, and Windows serves it
+through an in-view `discord` custom protocol that WebView2 maps to that address. It is not
+Discord's page, a public server or an account-login surface. No account token enters it. Domain restrictions,
 provider rejection and missing native webview runtimes fail visibly. macOS/Linux
 live CAPTCHA acceptance remains unverified. Widget
 loading and synthetic checks do not establish live Discord challenge acceptance.
@@ -452,11 +464,11 @@ Optional Linux stream audio uses native `libpulse` per-application monitoring on
 PulseAudio or PipeWire's PulseAudio server. Source builds need the libpulse development
 package (`libpulse-dev`, `pulseaudio-libs-devel`, `libpulse-devel` or Arch's `libpulse`).
 The existing Flatpak PulseAudio socket permission covers this access; the ScreenCast
-portal's PipeWire remote grants video only. Windows uses native process loopback on
-build 20348+ (Windows 11 / Server 2022), with a visible audio error on older systems.
-Both exclude Serein's playback and capture other applications even when sharing one
-window. There is no whole-output fallback. Hardware exclusion and receiving sound in
-an official client remain unverified.
+portal's PipeWire remote grants video only. Windows uses native process loopback: one
+exclude-Serein capture on build 20348+ (Windows 11 / Server 2022), and per-application
+captures on older Windows 10 builds. Both exclude Serein's playback. Sharing a window captures
+only that window's application, as Discord does; sharing a screen captures other applications. There is no whole-output fallback. Hardware
+exclusion and receiving sound in an official client remain unverified.
 
 ## High-resolution video attachments
 

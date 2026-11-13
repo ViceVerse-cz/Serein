@@ -12,6 +12,13 @@ Voice is included in every build without a feature flag. Source builds require C
 
 ## Implemented behavior and limits
 
+Hover over the connection icon in the account card to see the latest voice ping.
+Click the icon for the latest and average RTT and a chart of up to 24 recent samples.
+RTT measures the existing voice WebSocket heartbeat and matching ACK. Audio packet
+loss and end-to-end audio delay are separate measurements. Samples stay in memory
+and reset on reconnect or when leaving the call. The synthetic preview is
+`cargo run --locked --features demo -- --demo --demo-voice`.
+
 Resizing the DM or group call stage keeps a conversation following the newest message
 anchored above its composer on every frame. Reading older messages retains the existing
 scroll position instead of forcing the conversation back to the newest message.
@@ -196,7 +203,12 @@ An authenticated empty room displays “Connected · waiting for others”; audi
 
 Hovering a participant marked LIVE opens a compact still preview when Discord supplies one.
 **Watch Stream** joins that voice channel when no call is active, then starts the existing
-receive-only stream path after the call connects. It never silently switches an active call;
+receive-only stream path after the call connects. Starting to watch also opens that channel's
+stage with the share enlarged, so the stream is visible instead of playing behind another
+conversation. The preview card keeps its anchor while the image loads, and the preview frame
+itself is a watch target with a hover label. Your own live share is labelled “You’re streaming”
+with its action disabled. Multiple live participants in the same channel keep independent cards,
+and moving the pointer into a card keeps it open. It never silently switches an active call;
 hidden or unavailable previews remain explicit. The preview request requires current roster
 state plus VIEW_CHANNEL and CONNECT. This normal-user route remains unofficial and live-unverified.
 
@@ -459,7 +471,7 @@ In a connected call, select **Share your screen**, choose a display/window, then
 
 Starting this device's share plays Discord's screen-share cue. Selecting **Stop sharing** plays the stop cue. Ending the share by leaving the call or logging out does not. The single screen-share sound switch governs both cues.
 
-When the selected display or window reports a pixel size, the quality row offers Source plus every preset that fits inside that size: 2160p (3840×2160), 1440p (2560×1440), 1080p (1920×1080), 720p (1280×720), and 480p (854×480). Source is the native size, rounded down to even pixels and limited to 3840×2160. A size that has not been reported yet keeps 1080p, 720p, and 480p. Frame rate is 15, 30, or 60. 90 and 120 appear only when that monitor's refresh rate is at least 90 Hz or 120 Hz. Windows reads the refresh rate with the current display mode. macOS and the Linux portal do not report it, so those paths keep 15/30/60.
+Like Discord, the quality row offers every choice, smallest first: 480p (854×480), 720p (1280×720), 1080p (1920×1080), 1440p (2560×1440), 2160p (3840×2160), and Source. A preset is an upper bound: a source that fits inside it keeps its native size, rounded down to even pixels, and is never upscaled; a larger source is scaled into the preset. Source is the native size, limited to 3840×2160. The Linux portal picks its display only after Share, so the choice is sent as a bound and the capture worker narrows it to the picked stream's pixel size. The portal's optional `size` is only a first guess, because it is in logical coordinates and xdg-desktop-portal-hyprland omits it; the `pipewiresrc` negotiated caps decide, and the worker reopens the same encoder at the fitted size. A shared window that is resized is re-fitted once its new size holds for 500 ms, so a smaller window is not upscaled. An encoder that fails on the provisional bound before the size is known is retried at the fitted size rather than skipped. Other sources of unknown size (the macOS picker, the whole X11 desktop) keep 1080p, 720p, and 480p without Source. Frame rate is 15, 30, or 60. 90 and 120 appear only when that monitor's refresh rate is at least 90 Hz or 120 Hz. Windows reads the refresh rate with the current display mode. macOS and the Linux portal do not report it, so those paths keep 15/30/60.
 
 Target bitrate is 2 Mbps at 480p, 4 Mbps at 720p, and 8 Mbps at 1080p for 15 and 30 fps. 60 fps doubles that, 90 fps triples it, and 120 fps quadruples it, with a ceiling of 16 Mbps. Above 1080p the 8 Mbps base scales with pixel count, up to 12 Mbps before the frame-rate multiplier; 2160p uses a 16 Mbps base. Encoder support for these sizes depends on the installed hardware and plugins, and the software fallback costs substantially more CPU.
 
@@ -565,11 +577,25 @@ audio access, including Flatpak's PulseAudio socket permission. A separate bound
 handles discovery, capture and mixing outside video encoding and rendering. No applications
 are moved between outputs and no virtual device is installed.
 
-Windows uses native process loopback with `PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE`,
-excluding Serein and its child processes across outputs. This requires Windows build 20348+
-(Windows 11 or Windows Server 2022; ordinary Windows 10 22H2 is older). Unsupported systems
-or failed isolation report an audio error; turn audio off to share video alone. There is no
-whole-output fallback. Neither adapter records to disk.
+Windows uses native process loopback. Sharing a window captures only that window's
+application; Store app windows belong to ApplicationFrameHost, so they capture like a screen
+instead. The rest of this paragraph is about sharing a screen. On build 20348+ one capture uses
+`PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE`, excluding Serein and its child
+processes across outputs. Older Windows 10 builds capture each application's audio session
+with `PROCESS_LOOPBACK_MODE_INCLUDE_TARGET_PROCESS_TREE`, skipping Serein, its children and
+its ancestors, and mix the results; no exclude attempt is made on those builds, so audio starts
+as soon as the sessions are listed. Playing applications are captured first and idle ones start
+once those are up, and one may take the lane of an idle one when all 16 are in use.
+Applications are activated in parallel, so one that is slow to start does not delay the others,
+and a lane that receives nothing for four seconds while its application is playing is restarted.
+Failed isolation reports an audio error that
+names the Windows error code when there is one; so do a process list that cannot be read in
+full, audio sessions that cannot be inspected, worker threads that cannot be created, and
+capture of every playing application failing for eight seconds (45 when Windows only reports
+a timeout) with none working. Idle or access-denied
+applications and a single lane that restarts while others work are not failures.
+With diagnostics on, the mixer reports 10 ms chunks the stream could not take as `drops`,
+apart from per-application lane writes. Turn audio off to share video alone. There is no whole-output fallback. Neither adapter records to disk.
 
 Native contracts: [PulseAudio per-stream monitoring](https://www.freedesktop.org/wiki/Software/PulseAudio/Documentation/Developer/Clients/WritingVolumeControlUIs/)
 and [Microsoft process-loopback capture](https://learn.microsoft.com/en-us/samples/microsoft/windows-classic-samples/applicationloopbackaudio-sample/).
@@ -639,48 +665,76 @@ Stop, source failure, permission loss, leaving and logout release the preview.
 These paths have synthetic coverage; native camera/screen capture and live Discord
 viewing still require owner-operated validation.
 
-Native capture prefers the closest supported size to the 640×480 encoder, with
+Native capture prefers the closest supported size to the 1280×720 encoder, with
 a 1280×720 input ceiling (DirectShow preserves its existing 1920×1080 fallback).
 macOS and Windows rank native modes by dimension
-distance, then distance from 15 fps; macOS explicitly locks the device format
+distance, then distance from the selected 15 or 30 fps; macOS explicitly locks the device format
 and supported frame duration; AVFoundation aspect fitting preserves nonmatching
 native ratios with black bars before the callback. Windows drivers without
 frame-rate metadata retain their bounded fallback and rank after known rates at
 the same resolution. Linux probes each candidate with its effective
 V4L2 interval before ranking it and reapplies the selected interval after the final
 format change. Drivers without interval metadata rank last at the same resolution.
-Capture is converted to 640×480, capped at 15 encoded frames/second, encoded on a worker with a
-600 kbit/s target (not a measured bandwidth guarantee). The worker prefers the platform
+Capture is converted to 1280×720 (other aspect ratios keep black bars), capped at the
+selected 15 or 30 encoded frames/second, encoded on a worker with a 2.5 Mbit/s target (not
+a measured bandwidth guarantee). The capture rate gate keeps a schedule
+that advances one interval per admitted picture and admits a picture up to a quarter
+interval before its slot, decided on arrival before decoding. A device at the selected rate
+is therefore not halved by delivery jitter, while faster devices average at most that rate;
+a schedule more than one interval behind restarts, so pauses never allow a burst. The
+periodic IDR comes every four seconds at either rate. The worker prefers the platform
 hardware H.264 encoder, the same VideoToolbox and Media Foundation encoders screen sharing
 uses, and VA-API or NVENC through a private GStreamer pipeline on Linux. OpenH264 remains
 the fallback when no hardware encoder is available and when one fails mid-capture, which
 switches the remaining capture to software rather than ending it. Every path requests the
-Baseline profile and codes each picture as an IDR, so the wire format is unchanged; a
-hardware encoder whose output is not independently decodable is rejected in favor of the
-software one. macOS retains one pending
-BGRA frame (1,228,800 bytes). Windows validates each native buffer against a 3,194,880-byte
+Baseline profile and codes predicted pictures between IDRs, which are periodic (every four
+seconds) or requested. Each IDR carries its parameter sets. macOS retains one pending
+BGRA frame (3,686,400 bytes). Windows validates each native buffer against a 6,635,520-byte
 ceiling (including row padding), requests one source buffer and queues at most one
-921,600-byte RGB frame. Linux requests two mapped buffers, accepts at most four of
+2,764,800-byte RGB frame. Linux requests two mapped buffers, accepts at most four of
 4 MiB each, and decodes YUYV or MJPEG on the worker with a 4 MiB JPEG allocation limit.
-One RGB preview, one encoded frame (128 KiB), and up to 256 RTP
-packets from one bounded frame are retained. Frames are independently decodable to tolerate
-drops. DAVE H264 frame encryption precedes RTP fragmentation and the existing authenticated
+One RGB preview, one encoded frame (256 KiB), up to four encoded frames waiting for the
+voice transport (it drains at most four per 20 ms tick), and at most 464 RTP packets are retained; a new frame is queued only
+while fewer than 160 packets wait, and the transport sends at most three camera packets
+every 2 ms. Every encoded picture is numbered. The transport sends a predicted picture
+only when it directly follows the last one sent; any gap (a full channel or backlog, a
+flush mid-frame, camera off, a voice resume, or any DAVE rekey or group change such as
+a participant joining) drops pictures until the next IDR and asks the encoder for one,
+at most every 300 ms; DAVE transitions, group changes and resumes ask immediately and
+clear that limit, so the first predicted picture rejected once sending resumes asks again. RTCP PLI or NACK for the camera SSRC also requests
+an IDR, at most twice a second; the camera sender has no RTX history. DAVE H264 frame encryption precedes RTP fragmentation and the existing authenticated
 UDP transport. No camera recording or cache is created; the codec is included on supported platforms.
 
 Video SSRC assignment, H264 selection and opcode 12 announcements follow the
 [public interoperability implementation](https://github.com/dank074/Discord-video-stream/blob/master/src/client/voice/BaseMediaConnection.ts)
 (checked September 11, 2026); these normal-user video extensions remain unofficial and
-live-unverified. This initial sender has no adaptive
+live-unverified. The camera sender has no adaptive
 bitrate or RTP retransmission. Physical
 permission/device behavior, delivery to the official client and network-loss performance
 require the owner-controlled live gate; an offline launch does not establish those results.
+
+While a call can decode video, Serein acknowledges incoming camera video the same way it
+acknowledges watched streams: one authenticated RTCP reception report per second for the
+video sources that have sent packets (an empty report before any have, so
+`receiver_reports_sent` counts reports, not received video), and at most two transport-wide arrival-feedback reports every
+100 ms for authenticated media carrying the transport sequence extension. Sender reports
+received in the call only update reception-report timing. Serein still generates no REMB
+or claimed available bitrate. Without this feedback, an official macOS client sending
+1280×720 camera video lowered its bitrate from about 1.8 Mbit/s to about 0.13 Mbit/s
+within 15 seconds; with it, the same call held about 2.34 Mbit/s at 30 fps for a minute
+(owner test, November 8, 2026). Diagnostics count these reports in `receiver_reports_sent`
+and `twcc_received/sent/reported/missing/discarded`, and authenticated call video and RTX
+datagrams, counted before RTX restoration, in `video_rtp_bytes/bps`.
 
 Windows, macOS and Linux expose a camera picker in Voice & Video settings and beside both call
 camera controls. Discovery runs on a worker without starting capture. macOS uses AVFoundation device discovery; Linux queries up to 64 V4L2 nodes without configuring or streaming them. Up to
 32 device IDs (4 KiB each) and names (256 bytes each) are retained. The selected
 ID is session-local. Refresh discovers added/removed devices; a missing selected
 device is reported rather than silently opening another camera. Changing selection
-stops active capture and requires another camera-on click.
+stops active capture and requires another camera-on click. The camera settings menu
+also offers **15 fps** and **30 fps**, defaulting to 30 for each session. Changing
+the rate during a call restarts camera capture at the selected rate; changing it
+during a local preview stops that preview.
 
 Voice & Video also offers an explicit **Preview camera / Stop preview** control outside
 calls. It reuses the bounded camera worker and latest-frame texture; frames have no
@@ -690,11 +744,11 @@ call, settings show the existing call preview. Demo mode never opens a camera.
 Physical capture and native permission behavior still require owner verification.
 
 Media Foundation selects a native mode at or below 1280×720 and uses its
-video processor to resize/convert to 640×480 RGB32.
+video processor to resize/convert to 1280×720 RGB32.
 DirectShow discovery/capture additionally covers virtual cameras such as OBS and
 NVIDIA Broadcast, which may not appear in Media Foundation enumeration.
 Its native input is limited to 1920×1080, converted to RGB24 and fitted into
-640×480 with aspect-preserving nearest-neighbor scaling and black bars. It retains
+1280×720 with aspect-preserving nearest-neighbor scaling and black bars. It retains
 one callback frame (at most 8,294,400 bytes) and validates the negotiated input
 allocator against eight buffers of at most that size each. Vendor-driver and
 upstream decoder allocations remain separate from those application limits.
@@ -703,9 +757,9 @@ Allow desktop camera access in Windows
 Settings > Privacy & security > Camera; Windows N may require the Media Feature
 Pack. Linux tries `/dev/video0` through `/dev/video63` and uses the first accessible
 progressive, single-plane YUYV/MJPEG streaming camera at or below 1280×720.
-Linux fits nonmatching frames into 640×480 with black bars; temporary RGB
-allocations are bounded by one 2,764,800-byte native image, one 921,600-byte
-fitted image and one 921,600-byte output image. The session or sandbox
+Linux fits nonmatching frames into 1280×720 with black bars; temporary RGB
+allocations are bounded by one 2,764,800-byte native image, one 2,764,800-byte
+fitted image and one 2,764,800-byte output image. The session or sandbox
 must already permit access to its device node; this implementation does not request
 camera access through a desktop portal or change device permissions. Cameras
 with no supported mode within the input ceiling are rejected before streaming.
@@ -973,6 +1027,8 @@ between the UDP socket and the display, so a frozen viewer is diagnosed from one
   violates multiple conditions; source/security changes still require normal recovery.
 - `av_timeline_rebases`: timestamp phase changes absorbed without rewinding local video.
 - `receiver_reports_sent`: authenticated RTCP reception reports sent while watching.
+- `camera_send_drops`: outgoing camera datagrams the socket refused; each one discards
+  the queued camera packets and requests a keyframe.
 - `av_audio_reports` / `av_video_reports` / `av_video_synced`: accepted sender timing reports
   and video deadlines mapped to an audio clock. Zero mapped deadlines means the receiver
   has not confirmed a usable cross-media clock and is using fallback pacing.

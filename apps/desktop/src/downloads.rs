@@ -188,9 +188,9 @@ impl Downloads {
 					let Some(path) = path else {
 						return Err("Cancelled");
 					};
-					let client = reqwest::Client::builder()
+					let client = wreq::Client::builder()
 						.no_proxy()
-						.redirect(reqwest::redirect::Policy::none())
+						.redirect(wreq::redirect::Policy::none())
 						.connect_timeout(Duration::from_secs(15))
 						.read_timeout(Duration::from_secs(30))
 						.timeout(Duration::from_secs(300))
@@ -523,7 +523,7 @@ impl Drop for Partial<'_> {
 /// count is verified.
 #[allow(clippy::too_many_arguments)]
 async fn download(
-	client: &reqwest::Client,
+	client: &wreq::Client,
 	url: url::Url,
 	destination: &Path,
 	expected: u64,
@@ -548,14 +548,14 @@ async fn download(
 	let response = tokio::select! {
 		biased;
 		_ = wake_cancel.notified() => return Err("Cancelled"),
-		response = client.get(url).header(reqwest::header::ACCEPT_ENCODING, "identity").send() => response.map_err(|_| "Attachment download failed")?,
+		response = client_core::fingerprint::discord_request(client.get(url.as_str()), url.as_str()).header(wreq::header::ACCEPT_ENCODING, "identity").send() => response.map_err(|_| "Attachment download failed")?,
 	};
-	if response.status() != reqwest::StatusCode::OK {
+	if response.status() != wreq::StatusCode::OK {
 		return Err("Attachment unavailable; reload the conversation and try again");
 	}
 	if response
 		.headers()
-		.get(reqwest::header::CONTENT_ENCODING)
+		.get(wreq::header::CONTENT_ENCODING)
 		.is_some_and(|encoding| encoding != "identity")
 	{
 		return Err("Unexpected attachment encoding; reload the conversation");
@@ -564,7 +564,7 @@ async fn download(
 		// Only the validated embedded-image entry point supplies an unknown size.
 		if !response
 			.headers()
-			.get(reqwest::header::CONTENT_TYPE)
+			.get(wreq::header::CONTENT_TYPE)
 			.and_then(|value| value.to_str().ok())
 			.is_some_and(|value| {
 				value
@@ -578,7 +578,7 @@ async fn download(
 		}
 		response
 			.headers()
-			.get(reqwest::header::CONTENT_LENGTH)
+			.get(wreq::header::CONTENT_LENGTH)
 			.and_then(|value| value.to_str().ok())
 			.and_then(|value| value.parse::<u64>().ok())
 			.filter(|length| (1..=MAX_EMBED_BYTES).contains(length))
@@ -591,10 +591,11 @@ async fn download(
 	} else {
 		expected
 	};
-	let mut response = response;
+	let response = response;
 	let cleanup_failed = AtomicBool::new(false);
 	let mut partial = Partial::create(destination, &cleanup_failed)?;
 	let result = async move {
+		let mut response_body = std::pin::pin!(response.bytes_stream());
 		let mut received = 0u64;
 		let mut repaint = Instant::now();
 		publish(Status::Downloading {
@@ -608,7 +609,9 @@ async fn download(
 			let chunk = tokio::select! {
 				biased;
 				_ = wake_cancel.notified() => return Err("Cancelled"),
-				chunk = response.chunk() => chunk.map_err(|_| "Attachment transfer interrupted")?,
+				chunk = futures_util::StreamExt::next(&mut response_body) => {
+					chunk.transpose().map_err(|_| "Attachment transfer interrupted")?
+				}
 			};
 			let Some(chunk) = chunk else {
 				break;
@@ -619,7 +622,7 @@ async fn download(
 			if received > expected || received > MAX_BYTES {
 				return Err("Attachment exceeds download limit");
 			}
-			// reqwest supplies transport chunks; split disk writes without retaining a file buffer.
+			// wreq supplies transport chunks; split disk writes without retaining a file buffer.
 			for block in chunk.chunks(32 * 1024) {
 				if cancelled.load(Ordering::Acquire) {
 					return Err("Cancelled");
@@ -856,9 +859,9 @@ mod tests {
 	async fn embedded_image_download_requires_bounded_png_length() {
 		let failed = Arc::new(AtomicBool::new(false));
 		let file = CopyFile::create("image.png", failed.clone()).unwrap();
-		let client = reqwest::Client::builder()
+		let client = wreq::Client::builder()
 			.no_proxy()
-			.redirect(reqwest::redirect::Policy::none())
+			.redirect(wreq::redirect::Policy::none())
 			.timeout(Duration::from_secs(5))
 			.build()
 			.unwrap();
@@ -1118,9 +1121,9 @@ mod tests {
 			std::env::temp_dir().join(format!("serein-download-tests-{}", std::process::id()));
 		fs::create_dir_all(&root).unwrap();
 		let destination = root.join("chosen.bin");
-		let client = reqwest::Client::builder()
+		let client = wreq::Client::builder()
 			.no_proxy()
-			.redirect(reqwest::redirect::Policy::none())
+			.redirect(wreq::redirect::Policy::none())
 			.timeout(Duration::from_secs(5))
 			.build()
 			.unwrap();
@@ -1299,9 +1302,9 @@ mod tests {
 		));
 		fs::create_dir_all(&root).unwrap();
 		let destination = root.join("mismatch.bin");
-		let client = reqwest::Client::builder()
+		let client = wreq::Client::builder()
 			.no_proxy()
-			.redirect(reqwest::redirect::Policy::none())
+			.redirect(wreq::redirect::Policy::none())
 			.timeout(Duration::from_secs(5))
 			.build()
 			.unwrap();
@@ -1340,9 +1343,9 @@ mod tests {
 		));
 		fs::create_dir_all(&root).unwrap();
 		let destination = root.join("bounds.bin");
-		let client = reqwest::Client::builder()
+		let client = wreq::Client::builder()
 			.no_proxy()
-			.redirect(reqwest::redirect::Policy::none())
+			.redirect(wreq::redirect::Policy::none())
 			.timeout(Duration::from_secs(5))
 			.build()
 			.unwrap();

@@ -20,6 +20,8 @@ class SetupTest(unittest.TestCase):
             ("fedora", "43", "", "n", fingerprint, 0, False),
             ("fedora", "43", "", "y", "0" * 40, 1, False),
             ("fedora", "42", "", "y", fingerprint, 1, False),
+            ("nobara", "44", "rhel centos fedora", "y", fingerprint, 0, True),
+            ("rocky", "9.6", "rhel centos fedora", "y", fingerprint, 1, False),
             ("ubuntu", "24.04", "debian", "y", fingerprint, 1, False),
             ("opensuse-leap", "16.0", "suse", "y", fingerprint, 1, False),
             ("manjaro", "26", "", "y", fingerprint, 1, False),
