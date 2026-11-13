@@ -208,6 +208,16 @@ quarter of one core at 3840×2160 and 120 Hz in the November 5, 2026 entry of
 [performance findings](performance.md). Unfocused, minimized and hidden windows redraw only on
 change again. The setting applies immediately and is saved with the other device preferences.
 
+On Windows x64, Serein asks the NVIDIA driver at startup whether an attached display has G-SYNC
+switched on, and if so offers the setting once after first-run setup. Either answer is saved and
+ends the check; turning the setting on by hand does too. The check loads `nvapi64.dll` from the
+system directory only, on a worker thread, reads each display's variable refresh rate state
+through NVIDIA's published NVAPI interface, changes no driver setting and unloads the library
+again. It reported a display with G-SYNC on in about 27 ms on Windows 11 with an RTX PRO 6000
+(driver 32.0.16.2114). A display with G-SYNC switched off, a computer without an NVIDIA
+driver, and FreeSync or other variable refresh rate on AMD and Intel GPUs were not tested; the
+latter are not detected, so there the setting stays a manual choice.
+
 Excluding `serein.exe` from VRR in the graphics driver, such as NVIDIA's per-program Monitor
 Technology setting, avoids the swings without the extra frames. Present cadence was verified
 with PresentMon on Windows 11 with an RTX 5060 Ti; the panel's own refresh readout and macOS and
@@ -276,10 +286,10 @@ physical capture or delivery to an official Discord client; these remain unverif
 Invite verification uses a temporary WebView2 child on Windows, WKWebView child on
 macOS, and a separate GTK4/WebKit6 window on Linux. It
 loads a local verification page and hCaptcha's official widget after the user
-chooses Verify. The local custom-protocol origin is
-`https://serein-captcha.verification.invalid/` on Windows/Linux and
-`serein-captcha://verification.invalid/` on macOS; it is not a Discord page, public
-server or account-login surface. No account token enters it. Domain restrictions,
+chooses Verify. The page is addressed as `https://discord.com/channels/@me` but is never
+fetched: macOS and Linux load it as a string with that base URL, and Windows serves it
+through an in-view `discord` custom protocol that WebView2 maps to that address. It is not
+Discord's page, a public server or an account-login surface. No account token enters it. Domain restrictions,
 provider rejection and missing native webview runtimes fail visibly. macOS/Linux
 live CAPTCHA acceptance remains unverified. Widget
 loading and synthetic checks do not establish live Discord challenge acceptance.

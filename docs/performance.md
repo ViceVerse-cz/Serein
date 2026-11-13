@@ -1,8 +1,58 @@
 # Performance findings
 
+## Voice connection ping
+
+Compared `5a11f95b` with the voice ping change using locked Rust 1.99.1 release builds
+with `--features demo`. Windows x64 build 26300.9711, Ryzen 7 7800X3D, about 32 GiB RAM,
+DX12 and the same 1120 × 760 demo window. Launch `serein.exe --demo --demo-voice`,
+leave the connection popup closed with the pointer off the controls, warm up for eight
+seconds and sample `WorkingSet64` about every 100 ms for twelve seconds. CPU is process
+CPU time divided by elapsed time, as a percentage of one logical core. Settled working
+set averages the final five samples. Private bytes are read at the end of the run.
+Two runs per revision, in baseline/change/change/baseline order. No child processes
+were present at the end of the runs.
+
+| Metric | Baseline | Voice ping |
+| --- | ---: | ---: |
+| Demo executable | 100,484,608 B | 100,369,920 B |
+| Idle CPU, range | 0.384–0.388% | 0.258–0.647% |
+| Peak working set, range | 145.81–158.10 MiB | 142.33–142.36 MiB |
+| Settled working set, range | 145.81–158.09 MiB | 142.33–142.36 MiB |
+| Settled private bytes, range | 178.90–194.93 MiB | 178.56–180.00 MiB |
+
+The preliminary run, before controlling pointer position, showed the working set moving
+in the opposite direction. The short samples do not establish a memory or CPU improvement.
+The fixture renders synthetic RTT. Actual call CPU, GPU allocations and frame timing were
+not measured. The transport samples existing ACKs without scheduling an extra probe. The
+desktop keeps up to 24 millisecond values per connection.
+
 Recent synthetic/offline measurements are workload-specific. They do not establish live Discord
 performance, universal device results or application-wide memory bounds. The raw PR screenshot,
 log and per-run evidence archive has been removed; the summaries below retain the useful results.
+
+## G-SYNC steady refresh offer — November 10, 2026
+
+Baseline `09bee5a` and this branch were built with the pinned Rust 1.99.1 toolchain and locked
+dependencies on Windows 11 x64 (build 26200). Standard release packages use `cargo xtask package`
+(voice included, demo and development data disabled), each revision from its own worktree.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Release executable | 98,454,528 B | 98,438,144 B | -16,384 B (-0.017%) |
+| `dist/` regular-file payload (233 files) | 102,828,189 B | 102,811,805 B | -16,384 B (-0.017%) |
+| ZIP of `dist/` (`7z a -tzip -mx=9`) | 53,784,480 B | 53,791,915 B | +7,435 B (+0.014%) |
+
+The executable is the only `dist/` file that differs. The smaller executable and larger archive
+are one build each and are not an improvement or a regression.
+
+The G-SYNC check ran on an RTX PRO 6000 (driver 32.0.16.2114) driving one 3440×1440 240 Hz
+display with G-SYNC on. Three concurrent checks in a debug build each reported within 27–28 ms
+of being started, including the worker thread, loading `nvapi64.dll` and unloading it again.
+In a debug `--features demo` build temporarily changed to run the check, the dialog appeared and
+`nvapi64.dll` was no longer among the process modules 8 s after launch. The check runs once per
+launch until the offer is answered or the setting is on, and never afterwards. Demo fixtures skip
+it, so their idle CPU and memory were not sampled; release-build timing, a display with G-SYNC
+off and a computer without an NVIDIA driver were not measured.
 
 ## Discord message toolbar and safe extension ports — November 8, 2026
 
@@ -1916,3 +1966,26 @@ The build times are single samples and other work ran on the machine during the 
 so they show only that the BoringSSL build does not lengthen a clean macOS package build
 noticeably. Linux, Windows and Windows ARM64 (BoringSSL without assembly) sizes were not
 measured. Connection setup time, TLS throughput and memory were not measured.
+
+## REST admission verification — November 12, 2026
+
+Baseline `acccd59e`, Fedora Asahi Remix 44 aarch64, pinned Rust 1.99.1,
+standard voice-inclusive package with no default features. The normal fat-LTO
+release link exceeded the local agent group's 11.45-GiB memory cap, including
+with one Cargo job; kernel logs recorded OOM kills. No repository release-profile
+setting was changed.
+
+One baseline-only `CARGO_BUILD_JOBS=1 CARGO_PROFILE_RELEASE_LTO=false cargo xtask
+package --format dir` completed: executable 89,101,464 bytes, apparent installation
+tree 93,814,166 bytes (`du -sb`), deterministic gzip-6 tar 57,148,868 bytes
+(sorted members, zero timestamps/ownership). These are not standard fat-LTO
+release measurements. The owner stopped further builds before an after package
+was produced, so no package-size, latency, CPU or RSS comparison is available
+and no performance improvement is claimed.
+
+The admission tracker has a compile-time 16-KiB ceiling for its two vector backing
+allocations and at most 128 entries per vector; these are bounds, not process-RSS
+measurements. Same-bucket requests are serialized; exhausted successful responses
+hold only their route/bucket, while 429 responses retain the existing conservative
+shared cooldown. Synthetic regressions cover independent-channel progress,
+queued verification expiry, aliases, major resources, eviction and terminal wakeup.

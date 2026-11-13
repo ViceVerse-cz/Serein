@@ -146,7 +146,7 @@ depends=(
   'zstd>=1.5.7-3'
 )
 optdepends=(
-  'gnome-keyring: Secret Service credential provider'
+  'gnome-keyring: OS keyring for saved logins (any Secret Service provider works)'
   'gst-plugins-bad: hardware screen encoding'
   'gst-libav: inline video'
 )

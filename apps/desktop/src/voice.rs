@@ -167,6 +167,7 @@ struct Live {
 	// Terminal errors must survive a full progress queue; retain the first safe reason.
 	failure: Arc<OnceLock<&'static str>>,
 	speakers: watch::Receiver<[u64; 64]>,
+	latency: watch::Receiver<ui::VoiceLatency>,
 	task: JoinHandle<()>,
 	devices: Devices,
 	device_deadline: Option<Instant>,
@@ -896,6 +897,9 @@ impl Voice {
 		ctx: &egui::Context,
 	) -> Option<Command> {
 		self.reap();
+		if !state.demo {
+			ui.voice_latency = ui::VoiceLatency::default();
+		}
 		if std::mem::take(&mut self.leave_cue) && ui.notification_options.allows(Sound::UserLeave) {
 			ui.notification_preview = Some(Sound::UserLeave);
 			ctx.request_repaint();
@@ -1239,6 +1243,9 @@ impl Voice {
 			}
 			// A worker can finish between draining notices and checking its lifecycle.
 			failure = live.failure.get().copied().or(failure);
+			if failure.is_none() {
+				ui.voice_latency = *live.latency.borrow();
+			}
 			if failure.is_none()
 				&& !state.demo
 				&& state.auth == client_core::auth::AuthState::Authenticated
@@ -1789,6 +1796,7 @@ impl Voice {
 		let failure = Arc::new(OnceLock::new());
 		let audio_failure = failure.clone();
 		let (speaking, speakers) = watch::channel([0; 64]);
+		let (latency_send, latency) = watch::channel(ui::VoiceLatency::default());
 		let audio_send = send.clone();
 		let wake = ctx.clone();
 		let devices = Devices {
@@ -1900,6 +1908,15 @@ impl Voice {
 							Notice::MediaReady(privacy_code)
 						}
 						Status::RemoteAudio => Notice::RemoteAudio,
+						Status::Latency(sample) => {
+							if let Some(sample) = sample {
+								latency_send.send_modify(|latency| latency.push(sample));
+							} else {
+								latency_send.send_replace(ui::VoiceLatency::default());
+							}
+							status_wake.request_repaint();
+							return Ok(());
+						}
 						Status::Speaking(users) => {
 							speaking.send_replace(*users);
 							status_wake.request_repaint();
@@ -1936,6 +1953,7 @@ impl Voice {
 			events,
 			failure,
 			speakers,
+			latency,
 			task,
 			devices,
 			device_deadline: None,
@@ -2962,6 +2980,7 @@ mod tests {
 		let (controls, _control_events) = watch::channel(Controls::default());
 		let (_notices, events) = mpsc::sync_channel(8);
 		let (_speaking, speakers) = watch::channel([0; 64]);
+		let (_latency, latency) = watch::channel(ui::VoiceLatency::default());
 		let (camera_frames, _camera_frames) = mpsc::sync_channel(1);
 		let (stream_audio, _stream_audio) = mpsc::sync_channel(8);
 		manager.live = Some(Live {
@@ -2983,6 +3002,7 @@ mod tests {
 			events,
 			failure: Arc::new(OnceLock::new()),
 			speakers,
+			latency,
 			task,
 			devices: Devices::default(),
 			device_deadline: None,

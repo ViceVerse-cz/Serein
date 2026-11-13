@@ -75,6 +75,8 @@ pub enum Status {
 		privacy_code: String,
 	},
 	RemoteAudio,
+	/// Round trip on the call's signaling socket. Cleared when the socket is replaced.
+	Latency(Option<std::time::Duration>),
 	/// Latest active user IDs, zero-padded to the 64-participant limit.
 	Speaking(Box<[u64; 64]>),
 }

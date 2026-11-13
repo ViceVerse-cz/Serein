@@ -1,25 +1,36 @@
 //! Client identity presented to Discord over REST and the Gateway.
 //!
-//! Discord's anti-spam classifies normal-user sessions by their client fingerprint. A custom
-//! user agent with no super-properties header reads as an automated tool, which quarantines
-//! the account (spam restriction, attachment upload limits). Presenting one consistent,
-//! browser-shaped identity on every transport keeps the session classified as an ordinary
-//! web client. Nothing here carries account data; it is the same for every user.
+//! Observed (unofficial): Discord's web client sends a super-properties payload, a browser
+//! user agent, locale and timezone on REST and the Gateway. How the service weighs any of
+//! them is unverified; an earlier Serein identity without them coincided with account
+//! restrictions (spam flag, attachment limits), which is not proof of cause. Every transport
+//! uses the desktop metadata below. Embedded verification keeps its engine-specific identity.
+//! Locale and timezone come from the operating system. Host versions are observed
+//! platform metadata; the older paired engine/profile baseline remains
+//! an unofficial reference, not evidence of an Electron runtime.
 
 /// Chrome version advertised on Windows, where verification runs in Chromium WebView2.
 const CHROME_MAJOR: &str = "149";
 /// Safari version advertised on macOS and Linux, where verification runs in WebKit.
 const SAFARI_VERSION: &str = "26.4";
-/// `sec-ch-ua` brand list of [`CHROME_MAJOR`]; the GREASE brand changes with every major.
-const CHROME_SEC_CH_UA: &str =
-	r#""Google Chrome";v="149", "Chromium";v="149", "Not)A;Brand";v="24""#;
-/// Build number of the official web client this fingerprint mirrors.
-pub const CLIENT_BUILD_NUMBER: u64 = 634_304;
-pub const LOCALE: &str = "en-US";
-/// The embedded hCaptcha widget runs in WKWebView or WebKitGTK everywhere except Windows.
-/// hCaptcha reads the real engine from script, so the advertised browser must follow it: a
-/// passcode solved in WebKit but submitted with a Chrome fingerprint reads as a relayed
-/// captcha and triggers phone verification or an account ban.
+/// Observed in the public `/app` bundle on 2026-11-12; see identity provenance in the
+/// compatibility notes. The remote web build is separate from the native host version.
+pub const CLIENT_BUILD_NUMBER: u64 = 670_026;
+mod locale;
+pub use locale::{accept_language, discord_locale, system_locale, timezone};
+/// Stable host versions from Discord's platform update manifests on 2026-11-12.
+/// Keep the platform mapping explicit: a macOS host version is not a Linux/Windows one.
+fn desktop_version() -> &'static str {
+	match std::env::consts::OS {
+		"windows" => "1.0.9268",
+		"macos" => "0.0.422",
+		_ => "1.0.169",
+	}
+}
+/// Retained paired engine baseline: the pinned wreq-util has no Chromium 152 profile.
+/// The downloaded Linux core declares Electron 44.9.3, so this is not a current runtime claim.
+const ELECTRON_VERSION: &str = "42.7.1";
+const DESKTOP_CHROMIUM_VERSION: &str = "148.0.7778.280";
 const WEBKIT: bool = !cfg!(windows);
 
 /// Discord's spelling of the host operating system.
@@ -40,23 +51,27 @@ fn platform_token() -> &'static str {
 	}
 }
 
-/// Browser name Discord expects in super-properties, matched to the verification engine.
+/// Desktop application name used in super-properties (unofficial).
 pub fn browser() -> &'static str {
-	if WEBKIT { "Safari" } else { "Chrome" }
+	"Discord Client"
 }
 
-/// Browser version paired with [`browser`].
+/// Electron version paired with [`browser`].
 pub fn browser_version() -> String {
-	if WEBKIT {
-		SAFARI_VERSION.to_owned()
-	} else {
-		format!("{CHROME_MAJOR}.0.0.0")
-	}
+	ELECTRON_VERSION.to_owned()
 }
 
-/// `User-Agent` header value shared by REST, uploads, the Gateway identify and the
-/// embedded verification webview.
+/// Desktop transport identity; this does not change the native UI into Electron.
 pub fn user_agent() -> String {
+	format!(
+		"Mozilla/5.0 ({}) AppleWebKit/537.36 (KHTML, like Gecko) discord/{} Chrome/{DESKTOP_CHROMIUM_VERSION} Electron/{ELECTRON_VERSION} Safari/537.36",
+		platform_token(),
+		desktop_version()
+	)
+}
+
+/// Identity for the actual embedded verification engine, independent of REST.
+pub fn verification_user_agent() -> String {
 	if WEBKIT {
 		format!(
 			"Mozilla/5.0 ({}) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/{SAFARI_VERSION} Safari/605.1.15",
@@ -75,56 +90,69 @@ mod transport;
 #[cfg(feature = "transport")]
 pub use transport::{discord_request, emulation, websocket};
 
-/// Client-hint headers (`sec-ch-ua`, `sec-ch-ua-mobile`, `sec-ch-ua-platform`) Chrome sends on
-/// every same-origin fetch. Safari does not implement client hints, so it gets none.
+/// Chromium client hints paired with the desktop transport baseline.
 pub fn client_hints() -> Option<[(&'static str, String); 3]> {
-	if browser() != "Chrome" {
-		return None;
-	}
-	let platform = if cfg!(target_os = "windows") {
-		"Windows"
-	} else {
-		"Linux"
+	let platform = match std::env::consts::OS {
+		"macos" => "macOS",
+		"windows" => "Windows",
+		_ => "Linux",
 	};
 	Some([
-		("sec-ch-ua", CHROME_SEC_CH_UA.to_owned()),
+		(
+			"sec-ch-ua",
+			r#""Not/A)Brand";v="99", "Chromium";v="148""#.to_owned(),
+		),
 		("sec-ch-ua-mobile", "?0".to_owned()),
 		("sec-ch-ua-platform", format!("\"{platform}\"")),
 	])
 }
 
-/// `Accept-Encoding` the advertised browser sends; Safari has no zstd.
+/// Encodings supported by the desktop transport.
 pub fn accept_encoding() -> &'static str {
-	if browser() == "Chrome" {
-		"gzip, deflate, br, zstd"
-	} else {
-		"gzip, deflate, br"
-	}
+	"gzip, deflate, br, zstd"
 }
 
 /// Gateway `identify.d.properties` and the decoded `X-Super-Properties` payload.
 pub fn properties() -> String {
 	// Hand-built JSON keeps this crate free of a serde dependency; every value is a fixed
-	// literal or a controlled ASCII string, so no escaping is required.
+	// literal or a validated ASCII string (see `locale`), so no escaping is required.
 	format!(
 		concat!(
 			"{{\"os\":\"{os}\",\"browser\":\"{browser}\",\"device\":\"\",\"system_locale\":\"{locale}\",",
 			"\"browser_user_agent\":\"{ua}\",\"browser_version\":\"{version}\",\"os_version\":\"\",",
 			"\"referrer\":\"\",\"referring_domain\":\"\",\"referrer_current\":\"\",\"referring_domain_current\":\"\",",
-			"\"release_channel\":\"stable\",\"client_build_number\":{build},\"client_event_source\":null}}"
+			"\"client_version\":\"{DESKTOP_VERSION}\",\"release_channel\":\"stable\",\"client_build_number\":{build},\"client_event_source\":null}}"
 		),
 		os = os_name(),
-		locale = LOCALE,
+		locale = system_locale(),
 		browser = browser(),
 		ua = user_agent(),
 		version = browser_version(),
 		build = CLIENT_BUILD_NUMBER,
+		DESKTOP_VERSION = desktop_version(),
 	)
 }
 
 /// `X-Super-Properties` header value: standard base64 of [`properties`].
 pub fn super_properties() -> String {
 	base64(properties().as_bytes())
+}
+
+/// Where in the interface a message create started. Unofficial: the web client's request
+/// helper sends its `context` option as `X-Context-Properties`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MessageContext {
+	ChatInput,
+	Forwarding,
+}
+
+/// `X-Context-Properties` header value: standard base64 of `{"location":"…"}`.
+pub fn context_properties(context: MessageContext) -> String {
+	let location = match context {
+		MessageContext::ChatInput => "chat_input",
+		MessageContext::Forwarding => "forwarding",
+	};
+	base64(format!("{{\"location\":\"{location}\"}}").as_bytes())
 }
 
 fn base64(input: &[u8]) -> String {
@@ -163,22 +191,7 @@ pub fn nonce(unix_ms: u128, sequence: u64) -> String {
 mod tests {
 	use super::*;
 	#[test]
-	fn properties_are_valid_json_and_consistent_with_user_agent() {
-		{
-			let text = properties();
-			assert!(text.starts_with('{') && text.ends_with('}'));
-			assert!(text.contains(&format!("\"browser_user_agent\":\"{}\"", user_agent())));
-			assert!(text.contains(&format!("\"browser\":\"{}\"", browser())));
-			assert!(text.contains(&format!("\"browser_version\":\"{}\"", browser_version())));
-			assert!(user_agent().starts_with("Mozilla/5.0 ("));
-			assert_eq!(user_agent().contains("Chrome/"), browser() == "Chrome");
-			assert_eq!(user_agent().contains("Version/"), browser() == "Safari");
-			assert!(
-				super_properties()
-					.bytes()
-					.all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'/' | b'='))
-			);
-		}
+	fn base64_padding() {
 		{
 			assert_eq!(base64(b""), "");
 			assert_eq!(base64(b"f"), "Zg==");

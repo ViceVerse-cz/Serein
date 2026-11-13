@@ -72,6 +72,11 @@ general-gpu-restart = Takes effect the next time Serein starts.
 general-gpu-current-prefix = Currently drawing with
 general-steady-refresh-rate = Steady refresh rate
 general-steady-refresh-rate-description = While Serein is the active window, draw at the display's refresh rate so variable refresh rate (VRR, G-SYNC, FreeSync) displays can hold one rate instead of flickering. Uses more power.
+steady-refresh-prompt-title = G-SYNC display detected
+steady-refresh-prompt-body = Serein only redraws when something changes, which can make a G-SYNC display flicker while Serein is the active window. Steady refresh rate avoids that by drawing at the display's refresh rate, and uses more power. Turn it on?
+steady-refresh-prompt-turn-on = Turn on
+steady-refresh-prompt-keep-off = No thanks
+steady-refresh-prompt-settings = Change it later in Settings > { $page } > { $group }.
 gpu-automatic = Automatic
 gpu-high-performance = High performance
 gpu-power-saving = Power saving
@@ -3565,9 +3570,6 @@ settings-storage-page-removes-cached-messages-and-media-drafts-and-your-login-st
 settings-storage-page-serein-does-not-collect-telemetry-or-upload-diagnostics-discord-retains = Serein does not collect telemetry or upload diagnostics. Discord retains service-side data according to its own policies.
 # Context: storage_page
 settings-storage-page-your-privacy = Your privacy
-settings-storage-page-saved-login = Saved login
-settings-storage-page-plaintext-login = Save login in plaintext without a keyring
-settings-storage-page-plaintext-login-description = Used only when no OS keyring (GNOME Keyring, KWallet, Keychain or Credential Manager) works. The token is stored unencrypted in a private file in Serein's data folder, where anyone with access to your user account can read it. Turning this off deletes those files.
 # Context: cosmetic_settings
 settings-cosmetics = Profile cosmetics
 # Context: cosmetic_settings
@@ -4262,6 +4264,13 @@ voice-voice-card-section-dismiss-call = Dismiss call
 voice-voice-card-section-reconnect-attempt = { $reason } · attempt { $attempt } of { $total }
 # Context: voice_card_section
 voice-voice-card-section-reconnecting = Reconnecting…
+
+voice-connection-title = Connection
+voice-connection-ping-value = { $millis } ms
+voice-connection-ping-pending = Waiting for the first ping…
+voice-connection-average-ping = Average ping: { $value }
+voice-connection-last-ping = Last ping: { $value }
+voice-connection-ping-description = Round-trip time to the voice signaling server.
 # Context: voice_card_section
 voice-voice-card-section-microphone-unavailable-a-still-connected-choose-another-input-in-audio = Microphone unavailable · still connected. Choose another input in Audio settings.
 # Context: voice_channel_button
@@ -4732,6 +4741,11 @@ profiles-board-empty = No games on this board yet.
 profiles-board-show-more = Show more
 profiles-board-show-less = Show less
 profiles-activity-empty = No activity shared.
+profiles-in-voice-server = in { $server }
+profiles-in-voice-join = Join
+profiles-in-voice-joined = You’re in this voice channel.
+profiles-in-voice-failed = Dismiss the failed call first, then join again.
+profiles-in-voice-unavailable = You can’t join this voice channel right now.
 profiles-mutuals-empty = Nothing to show here.
 
 reading-double-click-reaction = Double-click reaction

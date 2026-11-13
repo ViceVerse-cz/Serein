@@ -551,6 +551,7 @@ async fn run_inner(
 			ready_announced = false;
 			waiting_announced = false;
 			capture_reset = true;
+			emit(Status::Latency(None)).map_err(|_| "Call interface closed")?;
 			emit(Status::Securing).map_err(|_| "Call interface closed")?;
 			deadline = Some(Instant::now() + Duration::from_secs(30));
 			heartbeat_ms = None;
@@ -611,8 +612,9 @@ async fn run_inner(
 							   if missed_acks>=2 {reconnect=Some("Discord voice heartbeat was not acknowledged; rejoin the call");continue;}
 						   }
 						   heartbeat_nonce=heartbeat_nonce.wrapping_add(1);
+						   let sent_at=Instant::now();
 						   json_send(&mut ws,json!({"op":3,"d":{"t":heartbeat_nonce,"seq_ack":seq_ack}})).await?;
-						   awaiting_ack=Some(heartbeat_nonce);heartbeat_at=now+Duration::from_millis(interval);
+						   awaiting_ack=Some((heartbeat_nonce,sent_at));heartbeat_at=now+Duration::from_millis(interval);
 					   }
 					   if secured_at.is_some_and(|at| now>=at+PEER_GRACE) && !discovering && !resuming && dave.should_wait_for_peer() {dave.enter_sole_member_waiting()?;}
 					   let enabled=dave.ready && encryption.is_some() && !discovering && !resuming;
@@ -829,7 +831,12 @@ async fn run_inner(
 									   if !(100..=120000).contains(&interval) || heartbeat_ms.is_some(){return Err("Invalid voice heartbeat negotiation");}
 									   heartbeat_ms=Some(interval.min(5000));heartbeat_at=Instant::now();
 								   },
-								   6=>if acknowledges(awaiting_ack,missed_acks,data["t"].as_u64()) {
+								   6=>if let Some((sent_nonce,sent_at))=awaiting_ack
+									   && acknowledges(Some(sent_nonce),missed_acks,data["t"].as_u64()) {
+									   // A late ACK can restore liveness, but its send timestamp was replaced.
+									   if data["t"].as_u64()==Some(sent_nonce) {
+										   emit(Status::Latency(Some(sent_at.elapsed()))).map_err(|_|"Call interface closed")?;
+									   }
 									   awaiting_ack=None;missed_acks=0;
 									   // A healthy resumed socket renews the consecutive resume budget.
 									   if !resuming {resume_attempts=0;}
@@ -992,8 +999,8 @@ async fn run_inner(
 							   }
 						   },
 						   Message::Ping(data)=>send(&mut ws,Message::Pong(data)).await?,
-						   // 4014: kicked, moved or the channel was deleted; Discord says not to reconnect.
-						   Message::Close(Some(frame)) if u16::from(frame.code)==4014=>return Err(DISCONNECTED_BY_DISCORD),
+						   // Kicked, rate limited, or call terminated: Discord says not to reconnect.
+						   Message::Close(Some(frame)) if matches!(u16::from(frame.code),4014|4021|4022)=>return Err(DISCONNECTED_BY_DISCORD),
 						   Message::Close(_)=>return Err("Discord voice connection closed; rejoin the call"),
 						   Message::Pong(_)=>{},
 						   _=>return Err("Unsupported voice websocket frame"),
@@ -2864,13 +2871,15 @@ mod tests {
 	}
 	#[tokio::test]
 	async fn local_voice_websocket_udp_dave_and_opus_exchange() {
-		local_voice_exchange(false).await;
+		local_voice_exchange(false, 4014).await;
 	}
 	#[tokio::test]
 	async fn local_guild_voice_waiting_mixed_audio_and_resume() {
-		local_voice_exchange(true).await;
+		for code in [4014, 4021] {
+			local_voice_exchange(true, code).await;
+		}
 	}
-	async fn local_voice_exchange(guild: bool) {
+	async fn local_voice_exchange(guild: bool, terminal_code: u16) {
 		use client_core::voice::Secret;
 		use model::Id;
 		use tokio::net::TcpListener;
@@ -3167,7 +3176,7 @@ mod tests {
 			if guild {
 				ws.send(Message::Close(Some(
 					tokio_tungstenite::tungstenite::protocol::CloseFrame {
-						code: 4014.into(),
+						code: terminal_code.into(),
 						reason: "synthetic terminal disconnect".into(),
 					},
 				)))
@@ -3197,6 +3206,7 @@ mod tests {
 		let (control_tx, control_rx) = watch::channel(Controls::default());
 		let (_camera_tx, camera_rx) = std::sync::mpsc::sync_channel(1);
 		let (status_tx, mut status_rx) = tokio::sync::mpsc::channel(8);
+		let (latency_tx, latency_rx) = std::sync::mpsc::sync_channel(8);
 		let task = tokio::spawn(run_inner(
 			credentials,
 			capture,
@@ -3205,7 +3215,10 @@ mod tests {
 			Some(camera_rx),
 			None,
 			None,
-			move |status| status_tx.try_send(status).map_err(|_| ()),
+			move |status| match status {
+				Status::Latency(sample) => latency_tx.try_send(sample).map_err(|_| ()),
+				status => status_tx.try_send(status).map_err(|_| ()),
+			},
 			Identity::generate(),
 			format!("ws://{address}"),
 			true,
@@ -3258,6 +3271,7 @@ mod tests {
 						}
 						Status::Connecting | Status::Discovering | Status::Securing
 						| Status::TransportReady | Status::Speaking(_) | Status::CameraAvailable(_) => {}
+						Status::Latency(_) => unreachable!("latency uses its own queue"),
 					},
 					result = &mut captured_rx, if !captured => {
 						result.unwrap();
@@ -3285,6 +3299,8 @@ mod tests {
 		.await
 		.unwrap();
 		assert!(pcm.samples.iter().any(|s| s.abs() > 0.01));
+		assert!(matches!(latency_rx.try_recv(), Ok(Some(_))));
+		assert!(latency_rx.try_iter().any(|sample| sample.is_none()));
 		if guild {
 			done_tx.send(()).unwrap();
 			assert_eq!(

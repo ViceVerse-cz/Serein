@@ -12,6 +12,13 @@ Voice is included in every build without a feature flag. Source builds require C
 
 ## Implemented behavior and limits
 
+Hover over the connection icon in the account card to see the latest voice ping.
+Click the icon for the latest and average RTT and a chart of up to 24 recent samples.
+RTT measures the existing voice WebSocket heartbeat and matching ACK. Audio packet
+loss and end-to-end audio delay are separate measurements. Samples stay in memory
+and reset on reconnect or when leaving the call. The synthetic preview is
+`cargo run --locked --features demo -- --demo --demo-voice`.
+
 Resizing the DM or group call stage keeps a conversation following the newest message
 anchored above its composer on every frame. Reading older messages retains the existing
 scroll position instead of forcing the conversation back to the newest message.
@@ -204,7 +211,12 @@ An authenticated empty room displays “Connected · waiting for others”; audi
 
 Hovering a participant marked LIVE opens a compact still preview when Discord supplies one.
 **Watch Stream** joins that voice channel when no call is active, then starts the existing
-receive-only stream path after the call connects. It never silently switches an active call;
+receive-only stream path after the call connects. Starting to watch also opens that channel's
+stage with the share enlarged, so the stream is visible instead of playing behind another
+conversation. The preview card keeps its anchor while the image loads, and the preview frame
+itself is a watch target with a hover label. Your own live share is labelled “You’re streaming”
+with its action disabled. Multiple live participants in the same channel keep independent cards,
+and moving the pointer into a card keeps it open. It never silently switches an active call;
 hidden or unavailable previews remain explicit. The preview request requires current roster
 state plus VIEW_CHANNEL and CONNECT. This normal-user route remains unofficial and live-unverified.
 

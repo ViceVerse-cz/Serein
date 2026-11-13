@@ -72,6 +72,11 @@ general-gpu-restart = Projeví se při příštím spuštění Sereinu.
 general-gpu-current-prefix = Aktuálně vykresluje
 general-steady-refresh-rate = Stálá obnovovací frekvence
 general-steady-refresh-rate-description = Dokud je Serein aktivním oknem, vykresluje na obnovovací frekvenci displeje, takže monitory s proměnlivou obnovovací frekvencí (VRR, G-SYNC, FreeSync) mohou držet jednu frekvenci a neblikat. Spotřebovává více energie.
+steady-refresh-prompt-title = Zjištěn displej s G-SYNC
+steady-refresh-prompt-body = Serein překresluje jen tehdy, když se něco změní, a displej s G-SYNC proto může blikat, dokud je Serein aktivním oknem. Stálá obnovovací frekvence tomu zabrání vykreslováním na obnovovací frekvenci displeje, spotřebuje ale více energie. Zapnout ji?
+steady-refresh-prompt-turn-on = Zapnout
+steady-refresh-prompt-keep-off = Ne, děkuji
+steady-refresh-prompt-settings = Později to můžete změnit v Nastavení v části { $page } > { $group }.
 gpu-automatic = Automaticky
 gpu-high-performance = Vysoký výkon
 gpu-power-saving = Úspora energie
@@ -3559,9 +3564,6 @@ settings-storage-page-removes-cached-messages-and-media-drafts-and-your-login-st
 settings-storage-page-serein-does-not-collect-telemetry-or-upload-diagnostics-discord-retains = Serein neshromažďuje telemetrii ani nenahrává diagnostiku. Discord uchovává data na straně služeb podle svých vlastních zásad.
 # Context: storage_page
 settings-storage-page-your-privacy = Vaše soukromí
-settings-storage-page-saved-login = Uložené přihlášení
-settings-storage-page-plaintext-login = Ukládat přihlášení jako prostý text bez klíčenky
-settings-storage-page-plaintext-login-description = Použije se jen tehdy, když nefunguje žádná klíčenka systému (GNOME Keyring, KWallet, Klíčenka ani Správce přihlašovacích údajů). Token se uloží nešifrovaně do soukromého souboru ve složce dat Sereinu, kde ho může přečíst kdokoli s přístupem k vašemu uživatelskému účtu. Vypnutím se tyto soubory smažou.
 # Context: cosmetic_settings
 settings-cosmetics = Kosmetika profilu
 # Context: cosmetic_settings
@@ -4719,6 +4721,11 @@ profiles-board-empty = No games on this board yet.
 profiles-board-show-more = Show more
 profiles-board-show-less = Show less
 profiles-activity-empty = Žádná sdílená aktivita.
+profiles-in-voice-server = na serveru { $server }
+profiles-in-voice-join = Připojit se
+profiles-in-voice-joined = V tomto hlasovém kanálu už jste.
+profiles-in-voice-failed = Nejprve zavřete neúspěšný hovor a pak se připojte znovu.
+profiles-in-voice-unavailable = K tomuto hlasovému kanálu se teď nemůžete připojit.
 profiles-mutuals-empty = Nothing to show here.
 
 reading-double-click-reaction = Double-click reaction

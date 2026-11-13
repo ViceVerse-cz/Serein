@@ -69,6 +69,11 @@ general-gpu-restart = Wird beim nächsten Start von Serein wirksam.
 general-gpu-current-prefix = Zeichne derzeit mit
 general-steady-refresh-rate = Konstante Bildwiederholrate
 general-steady-refresh-rate-description = Solange Serein das aktive Fenster ist, wird mit der Bildwiederholrate des Displays gezeichnet, sodass Displays mit variabler Bildwiederholrate (VRR, G-SYNC, FreeSync) eine Rate halten können, statt zu flackern. Verbraucht mehr Energie.
+steady-refresh-prompt-title = G-SYNC-Display erkannt
+steady-refresh-prompt-body = Serein zeichnet nur neu, wenn sich etwas ändert. Dadurch kann ein G-SYNC-Display flackern, solange Serein das aktive Fenster ist. Die konstante Bildwiederholrate verhindert das, indem mit der Bildwiederholrate des Displays gezeichnet wird, verbraucht aber mehr Energie. Einschalten?
+steady-refresh-prompt-turn-on = Einschalten
+steady-refresh-prompt-keep-off = Nein danke
+steady-refresh-prompt-settings = Das lässt sich später in den Einstellungen unter { $page } > { $group } ändern.
 gpu-automatic = Automatisch
 gpu-high-performance = Hohe Leistung
 gpu-power-saving = Energiesparend
@@ -3529,9 +3534,6 @@ settings-storage-page-removes-cached-messages-and-media-drafts-and-your-login-st
 settings-storage-page-serein-does-not-collect-telemetry-or-upload-diagnostics-discord-retains = Serein erfasst keine Telemetriedaten und lädt keine Diagnosedaten hoch. Discord speichert dienstseitige Daten gemäß seinen eigenen Richtlinien.
 # Context: storage_page
 settings-storage-page-your-privacy = Ihre Privatsphäre
-settings-storage-page-saved-login = Gespeicherte Anmeldung
-settings-storage-page-plaintext-login = Anmeldung im Klartext ohne Schlüsselbund speichern
-settings-storage-page-plaintext-login-description = Wird nur verwendet, wenn kein Schlüsselbund des Betriebssystems (GNOME Keyring, KWallet, Keychain oder Credential Manager) funktioniert. Das Token wird unverschlüsselt in einer privaten Datei im Serein-Datenordner gespeichert, wo jeder mit Zugriff auf Ihr Benutzerkonto es lesen kann. Durch Deaktivieren werden diese Dateien gelöscht.
 # Context: cosmetic_settings
 settings-cosmetics = Profil-Kosmetik
 # Context: cosmetic_settings
@@ -4619,6 +4621,11 @@ profiles-board-empty = No games on this board yet.
 profiles-board-show-more = Show more
 profiles-board-show-less = Show less
 profiles-activity-empty = Keine geteilte Aktivität.
+profiles-in-voice-server = in { $server }
+profiles-in-voice-join = Beitreten
+profiles-in-voice-joined = Sie sind bereits in diesem Sprachkanal.
+profiles-in-voice-failed = Schließen Sie zuerst den fehlgeschlagenen Anruf und treten Sie dann erneut bei.
+profiles-in-voice-unavailable = Sie können diesem Sprachkanal gerade nicht beitreten.
 profiles-mutuals-empty = Nothing to show here.
 
 reading-double-click-reaction = Double-click reaction

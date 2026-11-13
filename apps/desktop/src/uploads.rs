@@ -373,6 +373,8 @@ struct Uploading {
 	progress: watch::Receiver<Status>,
 	cancel: watch::Sender<bool>,
 	cancelling: bool,
+	/// The pending message this upload sends, when it is a message.
+	nonce: Option<String>,
 }
 struct ExternalUploading {
 	result: mpsc::Receiver<Result<String, model::public_upload::Error>>,
@@ -907,10 +909,12 @@ impl Uploads {
 						None,
 						Some("Message outcome unknown; check the conversation before retrying"),
 					),
-					Status::Preparing | Status::Uploading { .. } if uploading.cancelling => {
+					Status::Preparing | Status::Uploading { .. } | Status::Verifying
+						if uploading.cancelling =>
+					{
 						(Some(Status::Cancelled), None)
 					}
-					Status::Preparing | Status::Uploading { .. } => {
+					Status::Preparing | Status::Uploading { .. } | Status::Verifying => {
 						(None, Some("Attachment upload interrupted"))
 					}
 					Status::Failed(error) => (None, Some(error)),
@@ -1069,8 +1073,21 @@ impl Uploads {
 			progress,
 			cancel,
 			cancelling: false,
+			nonce: None,
 		});
 		Ok(())
+	}
+	/// Names the pending message the upload just begun will send.
+	pub fn sends(&mut self, nonce: &str) {
+		if let Some(uploading) = &mut self.uploading {
+			uploading.nonce = Some(nonce.to_owned());
+		}
+	}
+	/// The pending message whose upload is waiting on a user-solved challenge.
+	pub fn verifying(&self) -> Option<&str> {
+		let uploading = self.uploading.as_ref()?;
+		(self.last == Some(Status::Verifying) && !uploading.cancelling)
+			.then_some(uploading.nonce.as_deref())?
 	}
 }
 impl Drop for Uploads {

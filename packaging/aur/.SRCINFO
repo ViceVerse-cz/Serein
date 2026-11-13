@@ -139,7 +139,7 @@ pkgbase = serein-bin
 	depends = xdg-desktop-portal
 	depends = xz>=5.8.4-1
 	depends = zstd>=1.5.7-3
-	optdepends = gnome-keyring: Secret Service credential provider
+	optdepends = gnome-keyring: OS keyring for saved logins (any Secret Service provider works)
 	optdepends = gst-plugins-bad: hardware screen encoding
 	optdepends = gst-libav: inline video
 	provides = serein=1.0.0pre.nightly.20261001.53
