@@ -61,6 +61,9 @@ pub enum InstallSource {
 	},
 }
 
+// Jobs are short-lived and few; Invoke carries the full invocation, so boxing
+// is not worth the churn.
+#[allow(clippy::large_enum_variant)]
 pub enum Job {
 	EditTheme {
 		id: String,

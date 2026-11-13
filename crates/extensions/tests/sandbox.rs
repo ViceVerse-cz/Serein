@@ -150,6 +150,7 @@ fn menu_actions_reject_missing_or_mismatched_targets_before_running() {
 		id: "run".into(),
 		label: "Run".into(),
 		surface: Surface::User,
+		icon: None,
 	}];
 	let user = MenuTarget::User {
 		user_id: "4".into(),

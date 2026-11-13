@@ -73,6 +73,9 @@ impl ExtensionContext {
 	}
 }
 
+// Requests are short-lived and few; the Invoke variant carries the full
+// invocation (including the media-privacy config), so boxing is not worth it.
+#[allow(clippy::large_enum_variant)]
 pub enum ExtensionRequest {
 	EditTheme {
 		id: String,
