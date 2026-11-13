@@ -2853,8 +2853,20 @@ impl TimelineView {
 			offset = None;
 		}
 		// Cancel Jump to Present before the live-edge snap. Snapping first would make
-		// this wheel start at the bottom instead of the glide's current place.
-		if user_scroll != 0.0 && self.present_scroll.take().is_some() {
+		// this wheel start at the bottom instead of the glide's current place. Only a new
+		// gesture at the timeline cancels it: leftover smoothing and wheels over other panels
+		// also show up in the global delta.
+		let timeline_gesture = autoscroll_delta != 0.0
+			|| (wheel.y != 0.0
+				&& ui.rect_contains_pointer(area)
+				&& ui.input(|input| {
+					input
+						.raw
+						.events
+						.iter()
+						.any(|event| matches!(event, egui::Event::MouseWheel { .. }))
+				}));
+		if timeline_gesture && self.present_scroll.take().is_some() {
 			self.following = false;
 			self.left_live_edge = true;
 			offset = None;
@@ -4849,6 +4861,12 @@ impl TimelineView {
 			&& crate::select::has_selection(ui.ctx());
 		if user_scrolled_up || dragged_up || selection_scrolled_up {
 			self.left_live_edge = true;
+		}
+		if dragged_up {
+			// A glide in flight would pull the reader back down from the dragged place. A
+			// wheel cancels it above. Layout corrections during a glide can look like a
+			// selection scroll, so that does not cancel it.
+			self.present_scroll = None;
 		}
 		if scrolled_toward_bottom || dragged_down {
 			self.left_live_edge = false;
@@ -9158,6 +9176,26 @@ mod tests {
 			gliding < live_edge - 500.0,
 			"the glide started from the parked place, at {gliding} vs {live_edge}"
 		);
+		// A wheel over another panel, and the smoothing it leaves behind, are not aimed
+		// at the timeline and must not stop the glide.
+		frame(
+			&mut view,
+			vec![
+				egui::Event::PointerGone,
+				egui::Event::MouseWheel {
+					unit: egui::MouseWheelUnit::Line,
+					delta: egui::vec2(0.0, 1.0),
+					modifiers: egui::Modifiers::NONE,
+					phase: egui::TouchPhase::Move,
+					source: egui::MouseWheelSource::Unknown,
+				},
+			],
+		);
+		frame(
+			&mut view,
+			vec![egui::Event::PointerMoved(egui::pos2(150.0, 200.0))],
+		);
+		assert!(view.present_scroll.is_some() && view.following);
 		let interrupted = frame(
 			&mut view,
 			vec![
@@ -9175,6 +9213,29 @@ mod tests {
 		assert!(
 			interrupted < live_edge - 500.0,
 			"the wheel jumped to the live edge: {interrupted} vs {live_edge}"
+		);
+		// Pressing the scrollbar track above the thumb mid-glide leaves the live edge too.
+		view.present_scroll = Some((view.scroll_offset, 0.0));
+		frame(&mut view, vec![]);
+		assert!(view.present_scroll.is_some() && view.following);
+		let track = egui::pos2(895.0, 120.0);
+		let pressed = frame(
+			&mut view,
+			vec![
+				egui::Event::PointerMoved(track),
+				egui::Event::PointerButton {
+					pos: track,
+					button: egui::PointerButton::Primary,
+					pressed: true,
+					modifiers: egui::Modifiers::NONE,
+				},
+			],
+		);
+		assert!(!view.following && view.present_scroll.is_none());
+		let idle = frame(&mut view, vec![]);
+		assert!(
+			(idle - pressed).abs() < 1.0,
+			"the glide pulled the reader back: {idle} vs {pressed}"
 		);
 	}
 
