@@ -255,6 +255,7 @@ mod tests {
 				cosmetics: None,
 			}),
 			channels: vec![Channel {
+				user_limit: None,
 				id: Id(10),
 				guild: None,
 				parent_id: None,
@@ -527,6 +528,7 @@ mod tests {
 		typist.id = Id(7);
 		typist.name = "Synthetic typist".into();
 		state.channels.push(Channel {
+			user_limit: None,
 			id: channel,
 			guild: Some(Id(50)),
 			parent_id: None,

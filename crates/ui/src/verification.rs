@@ -60,6 +60,12 @@ impl VerificationUi {
 					.and_then(|preview| preview.embed.title.as_deref())
 			})
 			.flatten();
+		// Where the same step can be finished in Discord itself: the invite, or the web app.
+		let official = if invite {
+			format!("https://discord.com/invite/{}", state.invite_join.code)
+		} else {
+			"https://discord.com/channels/@me".to_owned()
+		};
 		let mut cancel = false;
 		let response = dialog::Dialog::new(
 			id,
@@ -75,45 +81,101 @@ impl VerificationUi {
 						.on_hover_text(title);
 					ui.add_space(12.0);
 				}
-				let height = if self.active {
-					(ctx.content_rect().height() - 260.0).clamp(160.0, 480.0)
+				let body = crate::i18n::translate_if_key(if state.demo {
+					"verification-show-offline-preview-no-verification-service-is-contacted"
 				} else {
-					148.0
-				};
-				let (rect, _) = ui.allocate_exact_size(
-					egui::vec2(ui.available_width(), height),
-					egui::Sense::hover(),
-				);
-				ui.painter().rect_filled(rect, 10, colors.base);
-				ui.scope_builder(egui::UiBuilder::new().max_rect(rect.shrink(16.0)), |ui| {
-					ui.vertical_centered(|ui| {
-						ui.add_space(if self.active { 28.0 } else { 12.0 });
-						ui.label(design::semibold(
-							ui,
-							crate::i18n::translate_if_key(if self.active {
-								"verification-show-loading-verification"
-							} else {
-								"verification-show-one-quick-check"
-							}),
-							18.0,
-						));
-						ui.add_space(8.0);
-						ui.add(
-							egui::Label::new(
-								egui::RichText::new(crate::i18n::translate_if_key(if state.demo {
-									"verification-show-offline-preview-no-verification-service-is-contacted"
-								} else {
-									body
-								}))
-								.size(13.0)
-								.color(colors.muted),
-							)
-							.wrap(),
-						);
-					});
+					body
 				});
 				if self.active {
+					// The widget is laid over this rectangle; the text shows only while it loads.
+					let height = (ctx.content_rect().height() - 260.0).clamp(160.0, 480.0);
+					let (rect, _) = ui.allocate_exact_size(
+						egui::vec2(ui.available_width(), height),
+						egui::Sense::hover(),
+					);
+					ui.painter().rect_filled(rect, 10, colors.base);
+					ui.scope_builder(egui::UiBuilder::new().max_rect(rect.shrink(16.0)), |ui| {
+						ui.vertical_centered(|ui| {
+							ui.add_space(28.0);
+							ui.label(design::semibold(
+								ui,
+								crate::i18n::translate("verification-show-loading-verification"),
+								16.0,
+							));
+							ui.add_space(6.0);
+							ui.add(
+								egui::Label::new(
+									egui::RichText::new(&body).size(13.0).color(colors.muted),
+								)
+								.wrap(),
+							);
+						});
+					});
 					self.bounds = Some(rect);
+				} else {
+					egui::Frame::new()
+						.fill(colors.base)
+						.corner_radius(10)
+						.inner_margin(egui::Margin::same(16))
+						.show(ui, |ui| {
+							ui.set_width(ui.available_width());
+							ui.horizontal_top(|ui| {
+								ui.spacing_mut().item_spacing.x = 12.0;
+								let (badge, _) = ui.allocate_exact_size(
+									egui::Vec2::splat(36.0),
+									egui::Sense::hover(),
+								);
+								ui.painter().circle_filled(
+									badge.center(),
+									18.0,
+									colors.accent.gamma_multiply(0.16),
+								);
+								crate::icons::paint(
+									ui.painter(),
+									crate::icons::Icon::Lock,
+									egui::Rect::from_center_size(
+										badge.center(),
+										egui::Vec2::splat(18.0),
+									),
+									colors.accent,
+								);
+								ui.vertical(|ui| {
+									ui.spacing_mut().item_spacing.y = 4.0;
+									ui.label(design::semibold(
+										ui,
+										crate::i18n::translate("verification-show-one-quick-check"),
+										15.0,
+									));
+									ui.add(
+										egui::Label::new(
+											egui::RichText::new(&body)
+												.size(13.0)
+												.color(colors.muted),
+										)
+										.wrap(),
+									);
+								});
+							});
+						});
+					ui.add_space(12.0);
+					dialog::notice(
+						ui,
+						dialog::Level::Warning,
+						"verification-show-safer-in-the-official-discord-app",
+					);
+					ui.add_space(8.0);
+					if dialog::action(
+						ui,
+						"verification-show-open-discord",
+						dialog::Action::Outline,
+					)
+					.on_hover_text(&official)
+					.clicked()
+					{
+						// The step is finished in Discord instead, so this pending write ends here.
+						ctx.open_url(egui::OpenUrl::new_tab(&official));
+						cancel = true;
+					}
 				}
 				if let Some(error) = self.error {
 					ui.add_space(12.0);

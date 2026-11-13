@@ -10,6 +10,7 @@ fn state() -> State {
 		freshness: Freshness::Fresh,
 		selected: Some(Id(10)),
 		channels: vec![model::Channel {
+			user_limit: None,
 			id: Id(10),
 			guild: None,
 			parent_id: None,

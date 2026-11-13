@@ -72,6 +72,11 @@ general-gpu-restart = 다음에 Serein을 시작할 때 적용됩니다.
 general-gpu-current-prefix = 현재 렌더링 장치
 general-steady-refresh-rate = 일정한 새로 고침 빈도
 general-steady-refresh-rate-description = Serein 창이 활성화되어 있을 때 디스플레이의 새로 고침 빈도로 그립니다. 가변 새로 고침 빈도(VRR, G-SYNC, FreeSync) 디스플레이에서 빈도를 일정하게 유지하여 깜박임을 줄입니다. 전력 사용량이 늘어납니다.
+steady-refresh-prompt-title = G-SYNC 디스플레이 감지됨
+steady-refresh-prompt-body = Serein은 변경 사항이 있을 때만 다시 그리기 때문에 Serein 창이 활성화되어 있는 동안 G-SYNC 디스플레이가 깜박일 수 있습니다. 일정한 새로 고침 빈도를 켜면 디스플레이의 새로 고침 빈도로 그려 깜박임을 막지만 전력 사용량이 늘어납니다. 켜시겠습니까?
+steady-refresh-prompt-turn-on = 켜기
+steady-refresh-prompt-keep-off = 괜찮습니다
+steady-refresh-prompt-settings = 나중에 설정 > { $page } > { $group }에서 변경할 수 있습니다.
 gpu-automatic = 자동
 gpu-high-performance = 고성능
 gpu-power-saving = 절전
@@ -4127,6 +4132,10 @@ verification-show-one-quick-check = 간단한 확인
 verification-show-verification-required = 인증 필요
 # Context: show
 verification-show-verify = 인증
+# Context: show
+verification-show-safer-in-the-official-discord-app = 공식 Discord 앱에서 이 확인을 완료하는 것이 더 안전합니다. Serein에서 확인을 완료하면 Discord가 새 계정에 전화번호 인증을 요구할 수 있습니다.
+# Context: show
+verification-show-open-discord = Discord 열기
 
 ## crates/ui/src/video.rs
 # Context: show_player
@@ -4251,6 +4260,13 @@ voice-voice-card-section-dismiss-call = 통화 닫기
 voice-voice-card-section-reconnect-attempt = { $reason } · { $total }회 중 { $attempt }회 시도
 # Context: voice_card_section
 voice-voice-card-section-reconnecting = 다시 연결 중…
+
+voice-connection-title = 연결
+voice-connection-ping-value = { $millis }ms
+voice-connection-ping-pending = 첫 번째 핑을 기다리는 중…
+voice-connection-average-ping = 평균 핑: { $value }
+voice-connection-last-ping = 최근 핑: { $value }
+voice-connection-ping-description = 음성 신호 서버까지의 왕복 시간입니다.
 # Context: voice_card_section
 voice-voice-card-section-microphone-unavailable-a-still-connected-choose-another-input-in-audio = 마이크를 사용할 수 없습니다 · 연결은 유지됩니다. 오디오 설정에서 다른 입력을 선택하세요.
 # Context: voice_channel_button
@@ -4709,6 +4725,11 @@ profiles-board-empty = 이 보드에는 아직 게임이 없습니다.
 profiles-board-show-more = 더 보기
 profiles-board-show-less = 간략히 보기
 profiles-activity-empty = 공유된 활동이 없습니다.
+profiles-in-voice-server = { $server }에서
+profiles-in-voice-join = 참가
+profiles-in-voice-joined = 이 음성 채널에 참가 중입니다.
+profiles-in-voice-failed = 실패한 통화를 먼저 닫은 다음 다시 참가하세요.
+profiles-in-voice-unavailable = 지금은 이 음성 채널에 참가할 수 없습니다.
 profiles-mutuals-empty = 표시할 항목이 없습니다.
 
 reading-double-click-reaction = 두 번 클릭 반응
@@ -5071,3 +5092,33 @@ profiles-in-voice-join = 참가
 profiles-in-voice-joined = 이 음성 채널에 참가 중입니다.
 profiles-in-voice-failed = 실패한 통화를 닫은 후 다시 참가하세요.
 profiles-in-voice-unavailable = 지금은 이 음성 채널에 참가할 수 없습니다.
+# Context: moderation
+moderation-menu-timeout = { $name } 님 타임아웃
+# Context: moderation
+moderation-menu-kick = { $name } 님 추방하기
+# Context: moderation
+moderation-menu-ban = { $name } 님 차단하기
+# Context: moderation
+moderation-timeout-detail = 타임아웃이 끝날 때까지 메시지를 보내거나 반응을 추가하거나 음성 채널에 참가할 수 없어요.
+# Context: moderation
+moderation-kick-detail = 새 초대를 받으면 다시 참가할 수 있어요.
+# Context: moderation
+moderation-ban-detail = 차단을 해제하기 전에는 다시 참가할 수 없어요.
+# Context: moderation
+moderation-duration-60-seconds = 60초
+# Context: moderation
+moderation-remove-timeout = 타임아웃 해제
+# Context: moderation
+moderation-delete-history = 메시지 기록 삭제
+# Context: moderation
+moderation-delete-none = 삭제하지 않음
+# Context: moderation
+moderation-delete-hour = 지난 1시간
+# Context: moderation
+moderation-delete-day = 지난 24시간
+# Context: moderation
+moderation-delete-week = 지난 7일
+# Context: moderation
+moderation-confirm-timeout = 타임아웃
+# Context: moderation
+moderation-confirm-ban = 차단

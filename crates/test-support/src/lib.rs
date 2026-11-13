@@ -352,6 +352,7 @@ pub fn demo_state() -> State {
 			}],
 			channels: vec![
 				Channel {
+					user_limit: None,
 					last_message: None,
 					id: Id(20),
 					guild: Some(Id(10)),
@@ -366,6 +367,7 @@ pub fn demo_state() -> State {
 					message_count: None,
 				},
 				Channel {
+					user_limit: None,
 					last_message: None,
 					id: Id(21),
 					guild: Some(Id(10)),
@@ -380,6 +382,7 @@ pub fn demo_state() -> State {
 					message_count: None,
 				},
 				Channel {
+					user_limit: None,
 					last_message: None,
 					id: Id(22),
 					guild: None,
@@ -394,6 +397,7 @@ pub fn demo_state() -> State {
 					message_count: None,
 				},
 				Channel {
+					user_limit: None,
 					last_message: None,
 					id: Id(23),
 					guild: Some(Id(10)),
@@ -408,6 +412,7 @@ pub fn demo_state() -> State {
 					message_count: None,
 				},
 				Channel {
+					user_limit: None,
 					id: Id(40),
 					guild: None,
 					parent_id: None,
@@ -431,6 +436,7 @@ pub fn demo_state() -> State {
 					message_count: None,
 				},
 				Channel {
+					user_limit: None,
 					id: Id(43),
 					guild: None,
 					parent_id: None,
@@ -454,6 +460,7 @@ pub fn demo_state() -> State {
 					message_count: None,
 				},
 				Channel {
+					user_limit: None,
 					id: Id(29),
 					guild: None,
 					parent_id: None,
@@ -480,6 +487,7 @@ pub fn demo_state() -> State {
 					message_count: None,
 				},
 				Channel {
+					user_limit: None,
 					last_message: None,
 					id: Id(24),
 					guild: Some(Id(10)),
@@ -494,6 +502,7 @@ pub fn demo_state() -> State {
 					message_count: None,
 				},
 				Channel {
+					user_limit: None,
 					last_message: None,
 					id: Id(25),
 					guild: Some(Id(10)),
@@ -508,6 +517,7 @@ pub fn demo_state() -> State {
 					message_count: None,
 				},
 				Channel {
+					user_limit: None,
 					id: Id(26),
 					guild: Some(Id(10)),
 					parent_id: Some(Id(24)),
@@ -522,6 +532,7 @@ pub fn demo_state() -> State {
 					message_count: None,
 				},
 				Channel {
+					user_limit: None,
 					id: Id(27),
 					guild: Some(Id(10)),
 					parent_id: Some(Id(26)),
@@ -539,6 +550,7 @@ pub fn demo_state() -> State {
 					message_count: Some(10),
 				},
 				Channel {
+					user_limit: None,
 					id: Id(41),
 					guild: Some(Id(10)),
 					parent_id: Some(Id(26)),
@@ -556,6 +568,7 @@ pub fn demo_state() -> State {
 					message_count: Some(0),
 				},
 				Channel {
+					user_limit: None,
 					id: Id(42),
 					guild: Some(Id(10)),
 					parent_id: Some(Id(26)),
@@ -573,6 +586,7 @@ pub fn demo_state() -> State {
 					message_count: Some(6),
 				},
 				Channel {
+					user_limit: None,
 					id: Id(28),
 					guild: Some(Id(10)),
 					parent_id: Some(Id(20)),
@@ -757,7 +771,9 @@ pub fn voice_demo_state() -> State {
 		.find(|c| c.id == Id(25))
 		.unwrap()
 		.name = "Room 3,5".into();
+	// A full two-person room shows the user-limit pill and refuses joins.
 	state.channels.push(Channel {
+		user_limit: Some(2),
 		id: Id(26),
 		guild: Some(Id(10)),
 		parent_id: Some(Id(24)),
@@ -772,14 +788,16 @@ pub fn voice_demo_state() -> State {
 		last_message: None,
 	});
 	state.voice.roster = [
-		(1, "You (synthetic)", false, false),
-		(2, "Robin with a rather long display name", true, true),
-		(3, "Fern and the midnight orchestra", true, false),
+		(1, "You (synthetic)", false, false, 25),
+		(2, "Robin with a rather long display name", true, true, 25),
+		(3, "Fern and the midnight orchestra", true, false, 25),
+		(4, "Ash", false, false, 26),
+		(5, "Wren", true, false, 26),
 	]
 	.into_iter()
-	.map(|(id, name, muted, deafened)| RosterEntry {
+	.map(|(id, name, muted, deafened, channel)| RosterEntry {
 		guild: Id(10),
-		channel: Id(25),
+		channel: Id(channel),
 		participant: Participant {
 			user: Id(id),
 			muted,
@@ -828,6 +846,7 @@ pub fn voice_demo_state() -> State {
 			.voice
 			.roster
 			.iter()
+			.filter(|entry| entry.channel == Id(25))
 			.map(|entry| entry.participant)
 			.collect(),
 		error: None,
@@ -979,6 +998,7 @@ pub fn seed_access_marks(state: &mut State) {
 	const STAFF: Id = Id(11);
 	const ACCESS: Id = Id(60);
 	let channel = |id, kind, parent, position, name: &str| Channel {
+		user_limit: None,
 		last_message: None,
 		id: Id(id),
 		guild: Some(GUILD),

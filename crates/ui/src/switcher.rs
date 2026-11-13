@@ -705,6 +705,7 @@ mod tests {
 		let mut state = test_support::demo_state();
 		state.channels = (1..=30)
 			.map(|id| Channel {
+				user_limit: None,
 				id: Id(id),
 				guild: None,
 				parent_id: None,

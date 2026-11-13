@@ -570,6 +570,7 @@ mod tests {
 					crate::decode(&serde_json::to_vec(&fixture()).unwrap()).unwrap();
 				ready.guilds[0].channels = (0..count)
 					.map(|index| ChannelDto {
+						user_limit: 0,
 						id: Id(index as u64 + 100),
 						guild_id: Some(Id(1)),
 						name: None,

@@ -1101,6 +1101,7 @@ mod navigation_tests {
 			freshness: Freshness::Fresh,
 			selected: Some(Id(1)),
 			channels: vec![Channel {
+				user_limit: None,
 				id: Id(1),
 				guild: None,
 				parent_id: None,

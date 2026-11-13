@@ -1,10 +1,22 @@
 # Local storage policy and audit
 
-## Call stage background
+## Discord device state (November 13, 2026)
 
-The device preferences store an optional three-byte RGB value for the call stage. Older
-preferences and a reset follow the active theme. The setting is independent of the account
-and uses the existing bounded preferences row.
+REST now keeps the cookies Discord sets, as a browser profile does, so each launch is the same
+device instead of a new one with no history. A new account was asked to verify a phone number
+after solving a captcha in Serein; the cause is unverified. Yapfast and SakuraCord keep the same state.
+
+- Scope: only `https://discord.com` responses are stored and only `https://discord.com` requests
+  receive cookies. A `Domain` other than `discord.com` is refused. Other clients (uploads, CDN,
+  external services, the webviews) keep none; `cargo xtask check` rejects any other cookie store.
+- Bounds: at most 16 cookies of 4 KiB (name plus value) each, lifetimes capped at 400 days. A full
+  store evicts its oldest session cookie, otherwise its oldest cookie.
+- Persistence: session cookies stay in memory. Persistent cookies and the installation ID that
+  Discord issues (`GET /apex/experiments?surface=2`, unauthenticated, once per process) are saved
+  in `discord-device.json` in the data directory: mode 0600 on Unix, at most 128 KiB, written
+  through a newly created temporary file, synced and renamed. Larger or unreadable files are ignored.
+- Lifetime: the file is device state, not a credential, and survives logout like a browser's
+  device cookies. Deleting it makes the next launch a new device. The account token is never written to it.
 
 ## Logical RTL message layout (November 9, 2026)
 
@@ -906,7 +918,7 @@ SQLite work is serialized on a worker. Normal startup opens the database to load
 
 Saved recovery text prefers the current nonempty draft, otherwise the most recent unresolved send in that channel. Only a matching own-author/channel/nonce confirmation updates this recovery record. This is one recovery draft per channel, not a durable multi-message outbox; additional unresolved sends remain in RAM and the close prompt warns before discarding them. Incoming hidden-channel events do not rewrite the active cache; accepted active-view changes are coalesced into at most one snapshot per event-drain pass.
 
-Source checks verify disabled eframe persistence, disabled REST cookies, one renderer, and an ephemeral webview request. egui-wgpu 0.37.0 creates its render pipeline with `cache: None`. Avatar decoding and disk I/O run on a dedicated worker; egui receives bounded decoded results. These are chosen implementation settings, **not a renewed no-storage requirement**.
+Source checks verify disabled eframe persistence, REST cookies limited to the Discord device store, one renderer, and an ephemeral webview request. egui-wgpu 0.37.0 creates its render pipeline with `cache: None`. Avatar decoding and disk I/O run on a dedicated worker; egui receives bounded decoded results. These are chosen implementation settings, **not a renewed no-storage requirement**.
 
 Offline SQLite tests exercise real temporary-file reopen, schema upgrade, appearance reset, read-only failure, draft capacity rollback, account isolation, 20-channel eviction and atomic logout rollback/deletion. They remove their synthetic test files. OS credential-store and webview write tracing remain unverified. Windows WebView2 may create user-data/runtime artifacts even for InPrivate mode; this must be measured, and old WebView2 runtimes that ignore incognito must not be claimed ephemeral. No zero-byte storage claim is made.
 
