@@ -1,5 +1,37 @@
 # Local storage policy and audit
 
+## Local API (November 11, 2026)
+
+Only with the owner's **Enable the local API** device preference (off by default, and off
+for preferences saved before it existed), the desktop process serves
+[the local API](local-api.md) on one private address: the `\\.\pipe\serein-api` named
+pipe on Windows, or `serein-api.sock` in the runtime directory elsewhere. No TCP port is
+opened. Turning the preference off closes the address and every connection. A second
+preference, **Allow apps to control voice**, is also off by default and is required for
+any change.
+
+The access key is 32 random bytes as hex, stored as one OS credential-store entry
+(`discord-session.local-api`, or the `.development` variant) and never in SQLite,
+preferences, logs or plain files. If no credential store accepts it, the key lives in
+process memory until the app closes, including while the API is switched off, so an
+off and on switch does not change it. **Reset key** overwrites the entry, or deletes it
+when the new key cannot be saved. If the store takes neither, or a write passes its
+time limit without an answer and so may still land, one boolean device preference (`local_api_key_revoked`) records that the saved entry is revoked; while it is
+set the entry is never read, and it is cleared once a later switch-on or reset replaces
+or deletes the entry. The preference holds no key material. Every credential-store call
+runs on one ordered worker with a five-second limit, and a call whose caller gave up
+while it was queued is skipped, so a reset key is not written late. The `--demo` fixture
+never reads or writes the entry. Copying the key hands it to the OS clipboard, whose
+retention is outside Serein's control.
+
+Everything else stays in process memory and is dropped when the listener stops: one
+shared view of the signed-in account's ID, name and avatar hash and at most 64 call
+members (64-character names), up to eight connections with a 4 KiB request buffer and a
+32-character app name each, and a queue of 32 pending voice changes. There is no
+per-client event backlog. Diagnostics records four fixed lines: listening, stopped, a
+refused client and a key reset the store did not take. Per-person volumes and local
+mutes changed through the API use the existing bounded device-preference fields, and
+only for people still in the call the change was accepted for.
 ## Discord device state (November 13, 2026)
 
 REST now keeps the cookies Discord sets, as a browser profile does, so each launch is the same

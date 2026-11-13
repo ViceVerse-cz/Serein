@@ -5099,3 +5099,45 @@ timestamp-style-full = Full date and time
 timestamp-style-relative = Relative time
 timestamp-style-short-date-time = Short date and time
 timestamp-style-short-date-seconds = Short date and time with seconds
+# Context: local_api_settings
+settings-local-api = Local API
+# Context: local_api_settings
+settings-local-api-enable = Enable the local API
+# Context: local_api_settings
+settings-local-api-enable-description = Apps on this computer that hold your access key can see which account is signed in and who is in your call. Off until you turn it on.
+# Context: local_api_settings
+settings-local-api-control = Allow apps to control voice
+# Context: local_api_settings
+settings-local-api-control-description = Connected apps can also mute or deafen you and change each person's volume and local mute on this device.
+# Context: local_api_settings
+settings-local-api-starting = Starting…
+# Context: local_api_settings
+settings-local-api-listening = Listening
+# Context: local_api_settings
+settings-local-api-unavailable = Unavailable
+# Context: local_api_settings
+settings-local-api-unavailable-detail = Another program is using this address, or the system refused it. Serein keeps trying.
+# Context: local_api_settings
+settings-local-api-no-apps = No apps connected.
+# Context: local_api_settings
+settings-local-api-connected = Connected: { $apps }
+# Context: local_api_settings
+settings-local-api-unnamed-app = Unnamed app
+# Context: local_api_settings
+settings-local-api-endpoint = Address
+# Context: local_api_settings
+settings-local-api-key = Access key
+# Context: local_api_settings
+settings-local-api-key-description = Apps prove they hold this key without sending it. Treat it like a password. Resetting it disconnects every app.
+# Context: local_api_settings
+settings-local-api-key-session = This key is not saved in a system keyring, so it only lasts until Serein closes. Resetting it disconnects every app.
+# Context: local_api_settings
+settings-local-api-key-revoked = The system keyring could not be updated, so the key saved there is ignored and this one lasts until Serein closes. Turn the API off and on, or reset again, to retry.
+# Context: local_api_settings
+settings-local-api-copy-key = Copy key
+# Context: local_api_settings
+settings-local-api-reset-key = Reset key
+# Context: local_api_settings
+settings-local-api-security-detail = Only programs running as you on this computer can connect, and only with the access key. Web pages and other devices cannot reach it. Apps never receive your login, messages or audio.
+# Context: local_api_settings
+settings-local-api-revocation-unsaved = Serein could not save the reset on this device yet, so the old key could work again after a restart. It keeps retrying.

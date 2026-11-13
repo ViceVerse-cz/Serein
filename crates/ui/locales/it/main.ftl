@@ -4904,3 +4904,45 @@ new-message-hint = Aggiungi amici per avviare un messaggio diretto o un gruppo.
 new-message-no-people-found = Nessuno corrisponde a questa ricerca.
 new-message-create = Crea messaggio
 new-message-cancel = Annulla
+# Context: local_api_settings
+settings-local-api = API locale
+# Context: local_api_settings
+settings-local-api-enable = Attiva l'API locale
+# Context: local_api_settings
+settings-local-api-enable-description = Le app di questo computer che hanno la tua chiave di accesso possono vedere quale account è connesso e chi partecipa alla tua chiamata. Disattivata finché non la attivi.
+# Context: local_api_settings
+settings-local-api-control = Consenti alle app di controllare la voce
+# Context: local_api_settings
+settings-local-api-control-description = Le app collegate possono anche silenziarti o escluderti l'audio e cambiare il volume e il silenziamento locale di ogni persona su questo dispositivo.
+# Context: local_api_settings
+settings-local-api-starting = Avvio…
+# Context: local_api_settings
+settings-local-api-listening = In ascolto
+# Context: local_api_settings
+settings-local-api-unavailable = Non disponibile
+# Context: local_api_settings
+settings-local-api-unavailable-detail = Un altro programma sta usando questo indirizzo oppure il sistema lo ha rifiutato. Serein continua a riprovare.
+# Context: local_api_settings
+settings-local-api-no-apps = Nessuna app collegata.
+# Context: local_api_settings
+settings-local-api-connected = Collegate: { $apps }
+# Context: local_api_settings
+settings-local-api-unnamed-app = App senza nome
+# Context: local_api_settings
+settings-local-api-endpoint = Indirizzo
+# Context: local_api_settings
+settings-local-api-key = Chiave di accesso
+# Context: local_api_settings
+settings-local-api-key-description = Le app dimostrano di avere questa chiave senza inviarla. Trattala come una password. Reimpostandola tutte le app vengono scollegate.
+# Context: local_api_settings
+settings-local-api-key-session = Questa chiave non è salvata in un portachiavi di sistema, quindi dura solo fino alla chiusura di Serein. Reimpostandola tutte le app vengono scollegate.
+# Context: local_api_settings
+settings-local-api-key-revoked = Non è stato possibile aggiornare il portachiavi di sistema, quindi la chiave salvata lì viene ignorata e questa dura solo fino alla chiusura di Serein. Disattiva e riattiva l'API, oppure reimposta di nuovo la chiave, per riprovare.
+# Context: local_api_settings
+settings-local-api-copy-key = Copia chiave
+# Context: local_api_settings
+settings-local-api-reset-key = Reimposta chiave
+# Context: local_api_settings
+settings-local-api-security-detail = Possono collegarsi solo i programmi eseguiti con il tuo utente su questo computer, e solo con la chiave di accesso. Le pagine web e gli altri dispositivi non possono raggiungerla. Le app non ricevono mai il tuo accesso, i tuoi messaggi o il tuo audio.
+# Context: local_api_settings
+settings-local-api-revocation-unsaved = Serein non è ancora riuscito a salvare il ripristino su questo dispositivo, quindi la vecchia chiave potrebbe tornare a funzionare dopo un riavvio. Continua a riprovare.

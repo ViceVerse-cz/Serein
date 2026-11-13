@@ -5001,3 +5001,45 @@ new-message-hint = 添加好友以开始私信或群组。
 new-message-no-people-found = 没有匹配的结果。
 new-message-create = 创建消息
 new-message-cancel = 取消
+# Context: local_api_settings
+settings-local-api = 本地 API
+# Context: local_api_settings
+settings-local-api-enable = 启用本地 API
+# Context: local_api_settings
+settings-local-api-enable-description = 这台电脑上持有访问密钥的应用可以看到登入的账号以及通话中的成员。在你开启之前保持关闭。
+# Context: local_api_settings
+settings-local-api-control = 允许应用控制语音
+# Context: local_api_settings
+settings-local-api-control-description = 已连接的应用还可以将你静音或拒听，并更改这台设备上每个人的音量和本地静音。
+# Context: local_api_settings
+settings-local-api-starting = 正在启动…
+# Context: local_api_settings
+settings-local-api-listening = 正在监听
+# Context: local_api_settings
+settings-local-api-unavailable = 不可用
+# Context: local_api_settings
+settings-local-api-unavailable-detail = 另一个程序正在使用此地址，或系统拒绝了它。Serein 会继续尝试。
+# Context: local_api_settings
+settings-local-api-no-apps = 没有已连接的应用。
+# Context: local_api_settings
+settings-local-api-connected = 已连接：{ $apps }
+# Context: local_api_settings
+settings-local-api-unnamed-app = 未命名应用
+# Context: local_api_settings
+settings-local-api-endpoint = 地址
+# Context: local_api_settings
+settings-local-api-key = 访问密钥
+# Context: local_api_settings
+settings-local-api-key-description = 应用无需发送密钥即可证明自己持有它。请像对待密码一样保管。重置后所有应用都会断开连接。
+# Context: local_api_settings
+settings-local-api-key-session = 此密钥未保存到系统密钥环，因此仅在 Serein 关闭前有效。重置后所有应用都会断开连接。
+# Context: local_api_settings
+settings-local-api-key-revoked = 无法更新系统密钥环，因此其中保存的密钥会被忽略，而此密钥仅在 Serein 关闭前有效。要重试，请关闭再开启 API，或再次重置密钥。
+# Context: local_api_settings
+settings-local-api-copy-key = 复制密钥
+# Context: local_api_settings
+settings-local-api-reset-key = 重置密钥
+# Context: local_api_settings
+settings-local-api-security-detail = 只有在这台电脑上以你的用户身份运行的程序才能连接，并且必须持有访问密钥。网页和其他设备无法访问。应用永远不会收到你的登录凭据、消息或音频。
+# Context: local_api_settings
+settings-local-api-revocation-unsaved = Serein 尚未能在此设备上保存重置，因此重启后旧密钥可能会再次生效。Serein 会继续重试。

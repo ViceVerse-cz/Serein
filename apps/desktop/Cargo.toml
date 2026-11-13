@@ -39,6 +39,8 @@ getrandom.workspace = true
 url.workspace = true
 time = { workspace = true, features = ["local-offset"] }
 sha2 = "=0.10.9"
+# Already built for the TLS and voice stacks; proves the local API's access key.
+hmac = "=0.12.1"
 md4 = "=0.10.2"
 semver = "=1.0.28"
 zip = { version = "=9.0.5", default-features = false, features = ["deflate-flate2"] }

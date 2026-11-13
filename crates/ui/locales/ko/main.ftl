@@ -5073,3 +5073,45 @@ timestamp-style-full = 전체 날짜 및 시간
 timestamp-style-relative = 상대 시간
 timestamp-style-short-date-time = 짧은 날짜 및 시간
 timestamp-style-short-date-seconds = 초를 포함한 짧은 날짜 및 시간
+# Context: local_api_settings
+settings-local-api = 로컬 API
+# Context: local_api_settings
+settings-local-api-enable = 로컬 API 사용
+# Context: local_api_settings
+settings-local-api-enable-description = 액세스 키를 가진 이 컴퓨터의 앱은 로그인한 계정과 통화 참가자를 볼 수 있습니다. 직접 켜기 전까지는 꺼져 있습니다.
+# Context: local_api_settings
+settings-local-api-control = 앱의 음성 제어 허용
+# Context: local_api_settings
+settings-local-api-control-description = 연결된 앱이 나를 음소거하거나 듣기 차단하고, 이 기기에서 각 참가자의 음량과 로컬 음소거도 변경할 수 있습니다.
+# Context: local_api_settings
+settings-local-api-starting = 시작하는 중…
+# Context: local_api_settings
+settings-local-api-listening = 대기 중
+# Context: local_api_settings
+settings-local-api-unavailable = 사용할 수 없음
+# Context: local_api_settings
+settings-local-api-unavailable-detail = 다른 프로그램이 이 주소를 사용 중이거나 시스템이 거부했습니다. Serein이 계속 다시 시도합니다.
+# Context: local_api_settings
+settings-local-api-no-apps = 연결된 앱이 없습니다.
+# Context: local_api_settings
+settings-local-api-connected = 연결됨: { $apps }
+# Context: local_api_settings
+settings-local-api-unnamed-app = 이름 없는 앱
+# Context: local_api_settings
+settings-local-api-endpoint = 주소
+# Context: local_api_settings
+settings-local-api-key = 액세스 키
+# Context: local_api_settings
+settings-local-api-key-description = 앱은 이 키를 보내지 않고도 키를 가지고 있음을 증명합니다. 비밀번호처럼 다루세요. 재설정하면 모든 앱의 연결이 끊어집니다.
+# Context: local_api_settings
+settings-local-api-key-session = 이 키는 시스템 키링에 저장되지 않아 Serein을 닫을 때까지만 유효합니다. 재설정하면 모든 앱의 연결이 끊어집니다.
+# Context: local_api_settings
+settings-local-api-key-revoked = 시스템 키링을 업데이트할 수 없어 그곳에 저장된 키는 무시되며, 이 키는 Serein을 닫을 때까지만 유효합니다. 다시 시도하려면 API를 껐다가 다시 켜거나 키를 다시 재설정하세요.
+# Context: local_api_settings
+settings-local-api-copy-key = 키 복사
+# Context: local_api_settings
+settings-local-api-reset-key = 키 재설정
+# Context: local_api_settings
+settings-local-api-security-detail = 이 컴퓨터에서 내 사용자 계정으로 실행 중인 프로그램만 액세스 키를 사용해 연결할 수 있습니다. 웹 페이지나 다른 기기에서는 연결할 수 없습니다. 앱은 로그인 정보, 메시지 또는 오디오를 받지 않습니다.
+# Context: local_api_settings
+settings-local-api-revocation-unsaved = 이 기기에 재설정을 아직 저장하지 못해 다시 시작한 후 이전 키가 다시 작동할 수 있습니다. Serein이 계속 다시 시도합니다.

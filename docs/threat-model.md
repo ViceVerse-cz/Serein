@@ -19,6 +19,22 @@ release. Catalog review and hashes do not eliminate host/runtime vulnerabilities
 or protect against a compromised catalog maintainer. Local extension data is
 unencrypted; same-user filesystem tampering is outside the Wasm sandbox.
 
+The opt-in [local API](local-api.md) adds a boundary with other programs on the same
+computer. It listens only on a named pipe or Unix socket restricted to the current OS
+user, never a TCP port, so web pages, other users and other machines cannot reach it.
+A client must prove a 256-bit access key by HMAC challenge-response, and Serein proves
+the key back, so a program that takes the address first learns nothing it can replay.
+The key stays in the OS credential store; a reset the store refuses is remembered so
+the old key is never loaded again. Clients see only the signed-in account's
+identity and the current call's members and voice flags; credentials, messages, audio
+and other servers are never exposed. Voice changes need a second owner opt-in, are
+limited to mute, deafen and the playback of people already in the call, are bound to the
+session and call they were accepted for, and are applied on the UI thread through the
+same paths as the owner's own controls. Frames, connections,
+handshake time and queues are bounded. Not addressed: software already running as the
+same user, which can read the credential store or process memory, and an app the owner
+gave the key to misusing what it is allowed to see or change.
+
 Protect session credentials, private messages, draft integrity, account isolation and platform permissions. Trust Discord as the service endpoint, but validate transport origins, lengths and response shapes. Server authorization is authoritative.
 
 Credentials are non-serializable, non-Clone, redacted, zeroized in owned Rust buffers where practical, and saved through the OS credential store by default. The explicit Storage opt-in permits bounded unencrypted login files when an OS save fails; see [storage policy](storage-policy.md). Same-user software, administrators and backups can read those files. Temporary copies exist inside HTTP/WebSocket/JS/platform engines; no universal memory-erasure claim is made. A password is never entered into a Rust form. The login bridge is limited to its own newly-created Discord webview and never searches other apps or profiles.

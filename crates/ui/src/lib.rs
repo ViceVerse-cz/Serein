@@ -56,6 +56,8 @@ mod emoji_picker;
 mod emoticons;
 pub mod fonts;
 pub mod i18n;
+mod local_api;
+pub use local_api::{LocalApiKey, LocalApiRequest, LocalApiState, LocalApiStatus};
 #[cfg(all(debug_assertions, feature = "demo"))]
 pub fn debug_channel_creation(state: client_core::State) {
 	channel_menu::debug_creation(state);
@@ -142,7 +144,7 @@ use client_core::{Command, MAX_DRAFT_BYTES, NavStep, State};
 use egui::{RichText, TextEdit};
 use model::{Freshness, Id};
 pub use verification::VerificationUi;
-pub use voice::{StageFocus, VOICE_DEVICES_LOADED, VOICE_DEVICES_LOOKING};
+pub use voice::{StageFocus, VOICE_DEVICES_LOADED, VOICE_DEVICES_LOOKING, call_participant};
 mod voice_latency;
 pub use voice_latency::VoiceLatency;
 
@@ -350,6 +352,19 @@ pub struct MessagingUi {
 	pub image_cache: model::CachePreferences,
 	/// Clock style for message times.
 	pub time_format: model::TimeFormat,
+	/// Owner opt-in: serve the local API to apps on this computer that hold the access key.
+	pub local_api: bool,
+	/// Second opt-in: those apps may also mute, deafen and set per-person playback.
+	pub local_api_control: bool,
+	/// A key reset never reached the credential store, so the key saved there must not be
+	/// loaded. The desktop sets it from the listener and persists it across launches.
+	pub local_api_key_revoked: bool,
+	/// What the desktop's listener reports, for the settings page.
+	pub local_api_status: LocalApiStatus,
+	/// A key action the owner asked for; the desktop consumes it.
+	pub local_api_request: Option<LocalApiRequest>,
+	/// Which Copy button (`true` for the key) reads "Copied", and until when.
+	local_api_copied: Option<(bool, f64)>,
 	/// First-run setup still to show; the desktop restores and persists it.
 	pub setup_pending: bool,
 	setup_step: usize,
@@ -564,6 +579,7 @@ pub struct MessagingUi {
 	/// Release channel and version shown in the title bar.
 	pub build: design::Build,
 	pub updates: updates::Updates,
+	/// Device preferences could not be saved; shown by the update and local API settings.
 	pub updates_save_failed: bool,
 	/// The owner's diagnostic log level; the desktop host applies and persists it.
 	pub diagnostics_log: diagnostics::Level,

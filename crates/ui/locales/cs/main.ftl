@@ -5032,3 +5032,45 @@ timestamp-style-full = Úplné datum a čas
 timestamp-style-relative = Relativní čas
 timestamp-style-short-date-time = Krátké datum a čas
 timestamp-style-short-date-seconds = Krátké datum a čas se sekundami
+# Context: local_api_settings
+settings-local-api = Místní API
+# Context: local_api_settings
+settings-local-api-enable = Zapnout místní API
+# Context: local_api_settings
+settings-local-api-enable-description = Aplikace na tomto počítači, které mají váš přístupový klíč, vidí, který účet je přihlášen a kdo je ve vašem hovoru. Vypnuto, dokud to nezapnete.
+# Context: local_api_settings
+settings-local-api-control = Povolit aplikacím ovládat hlas
+# Context: local_api_settings
+settings-local-api-control-description = Připojené aplikace vás také mohou ztlumit nebo vám vypnout zvuk a měnit hlasitost a místní ztlumení každé osoby na tomto zařízení.
+# Context: local_api_settings
+settings-local-api-starting = Spouští se…
+# Context: local_api_settings
+settings-local-api-listening = Naslouchá
+# Context: local_api_settings
+settings-local-api-unavailable = Nedostupné
+# Context: local_api_settings
+settings-local-api-unavailable-detail = Tuto adresu používá jiný program, nebo ji systém odmítl. Serein to zkouší dál.
+# Context: local_api_settings
+settings-local-api-no-apps = Žádné připojené aplikace.
+# Context: local_api_settings
+settings-local-api-connected = Připojeno: { $apps }
+# Context: local_api_settings
+settings-local-api-unnamed-app = Nepojmenovaná aplikace
+# Context: local_api_settings
+settings-local-api-endpoint = Adresa
+# Context: local_api_settings
+settings-local-api-key = Přístupový klíč
+# Context: local_api_settings
+settings-local-api-key-description = Aplikace prokazují, že tento klíč mají, aniž by ho odesílaly. Zacházejte s ním jako s heslem. Obnovením se odpojí všechny aplikace.
+# Context: local_api_settings
+settings-local-api-key-session = Tento klíč není uložen v systémové klíčence, takže platí jen do zavření Sereinu. Obnovením se odpojí všechny aplikace.
+# Context: local_api_settings
+settings-local-api-key-revoked = Systémovou klíčenku se nepodařilo aktualizovat, takže klíč v ní uložený se ignoruje a tento platí jen do zavření Sereinu. Chcete-li to zkusit znovu, vypněte a zapněte API nebo klíč znovu obnovte.
+# Context: local_api_settings
+settings-local-api-copy-key = Kopírovat klíč
+# Context: local_api_settings
+settings-local-api-reset-key = Obnovit klíč
+# Context: local_api_settings
+settings-local-api-security-detail = Připojit se mohou jen programy spuštěné pod vaším uživatelem na tomto počítači, a to jen s přístupovým klíčem. Webové stránky a jiná zařízení se připojit nemohou. Aplikace nikdy nedostanou vaše přihlášení, zprávy ani zvuk.
+# Context: local_api_settings
+settings-local-api-revocation-unsaved = Serein zatím nemohl uložit obnovení klíče v tomto zařízení, takže po restartu by starý klíč mohl znovu fungovat. Stále to zkouší znovu.

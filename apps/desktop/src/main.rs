@@ -34,6 +34,7 @@ mod gpu;
 mod gpu_video;
 mod group_icon;
 mod interaction_uploads;
+mod local_api;
 mod notification_runtime;
 mod notification_sounds;
 #[cfg(feature = "demo")]
@@ -1067,6 +1068,7 @@ struct Desktop {
 	avatar_clear_account: Option<model::Id>,
 	avatar_cleanup: Option<std::sync::mpsc::Receiver<Result<(), &'static str>>>,
 	voice: voice::Voice,
+	local_api: local_api::LocalApi,
 	runtime: tokio::runtime::Runtime,
 	store: Option<credentials::Store>,
 	cache: Option<cache::Cache>,
@@ -2028,6 +2030,16 @@ impl Desktop {
 		}
 		#[cfg(feature = "demo")]
 		if demo
+			&& let Some(mode) = std::env::args()
+				.find_map(|arg| arg.strip_prefix("--demo-local-api").map(str::to_owned))
+		{
+			// `--demo-local-api` serves the fixture to local clients; `=control` also lets them
+			// change its voice state.
+			messaging.local_api = true;
+			messaging.local_api_control = mode == "=control";
+		}
+		#[cfg(feature = "demo")]
+		if demo
 			&& let Some(tab) = std::env::args().find_map(|arg| {
 				arg.strip_prefix("--demo-theme-maker")
 					.map(|rest| rest.trim_start_matches('=').to_owned())
@@ -2335,6 +2347,11 @@ impl Desktop {
 			state.guilds[0].default_message_notifications = Some(1);
 			messaging.preview_server_notifications(&mut state, guild);
 		}
+		// The fixture never touches the credential store, so its access key lasts one run.
+		let local_api = local_api::LocalApi::start(runtime.handle(), !demo, {
+			let ctx = cc.egui_ctx.clone();
+			move || ctx.request_repaint()
+		});
 		let mut hotkeys = platform::hotkeys::Hotkeys::new({
 			let ctx = cc.egui_ctx.clone();
 			move || ctx.request_repaint()
@@ -2451,6 +2468,7 @@ impl Desktop {
 			avatar_start_failed: false,
 			avatar_clear_account: None,
 			voice: voice::Voice::default(),
+			local_api,
 			runtime,
 			store,
 			cache,
@@ -4661,6 +4679,76 @@ impl Desktop {
 			}
 		}
 	}
+	/// Applies the voice changes local API clients asked for, and the owner's key actions.
+	fn drain_local_api(&mut self, ctx: &egui::Context) {
+		let mut applied = false;
+		for _ in 0..32 {
+			let Some(change) = self.local_api.poll() else {
+				break;
+			};
+			// A change queued just before the owner withdrew control, left the call or
+			// switched account is dropped, as is one for a person who has since left.
+			if !(self.messaging.local_api && self.messaging.local_api_control)
+				|| !change.still_applies(&self.state)
+			{
+				continue;
+			}
+			applied = true;
+			match change.command {
+				local_api::Command::SelfVoice { mute, deaf } => {
+					let (muted, deafened) = self.messaging.apply_local_api_self_voice(mute, deaf);
+					if let Some(command) = self.state.set_call_mute(muted, deafened)
+						&& !self.state.demo
+						&& !self.fixture_only
+					{
+						self.command(command);
+					}
+				}
+				local_api::Command::User { id, volume, mute } => {
+					self.messaging
+						.apply_local_api_user(model::Id(id), volume, mute);
+				}
+			}
+		}
+		if applied {
+			// Preferences are otherwise saved by the UI pass, which a window hidden in the
+			// tray does not run; these changes arrive without anyone looking at the window.
+			self.save_app_preferences();
+		}
+		match self.messaging.local_api_request.take() {
+			Some(ui::LocalApiRequest::CopyKey) => {
+				if let Some(key) = self.local_api.key() {
+					ctx.copy_text(key.as_str().to_owned());
+				}
+			}
+			Some(ui::LocalApiRequest::ResetKey) => self.local_api.reset_key(),
+			None => {}
+		}
+	}
+	/// Hands local API clients the newest view. Nothing is captured while the API is off.
+	fn publish_local_api(&mut self) {
+		self.local_api.publish(
+			self.messaging.local_api,
+			self.messaging.local_api_key_revoked,
+			|| local_api::Snapshot::capture(&self.state, &self.messaging),
+		);
+		let status = self.local_api.status();
+		if *status != self.messaging.local_api_status {
+			self.messaging.local_api_status = status.clone();
+		}
+		// Only the listener knows whether a key reset reached the credential store; the
+		// device preference remembers that across launches.
+		let revoked = match status.key {
+			ui::LocalApiKey::Pending => self.messaging.local_api_key_revoked,
+			key => key == ui::LocalApiKey::Revoked,
+		};
+		drop(status);
+		if revoked != self.messaging.local_api_key_revoked {
+			self.messaging.local_api_key_revoked = revoked;
+			// Saved here, not left to the UI pass: a hidden window does not run one.
+			self.save_app_preferences();
+		}
+	}
 	fn poll_voice(&mut self, ctx: &egui::Context) {
 		if let Some(command) =
 			self.voice
@@ -4715,8 +4803,13 @@ impl Desktop {
 					continue;
 				}
 				cache::Outcome::AppPreferencesSaved(result) => {
-					self.app_settings.state.saving = false;
-					self.app_settings.state.failed = result.is_err();
+					let queued = self.app_settings.saved(
+						*result,
+						self.cache.as_ref(),
+						self.state.generation,
+						std::time::Instant::now(),
+					);
+					self.cache_pending += usize::from(queued);
 					continue;
 				}
 				cache::Outcome::MinimizeToTray(result) => {
@@ -4925,6 +5018,16 @@ impl Desktop {
 				| cache::Outcome::AccountPresences(_)
 				| cache::Outcome::AccountPresenceSaved(_) => unreachable!(),
 			}
+		}
+		let now = std::time::Instant::now();
+		self.cache_pending += usize::from(self.app_settings.retry(
+			self.cache.as_ref(),
+			self.state.generation,
+			now,
+		));
+		// A failed write is resent on time even when nothing else wakes a hidden window.
+		if let Some(wait) = self.app_settings.retry_wait(now) {
+			ctx.request_repaint_after(wait);
 		}
 		self.retry_history_clears();
 		self.sync_diagnostics_log(ctx);
@@ -6038,11 +6141,13 @@ impl eframe::App for Desktop {
 		);
 		self.messaging.voice_ptm_active = self.state.voice.active.is_some()
 			&& (self.messaging.push_to_mute_down(ctx) || self.hotkeys.push_to_mute_down());
+		self.drain_local_api(ctx);
 		if self.state.auth == AuthState::Authenticated || self.state.demo {
 			self.poll_voice(ctx);
 		} else {
 			self.voice.stop();
 		}
+		self.publish_local_api();
 		self.sync_tray(ctx);
 		if self.state.voice.active.is_some() {
 			// Speaking, notices, remote video, devices, hotkeys and deadlines each wake the UI

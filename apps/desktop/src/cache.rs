@@ -744,6 +744,88 @@ mod tests {
 	use super::*;
 
 	#[test]
+	fn a_preference_changed_during_a_save_is_sent_when_that_save_finishes() {
+		let (send, commands) = mpsc::sync_channel(16);
+		let (_, receive) = mpsc::sync_channel(16);
+		let cache = Cache {
+			send,
+			receive,
+			budget: Arc::new(Budget::default()),
+			history: Arc::new(HistorySafety::default()),
+		};
+		let mut settings = crate::app_settings::Settings::from_preferences(Ok(
+			local_store::AppPreferences::default(),
+		));
+		let mut view = ui::MessagingUi::default();
+		settings.apply(&mut view);
+		view.set_voice_user_volume_overrides(&[(7, 35)]);
+		settings.observe(&view);
+		assert!(settings.save(Some(&cache), 1));
+
+		// A second change arrives while the first save is running, so it is not queued yet.
+		view.set_voice_user_volume_overrides(&[(7, 80)]);
+		settings.observe(&view);
+		assert!(!settings.save(Some(&cache), 1));
+
+		// The first save finishing sends it, without another pass having to ask.
+		let now = std::time::Instant::now();
+		assert!(settings.saved(Ok(()), Some(&cache), 1, now));
+		let volumes: Vec<_> = commands
+			.try_iter()
+			.filter_map(|(_, _, _, operation, _)| match operation {
+				Operation::SaveAppPreferences(value) => Some(value.user_volumes.clone()),
+				_ => None,
+			})
+			.collect();
+		assert_eq!(volumes, [vec![(7, 35)], vec![(7, 80)]]);
+		assert!(!settings.saved(Ok(()), Some(&cache), 1, now));
+
+		// A change the full queue refuses stays pending and is sent once the queue has room.
+		while cache.queue(1, Id(0), Operation::LoadAppearance) {}
+		view.set_voice_user_volume_overrides(&[(7, 120)]);
+		settings.observe(&view);
+		assert!(!settings.save(Some(&cache), 1));
+		assert!(!settings.retry(Some(&cache), 1, now));
+		drop(commands.try_recv().unwrap());
+		assert!(settings.retry(Some(&cache), 1, now));
+		assert!(!settings.retry(Some(&cache), 1, now));
+		let saved_volumes = || -> Vec<_> {
+			commands
+				.try_iter()
+				.filter_map(|(_, _, _, operation, _)| match operation {
+					Operation::SaveAppPreferences(value) => Some(value.user_volumes.clone()),
+					_ => None,
+				})
+				.collect()
+		};
+		assert_eq!(saved_volumes(), [vec![(7, 120)]]);
+
+		// A write that fails stays pending and reported: not resent at once or by a UI pass,
+		// but after a wait that doubles while writes keep failing. A success clears it.
+		let second = std::time::Duration::from_secs(1);
+		let failed = Err(local_store::StoreError::Unavailable);
+		assert!(!settings.saved(failed, Some(&cache), 1, now));
+		assert!(!settings.save(Some(&cache), 1));
+		assert!(!settings.retry(Some(&cache), 1, now));
+		assert_eq!(settings.retry_wait(now), Some(second));
+		// A change during the wait, such as a volume drag, waits too and is sent at the deadline.
+		view.set_voice_user_volume_overrides(&[(7, 150)]);
+		settings.observe(&view);
+		assert!(!settings.save(Some(&cache), 1));
+		assert!(!settings.retry(Some(&cache), 1, now + second / 2));
+		assert!(settings.retry(Some(&cache), 1, now + second));
+		assert!(settings.state.failed);
+		assert!(!settings.saved(failed, Some(&cache), 1, now + second));
+		assert_eq!(settings.retry_wait(now + second), Some(second * 2));
+		assert!(!settings.retry(Some(&cache), 1, now + second * 2));
+		assert!(settings.retry(Some(&cache), 1, now + second * 3));
+		assert!(!settings.saved(Ok(()), Some(&cache), 1, now + second * 3));
+		assert!(!settings.state.failed && !settings.state.needs_attention());
+		assert_eq!(settings.retry_wait(now + second * 3), None);
+		assert_eq!(saved_volumes(), [vec![(7, 150)], vec![(7, 150)]]);
+	}
+
+	#[test]
 	fn shortcut_restore_waits_for_queue_space_without_losing_or_duplicating_the_request() {
 		let (send, commands) = mpsc::sync_channel(16);
 		let (_, receive) = mpsc::sync_channel(16);

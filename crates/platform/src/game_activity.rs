@@ -1,9 +1,10 @@
-//! Opt-in Discord-compatible local IPC transport. No Discord connection; process detection
-//! for games without RPC lives in `platform::processes`.
-//! The caller owns framing, timeouts, client limits and activity publication.
+//! Opt-in private local IPC transport: the Discord-compatible game-activity slots and the
+//! local API's fixed endpoint. No Discord connection; process detection for games without
+//! RPC lives in `platform::processes`.
+//! The caller owns framing, timeouts, client limits and what it publishes.
 
 #[cfg(any(windows, unix))]
-pub use native::{Listener, Stream};
+pub use native::{Listener, Stream, private_endpoint};
 
 #[cfg(windows)]
 mod native {
@@ -73,6 +74,12 @@ mod native {
 			Err(last.expect("ten slots were attempted"))
 		}
 
+		/// Bind the one endpoint [`private_endpoint`] names. It fails while another server
+		/// owns that name, so a caller never joins or replaces someone else's pipe.
+		pub fn bind_private(name: &str) -> io::Result<Self> {
+			Self::bind_named(&private_endpoint(name)?)
+		}
+
 		fn bind_named(name: &str) -> io::Result<Self> {
 			let dacl = current_user_dacl()?;
 			let server = create_pipe(name, &dacl, true)?;
@@ -89,6 +96,11 @@ mod native {
 			let next = create_pipe(&self.name, &self.dacl, false)?;
 			Ok(std::mem::replace(&mut self.server, next))
 		}
+	}
+
+	/// The address a local client opens for `name`: a pipe only this Windows user can open.
+	pub fn private_endpoint(name: &str) -> io::Result<String> {
+		Ok(format!(r"\\.\pipe\{name}"))
 	}
 
 	#[allow(unsafe_code)]
@@ -294,12 +306,7 @@ mod native {
 		/// Bind the first free standard slot in the SDK's selected runtime/temp directory.
 		/// Live sockets are never replaced; only this user's unanswered leftovers are removed.
 		pub fn bind() -> io::Result<Self> {
-			let directory = ["XDG_RUNTIME_DIR", "TMPDIR", "TMP", "TEMP"]
-				.into_iter()
-				.find_map(std::env::var_os)
-				.map(PathBuf::from)
-				.unwrap_or_else(|| PathBuf::from("/tmp"));
-			let directory = fs::canonicalize(directory)?;
+			let directory = runtime_directory()?;
 			let mut last = None;
 			for index in 0..10 {
 				match Self::bind_named(&directory.join(format!("discord-ipc-{index}"))) {
@@ -308,6 +315,12 @@ mod native {
 				}
 			}
 			Err(last.expect("ten slots were attempted"))
+		}
+
+		/// Bind the one endpoint [`private_endpoint`] names. A live socket is never replaced;
+		/// only this user's unanswered leftover is removed.
+		pub fn bind_private(name: &str) -> io::Result<Self> {
+			Self::bind_named(Path::new(&private_endpoint(name)?))
 		}
 
 		fn bind_named(path: &Path) -> io::Result<Self> {
@@ -373,6 +386,24 @@ mod native {
 				let _ = fs::remove_file(&self.path);
 			}
 		}
+	}
+
+	/// The runtime (or temporary) directory local clients look in, resolved through links.
+	fn runtime_directory() -> io::Result<PathBuf> {
+		let directory = ["XDG_RUNTIME_DIR", "TMPDIR", "TMP", "TEMP"]
+			.into_iter()
+			.find_map(std::env::var_os)
+			.map(PathBuf::from)
+			.unwrap_or_else(|| PathBuf::from("/tmp"));
+		fs::canonicalize(directory)
+	}
+
+	/// The address a local client opens for `name`: a socket only this user can connect to.
+	pub fn private_endpoint(name: &str) -> io::Result<String> {
+		let path = runtime_directory()?.join(format!("{name}.sock"));
+		path.into_os_string()
+			.into_string()
+			.map_err(|_| io::Error::other("IPC directory is not UTF-8"))
 	}
 
 	/// Remove this user's socket left by a killed or crashed client, as arRPC does. Flatpak keeps

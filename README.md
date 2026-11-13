@@ -365,6 +365,7 @@ cargo xtask package
 | **Camera Video & Stream Viewing** | Implemented | Hardware-accelerated decoding (macOS VideoToolbox, Linux VA-API, Windows DXVA/D3D11) for incoming screen streams and camera video feeds |
 | **Threads & Forum Channels** | Implemented | Forum post listing, recent activity sorting, active thread browsing, and new forum post / thread creation |
 | **Server Administration** | Implemented | Server profile editor (banners, icons, traits), custom sticker upload/edit/delete, role management with permissions matrix, audit log viewer, invite tracking and revocation, integrations/webhooks, and member moderation |
+| **Local API** | Implemented | Opt-in private pipe/socket for apps and Stream Deck plugins on the same computer: access-key challenge-response, pushed session and call state, and separately enabled voice control (synthetic tests only) |
 | **Extensions & Theme Shop** | Implemented | Git-backed plugins, community theme catalog with preview cards and color presets, permission prompt modals, and deleted-message protector |
 | **Keybinds & Shortcuts** | Implemented | In-app keybind cheat sheet with raised keycaps, quick edit (`Up`), quick delete (`Backspace`), and keyboard navigation hotkeys |
 | **Rich Presence & Game IPC** | Implemented | Discord IPC and WebSocket RPC servers plus running-game detection; displays activities in member rosters, DMs, and user profiles; opt-in system tray |
@@ -427,6 +428,7 @@ For full details, review the [Storage Policy](docs/storage-policy.md) and [Threa
 - [Voice Architecture & Procedure](docs/voice.md)
 - [Design Tokens & UI Styling](docs/design.md)
 - [Extensions & Plugin Architecture](docs/extensions.md)
+- [Local API for Other Apps](docs/local-api.md)
 - [Extension SDK Creator Wiki](https://github.com/ViceVerse-cz/Serein/wiki)
 - [SDK Examples and Offline Authoring Guide](examples/extensions/README.md)
 - [Theme API Specification](docs/theme-api.md)

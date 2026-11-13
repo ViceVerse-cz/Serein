@@ -6316,6 +6316,7 @@ dependencies = [
  "fontique 0.11.1",
  "futures-util",
  "getrandom 0.4.3",
+ "hmac 0.12.1",
  "image",
  "local-store",
  "log",

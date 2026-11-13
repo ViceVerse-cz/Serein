@@ -182,6 +182,15 @@ impl MessagingUi {
 		}
 	}
 
+	/// Saved playback percent for one person, 0–200. A local mute does not change this;
+	/// the mixer still applies zero gain while that mute is set.
+	pub fn voice_user_volume_percent(&self, user: Id) -> u16 {
+		self.voice_user_volumes
+			.as_deref()
+			.and_then(|values| values.iter().find(|(id, _)| *id == user.0))
+			.map_or(100, |(_, volume)| (*volume).min(200))
+	}
+
 	/// Non-default volume overrides, for persistence to device settings.
 	pub fn voice_user_volume_overrides(&self) -> Vec<(u64, u16)> {
 		self.voice_user_volumes
@@ -229,6 +238,49 @@ impl MessagingUi {
 				63
 			});
 		values[index] = (user.0, volume);
+	}
+
+	/// Absolute mute and deafen from a local API client, with the rules of
+	/// [`Self::toggle_voice`]: deafening keeps the microphone choice underneath, and unmuting
+	/// while deafened also undeafens. Omitted fields keep the current choice. Returns the
+	/// resulting pair so the desktop can push it into the active call.
+	pub fn apply_local_api_self_voice(
+		&mut self,
+		mute: Option<bool>,
+		deaf: Option<bool>,
+	) -> (bool, bool) {
+		let before = (self.voice_muted, self.voice_deafened);
+		let mut after = before;
+		if let Some(deaf) = deaf {
+			after.1 = deaf;
+		}
+		if let Some(mute) = mute {
+			after.0 = mute;
+			if !mute && deaf != Some(true) {
+				after.1 = false;
+			}
+		}
+		(self.voice_muted, self.voice_deafened) = after;
+		if after.1 != before.1 {
+			self.queue_voice_toggle_cue(true, after.1);
+		} else if after.0 != before.0 {
+			self.queue_voice_toggle_cue(false, after.0);
+		}
+		after
+	}
+
+	/// One person's playback on this device from a local API client. Volume is a percent,
+	/// 0–200; the mute does not replace the saved percent.
+	pub fn apply_local_api_user(&mut self, user: Id, volume: Option<u16>, muted: Option<bool>) {
+		if user.0 == 0 {
+			return;
+		}
+		if let Some(volume) = volume {
+			self.set_voice_user_volume(user, volume.min(200));
+		}
+		if let Some(muted) = muted {
+			self.set_voice_user_locally_muted(user, muted);
+		}
 	}
 
 	fn voice_participant_menu(
@@ -4969,22 +5021,10 @@ pub(crate) fn resolve_member<'a>(
 	state: &'a State,
 	entry: &'a RosterEntry,
 ) -> (Option<&'a model::User>, &'a str) {
-	let member = entry.member.as_ref().or_else(|| {
-		state
-			.members
-			.as_ref()
-			.filter(|list| list.guild == Some(entry.guild))
-			.and_then(|list| {
-				list.slots
-					.iter()
-					.flatten()
-					.filter_map(|slot| match slot {
-						model::MemberSlot::Person(m) => Some(m),
-						_ => None,
-					})
-					.find(|m| m.user.id == entry.participant.user)
-			})
-	});
+	let member = entry
+		.member
+		.as_ref()
+		.or_else(|| listed_member(state, entry.guild, entry.participant.user));
 	let user = member
 		.map(|m| &m.user)
 		.or_else(|| participant_user(state, entry.channel, entry.participant.user));
@@ -4993,6 +5033,56 @@ pub(crate) fn resolve_member<'a>(
 		.or_else(|| user.map(|u| u.name.as_str()))
 		.unwrap_or("Participant");
 	(user, name)
+}
+
+/// `user`'s row in `guild`'s member list, when that server's list is the one loaded.
+fn listed_member(state: &State, guild: Id, user: Id) -> Option<&model::Member> {
+	state
+		.members
+		.as_ref()
+		.filter(|list| list.guild == Some(guild))
+		.and_then(|list| {
+			list.slots
+				.iter()
+				.flatten()
+				.filter_map(|slot| match slot {
+					model::MemberSlot::Person(m) => Some(m),
+					_ => None,
+				})
+				.find(|m| m.user.id == user)
+		})
+}
+
+/// Who `user` is in `call`, read from the same places as the call view: this call's own
+/// roster entry, its server's loaded member list, then the account itself or the
+/// conversation's recipients. A nickname is only ever the call's own server's. `None` when
+/// nothing is known about them yet.
+pub fn call_participant<'a>(
+	state: &'a State,
+	call: &client_core::voice::Call,
+	user: Id,
+) -> Option<(&'a model::User, &'a str)> {
+	let member = call.guild.and_then(|guild| {
+		state
+			.voice
+			.roster
+			.iter()
+			.find(|entry| {
+				entry.guild == guild
+					&& entry.channel == call.channel
+					&& entry.participant.user == user
+			})
+			.and_then(|entry| entry.member.as_ref())
+			.or_else(|| listed_member(state, guild, user))
+	});
+	let found = member
+		.map(|member| &member.user)
+		.or_else(|| participant_user(state, call.channel, user))?;
+	let name = member
+		.and_then(|member| member.nick.as_deref())
+		.filter(|nick| !nick.is_empty())
+		.unwrap_or(&found.name);
+	Some((found, name))
 }
 
 /// Find a call participant's user from self, DM recipients or the roster.

@@ -4914,3 +4914,45 @@ new-message-hint = Добавьте друзей, чтобы начать лич
 new-message-no-people-found = Никто не найден.
 new-message-create = Создать сообщение
 new-message-cancel = Отмена
+# Context: local_api_settings
+settings-local-api = Локальный API
+# Context: local_api_settings
+settings-local-api-enable = Включить локальный API
+# Context: local_api_settings
+settings-local-api-enable-description = Приложения на этом компьютере, у которых есть ваш ключ доступа, видят, какая учетная запись используется и кто участвует в вашем звонке. Выключено, пока вы не включите.
+# Context: local_api_settings
+settings-local-api-control = Разрешить приложениям управлять голосом
+# Context: local_api_settings
+settings-local-api-control-description = Подключенные приложения также могут отключать ваш микрофон и звук и менять громкость и локальное заглушение каждого участника на этом устройстве.
+# Context: local_api_settings
+settings-local-api-starting = Запуск…
+# Context: local_api_settings
+settings-local-api-listening = Ожидание подключений
+# Context: local_api_settings
+settings-local-api-unavailable = Недоступно
+# Context: local_api_settings
+settings-local-api-unavailable-detail = Этот адрес использует другая программа, или система отклонила его. Serein продолжает попытки.
+# Context: local_api_settings
+settings-local-api-no-apps = Нет подключенных приложений.
+# Context: local_api_settings
+settings-local-api-connected = Подключены: { $apps }
+# Context: local_api_settings
+settings-local-api-unnamed-app = Приложение без имени
+# Context: local_api_settings
+settings-local-api-endpoint = Адрес
+# Context: local_api_settings
+settings-local-api-key = Ключ доступа
+# Context: local_api_settings
+settings-local-api-key-description = Приложения доказывают, что знают этот ключ, не передавая его. Обращайтесь с ним как с паролем. Сброс отключает все приложения.
+# Context: local_api_settings
+settings-local-api-key-session = Этот ключ не сохранен в системном хранилище ключей, поэтому действует только до закрытия Serein. Сброс отключает все приложения.
+# Context: local_api_settings
+settings-local-api-key-revoked = Не удалось обновить системное хранилище ключей, поэтому сохраненный там ключ игнорируется, а этот действует только до закрытия Serein. Выключите и снова включите API или сбросьте ключ еще раз, чтобы повторить попытку.
+# Context: local_api_settings
+settings-local-api-copy-key = Копировать ключ
+# Context: local_api_settings
+settings-local-api-reset-key = Сбросить ключ
+# Context: local_api_settings
+settings-local-api-security-detail = Подключаться могут только программы, запущенные от вашего имени на этом компьютере, и только с ключом доступа. Веб-страницы и другие устройства не могут подключиться. Приложения никогда не получают ваши данные для входа, сообщения или звук.
+# Context: local_api_settings
+settings-local-api-revocation-unsaved = Serein пока не удалось сохранить сброс на этом устройстве, поэтому после перезапуска старый ключ может снова заработать. Serein продолжает попытки.

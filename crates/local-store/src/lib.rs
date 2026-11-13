@@ -101,6 +101,13 @@ pub struct AppPreferences {
 	pub image_cache: model::CachePreferences,
 	/// Clock style for message times; older preferences follow the language.
 	pub time_format: model::TimeFormat,
+	/// Owner opt-in: serve the local API; older preferences deserialize with it off.
+	pub local_api: bool,
+	/// Second opt-in: local API clients may change voice; off in older preferences.
+	pub local_api_control: bool,
+	/// A local API key reset never reached the credential store, so the key saved there is
+	/// not loaded again; absent in older preferences.
+	pub local_api_key_revoked: bool,
 	/// Owner opt-in diagnostic log; older preferences deserialize with logging off.
 	pub diagnostics_log: diagnostics::Level,
 	/// First-run setup finished or skipped; absent in older preferences, so existing installs
@@ -149,6 +156,9 @@ impl Default for AppPreferences {
 			cosmetics: Default::default(),
 			image_cache: Default::default(),
 			time_format: Default::default(),
+			local_api: false,
+			local_api_control: false,
+			local_api_key_revoked: false,
 			diagnostics_log: diagnostics::Level::Off,
 			setup_done: false,
 		}

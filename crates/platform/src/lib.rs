@@ -10,6 +10,7 @@ pub mod gsync;
 pub mod heic;
 pub mod hotkeys;
 pub mod idle;
+pub mod local_api_key;
 mod login_keyring;
 pub mod memory;
 pub mod notifications;
