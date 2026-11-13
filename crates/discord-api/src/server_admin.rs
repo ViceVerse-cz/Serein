@@ -346,15 +346,29 @@ impl DiscordApi {
 				Ok(Outcome::Kicked(*user))
 			}
 			Action::Timeout { user, seconds } => {
-				let now = std::time::SystemTime::now()
-					.duration_since(std::time::UNIX_EPOCH)
-					.map_or(0, |value| value.as_millis().min(i64::MAX as u128) as i64);
-				let body = wire::timeout(*seconds, now).map_err(|_| Failure::Protocol)?;
+				// The duration starts when the request is admitted, after any shared cooldown.
+				let seconds = *seconds;
+				#[cfg(test)]
+				let clock = self
+					.timeout_clock
+					.lock()
+					.map_err(|_| Failure::Protocol)?
+					.clone();
+				let mut prepare = move || {
+					#[cfg(test)]
+					let now = clock
+						.as_ref()
+						.map(|clock| clock())
+						.unwrap_or_else(crate::sample_unix_millis);
+					#[cfg(not(test))]
+					let now = crate::sample_unix_millis();
+					wire::timeout(seconds, now).map_err(|_| Failure::Protocol)
+				};
 				let bytes = self
-					.request_limited(
+					.request_prepared(
 						Method::PATCH,
 						&format!("/guilds/{guild}/members/{user}"),
-						Some(body),
+						&mut prepare,
 						64 * 1024,
 					)
 					.await
@@ -597,6 +611,95 @@ mod sticker_tests {
 				)
 				.await,
 				Err(Failure::Ambiguous)
+			));
+			server.await.unwrap();
+		})
+		.await
+		.unwrap();
+	}
+
+	#[tokio::test]
+	async fn timeout_expiry_is_measured_after_the_shared_cooldown() {
+		use crate::SessionSecret;
+		use std::{sync::Arc, time::Duration};
+		use tokio::{
+			io::{AsyncReadExt, AsyncWriteExt},
+			net::TcpListener,
+			time::Instant,
+		};
+		tokio::time::timeout(Duration::from_secs(10), async {
+			let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+			let mut api = DiscordApi::new(Arc::new(
+				SessionSecret::from_owner_input("SYNTHETIC_TIMEOUT_CLOCK".into()).unwrap(),
+			))
+			.unwrap();
+			api.base = format!("http://{}", listener.local_addr().unwrap());
+			let before = 1_700_000_000_000;
+			let after = before + 120_000;
+			let deadline = Instant::now() + Duration::from_millis(200);
+			*api.cooldown.lock().await = deadline;
+			*api.timeout_clock.lock().unwrap() = Some(Arc::new(move || {
+				if deadline.saturating_duration_since(Instant::now()) <= Duration::from_millis(30) {
+					after
+				} else {
+					before
+				}
+			}));
+			let server = tokio::spawn(async move {
+				let (mut stream, _) = listener.accept().await.unwrap();
+				let mut bytes = Vec::new();
+				let end = loop {
+					let mut chunk = [0; 4096];
+					let n = stream.read(&mut chunk).await.unwrap();
+					assert!(n > 0);
+					bytes.extend_from_slice(&chunk[..n]);
+					assert!(bytes.len() <= 16_384);
+					if let Some(end) = bytes.windows(4).position(|part| part == b"\r\n\r\n") {
+						break end + 4;
+					}
+				};
+				let headers = std::str::from_utf8(&bytes[..end]).unwrap();
+				assert!(headers.starts_with("PATCH /guilds/2/members/7 HTTP/1.1\r\n"));
+				let length = headers
+					.lines()
+					.find_map(|line| {
+						let (name, value) = line.split_once(':')?;
+						name.eq_ignore_ascii_case("content-length")
+							.then(|| value.trim().parse::<usize>().unwrap())
+					})
+					.unwrap();
+				while bytes.len() < end + length {
+					let mut chunk = [0; 256];
+					let n = stream.read(&mut chunk).await.unwrap();
+					assert!(n > 0);
+					bytes.extend_from_slice(&chunk[..n]);
+				}
+				assert_eq!(
+					serde_json::from_slice::<serde_json::Value>(&bytes[end..end + length]).unwrap(),
+					wire::timeout(Some(60), after).unwrap()
+				);
+				let body = r#"{"user":{"id":"7","username":"Member"},"roles":[],"communication_disabled_until":"2023-11-14T22:14:20Z"}"#;
+				stream
+					.write_all(
+						format!(
+							"HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+							body.len()
+						)
+						.as_bytes(),
+					)
+					.await
+					.unwrap();
+			});
+			assert!(matches!(
+				api.server_admin_action(
+					Id(2),
+					&Action::Timeout {
+						user: Id(7),
+						seconds: Some(60),
+					}
+				)
+				.await,
+				Ok(Outcome::Member(_))
 			));
 			server.await.unwrap();
 		})

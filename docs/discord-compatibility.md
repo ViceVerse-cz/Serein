@@ -162,11 +162,13 @@ Kick keeps the existing `DELETE /guilds/{guild}/members/{user}` request. Ban sen
 [Create Guild Ban](https://docs.discord.com/developers/resources/guild#create-guild-ban)
 with `delete_message_seconds` (at most seven days) and expects an empty reply. Timeout
 sends [Modify Guild Member](https://docs.discord.com/developers/resources/guild#modify-guild-member)
-with only `communication_disabled_until` (at most 28 days ahead, null to remove); the
-bounded 64 KiB member reply must identify the requested user and echo whether a timeout
-is set. These routes are documented for bots; normal-account acceptance is unofficial
-and live-unverified. Existing REST deadlines, write ambiguity handling and the single
-administration request apply, and a failure stays in the confirmation. A definite
+with only `communication_disabled_until` (at most 28 days ahead, null to remove). The
+expiry is taken after the shared REST cooldown and route admission, so time spent
+waiting is not subtracted from the duration. The bounded 64 KiB member reply must
+identify the requested user and echo whether a timeout is set. These routes are
+documented for bots; normal-account acceptance is unofficial and live-unverified.
+Existing REST deadlines, write ambiguity handling and the single administration
+request apply, and a failure stays in the confirmation. A definite
 refusal can be retried there; a result that may already have applied cannot, and needs
 a new confirmation opened from the menu. The server is always the clicked row's own:
 a DM, friends or other row without a server never offers moderation in the selected one.

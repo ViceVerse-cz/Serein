@@ -155,7 +155,7 @@ pub enum Action {
 		user: Id,
 		delete_seconds: u32,
 	},
-	/// Times the member out for `seconds` from now; `None` removes the timeout.
+	/// Times the member out for `seconds` from request admission; `None` removes it.
 	Timeout {
 		user: Id,
 		seconds: Option<u32>,
