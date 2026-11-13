@@ -1246,7 +1246,20 @@ impl MessagingUi {
 		self.voice_fullscreen_request.take()
 	}
 	pub fn clear_avatars(&mut self) {
+		// The `--demo-loading` artwork hold is a setting, not cached data, so it survives.
+		#[cfg(feature = "demo")]
+		let hold = self.avatars.hold_demo_images;
 		self.avatars = avatars::Avatars::default();
+		#[cfg(feature = "demo")]
+		{
+			self.avatars.hold_demo_images = hold;
+		}
+	}
+	/// `--demo-loading`: withhold synthetic artwork, so avatars, icons and badges show their
+	/// loading state.
+	#[cfg(feature = "demo")]
+	pub fn hold_demo_images(&mut self) {
+		self.avatars.hold_demo_images = true;
 	}
 	pub fn take_avatar_requests(&mut self) -> Vec<String> {
 		self.avatars.take_requests()
@@ -4452,6 +4465,9 @@ impl MessagingUi {
 			.is_none()
 			.then(|| state.known_profile(recipient.id))
 			.flatten();
+		// `--demo-loading` keeps the docked card loading, like every open profile card.
+		#[cfg(feature = "demo")]
+		let cached = cached.filter(|_| !self.avatars.hold_demo_images);
 		self.dm_profile.calls_blocked = self.calls_unavailable(state);
 		let mut action = None;
 		// The panel shares the conversation surface, so the card floats on the chat itself.
