@@ -33,7 +33,9 @@ impl Settings {
 			self.state.failed = true;
 			return false;
 		}
-		if !self.state.dirty || self.state.saving {
+		// After a failed write, changes wait for `retry` to release the deadline, so a stream of
+		// edits such as a volume drag does not write to a failing database once per frame.
+		if !self.state.dirty || self.state.saving || self.retry_at.is_some() {
 			return false;
 		}
 		let accepted = cache.is_some_and(|cache| {
@@ -52,7 +54,8 @@ impl Settings {
 	}
 	/// A save finished. A change observed while it ran is still waiting, and is sent now
 	/// rather than on the next UI pass, which a window hidden in the tray does not have.
-	/// A failed write stays pending and is sent again by [`Self::retry`] after a growing wait.
+	/// A failed write, and any change made since, stays pending and is sent by [`Self::retry`]
+	/// after a growing wait.
 	/// Returns whether another save was queued.
 	pub fn saved(
 		&mut self,

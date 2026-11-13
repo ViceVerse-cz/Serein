@@ -808,6 +808,11 @@ mod tests {
 		assert!(!settings.save(Some(&cache), 1));
 		assert!(!settings.retry(Some(&cache), 1, now));
 		assert_eq!(settings.retry_wait(now), Some(second));
+		// A change during the wait, such as a volume drag, waits too and is sent at the deadline.
+		view.set_voice_user_volume_overrides(&[(7, 150)]);
+		settings.observe(&view);
+		assert!(!settings.save(Some(&cache), 1));
+		assert!(!settings.retry(Some(&cache), 1, now + second / 2));
 		assert!(settings.retry(Some(&cache), 1, now + second));
 		assert!(settings.state.failed);
 		assert!(!settings.saved(failed, Some(&cache), 1, now + second));
@@ -817,7 +822,7 @@ mod tests {
 		assert!(!settings.saved(Ok(()), Some(&cache), 1, now + second * 3));
 		assert!(!settings.state.failed && !settings.state.needs_attention());
 		assert_eq!(settings.retry_wait(now + second * 3), None);
-		assert_eq!(saved_volumes(), [vec![(7, 120)], vec![(7, 120)]]);
+		assert_eq!(saved_volumes(), [vec![(7, 150)], vec![(7, 150)]]);
 	}
 
 	#[test]
