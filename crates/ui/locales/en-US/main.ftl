@@ -4140,6 +4140,10 @@ verification-show-one-quick-check = One quick check
 verification-show-verification-required = Verification required
 # Context: show
 verification-show-verify = Verify
+# Context: show
+verification-show-safer-in-the-official-discord-app = Completing this check in the official Discord app is safer. Discord may ask newer accounts to verify a phone number after a check solved in Serein.
+# Context: show
+verification-show-open-discord = Open Discord
 
 ## crates/ui/src/video.rs
 # Context: show_player

@@ -1,4 +1,5 @@
-// Origin-fixed REST adapter. No cookies, redirects, logging, persistence or bot SDK.
+// Origin-fixed REST adapter. No redirects, logging or bot SDK; the only persistence is the
+// bounded Discord device state in `device`.
 mod activity_sharing;
 mod admission;
 mod archives;
@@ -6,6 +7,7 @@ mod badges;
 mod channel_actions;
 mod collectibles;
 pub mod detectable;
+pub mod device;
 pub mod external_assets;
 mod forum;
 mod gif_favorites;
@@ -281,7 +283,8 @@ fn api_client(route: &proxy::ApiProxy) -> Result<Client, Failure> {
 		.retry(wreq::retry::Policy::never())
 		.timeout(Duration::from_secs(20))
 		.connect_timeout(Duration::from_secs(10))
-		.default_headers(fingerprint_headers()?);
+		.default_headers(fingerprint_headers()?)
+		.cookie_provider(device::store().clone());
 	route
 		.client_builder(builder)
 		.map_err(Failure::ProtocolAt)?
@@ -328,6 +331,61 @@ impl DiscordApi {
 			#[cfg(test)]
 			upload_origin: None,
 		})
+	}
+	/// Asks Discord once for this device's installation ID and keeps it, before the Gateway
+	/// identifies. Unofficial: SakuraCord's desktop sign-in reads it from an unauthenticated
+	/// `GET /apex/experiments?surface=2`. Best effort and bounded; Serein works without it.
+	pub async fn ensure_installation(&self) {
+		#[derive(serde::Deserialize)]
+		struct Apex {
+			installation: String,
+		}
+		// One attempt per process: a reconnect must not wait on an endpoint that gave no ID.
+		static ASKED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+		// Without a route yet the request could only wait; a later connection asks instead.
+		if client_core::fingerprint::installation_id().is_some()
+			|| self.proxy.lock().await.receiver.borrow().is_none()
+			|| ASKED.swap(true, std::sync::atomic::Ordering::Relaxed)
+		{
+			return;
+		}
+		#[cfg(not(test))]
+		let base = API_ORIGIN;
+		#[cfg(test)]
+		let base = self.base.as_str();
+		let fetch = async {
+			let response = self
+				.rest_client()
+				.await
+				.ok()?
+				.get(format!("{base}/apex/experiments?surface=2"))
+				.send()
+				.await
+				.ok()?;
+			if !response.status().is_success()
+				|| response
+					.content_length()
+					.is_some_and(|n| n > MAX_WIRE as u64)
+			{
+				return None;
+			}
+			let mut bytes = Vec::new();
+			let mut body = std::pin::pin!(response.bytes_stream());
+			while let Some(chunk) = futures_util::StreamExt::next(&mut body)
+				.await
+				.transpose()
+				.ok()?
+			{
+				if bytes.len() + chunk.len() > MAX_WIRE {
+					return None;
+				}
+				bytes.extend_from_slice(&chunk);
+			}
+			decode::<Apex>(&bytes).ok()
+		};
+		if let Ok(Some(apex)) = tokio::time::timeout(Duration::from_secs(5), fetch).await {
+			device::set_installation(&apex.installation);
+		}
 	}
 	/// Credential-free client snapshot for Discord REST; authorization is added per request.
 	pub async fn rest_client(&self) -> Result<Client, Failure> {
@@ -612,6 +670,12 @@ impl DiscordApi {
 				.header(AUTHORIZATION, authorization);
 			if write {
 				request = request.header(wreq::header::ORIGIN, "https://discord.com");
+			}
+			if let Some(installation) = client_core::fingerprint::installation_id() {
+				request = request.header(
+					"x-installation-id",
+					HeaderValue::from_str(&installation).map_err(|_| Failure::Protocol)?,
+				);
 			}
 			if let Some(context) = context {
 				request = request.header(

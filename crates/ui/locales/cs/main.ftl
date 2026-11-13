@@ -4135,6 +4135,10 @@ verification-show-one-quick-check = Jedna rychlá kontrola
 verification-show-verification-required = Vyžaduje se ověření
 # Context: show
 verification-show-verify = Ověřte
+# Context: show
+verification-show-safer-in-the-official-discord-app = Bezpečnější je dokončit tuto kontrolu v oficiální aplikaci Discord. Po kontrole vyřešené v Sereinu může Discord u novějších účtů vyžadovat ověření telefonního čísla.
+# Context: show
+verification-show-open-discord = Otevřít Discord
 
 ## crates/ui/src/video.rs
 # Context: show_player

@@ -1373,8 +1373,11 @@ async fn run_recoverable(
 		} else {
 			// Normal-user Identify with the same client properties as REST (unofficial). How
 			// the service weighs a mismatch between the two is unverified.
-			let properties: serde_json::Value =
+			let mut properties: serde_json::Value =
 				serde_json::from_str(&client_core::fingerprint::properties()).unwrap_or_default();
+			if let Some(installation) = client_core::fingerprint::installation_id() {
+				properties["installation_id"] = installation.into();
+			}
 			serde_json::json!({"op":2,"d":{"token":secret.expose(),"compress":false,"properties":properties,"presence":outgoing_activity.identify_presence()}})
 		};
 		let encoded = Zeroizing::new(handshake.to_string());

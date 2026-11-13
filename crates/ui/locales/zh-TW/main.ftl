@@ -4135,6 +4135,10 @@ verification-show-one-quick-check = 一次快速檢查
 verification-show-verification-required = 需要驗證
 # Context: show
 verification-show-verify = 驗證
+# Context: show
+verification-show-safer-in-the-official-discord-app = 在官方 Discord 應用程式中完成此驗證較安全。在 Serein 中完成驗證後，Discord 可能會要求較新的帳號驗證手機號碼。
+# Context: show
+verification-show-open-discord = 開啟 Discord
 
 ## crates/ui/src/video.rs
 # Context: show_player

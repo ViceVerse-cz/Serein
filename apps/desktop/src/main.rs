@@ -520,6 +520,10 @@ fn main() -> eframe::Result {
 	// The owner's saved log level takes effect before the window, so an early defect leaves a
 	// trace instead of a description that has to be reconstructed afterwards.
 	let log_directory = local_store::data_dir().ok().map(|root| root.join("logs"));
+	// Discord's cookies and installation ID make each launch the same device to the service.
+	if !demo && let Ok(root) = local_store::data_dir() {
+		discord_api::device::keep_in(root.join("discord-device.json"));
+	}
 	if !demo && let (Some(directory), Ok(saved)) = (&log_directory, &preferences) {
 		diagnostics::install(saved.diagnostics_log, directory.clone());
 	}
