@@ -4803,6 +4803,7 @@ impl Desktop {
 						*result,
 						self.cache.as_ref(),
 						self.state.generation,
+						std::time::Instant::now(),
 					);
 					self.cache_pending += usize::from(queued);
 					continue;
@@ -5014,10 +5015,16 @@ impl Desktop {
 				| cache::Outcome::AccountPresenceSaved(_) => unreachable!(),
 			}
 		}
-		self.cache_pending += usize::from(
-			self.app_settings
-				.retry(self.cache.as_ref(), self.state.generation),
-		);
+		let now = std::time::Instant::now();
+		self.cache_pending += usize::from(self.app_settings.retry(
+			self.cache.as_ref(),
+			self.state.generation,
+			now,
+		));
+		// A failed write is resent on time even when nothing else wakes a hidden window.
+		if let Some(wait) = self.app_settings.retry_wait(now) {
+			ctx.request_repaint_after(wait);
+		}
 		self.retry_history_clears();
 		self.sync_diagnostics_log(ctx);
 		self.sync_diagnostics_save(ctx);

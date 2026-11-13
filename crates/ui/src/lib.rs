@@ -579,6 +579,7 @@ pub struct MessagingUi {
 	/// Release channel and version shown in the title bar.
 	pub build: design::Build,
 	pub updates: updates::Updates,
+	/// Device preferences could not be saved; shown by the update and local API settings.
 	pub updates_save_failed: bool,
 	/// The owner's diagnostic log level; the desktop host applies and persists it.
 	pub diagnostics_log: diagnostics::Level,

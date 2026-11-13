@@ -5037,3 +5037,5 @@ settings-local-api-copy-key = 复制密钥
 settings-local-api-reset-key = 重置密钥
 # Context: local_api_settings
 settings-local-api-security-detail = 只有在这台电脑上以你的用户身份运行的程序才能连接，并且必须持有访问密钥。网页和其他设备无法访问。应用永远不会收到你的登录凭据、消息或音频。
+# Context: local_api_settings
+settings-local-api-revocation-unsaved = Serein 尚未能在此设备上保存重置，因此重启后旧密钥可能会再次生效。Serein 会继续重试。

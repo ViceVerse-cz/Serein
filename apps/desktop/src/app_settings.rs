@@ -2,12 +2,19 @@ use local_store::AppPreferences;
 
 pub const MIN_WINDOW_SIZE: [u32; 2] = [600, 520];
 pub const DEFAULT_WINDOW_SIZE: [u32; 2] = [1120, 760];
+/// The wait before the first resend of a failed preference write. It doubles with each
+/// further failure, up to 64 seconds, so a broken database is not written in a loop.
+const RETRY_FIRST: std::time::Duration = std::time::Duration::from_secs(1);
 
 #[derive(Default)]
 pub struct Settings {
 	pub current: AppPreferences,
 	pub loaded: bool,
 	pub state: crate::toggle_setting::Settings,
+	/// When the preferences a failed write did not store are sent again.
+	pub retry_at: Option<std::time::Instant>,
+	/// Writes that failed in a row, which sets the next wait.
+	pub failures: u32,
 }
 
 impl Settings {
@@ -39,27 +46,51 @@ impl Settings {
 		// A full cache queue must not turn a device preference into a session-only change.
 		self.state.dirty = !accepted;
 		self.state.saving = accepted;
-		self.state.failed = !accepted;
+		// A failure stays reported until a write succeeds, not merely until one is queued.
+		self.state.failed |= !accepted;
 		accepted
 	}
 	/// A save finished. A change observed while it ran is still waiting, and is sent now
 	/// rather than on the next UI pass, which a window hidden in the tray does not have.
+	/// A failed write stays pending and is sent again by [`Self::retry`] after a growing wait.
 	/// Returns whether another save was queued.
 	pub fn saved(
 		&mut self,
 		result: Result<(), local_store::StoreError>,
 		cache: Option<&crate::cache::Cache>,
 		generation: u64,
+		now: std::time::Instant,
 	) -> bool {
 		self.state.saving = false;
 		self.state.failed = result.is_err();
+		if result.is_ok() {
+			self.failures = 0;
+			self.retry_at = None;
+		} else {
+			self.retry_at = Some(now + RETRY_FIRST * (1 << self.failures.min(6)));
+			self.failures = self.failures.saturating_add(1);
+		}
 		self.save(cache, generation)
 	}
-	/// Resends preferences a full cache queue refused. Every queued operation answers and wakes
-	/// the UI, so calling this after reading outcomes retries once the queue has room, even in a
-	/// window hidden in the tray, which has no UI pass. Returns whether a save was queued.
-	pub fn retry(&mut self, cache: Option<&crate::cache::Cache>, generation: u64) -> bool {
+	/// Resends preferences a full cache queue refused, and those a failed write did not store
+	/// once their wait is over. Every queued operation answers and wakes the UI, so calling
+	/// this after reading outcomes, and again at [`Self::retry_wait`], retries even in a window
+	/// hidden in the tray, which has no UI pass. Returns whether a save was queued.
+	pub fn retry(
+		&mut self,
+		cache: Option<&crate::cache::Cache>,
+		generation: u64,
+		now: std::time::Instant,
+	) -> bool {
+		if self.retry_at.is_some_and(|at| at <= now) {
+			self.retry_at = None;
+			self.state.dirty = true;
+		}
 		self.state.dirty && !self.state.saving && self.save(cache, generation)
+	}
+	/// How long until a failed write is due to be sent again.
+	pub fn retry_wait(&self, now: std::time::Instant) -> Option<std::time::Duration> {
+		self.retry_at.map(|at| at.saturating_duration_since(now))
 	}
 	/// Marks changed, valid device preferences for asynchronous persistence.
 	pub fn observe(&mut self, ui: &ui::MessagingUi) {
@@ -112,7 +143,7 @@ impl Settings {
 		};
 		if value != self.current {
 			self.state.touched = true;
-			self.state.failed = !value.is_valid();
+			self.state.failed |= !value.is_valid();
 			if value.is_valid() {
 				self.current = value;
 				self.state.dirty = true;

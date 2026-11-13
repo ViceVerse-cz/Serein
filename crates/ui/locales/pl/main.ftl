@@ -4942,3 +4942,5 @@ settings-local-api-copy-key = Kopiuj klucz
 settings-local-api-reset-key = Zresetuj klucz
 # Context: local_api_settings
 settings-local-api-security-detail = Połączyć mogą się tylko programy uruchomione na Twoim koncie użytkownika na tym komputerze i tylko z kluczem dostępu. Strony internetowe i inne urządzenia nie mają do niego dostępu. Aplikacje nigdy nie otrzymują Twoich danych logowania, wiadomości ani dźwięku.
+# Context: local_api_settings
+settings-local-api-revocation-unsaved = Serein nie mógł jeszcze zapisać resetu na tym urządzeniu, więc po ponownym uruchomieniu stary klucz mógłby znowu działać. Serein ponawia próby.

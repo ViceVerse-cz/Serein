@@ -4940,3 +4940,5 @@ settings-local-api-copy-key = Copier la clé
 settings-local-api-reset-key = Réinitialiser la clé
 # Context: local_api_settings
 settings-local-api-security-detail = Seuls les programmes exécutés sous votre compte sur cet ordinateur peuvent se connecter, et uniquement avec la clé d'accès. Les pages web et les autres appareils n'y ont pas accès. Les applications ne reçoivent jamais vos identifiants, vos messages ni votre audio.
+# Context: local_api_settings
+settings-local-api-revocation-unsaved = Serein n’a pas encore pu enregistrer la réinitialisation sur cet appareil : l’ancienne clé pourrait de nouveau fonctionner après un redémarrage. Serein continue de réessayer.

@@ -34,7 +34,10 @@ it accepts neither, or never confirms a write, Serein records on this device tha
 saved key is revoked (the record is made before the store is asked, so closing Serein or
 switching the API off during a slow reset does not lose it): it is
 never loaded again, here or after a restart, Settings says the keyring could not be
-updated, and the next switch-on or reset tries again. Every credential-store call is
+updated, and the next switch-on or reset tries again. The record is one of this device's
+preferences: if writing it fails, Serein writes it again after a wait that doubles from one
+second to about a minute, and until it is stored Settings warns that the old key could work
+again after a restart. Every credential-store call is
 limited to five seconds, so a provider that stops answering cannot keep the API on, keep
 old apps connected or hold up closing Serein.
 

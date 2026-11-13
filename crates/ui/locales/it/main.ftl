@@ -4940,3 +4940,5 @@ settings-local-api-copy-key = Copia chiave
 settings-local-api-reset-key = Reimposta chiave
 # Context: local_api_settings
 settings-local-api-security-detail = Possono collegarsi solo i programmi eseguiti con il tuo utente su questo computer, e solo con la chiave di accesso. Le pagine web e gli altri dispositivi non possono raggiungerla. Le app non ricevono mai il tuo accesso, i tuoi messaggi o il tuo audio.
+# Context: local_api_settings
+settings-local-api-revocation-unsaved = Serein non è ancora riuscito a salvare il ripristino su questo dispositivo, quindi la vecchia chiave potrebbe tornare a funzionare dopo un riavvio. Continua a riprovare.

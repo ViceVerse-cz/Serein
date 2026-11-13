@@ -4945,3 +4945,5 @@ settings-local-api-copy-key = Schlüssel kopieren
 settings-local-api-reset-key = Schlüssel zurücksetzen
 # Context: local_api_settings
 settings-local-api-security-detail = Nur Programme, die unter Ihrem Benutzerkonto auf diesem Computer laufen, können sich verbinden, und nur mit dem Zugriffsschlüssel. Webseiten und andere Geräte erreichen die API nicht. Apps erhalten niemals Ihre Anmeldung, Nachrichten oder Audio.
+# Context: local_api_settings
+settings-local-api-revocation-unsaved = Serein konnte das Zurücksetzen auf diesem Gerät noch nicht speichern, daher könnte der alte Schlüssel nach einem Neustart wieder funktionieren. Serein versucht es weiter.

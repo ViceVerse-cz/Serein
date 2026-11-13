@@ -4923,3 +4923,5 @@ settings-local-api-copy-key = キーをコピー
 settings-local-api-reset-key = キーをリセット
 # Context: local_api_settings
 settings-local-api-security-detail = 接続できるのは、このコンピューター上であなたのユーザーとして実行されているプログラムだけで、アクセスキーも必要です。ウェブページや他のデバイスからは接続できません。アプリがログイン情報、メッセージ、音声を受け取ることはありません。
+# Context: local_api_settings
+settings-local-api-revocation-unsaved = このデバイスにリセットをまだ保存できていないため、再起動後に古いキーが再び使える可能性があります。Serein は再試行を続けます。

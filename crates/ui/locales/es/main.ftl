@@ -4943,3 +4943,5 @@ settings-local-api-copy-key = Copiar clave
 settings-local-api-reset-key = Restablecer clave
 # Context: local_api_settings
 settings-local-api-security-detail = Solo pueden conectarse los programas que se ejecutan con tu usuario en este equipo, y solo con la clave de acceso. Las páginas web y otros dispositivos no pueden acceder. Las apps nunca reciben tu inicio de sesión, tus mensajes ni tu audio.
+# Context: local_api_settings
+settings-local-api-revocation-unsaved = Serein aún no pudo guardar el restablecimiento en este dispositivo, así que la clave anterior podría volver a funcionar tras reiniciar. Sigue reintentándolo.

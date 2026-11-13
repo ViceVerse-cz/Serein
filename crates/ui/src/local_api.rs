@@ -70,6 +70,16 @@ impl MessagingUi {
 				self.local_api_connection(ui);
 				design::card_divider(ui);
 			}
+			// The revocation lives in the device preferences, so it holds across a restart only
+			// once they are written; the desktop keeps retrying until then.
+			if self.local_api_key_revoked && self.updates_save_failed {
+				design::notice(
+					ui,
+					design::Level::Warning,
+					&translate("settings-local-api-revocation-unsaved"),
+				);
+				design::card_divider(ui);
+			}
 			design::hint(ui, "settings-local-api-security-detail");
 		});
 	}

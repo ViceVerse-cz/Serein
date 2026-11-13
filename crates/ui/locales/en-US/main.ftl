@@ -5135,3 +5135,5 @@ settings-local-api-copy-key = Copy key
 settings-local-api-reset-key = Reset key
 # Context: local_api_settings
 settings-local-api-security-detail = Only programs running as you on this computer can connect, and only with the access key. Web pages and other devices cannot reach it. Apps never receive your login, messages or audio.
+# Context: local_api_settings
+settings-local-api-revocation-unsaved = Serein could not save the reset on this device yet, so the old key could work again after a restart. It keeps retrying.

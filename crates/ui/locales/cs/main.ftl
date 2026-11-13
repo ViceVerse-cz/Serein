@@ -5068,3 +5068,5 @@ settings-local-api-copy-key = Kopírovat klíč
 settings-local-api-reset-key = Obnovit klíč
 # Context: local_api_settings
 settings-local-api-security-detail = Připojit se mohou jen programy spuštěné pod vaším uživatelem na tomto počítači, a to jen s přístupovým klíčem. Webové stránky a jiná zařízení se připojit nemohou. Aplikace nikdy nedostanou vaše přihlášení, zprávy ani zvuk.
+# Context: local_api_settings
+settings-local-api-revocation-unsaved = Serein zatím nemohl uložit obnovení klíče v tomto zařízení, takže po restartu by starý klíč mohl znovu fungovat. Stále to zkouší znovu.

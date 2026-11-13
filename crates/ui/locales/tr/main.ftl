@@ -4926,3 +4926,5 @@ settings-local-api-copy-key = Anahtarı kopyala
 settings-local-api-reset-key = Anahtarı sıfırla
 # Context: local_api_settings
 settings-local-api-security-detail = Yalnızca bu bilgisayarda sizin kullanıcınızla çalışan programlar ve yalnızca erişim anahtarıyla bağlanabilir. Web sayfaları ve diğer cihazlar erişemez. Uygulamalar oturum bilgilerinizi, mesajlarınızı veya sesinizi asla almaz.
+# Context: local_api_settings
+settings-local-api-revocation-unsaved = Serein sıfırlamayı bu cihaza henüz kaydedemedi; bu yüzden eski anahtar yeniden başlatmadan sonra tekrar çalışabilir. Serein denemeye devam ediyor.

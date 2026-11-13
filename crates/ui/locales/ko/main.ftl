@@ -5092,3 +5092,5 @@ settings-local-api-copy-key = 키 복사
 settings-local-api-reset-key = 키 재설정
 # Context: local_api_settings
 settings-local-api-security-detail = 이 컴퓨터에서 내 사용자 계정으로 실행 중인 프로그램만 액세스 키를 사용해 연결할 수 있습니다. 웹 페이지나 다른 기기에서는 연결할 수 없습니다. 앱은 로그인 정보, 메시지 또는 오디오를 받지 않습니다.
+# Context: local_api_settings
+settings-local-api-revocation-unsaved = 이 기기에 재설정을 아직 저장하지 못해 다시 시작한 후 이전 키가 다시 작동할 수 있습니다. Serein이 계속 다시 시도합니다.
