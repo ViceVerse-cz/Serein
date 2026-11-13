@@ -4140,6 +4140,10 @@ verification-show-one-quick-check = One quick check
 verification-show-verification-required = Verification required
 # Context: show
 verification-show-verify = Verify
+# Context: show
+verification-show-safer-in-the-official-discord-app = Completing this check in the official Discord app is safer. Discord may ask newer accounts to verify a phone number after a check solved in Serein.
+# Context: show
+verification-show-open-discord = Open Discord
 
 ## crates/ui/src/video.rs
 # Context: show_player
@@ -5099,3 +5103,33 @@ timestamp-style-full = Full date and time
 timestamp-style-relative = Relative time
 timestamp-style-short-date-time = Short date and time
 timestamp-style-short-date-seconds = Short date and time with seconds
+# Context: moderation
+moderation-menu-timeout = Timeout { $name }
+# Context: moderation
+moderation-menu-kick = Kick { $name }
+# Context: moderation
+moderation-menu-ban = Ban { $name }
+# Context: moderation
+moderation-timeout-detail = They cannot send messages, react or join voice channels until the timeout ends.
+# Context: moderation
+moderation-kick-detail = They can rejoin with a new invite.
+# Context: moderation
+moderation-ban-detail = They cannot rejoin until the ban is removed.
+# Context: moderation
+moderation-duration-60-seconds = 60 seconds
+# Context: moderation
+moderation-remove-timeout = Remove timeout
+# Context: moderation
+moderation-delete-history = Delete message history
+# Context: moderation
+moderation-delete-none = Don't delete any
+# Context: moderation
+moderation-delete-hour = Previous hour
+# Context: moderation
+moderation-delete-day = Previous 24 hours
+# Context: moderation
+moderation-delete-week = Previous 7 days
+# Context: moderation
+moderation-confirm-timeout = Timeout
+# Context: moderation
+moderation-confirm-ban = Ban

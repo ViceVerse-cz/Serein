@@ -520,6 +520,10 @@ fn main() -> eframe::Result {
 	// The owner's saved log level takes effect before the window, so an early defect leaves a
 	// trace instead of a description that has to be reconstructed afterwards.
 	let log_directory = local_store::data_dir().ok().map(|root| root.join("logs"));
+	// Discord's cookies and installation ID make each launch the same device to the service.
+	if !demo && let Ok(root) = local_store::data_dir() {
+		discord_api::device::keep_in(root.join("discord-device.json"));
+	}
 	if !demo && let (Some(directory), Ok(saved)) = (&log_directory, &preferences) {
 		diagnostics::install(saved.diagnostics_log, directory.clone());
 	}
@@ -3846,6 +3850,7 @@ impl Desktop {
 					let patch = match action {
 						Action::Leave(_) => None,
 						Action::Edit { name, icon, .. } => Some(model::ChannelPatch {
+							user_limit: Patch::Absent,
 							id: channel,
 							name: name.map_or(Patch::Absent, Patch::Value),
 							icon: match icon {
@@ -4028,6 +4033,7 @@ impl Desktop {
 						parent,
 						request,
 						result: Ok(model::Channel {
+							user_limit: None,
 							id: model::Id(self.synthetic_id),
 							guild: Some(guild),
 							parent_id: Some(parent),
@@ -4080,6 +4086,7 @@ impl Desktop {
 					let threads = ids
 						.into_iter()
 						.map(|id| model::Channel {
+							user_limit: None,
 							id: model::Id(id),
 							guild: Some(guild),
 							parent_id: Some(parent),

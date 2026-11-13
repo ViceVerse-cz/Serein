@@ -28,7 +28,7 @@ tokio = { version = "1.50", features = ["rt-multi-thread", "macros", "sync", "ti
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value"] }
 # Browser TLS/HTTP2 fingerprint matching the advertised client identity on every transport.
-wreq = { version = "=6.0.0-rc.31", features = ["json", "stream", "gzip", "deflate", "brotli", "zstd", "ws"] }
+wreq = { version = "=6.0.0-rc.31", features = ["json", "stream", "gzip", "deflate", "brotli", "zstd", "ws", "cookies"] }
 wreq-util = { version = "=3.0.0-rc.14", default-features = false, features = ["emulation"] }
 rasterlottie = { version = "=0.2.2", default-features = false }
 # Same release as wreq's `ws`, so one tungstenite is built; TLS comes from wreq.

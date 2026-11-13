@@ -4042,6 +4042,7 @@ mod tests {
 
 		{
 			let mut channel = model::Channel {
+				user_limit: None,
 				id: Id(10),
 				guild: Some(Id(20)),
 				kind: 0,
@@ -4990,6 +4991,7 @@ mod tests {
 		]
 		.into_iter()
 		.map(|(id, kind, guild)| model::Channel {
+			user_limit: None,
 			id: Id(id),
 			kind,
 			guild,
@@ -6386,6 +6388,7 @@ mod tests {
 				let ctx = egui::Context::default();
 				crate::fonts::install(&ctx);
 				let channels = [model::Channel {
+					user_limit: None,
 					id: Id(2),
 					kind: 2,
 					guild: Some(Id(1)),
@@ -6781,6 +6784,7 @@ mod tests {
 			"مرحبا {url} <@42> <#2> [masked](https://example.com) ||SECRET_PRIVATE|| نهاية"
 		));
 		let channels = [model::Channel {
+			user_limit: None,
 			id: Id(2),
 			kind: 0,
 			guild: Some(Id(1)),

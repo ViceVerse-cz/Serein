@@ -661,6 +661,7 @@ mod tests {
 			selected: Some(channel),
 			user: Some(message.author.clone()),
 			channels: vec![Channel {
+				user_limit: None,
 				id: channel,
 				guild: None,
 				parent_id: None,
@@ -748,6 +749,7 @@ mod tests {
 				selected: Some(channel),
 				user: Some(message.author.clone()),
 				channels: vec![Channel {
+					user_limit: None,
 					id: channel,
 					guild: None,
 					parent_id: None,
@@ -1013,6 +1015,7 @@ mod tests {
 				selected: Some(channel),
 				user: Some(message.author.clone()),
 				channels: vec![Channel {
+					user_limit: None,
 					id: channel,
 					guild: None,
 					parent_id: None,
@@ -1302,6 +1305,7 @@ mod tests {
 				emojis: None,
 			}],
 			channels: vec![Channel {
+				user_limit: None,
 				id: Id(10),
 				guild: Some(Id(1)),
 				kind: 0,

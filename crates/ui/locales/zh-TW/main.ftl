@@ -4135,6 +4135,10 @@ verification-show-one-quick-check = 一次快速檢查
 verification-show-verification-required = 需要驗證
 # Context: show
 verification-show-verify = 驗證
+# Context: show
+verification-show-safer-in-the-official-discord-app = 在官方 Discord 應用程式中完成此驗證較安全。在 Serein 中完成驗證後，Discord 可能會要求較新的帳號驗證手機號碼。
+# Context: show
+verification-show-open-discord = 開啟 Discord
 
 ## crates/ui/src/video.rs
 # Context: show_player
@@ -4997,3 +5001,33 @@ new-message-hint = 新增好友以開始私訊或群組。
 new-message-no-people-found = 沒有符合的結果。
 new-message-create = 建立訊息
 new-message-cancel = 取消
+# Context: moderation
+moderation-menu-timeout = 將 { $name } 禁言
+# Context: moderation
+moderation-menu-kick = 移出 { $name }
+# Context: moderation
+moderation-menu-ban = 將 { $name } 停權
+# Context: moderation
+moderation-timeout-detail = 禁言結束前，對方無法傳送訊息、新增反應或加入語音頻道。
+# Context: moderation
+moderation-kick-detail = 對方可以透過新的邀請重新加入。
+# Context: moderation
+moderation-ban-detail = 停權解除前，對方無法重新加入。
+# Context: moderation
+moderation-duration-60-seconds = 60 秒
+# Context: moderation
+moderation-remove-timeout = 解除禁言
+# Context: moderation
+moderation-delete-history = 刪除訊息記錄
+# Context: moderation
+moderation-delete-none = 不刪除
+# Context: moderation
+moderation-delete-hour = 過去 1 小時
+# Context: moderation
+moderation-delete-day = 過去 24 小時
+# Context: moderation
+moderation-delete-week = 過去 7 天
+# Context: moderation
+moderation-confirm-timeout = 禁言
+# Context: moderation
+moderation-confirm-ban = 停權

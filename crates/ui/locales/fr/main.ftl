@@ -4103,6 +4103,10 @@ verification-show-one-quick-check = Une vérification rapide
 verification-show-verification-required = Vérification requise
 # Context: show
 verification-show-verify = Vérifier
+# Context: show
+verification-show-safer-in-the-official-discord-app = Il est plus sûr d’effectuer cette vérification dans l’application Discord officielle. Après une vérification résolue dans Serein, Discord peut demander aux comptes récents de vérifier un numéro de téléphone.
+# Context: show
+verification-show-open-discord = Ouvrir Discord
 
 ## crates/ui/src/video.rs
 # Context: show_player
@@ -4900,3 +4904,33 @@ new-message-hint = Ajoutez des amis pour démarrer un message privé ou un group
 new-message-no-people-found = Personne ne correspond à cette recherche.
 new-message-create = Créer un message
 new-message-cancel = Annuler
+# Context: moderation
+moderation-menu-timeout = Exclure temporairement { $name }
+# Context: moderation
+moderation-menu-kick = Expulser { $name }
+# Context: moderation
+moderation-menu-ban = Bannir { $name }
+# Context: moderation
+moderation-timeout-detail = Cette personne ne pourra ni envoyer de messages, ni réagir, ni rejoindre de salons vocaux jusqu'à la fin de l'exclusion.
+# Context: moderation
+moderation-kick-detail = Cette personne pourra revenir avec une nouvelle invitation.
+# Context: moderation
+moderation-ban-detail = Cette personne ne pourra pas revenir tant que le bannissement n'est pas levé.
+# Context: moderation
+moderation-duration-60-seconds = 60 secondes
+# Context: moderation
+moderation-remove-timeout = Lever l'exclusion
+# Context: moderation
+moderation-delete-history = Supprimer l'historique des messages
+# Context: moderation
+moderation-delete-none = Ne rien supprimer
+# Context: moderation
+moderation-delete-hour = Dernière heure
+# Context: moderation
+moderation-delete-day = Dernières 24 heures
+# Context: moderation
+moderation-delete-week = 7 derniers jours
+# Context: moderation
+moderation-confirm-timeout = Exclure
+# Context: moderation
+moderation-confirm-ban = Bannir

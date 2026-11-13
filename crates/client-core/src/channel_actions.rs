@@ -1004,6 +1004,7 @@ impl State {
 						self.apply(crate::Envelope {
 							generation: self.generation,
 							event: crate::Event::ChannelChanged(model::ChannelPatch {
+								user_limit: Patch::Absent,
 								id: channel,
 								name: Patch::Value(updated.name.clone()),
 								icon: Patch::Absent,
@@ -1179,6 +1180,7 @@ impl State {
 					self.apply(crate::Envelope {
 						generation: self.generation,
 						event: crate::Event::ChannelChanged(model::ChannelPatch {
+							user_limit: Patch::Absent,
 							id: channel,
 							name: Patch::Absent,
 							icon: Patch::Absent,
@@ -1194,6 +1196,7 @@ impl State {
 						self.apply(crate::Envelope {
 							generation: self.generation,
 							event: crate::Event::ChannelChanged(model::ChannelPatch {
+								user_limit: Patch::Absent,
 								id: shift_id,
 								name: Patch::Absent,
 								icon: Patch::Absent,
@@ -1270,6 +1273,7 @@ mod tests {
 				emojis: None,
 			}],
 			channels: vec![model::Channel {
+				user_limit: None,
 				id: Id(3),
 				guild: Some(Id(2)),
 				name: "general".into(),
@@ -1493,6 +1497,7 @@ mod tests {
 	fn owned_post() -> (State, model::Channel, PostDetails) {
 		let mut state = state();
 		let thread = model::Channel {
+			user_limit: None,
 			id: Id(4),
 			guild: Some(Id(2)),
 			parent_id: Some(Id(3)),
@@ -1585,6 +1590,7 @@ mod tests {
 			event: CoreEvent::ThreadChanged {
 				guild: Id(2),
 				patch: model::ChannelPatch {
+					user_limit: Patch::Absent,
 					id: Id(4),
 					name: Patch::Value(renamed.into()),
 					icon: Patch::Absent,
@@ -1645,6 +1651,7 @@ mod tests {
 		state.apply(Envelope {
 			generation: state.generation,
 			event: CoreEvent::ChannelChanged(model::ChannelPatch {
+				user_limit: Patch::Absent,
 				id: Id(4),
 				name: Patch::Value("Later edit".into()),
 				icon: Patch::Absent,
@@ -1688,6 +1695,7 @@ mod tests {
 			command,
 			Ok(Outcome::Channel {
 				channel: Box::new(model::Channel {
+					user_limit: None,
 					id: Id(4),
 					guild: Some(Id(2)),
 					parent_id: Some(Id(3)),
@@ -1725,6 +1733,7 @@ mod tests {
 			command,
 			Ok(Outcome::Channel {
 				channel: Box::new(model::Channel {
+					user_limit: None,
 					id: Id(4),
 					guild: Some(Id(2)),
 					parent_id: Some(Id(99)),
@@ -1855,6 +1864,7 @@ mod tests {
 			let mut renamed = state.channels[0].clone();
 			renamed.name = "renamed".into();
 			state.observe_channel_action(&CoreEvent::ChannelChanged(model::ChannelPatch {
+				user_limit: Patch::Absent,
 				id: Id(3),
 				name: Patch::Value("renamed".into()),
 				icon: Patch::Absent,
