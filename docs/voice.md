@@ -504,9 +504,17 @@ request aborting capture startup. Native Windows verification of this correction
 
 Linux uses the desktop ScreenCast portal and PipeWire. Share Screen opens the system
 screen/window picker after the quality dialog; source discovery never opens that picker.
-The default is 720p30. The worker tries modern VA-API, legacy VA-API with CPU scaling,
-NVENC with GPU scaling, NVENC with CPU scaling, then the existing OpenH264 software
-encoder. The call stage identifies the active encoder and software fallback.
+The default is 720p30. In a COSMIC session the worker reads the DRM vendor of the installed
+GPUs and tries the copy-based mode for that vendor first — VA-API with `videoconvertscale`
+on Intel and AMD, NVENC with CPU scaling on NVIDIA — then its zero-copy variant, the other
+vendor's modes, the legacy `vaapih264enc` path, and finally the OpenH264 software encoder.
+A hybrid system prefers VA-API because the compositor usually renders on the integrated GPU.
+The copy has to lead there because xdg-desktop-portal-cosmic offers only DMA-BUF with a
+tiled or compressed modifier: importing those straight into `vapostproc` or EGL fails to
+negotiate, and that portal then stops delivering pictures to every later attempt on the same
+session, which appeared as a permanently black share. Other desktops keep the zero-copy
+order, so they pay neither the copy nor the risk. The call stage identifies the active
+encoder and software fallback.
 On Niri, portal frames receive pipeline running-time timestamps before frame-rate
 filtering. This handles Niri 26.04's constant presentation timestamps, which otherwise
 freeze the preview and prevent video from reaching a viewer who joins later. Detection
@@ -543,7 +551,9 @@ window; cancelling or failing the portal never selects it automatically. The exi
 remains unverified. AV1/H.265 sending is not included.
 
 The legacy fallback requires an available `vaapih264enc` from GStreamer VAAPI;
-`vapostproc` alone does not supply it. It uploads CPU-scaled NV12 frames to the
+`vapostproc` alone does not supply it. Upstream deleted `gstreamer-vaapi` in June 2025 and
+replaced it with the `va` plugin's `vah264enc`, so the legacy mode only helps older
+installs. It uploads CPU-scaled NV12 frames to the
 hardware encoder, so some CPU use remains expected. No legacy plugin or driver is
 installed automatically. Missing or failing encoders continue through the existing
 fallback sequence. Haswell/i965 encoding and live Discord delivery remain unverified.
