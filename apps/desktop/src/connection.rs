@@ -302,6 +302,8 @@ impl Connection {
             };
             let result=async {
                 let api=DiscordApi::with_proxy(secret.clone(), api_proxy)?.reporting_expiry(api_expiry);
+                // The Gateway identify below carries the installation ID once Discord has issued one.
+                api.ensure_installation().await;
                 // Like the web client (unofficial), nothing asks REST who this is or where the
                 // Gateway lives: the address is fixed and READY names the account. A rejected
                 // token ends the session through Gateway close 4004, a bot through READY.
@@ -2798,6 +2800,7 @@ mod tests {
 		client_core::Envelope {
 			generation: 1,
 			event: client_core::Event::ChannelCreated(model::Channel {
+				user_limit: None,
 				id: model::Id(id),
 				guild: Some(model::Id(1)),
 				parent_id: None,
@@ -3105,6 +3108,7 @@ mod tests {
 				.into_iter()
 				.enumerate()
 				.map(|(index, kind)| Channel {
+					user_limit: None,
 					id: Id(11 + index as u64),
 					guild: None,
 					parent_id: None,

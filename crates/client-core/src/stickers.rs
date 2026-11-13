@@ -181,6 +181,7 @@ mod tests {
 	fn sticker_send_preserves_draft_and_failed_send_is_explicit() {
 		let mut state = State {
 			channels: vec![model::Channel {
+				user_limit: None,
 				id: Id(1),
 				guild: None,
 				parent_id: None,

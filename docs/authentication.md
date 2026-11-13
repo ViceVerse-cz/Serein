@@ -47,6 +47,12 @@ versions are platform-specific manifest observations (Linux 1.0.169, Windows
 1.0.9268, macOS 0.0.422), and web build 670026 comes from the public `/app` bundle
 on November 12. These do not establish a complete current Electron identity.
 Super-properties retain some web fields.
+REST also carries the Discord-issued installation ID as `X-Installation-ID`, and the Gateway identify
+carries it as `installation_id`; with Discord's own cookies these keep one device across launches
+(see [storage policy](storage-policy.md#discord-device-state-november-13-2026)). Captchas for
+joins, DMs, friend requests and messages are offered in Serein with a warning that completing them
+in the official client is safer: a new account reported a phone-verification request after one
+was solved here (cause unverified).
 See [compatibility notes](discord-compatibility.md#desktop-metadata-reference--november-12)
 for the partial profile and omissions.
 

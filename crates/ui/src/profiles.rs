@@ -597,11 +597,8 @@ pub(crate) fn join_blocked(
 		Some(_) => Some("profiles-in-voice-joined"),
 		None => (!state.can_call(channel)).then_some("profiles-in-voice-unavailable"),
 	};
-	key.map(crate::i18n::translate).or_else(|| {
-		state
-			.call_full(channel)
-			.then(|| client_core::voice::CALL_FULL.to_owned())
-	})
+	key.map(crate::i18n::translate)
+		.or_else(|| state.call_full(channel).map(str::to_owned))
 }
 
 /// Up to three of the channel's people on a rounded tile, the profile's owner first. A larger
@@ -2324,15 +2321,10 @@ pub(crate) fn role_chips(
 	user: Id,
 	guild: &model::GuildProfile,
 ) {
-	let Some(roles) = state.guild_roles(guild.guild) else {
+	let roles = state.profile_roles(user, guild);
+	if roles.is_empty() {
 		return;
-	};
-	let assigned = state.profile_role_ids(user, guild);
-	let roles: Vec<_> = roles
-		.iter()
-		.rev()
-		.filter(|role| role.id != guild.guild && assigned.contains(&role.id))
-		.collect();
+	}
 	let max_width = ui.available_width();
 	let widths: Vec<_> = roles
 		.iter()
@@ -4384,21 +4376,18 @@ fn card_view(
 											action = Some(Action::Profile(next));
 										}
 									}
-									if let Some(guild) = data.guild.as_ref()
-										&& state.guild_roles(guild.guild).is_some_and(|roles| {
-											roles.iter().any(|role| {
-												role.id != guild.guild
-													&& guild.roles.contains(&role.id)
-											})
-										}) {
-										section(
-											ui,
-											&theme,
-											&mut sections,
-											"profiles-show-roles",
-											full,
-										);
-										role_chips(ui, &theme, state, data.user.id, guild);
+									if let Some(guild) = data.guild.as_ref() {
+										let roles = state.profile_roles(data.user.id, guild);
+										if !roles.is_empty() {
+											section(
+												ui,
+												&theme,
+												&mut sections,
+												"profiles-show-roles",
+												full,
+											);
+											role_chips(ui, &theme, state, data.user.id, guild);
+										}
 									}
 									if !data.private {
 										section(

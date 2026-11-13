@@ -2209,6 +2209,7 @@ mod tests {
 				Id(26),
 				*request,
 				Ok(Channel {
+					user_limit: None,
 					id: Id(1_548_000_000_000_000_000),
 					guild: Some(Id(10)),
 					parent_id: Some(Id(26)),
@@ -2313,6 +2314,7 @@ mod tests {
 				request,
 				Ok(model::forum::Page {
 					threads: vec![Channel {
+						user_limit: None,
 						id: Id(1_549_000_000_000_000_000),
 						guild: Some(Id(10)),
 						parent_id: Some(Id(26)),
