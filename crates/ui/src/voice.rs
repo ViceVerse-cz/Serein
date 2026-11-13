@@ -1143,8 +1143,7 @@ impl MessagingUi {
 		));
 		if connected {
 			bar_ui.set_opacity(reveal);
-			let view_foreground = if full { STAGE_TEXT } else { text };
-			self.call_controls(&mut bar_ui, state, channel, commands, view_foreground);
+			self.call_controls(&mut bar_ui, state, channel, commands);
 		} else {
 			bar_ui.horizontal_centered(|ui| {
 				ui.add_space((ui.available_width() - 160.0).max(0.0) * 0.5);
@@ -3376,7 +3375,6 @@ impl MessagingUi {
 		state: &mut State,
 		channel: Id,
 		commands: &mut Vec<Command>,
-		view_foreground: egui::Color32,
 	) {
 		let colors = design::palette(ui);
 		let Some(call) = state.voice.active.as_ref() else {
@@ -3613,8 +3611,19 @@ impl MessagingUi {
 				.layout(egui::Layout::right_to_left(egui::Align::Center)),
 		);
 		view.spacing_mut().item_spacing.x = 4.0;
+		if side > 0.0 {
+			view.painter().rect_filled(view.max_rect(), 12, PILL_FILL);
+		}
 		if screen_focused && side_shown {
-			let fullscreen = fullscreen_control(&mut view, view_foreground);
+			let fullscreen = control(
+				&mut view,
+				crate::icons::Icon::Fullscreen,
+				40.0,
+				true,
+				STAGE_TEXT,
+				"Fullscreen",
+				"View this screen share in fullscreen",
+			);
 			if fullscreen.clicked() {
 				let previous = view.input(|input| input.viewport().fullscreen.unwrap_or(false));
 				self.voice_fullscreen = self
@@ -3631,9 +3640,9 @@ impl MessagingUi {
 				40.0,
 				true,
 				if shown {
-					colors.accent
+					view_state_color(colors.accent)
 				} else {
-					view_foreground
+					STAGE_TEXT
 				},
 				if shown {
 					"Hide participants"
@@ -3658,9 +3667,9 @@ impl MessagingUi {
 				40.0,
 				true,
 				if self.voice_stream_volume() == 0 {
-					colors.danger
+					view_state_color(colors.danger)
 				} else {
-					view_foreground
+					STAGE_TEXT
 				},
 				"Stream volume",
 				"Stream audio",
@@ -3906,7 +3915,7 @@ impl MessagingUi {
 							.layout(egui::Layout::left_to_right(egui::Align::Center)),
 					);
 					bar_ui.set_opacity(reveal);
-					self.call_controls(&mut bar_ui, state, channel, commands, STAGE_TEXT);
+					self.call_controls(&mut bar_ui, state, channel, commands);
 				});
 			self.apply_watch_request(state);
 		}
@@ -4837,21 +4846,11 @@ fn control(
 	response.on_hover_text(hint)
 }
 
-fn fullscreen_control(ui: &mut egui::Ui, color: egui::Color32) -> egui::Response {
-	let (rect, response) =
-		ui.allocate_exact_size(egui::vec2(48.0, CONTROL_HEIGHT), egui::Sense::click());
-	if response.hovered() || response.has_focus() {
-		ui.painter()
-			.rect_filled(rect.shrink(4.0), 8, egui::Color32::from_white_alpha(28));
-	}
-	crate::icons::paint(
-		ui.painter(),
-		crate::icons::Icon::Fullscreen,
-		egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(22.0)),
-		color,
-	);
-	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, "Fullscreen"));
-	response.on_hover_text("View this screen share in fullscreen")
+fn view_state_color(color: egui::Color32) -> egui::Color32 {
+	let [r, g, b, _] = color.to_srgba_unmultiplied();
+	let rgb = u32::from_be_bytes([0, r, g, b]);
+	let hover_fill = PILL_FILL.blend(egui::Color32::from_white_alpha(28));
+	design::role_name_color(rgb, hover_fill, STAGE_TEXT)
 }
 
 /// Circular filled action (answer/decline) used by the incoming-call banner.
@@ -6741,5 +6740,15 @@ mod tests {
 		output.drop_without_applying_deltas();
 		assert_eq!(badge_width, expected_width);
 		crate::i18n::set_current(prev_lang);
+	}
+
+	#[test]
+	fn view_state_icons_remain_readable_when_theme_colors_match_the_controls() {
+		let hover = PILL_FILL.blend(egui::Color32::from_white_alpha(28));
+		for color in [PILL_FILL, hover, egui::Color32::BLACK] {
+			let foreground = view_state_color(color);
+			assert!(design::contrast(foreground, hover) >= 4.5);
+			assert!(design::contrast(foreground, PILL_FILL) >= 4.5);
+		}
 	}
 }
