@@ -5032,3 +5032,33 @@ timestamp-style-full = Úplné datum a čas
 timestamp-style-relative = Relativní čas
 timestamp-style-short-date-time = Krátké datum a čas
 timestamp-style-short-date-seconds = Krátké datum a čas se sekundami
+# Context: moderation
+moderation-menu-timeout = Oddechový čas pro { $name }
+# Context: moderation
+moderation-menu-kick = Vyhodit { $name }
+# Context: moderation
+moderation-menu-ban = Zabanovat { $name }
+# Context: moderation
+moderation-timeout-detail = Do konce oddechového času nemůže psát zprávy, reagovat ani se připojovat k hlasovým kanálům.
+# Context: moderation
+moderation-kick-detail = Může se znovu připojit pomocí nové pozvánky.
+# Context: moderation
+moderation-ban-detail = Nemůže se znovu připojit, dokud ban nezrušíte.
+# Context: moderation
+moderation-duration-60-seconds = 60 sekund
+# Context: moderation
+moderation-remove-timeout = Zrušit oddechový čas
+# Context: moderation
+moderation-delete-history = Smazat historii zpráv
+# Context: moderation
+moderation-delete-none = Nic nemazat
+# Context: moderation
+moderation-delete-hour = Poslední hodina
+# Context: moderation
+moderation-delete-day = Posledních 24 hodin
+# Context: moderation
+moderation-delete-week = Posledních 7 dní
+# Context: moderation
+moderation-confirm-timeout = Oddechový čas
+# Context: moderation
+moderation-confirm-ban = Zabanovat

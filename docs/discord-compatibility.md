@@ -146,6 +146,38 @@ five are opt-in: they stay hidden, unrequested and without catalog reads until e
 Settings › Appearance › Profile cosmetics. This is a local display choice; nothing is sent
 to Discord.
 
+## Member moderation from the user menu — November 13, 2026
+
+A server member's context menu offers Timeout, Kick and Ban, each behind a confirmation.
+A timeout picks one of Discord's durations (60 seconds to one week) or removes the
+timeout; a ban chooses how much recent message history to delete (none, one hour, 24
+hours or seven days). An entry appears only when the account holds Moderate Members,
+Kick Members or Ban Members and the target's roles are loaded (the open channel's member
+list, its looked-up message authors, or the Server Settings member page) and rank below
+the account's highest role. Owners keep their hierarchy exemption. The owner, the account
+itself and members whose rank is not loaded are never offered, and administrators are not
+offered a timeout. Discord remains the authority and may still refuse.
+
+Kick keeps the existing `DELETE /guilds/{guild}/members/{user}` request. Ban sends
+[Create Guild Ban](https://docs.discord.com/developers/resources/guild#create-guild-ban)
+with `delete_message_seconds` (at most seven days) and expects an empty reply. Timeout
+sends [Modify Guild Member](https://docs.discord.com/developers/resources/guild#modify-guild-member)
+with only `communication_disabled_until` (at most 28 days ahead, null to remove). The
+expiry is taken after the shared REST cooldown and route admission, so time spent
+waiting is not subtracted from the duration. The bounded 64 KiB member reply must
+identify the requested user and echo whether a timeout is set. These routes are
+documented for bots; normal-account acceptance is unofficial and live-unverified.
+Existing REST deadlines, write ambiguity handling and the single administration
+request apply, and a failure stays in the confirmation. A definite
+refusal can be retried there; a result that may already have applied cannot, and needs
+a new confirmation opened from the menu. The server is always the clicked row's own:
+a DM, friends or other row without a server never offers moderation in the selected one.
+
+No audit-log reason is sent, bans cannot be listed or removed, and a user who is not a
+loaded member cannot be banned by ID. Synthetic tests cover the permission and hierarchy
+rules, request bounds, the timeout body and failure reporting. No live kick, ban or
+timeout was performed.
+
 ## Guild voice moderation — October 8, 2026
 
 Server mute/unmute and voice movement/disconnection use the documented

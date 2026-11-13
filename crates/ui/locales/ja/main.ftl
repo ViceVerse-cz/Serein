@@ -4887,3 +4887,33 @@ new-message-hint = フレンドを追加して、DMまたはグループを開�
 new-message-no-people-found = 一致する相手はいません。
 new-message-create = メッセージを作成
 new-message-cancel = キャンセル
+# Context: moderation
+moderation-menu-timeout = { $name }をタイムアウト
+# Context: moderation
+moderation-menu-kick = { $name }をキック
+# Context: moderation
+moderation-menu-ban = { $name }をBAN
+# Context: moderation
+moderation-timeout-detail = タイムアウトが終わるまで、メッセージの送信、リアクション、ボイスチャンネルへの参加ができなくなります。
+# Context: moderation
+moderation-kick-detail = 新しい招待があれば再び参加できます。
+# Context: moderation
+moderation-ban-detail = BANが解除されるまで再び参加できません。
+# Context: moderation
+moderation-duration-60-seconds = 60秒
+# Context: moderation
+moderation-remove-timeout = タイムアウトを解除
+# Context: moderation
+moderation-delete-history = メッセージ履歴を削除
+# Context: moderation
+moderation-delete-none = 削除しない
+# Context: moderation
+moderation-delete-hour = 過去1時間
+# Context: moderation
+moderation-delete-day = 過去24時間
+# Context: moderation
+moderation-delete-week = 過去7日間
+# Context: moderation
+moderation-confirm-timeout = タイムアウト
+# Context: moderation
+moderation-confirm-ban = BAN

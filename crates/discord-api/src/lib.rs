@@ -125,6 +125,9 @@ pub struct DiscordApi {
 	base: String,
 	#[cfg(test)]
 	upload_origin: Option<std::net::SocketAddr>,
+	/// Test clock for a timeout expiry. Production always uses the wall clock.
+	#[cfg(test)]
+	timeout_clock: std::sync::Mutex<Option<std::sync::Arc<dyn Fn() -> i64 + Send + Sync>>>,
 }
 struct ProxyState {
 	receiver: tokio::sync::watch::Receiver<Option<proxy::ApiProxy>>,
@@ -141,6 +144,8 @@ struct Extras<'a> {
 	challenge: Option<&'a mut Option<client_core::captcha::Challenge>>,
 	/// Sent as `X-Context-Properties` on a message create.
 	context: Option<client_core::fingerprint::MessageContext>,
+	/// Builds the JSON body after cooldown and route admission.
+	prepare: Option<&'a mut (dyn FnMut() -> Result<serde_json::Value, Failure> + Send)>,
 }
 
 enum RequestContent {
@@ -148,6 +153,11 @@ enum RequestContent {
 	Multipart { content_type: String, body: Vec<u8> },
 }
 
+fn sample_unix_millis() -> i64 {
+	std::time::SystemTime::now()
+		.duration_since(std::time::UNIX_EPOCH)
+		.map_or(0, |value| value.as_millis().min(i64::MAX as u128) as i64)
+}
 fn stream_preview_url(bytes: &[u8], key: &str) -> Result<String, Failure> {
 	#[derive(serde::Deserialize)]
 	struct Preview {
@@ -330,6 +340,8 @@ impl DiscordApi {
 			base: API_ORIGIN.into(),
 			#[cfg(test)]
 			upload_origin: None,
+			#[cfg(test)]
+			timeout_clock: std::sync::Mutex::new(None),
 		})
 	}
 	/// Asks Discord once for this device's installation ID and keeps it, before the Gateway
@@ -511,6 +523,27 @@ impl DiscordApi {
 	) -> Result<Vec<u8>, Failure> {
 		self.request_limited(method, path, body, MAX_WIRE).await
 	}
+	/// Like [`Self::request_limited`], but builds the JSON body after the shared cooldown
+	/// and route admission. A timeout deadline must not be spent while this request waits.
+	async fn request_prepared(
+		&self,
+		method: Method,
+		path: &str,
+		prepare: &mut (dyn FnMut() -> Result<serde_json::Value, Failure> + Send),
+		max_bytes: usize,
+	) -> Result<Vec<u8>, Failure> {
+		self.request_with_content(
+			method,
+			path,
+			None,
+			max_bytes,
+			Extras {
+				prepare: Some(prepare),
+				..Extras::default()
+			},
+		)
+		.await
+	}
 	async fn request_limited(
 		&self,
 		method: Method,
@@ -562,6 +595,7 @@ impl DiscordApi {
 				retry,
 				challenge,
 				context: None,
+				prepare: None,
 			},
 		)
 		.await
@@ -585,6 +619,7 @@ impl DiscordApi {
 					retry,
 					challenge,
 					context: Some(context),
+					prepare: None,
 				},
 			)
 			.await?;
@@ -606,6 +641,7 @@ impl DiscordApi {
 			retry,
 			mut challenge,
 			context,
+			mut prepare,
 		} = extras;
 		// Only typed adapter methods construct paths. Never accept a URL or route from UI/content.
 		if !path.starts_with('/')
@@ -635,7 +671,8 @@ impl DiscordApi {
 		};
 		// Four permits bound concurrent REST work. A slow profile body must not hold the
 		// cooldown mutex and delay a message write; only service rate admission is shared.
-		let idempotent = method == Method::GET && body.is_none() && !speculative;
+		let idempotent =
+			method == Method::GET && body.is_none() && prepare.is_none() && !speculative;
 		let mut body = body;
 		let mut rate_limits = 0u8;
 		loop {
@@ -728,6 +765,9 @@ impl DiscordApi {
 				.check(&method, path, Instant::now())?;
 			if let Some(failure) = self.stop_reason() {
 				return Err(failure);
+			}
+			if let Some(prepare) = &mut prepare {
+				request = request.json(&prepare()?);
 			}
 			let response = request.send().await.map_err(|_| {
 				if write {

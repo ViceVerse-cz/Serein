@@ -4904,3 +4904,33 @@ new-message-hint = Adicione amigos para iniciar uma mensagem direta ou um grupo.
 new-message-no-people-found = Ninguém corresponde a essa pesquisa.
 new-message-create = Criar mensagem
 new-message-cancel = Cancelar
+# Context: moderation
+moderation-menu-timeout = Colocar { $name } de castigo
+# Context: moderation
+moderation-menu-kick = Expulsar { $name }
+# Context: moderation
+moderation-menu-ban = Banir { $name }
+# Context: moderation
+moderation-timeout-detail = A pessoa não poderá enviar mensagens, reagir nem entrar em canais de voz até o castigo terminar.
+# Context: moderation
+moderation-kick-detail = A pessoa poderá voltar com um novo convite.
+# Context: moderation
+moderation-ban-detail = A pessoa não poderá voltar até que o banimento seja removido.
+# Context: moderation
+moderation-duration-60-seconds = 60 segundos
+# Context: moderation
+moderation-remove-timeout = Remover castigo
+# Context: moderation
+moderation-delete-history = Excluir histórico de mensagens
+# Context: moderation
+moderation-delete-none = Não excluir nada
+# Context: moderation
+moderation-delete-hour = Última hora
+# Context: moderation
+moderation-delete-day = Últimas 24 horas
+# Context: moderation
+moderation-delete-week = Últimos 7 dias
+# Context: moderation
+moderation-confirm-timeout = Castigar
+# Context: moderation
+moderation-confirm-ban = Banir

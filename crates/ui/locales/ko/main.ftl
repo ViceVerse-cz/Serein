@@ -5073,3 +5073,33 @@ timestamp-style-full = 전체 날짜 및 시간
 timestamp-style-relative = 상대 시간
 timestamp-style-short-date-time = 짧은 날짜 및 시간
 timestamp-style-short-date-seconds = 초를 포함한 짧은 날짜 및 시간
+# Context: moderation
+moderation-menu-timeout = { $name } 님 타임아웃
+# Context: moderation
+moderation-menu-kick = { $name } 님 추방하기
+# Context: moderation
+moderation-menu-ban = { $name } 님 차단하기
+# Context: moderation
+moderation-timeout-detail = 타임아웃이 끝날 때까지 메시지를 보내거나 반응을 추가하거나 음성 채널에 참가할 수 없어요.
+# Context: moderation
+moderation-kick-detail = 새 초대를 받으면 다시 참가할 수 있어요.
+# Context: moderation
+moderation-ban-detail = 차단을 해제하기 전에는 다시 참가할 수 없어요.
+# Context: moderation
+moderation-duration-60-seconds = 60초
+# Context: moderation
+moderation-remove-timeout = 타임아웃 해제
+# Context: moderation
+moderation-delete-history = 메시지 기록 삭제
+# Context: moderation
+moderation-delete-none = 삭제하지 않음
+# Context: moderation
+moderation-delete-hour = 지난 1시간
+# Context: moderation
+moderation-delete-day = 지난 24시간
+# Context: moderation
+moderation-delete-week = 지난 7일
+# Context: moderation
+moderation-confirm-timeout = 타임아웃
+# Context: moderation
+moderation-confirm-ban = 차단

@@ -306,14 +306,39 @@ pub fn execute_admin(
 			}
 			Outcome::Members(page)
 		}
-		Action::SetRole { user, .. } | Action::SetNickname { user, .. } => {
+		Action::SetRole { user, .. }
+		| Action::SetNickname { user, .. }
+		| Action::Timeout { user, .. } => {
+			// Context menus act on live member rows without the settings member page.
 			let mut member = state
 				.server_admin
 				.members
 				.as_ref()
 				.and_then(|page| page.items.iter().find(|row| row.user.id == user))
-				.expect("fixture target member")
-				.clone();
+				.cloned()
+				.or_else(|| {
+					state
+						.members
+						.as_ref()?
+						.slots
+						.iter()
+						.flatten()
+						.find_map(|slot| match slot {
+							model::MemberSlot::Person(row) if row.user.id == user => Some(Member {
+								user: row.user.clone(),
+								nick: row.nick.clone(),
+								roles: row.roles.clone(),
+								joined_at: None,
+								join_source: None,
+								invite_code: None,
+								flags: None,
+								unusual_dm_until: None,
+								timeout_until: None,
+							}),
+							_ => None,
+						})
+				})
+				.expect("fixture target member");
 			match action {
 				Action::SetRole { role, assigned, .. } => {
 					member.roles.retain(|id| *id != role);
@@ -324,12 +349,16 @@ pub fn execute_admin(
 				Action::SetNickname { nick, .. } => {
 					member.nick = (!nick.is_empty()).then_some(nick)
 				}
+				Action::Timeout { seconds, .. } => {
+					member.timeout_until =
+						seconds.map(|seconds| 1_789_200_000_000 + i128::from(seconds) * 1000)
+				}
 				_ => {}
 			}
 			Outcome::Member(member)
 		}
 		Action::Voice { user, .. } => Outcome::VoiceUpdated(user),
-		Action::Kick { user } => Outcome::Kicked(user),
+		Action::Kick { user } | Action::Ban { user, .. } => Outcome::Kicked(user),
 		Action::Prune { .. } => Outcome::Pruned(Some(0)),
 		Action::ShowMembers { enabled } => Outcome::ChannelList(enabled),
 	};
