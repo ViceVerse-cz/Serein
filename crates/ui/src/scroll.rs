@@ -8,7 +8,15 @@ const WHEEL_LATCH_KEY: &str = "serein-wheel-modifier-latch";
 struct TouchpadState {
 	last_active: Option<f64>,
 	accumulator: egui::Vec2,
+	/// Where the pointer was when the queued movement arrived. egui gives wheel movement to the
+	/// hovered scroll area, so the queue belongs to whatever sits under this point.
+	origin: Option<Pos2>,
+	/// The frame that last took a smoothed step. A discarded pass reruns the frame.
+	stepped_frame: Option<u64>,
 }
+
+/// How far the pointer may drift before queued movement stops belonging to its scroll area.
+const QUEUE_ORIGIN_SLOP: f32 = 4.0;
 
 /// egui's wheel modifier latch. Between a gesture's `TouchPhase::Start` and `End`, a released
 /// modifier still applies and a newly pressed one joins, so zoom and axis follow egui's choice.
@@ -97,6 +105,16 @@ pub fn apply_preferences(ctx: &egui::Context, preferences: model::ReadingPrefere
 	if ctx.input(|i| i.pointer.any_pressed()) {
 		state.accumulator = egui::Vec2::ZERO;
 	}
+	let hover = ctx.input(|i| i.pointer.hover_pos());
+	if incoming != egui::Vec2::ZERO {
+		state.origin = hover;
+	} else if !match (hover, state.origin) {
+		(Some(hover), Some(origin)) => hover.distance(origin) <= QUEUE_ORIGIN_SLOP,
+		(hover, origin) => hover == origin,
+	} {
+		// The pointer moved to what may be another scroll area; it must not get this swipe.
+		state.accumulator = egui::Vec2::ZERO;
+	}
 
 	let speed = f32::from(preferences.scroll_speed_percent) / 100.0;
 	let delta = if zooming {
@@ -125,6 +143,7 @@ pub fn apply_preferences(ctx: &egui::Context, preferences: model::ReadingPrefere
 		}
 
 		let dt_clamped = dt.clamp(1.0 / 240.0, 0.05);
+		let frame = ctx.cumulative_frame_nr();
 		let step = if !preferences.smooth_scrolling {
 			let d = state.accumulator;
 			state.accumulator = egui::Vec2::ZERO;
@@ -136,7 +155,9 @@ pub fn apply_preferences(ctx: &egui::Context, preferences: model::ReadingPrefere
 			// speed setting, and the per-frame cap still bounds the timeline overscan.
 			let viewport_cap = page_height * 0.45 / speed;
 			let immediate = (120.0 / speed).min(viewport_cap);
-			if len <= immediate {
+			if state.stepped_frame == Some(frame) {
+				egui::Vec2::ZERO
+			} else if len <= immediate {
 				let d = state.accumulator;
 				state.accumulator = egui::Vec2::ZERO;
 				d
@@ -151,6 +172,7 @@ pub fn apply_preferences(ctx: &egui::Context, preferences: model::ReadingPrefere
 					.min(len);
 				let d = state.accumulator.normalized() * step_len;
 				state.accumulator -= d;
+				state.stepped_frame = Some(frame);
 				d
 			}
 		};
@@ -676,13 +698,16 @@ mod tests {
 				egui::vec2(900.0, 600.0),
 			)),
 			// Rapid swipe delivering 10.25 lines = 1,230px in 1 frame
-			events: vec![egui::Event::MouseWheel {
-				unit: egui::MouseWheelUnit::Line,
-				delta: egui::vec2(0.0, 10.25),
-				modifiers: egui::Modifiers::NONE,
-				phase: egui::TouchPhase::Move,
-				source: egui::MouseWheelSource::Unknown,
-			}],
+			events: vec![
+				egui::Event::PointerMoved(egui::pos2(450.0, 300.0)),
+				egui::Event::MouseWheel {
+					unit: egui::MouseWheelUnit::Line,
+					delta: egui::vec2(0.0, 10.25),
+					modifiers: egui::Modifiers::NONE,
+					phase: egui::TouchPhase::Move,
+					source: egui::MouseWheelSource::Unknown,
+				},
+			],
 			..Default::default()
 		};
 		let mut delta = egui::Vec2::ZERO;
@@ -698,27 +723,48 @@ mod tests {
 			delta.y
 		);
 
-		// Frame 2 with no new events continues smoothly from the accumulator, avoiding single-frame stalls
-		let raw_frame2 = egui::RawInput {
-			time: Some(0.116),
+		// Frame 2 with no new events continues smoothly from the accumulator, avoiding single-frame stalls.
+		// A discarded pass reruns the frame, and the rerun must not take a second step.
+		let frame_input = |time: f64, events: Vec<egui::Event>| egui::RawInput {
+			time: Some(time),
 			screen_rect: Some(egui::Rect::from_min_size(
 				egui::Pos2::ZERO,
 				egui::vec2(900.0, 600.0),
 			)),
-			events: vec![],
+			events,
 			..Default::default()
 		};
-		let mut delta2 = egui::Vec2::ZERO;
-		ctx.run_ui(raw_frame2, |ui| {
+		let mut passes = Vec::new();
+		ctx.run_ui(frame_input(0.116, vec![]), |ui| {
 			apply_preferences(ui.ctx(), model::ReadingPreferences::default());
-			delta2 = ui.input(|i| i.smooth_scroll_delta());
+			passes.push(ui.input(|i| i.smooth_scroll_delta()).y);
+			if passes.len() == 1 {
+				ui.ctx().request_discard("test rerun");
+			}
 		})
 		.drop_without_applying_deltas();
+		assert_eq!(passes.len(), 2);
 		assert!(
-			delta2.y > 0.0 && delta2.y < 300.0,
+			passes[0] > 0.0 && passes[0] < 300.0,
 			"frame 2 moved {}",
-			delta2.y
+			passes[0]
 		);
+		assert_eq!(passes[1], 0.0, "the rerun took another step");
+
+		// The rest of the swipe belongs to the area under the pointer; moving away drops it.
+		let mut delta3 = egui::Vec2::ZERO;
+		ctx.run_ui(
+			frame_input(
+				0.132,
+				vec![egui::Event::PointerMoved(egui::pos2(100.0, 300.0))],
+			),
+			|ui| {
+				apply_preferences(ui.ctx(), model::ReadingPreferences::default());
+				delta3 = ui.input(|i| i.smooth_scroll_delta());
+			},
+		)
+		.drop_without_applying_deltas();
+		assert_eq!(delta3, egui::Vec2::ZERO);
 	}
 
 	#[test]
