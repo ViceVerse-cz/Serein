@@ -1105,6 +1105,7 @@ mod navigation_tests {
 				guild: None,
 				parent_id: None,
 				kind: 1,
+				user_limit: 0,
 				position: 0,
 				name: "Synthetic DM".into(),
 				recipients: vec![],

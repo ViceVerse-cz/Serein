@@ -4045,6 +4045,7 @@ mod tests {
 				id: Id(10),
 				guild: Some(Id(20)),
 				kind: 0,
+				user_limit: 0,
 				name: "https://malicious.invalid/secret".into(),
 				parent_id: None,
 				position: 0,
@@ -4992,6 +4993,7 @@ mod tests {
 		.map(|(id, kind, guild)| model::Channel {
 			id: Id(id),
 			kind,
+			user_limit: 0,
 			guild,
 			name: "synthetic-text".into(),
 			last_message: None,
@@ -6388,6 +6390,7 @@ mod tests {
 				let channels = [model::Channel {
 					id: Id(2),
 					kind: 2,
+					user_limit: 0,
 					guild: Some(Id(1)),
 					name: "synthetic-voice".into(),
 					last_message: None,
@@ -6783,6 +6786,7 @@ mod tests {
 		let channels = [model::Channel {
 			id: Id(2),
 			kind: 0,
+			user_limit: 0,
 			guild: Some(Id(1)),
 			name: "synthetic-text".into(),
 			last_message: None,

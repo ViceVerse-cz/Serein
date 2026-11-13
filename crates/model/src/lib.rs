@@ -347,6 +347,8 @@ pub struct GuildPatch {
 	pub name: Patch<String>,
 	pub icon: Patch<String>,
 }
+/// Discord's documented voice-channel capacity range; 0 means the channel has no limit.
+pub const MAX_USER_LIMIT: u32 = 99;
 #[derive(Clone, PartialEq, Eq)]
 pub struct Channel {
 	/// Group DM icon hash; absent for groups using the default icon.
@@ -358,6 +360,8 @@ pub struct Channel {
 	pub position: i32,
 	pub name: String,
 	pub kind: u8,
+	/// Voice channel capacity reported by the service; 0 for no limit and for other kinds.
+	pub user_limit: u32,
 	pub recipients: Vec<User>,
 	/// Unofficial service member-list identity; absent when permission metadata is missing.
 	pub member_list_id: Option<String>,
@@ -389,6 +393,7 @@ pub struct ChannelPatch {
 	pub parent_id: Patch<Id>,
 	pub position: Patch<i32>,
 	pub kind: Patch<u8>,
+	pub user_limit: Patch<u32>,
 	pub message_count: Patch<u32>,
 	/// Channel updates carry whole objects, so present tags replace the known ones.
 	pub tags: Patch<Box<forum::Tags>>,

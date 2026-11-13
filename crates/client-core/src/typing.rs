@@ -285,6 +285,7 @@ mod tests {
 					position: 0,
 					name: "Synthetic DM".into(),
 					kind: 1,
+					user_limit: 0,
 					recipients: vec![],
 					icon: None,
 					member_list_id: None,

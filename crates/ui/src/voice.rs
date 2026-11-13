@@ -485,9 +485,21 @@ impl MessagingUi {
 		);
 		channel_marks::paint(ui.painter(), access, row, glyph, text_color);
 		let marks = channel_marks::trailing(access);
+		let connected_users = state
+			.voice
+			.roster
+			.iter()
+			.filter(|entry| entry.channel == channel.id && Some(entry.guild) == channel.guild)
+			.count();
+		let limit_width = if channel.user_limit > 0 {
+			user_limit_pill(ui, row, &colors, connected_users, channel.user_limit) + 6.0
+		} else {
+			0.0
+		};
 		let elapsed_width = if elapsed.is_some() { 64.0 } else { 0.0 };
 		let badge_width = if count > 0 { 34.0 } else { 0.0 };
-		let name_width = (row.width() - 40.0 - elapsed_width - badge_width - marks).max(10.0);
+		let name_width =
+			(row.width() - 40.0 - elapsed_width - badge_width - limit_width - marks).max(10.0);
 		let mut name_job = egui::text::LayoutJob::simple_singleline(
 			channel.name.clone(),
 			egui::FontId::new(15.0, design::medium_family(ui.ctx())),
@@ -506,7 +518,7 @@ impl MessagingUi {
 			.galley(name_rect.min, name, text_color);
 		if let Some(elapsed) = &elapsed {
 			ui.painter().text(
-				row.right_center() - egui::vec2(8.0 + marks, 0.0),
+				row.right_center() - egui::vec2(8.0 + marks + limit_width, 0.0),
 				egui::Align2::RIGHT_CENTER,
 				elapsed,
 				egui::FontId::monospace(11.0),
@@ -516,7 +528,7 @@ impl MessagingUi {
 		if count > 0 {
 			crate::notifications::badge(
 				ui,
-				row.right_center() - egui::vec2(20.0 + marks + elapsed_width, 0.0),
+				row.right_center() - egui::vec2(20.0 + marks + limit_width + elapsed_width, 0.0),
 				count,
 				if selected {
 					colors.selected
@@ -558,10 +570,15 @@ impl MessagingUi {
 		});
 		response.on_hover_text_with(|| {
 			format!(
-				"{} · View voice channel{}{}",
+				"{} · View voice channel{}{}{}",
 				channel.name,
 				channel_marks::label(access),
-				if connected { " · Connected" } else { "" }
+				if connected { " · Connected" } else { "" },
+				if channel.user_limit > 0 {
+					format!(" · {connected_users}/{}", channel.user_limit)
+				} else {
+					String::new()
+				}
 			)
 		})
 	}
@@ -5071,6 +5088,91 @@ fn elapsed_label(call: &client_core::voice::Call) -> Option<String> {
 	})
 }
 
+/// Discord's voice capacity pill: connected users over the channel's limit. Both halves are
+/// translucent washes of the text colour, so the pill reads on any row background, and the slanted
+/// rule between them separates the two numbers without a slash.
+fn user_limit_pill(
+	ui: &egui::Ui,
+	row: egui::Rect,
+	colors: &design::Palette,
+	connected: usize,
+	limit: u32,
+) -> f32 {
+	let font = egui::FontId::monospace(11.0);
+	let count = ui
+		.painter()
+		.layout_no_wrap(format!("{connected:02}"), font.clone(), colors.muted);
+	let capacity = ui
+		.painter()
+		.layout_no_wrap(format!("{limit:02}"), font, colors.muted);
+	let height = 20.0;
+	let half = (count.size().x.max(capacity.size().x) + 14.0).max(24.0);
+	let width = half * 2.0;
+	let rect = egui::Rect::from_center_size(
+		egui::pos2(row.right() - 8.0 - width * 0.5, row.center().y),
+		egui::vec2(width, height),
+	);
+	let wash = |alpha: u8| {
+		let [r, g, b, _] = colors.text.to_srgba_unmultiplied();
+		egui::Color32::from_rgba_unmultiplied(r, g, b, alpha)
+	};
+	let radius = height * 0.5;
+	ui.painter()
+		.rect_filled(rect, egui::CornerRadius::same(radius as u8), wash(38));
+	// The connected count sits on the darker half, cut off by the rule at the pill's centre.
+	let slant = 5.0;
+	let mut points = Vec::with_capacity(16);
+	points.push(egui::pos2(rect.left() + radius, rect.top()));
+	points.push(egui::pos2(rect.center().x + slant * 0.5, rect.top()));
+	points.push(egui::pos2(rect.center().x - slant * 0.5, rect.bottom()));
+	points.push(egui::pos2(rect.left() + radius, rect.bottom()));
+	pill_arc(
+		&mut points,
+		egui::pos2(rect.left() + radius, rect.bottom() - radius),
+		radius,
+		90.0,
+		180.0,
+	);
+	pill_arc(
+		&mut points,
+		egui::pos2(rect.left() + radius, rect.top() + radius),
+		radius,
+		180.0,
+		270.0,
+	);
+	ui.painter().add(egui::Shape::convex_polygon(
+		points,
+		wash(15),
+		egui::Stroke::NONE,
+	));
+	let centered = |galley: &egui::Galley, x: f32| {
+		egui::pos2(
+			x - galley.size().x * 0.5,
+			rect.center().y - galley.size().y * 0.5,
+		)
+	};
+	ui.painter().galley(
+		centered(&count, rect.left() + half * 0.5),
+		count,
+		colors.muted,
+	);
+	ui.painter().galley(
+		centered(&capacity, rect.right() - half * 0.5),
+		capacity,
+		colors.muted,
+	);
+	width
+}
+
+/// Append a quarter circle, in degrees, to a convex path; the start point is already there.
+fn pill_arc(points: &mut Vec<egui::Pos2>, center: egui::Pos2, radius: f32, from: f32, to: f32) {
+	const STEPS: usize = 6;
+	for step in 1..=STEPS {
+		let angle = (from + (to - from) * step as f32 / STEPS as f32).to_radians();
+		points.push(center + egui::vec2(angle.cos(), angle.sin()) * radius);
+	}
+}
+
 fn status_icon(ui: &mut egui::Ui, icon: crate::icons::Icon, color: egui::Color32, label: &str) {
 	let label = crate::i18n::translate_if_key(label);
 	let (rect, response) = ui.allocate_exact_size(egui::vec2(20.0, 20.0), egui::Sense::hover());
@@ -6610,6 +6712,7 @@ mod tests {
 				position: 0,
 				name: "Synthetic DM".into(),
 				kind: 1,
+				user_limit: 0,
 				recipients: vec![model::User {
 					id: Id(2),
 					name: "Synthetic peer".into(),

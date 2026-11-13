@@ -574,6 +574,7 @@ mod tests {
 						guild_id: Some(Id(1)),
 						name: None,
 						kind: 0,
+						user_limit: None,
 						icon: None,
 						flags: 1 << 17,
 						last_message_id: None,

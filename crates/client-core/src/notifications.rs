@@ -1152,6 +1152,7 @@ mod tests {
 					id: Id(id),
 					guild: Some(Id(1)),
 					kind: 0,
+					user_limit: 0,
 					name: "Synthetic".into(),
 					parent_id: None,
 					last_message: Some(Id(95)),

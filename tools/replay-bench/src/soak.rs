@@ -28,6 +28,7 @@ fn ready(state: &mut State) {
 					guild: None,
 					parent_id: None,
 					kind: 1,
+					user_limit: 0,
 					position: 0,
 					name: format!("Synthetic soak {id}"),
 					recipients: vec![],

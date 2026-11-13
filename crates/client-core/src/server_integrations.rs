@@ -219,6 +219,7 @@ mod tests {
 				guild: Some(Id(2)),
 				parent_id: None,
 				kind: 0,
+				user_limit: 0,
 				name: "chat".into(),
 				position: 0,
 				recipients: vec![],

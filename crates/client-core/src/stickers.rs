@@ -185,6 +185,7 @@ mod tests {
 				guild: None,
 				parent_id: None,
 				kind: 1,
+				user_limit: 0,
 				name: "DM".into(),
 				position: 0,
 				recipients: vec![],

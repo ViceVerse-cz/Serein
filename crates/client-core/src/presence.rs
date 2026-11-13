@@ -543,6 +543,7 @@ mod tests {
 				position: 0,
 				name: "Synthetic".into(),
 				kind: Default::default(),
+				user_limit: 0,
 				recipients: vec![],
 				icon: None,
 				member_list_id: Some("everyone".into()),

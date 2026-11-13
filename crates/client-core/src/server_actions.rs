@@ -604,6 +604,7 @@ mod tests {
 				guild: Some(Id(2)),
 				name: "general".into(),
 				kind: 0,
+				user_limit: 0,
 				parent_id: None,
 				position: 0,
 				recipients: vec![],

@@ -203,6 +203,9 @@ pub struct ChannelDto {
 	pub name: Option<String>,
 	#[serde(rename = "type")]
 	pub kind: u8,
+	/// Voice channel capacity; absent or null means no limit.
+	#[serde(default)]
+	pub user_limit: Option<u32>,
 	/// An unreadable recipient is dropped without losing the conversation.
 	#[serde(default, deserialize_with = "lossy::recipients")]
 	pub recipients: Vec<UserDto>,
@@ -301,6 +304,7 @@ impl ChannelDto {
 				},
 			),
 			kind: self.kind,
+			user_limit: self.user_limit.unwrap_or(0).min(model::MAX_USER_LIMIT),
 			recipients,
 			member_list_id: None,
 			message_count: self.message_count,
@@ -322,6 +326,8 @@ pub struct ChannelPatchDto {
 	pub position: Patch<i32>,
 	#[serde(rename = "type", default)]
 	pub kind: Patch<u8>,
+	#[serde(default)]
+	pub user_limit: Patch<u32>,
 	#[serde(default)]
 	pub permission_overwrites: Patch<Vec<Overwrite>>,
 	#[serde(default)]
@@ -429,6 +435,11 @@ impl ChannelPatchDto {
 				},
 			),
 			kind: self.kind,
+			user_limit: match self.user_limit {
+				Patch::Value(limit) => Patch::Value(limit.min(model::MAX_USER_LIMIT)),
+				Patch::Null => Patch::Value(0),
+				Patch::Absent => Patch::Absent,
+			},
 			message_count: self.message_count,
 		}
 	}
@@ -500,6 +511,53 @@ mod channel_tests {
 			);
 			assert!(decode::<ChannelDto>(br#"{"id":"3","type":0,"position":4294967296}"#).is_err());
 		}
+	}
+	#[test]
+	fn voice_capacity_keeps_absent_null_and_out_of_range_limits_apart() {
+		let limited = decode::<ChannelDto>(
+			br#"{"id":"3","guild_id":"1","type":2,"name":"Lounge","user_limit":2}"#,
+		)
+		.unwrap()
+		.into_model();
+		assert_eq!(limited.user_limit, 2);
+		let unlimited = decode::<ChannelDto>(
+			br#"{"id":"4","guild_id":"1","type":2,"name":"Lounge","user_limit":0}"#,
+		)
+		.unwrap()
+		.into_model();
+		assert_eq!(unlimited.user_limit, 0);
+		let absent = decode::<ChannelDto>(br#"{"id":"5","guild_id":"1","type":2,"name":"Lounge"}"#)
+			.unwrap()
+			.into_model();
+		assert_eq!(absent.user_limit, 0);
+		let clamped = decode::<ChannelDto>(
+			br#"{"id":"6","guild_id":"1","type":2,"name":"Lounge","user_limit":5000}"#,
+		)
+		.unwrap()
+		.into_model();
+		assert_eq!(clamped.user_limit, model::MAX_USER_LIMIT);
+		// A patch that omits the limit leaves the known capacity alone; null clears it.
+		assert_eq!(
+			decode::<ChannelPatchDto>(br#"{"id":"3"}"#)
+				.unwrap()
+				.into_model()
+				.user_limit,
+			Patch::Absent
+		);
+		assert_eq!(
+			decode::<ChannelPatchDto>(br#"{"id":"3","user_limit":null}"#)
+				.unwrap()
+				.into_model()
+				.user_limit,
+			Patch::Value(0)
+		);
+		assert_eq!(
+			decode::<ChannelPatchDto>(br#"{"id":"3","user_limit":7}"#)
+				.unwrap()
+				.into_model()
+				.user_limit,
+			Patch::Value(7)
+		);
 	}
 	#[test]
 	fn ready_omits_obfuscated_channels_and_their_threads_without_inventing_child_permissions() {

@@ -101,6 +101,7 @@ mod tests {
 				position: 0,
 				name: "Synthetic".into(),
 				kind: 0,
+				user_limit: 0,
 				recipients: vec![],
 				last_message: None,
 				icon: None,

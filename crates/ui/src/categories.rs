@@ -1831,6 +1831,7 @@ mod tests {
 			position,
 			name: format!("Synthetic {id}"),
 			kind,
+			user_limit: 0,
 			recipients: vec![],
 			member_list_id: None,
 			tags: None,
@@ -2779,6 +2780,66 @@ mod tests {
 		output.drop_without_applying_deltas();
 		assert!(elided, "long voice channel names should end in an ellipsis");
 		assert_eq!(rows, 1, "voice channel rows hold a single line");
+	}
+
+	#[test]
+	fn voice_channel_rows_show_the_capacity_pill_only_when_limited() {
+		fn texts(shape: &egui::Shape, out: &mut Vec<String>) {
+			match shape {
+				egui::Shape::Text(text) => out.push(text.galley.job.text.clone()),
+				egui::Shape::Vec(children) => children.iter().for_each(|s| texts(s, out)),
+				_ => {}
+			}
+		}
+		let mut state = test_support::voice_demo_state();
+		// The fixture's three participants sit in Room 3,5.
+		state
+			.channels
+			.iter_mut()
+			.find(|c| c.id == Id(25))
+			.unwrap()
+			.user_limit = 5;
+		let mut view = MessagingUi {
+			guild: Some(Id(10)),
+			..Default::default()
+		};
+		let ctx = egui::Context::default();
+		let mut frame = |state: &mut State| {
+			let output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(280.0, 1600.0),
+					)),
+					..Default::default()
+				},
+				|ui| {
+					view.channel_list(ui, state);
+				},
+			);
+			let mut found = Vec::new();
+			for shape in &output.shapes {
+				texts(&shape.shape, &mut found);
+			}
+			output.drop_without_applying_deltas();
+			found
+		};
+		let limited = frame(&mut state);
+		assert!(
+			limited.iter().any(|text| text == "03") && limited.iter().any(|text| text == "05"),
+			"limited voice channel must show its capacity: {limited:?}"
+		);
+		state
+			.channels
+			.iter_mut()
+			.find(|c| c.id == Id(25))
+			.unwrap()
+			.user_limit = 0;
+		let unlimited = frame(&mut state);
+		assert!(
+			!unlimited.iter().any(|text| text == "03" || text == "05"),
+			"a channel without a limit must not show a capacity pill: {unlimited:?}"
+		);
 	}
 
 	#[test]

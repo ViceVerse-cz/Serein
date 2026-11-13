@@ -1611,6 +1611,7 @@ mod tests {
 				guild: Some(Id(9)),
 				parent_id: None,
 				kind: 0,
+				user_limit: 0,
 				name: "Synthetic".into(),
 				position: 0,
 				recipients: vec![],

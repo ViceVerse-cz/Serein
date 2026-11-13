@@ -388,6 +388,7 @@ mod tests {
 			guild: Some(Id(100)),
 			parent_id,
 			kind,
+			user_limit: 0,
 			position: 0,
 			name: format!("Synthetic thread {id}"),
 			recipients: vec![],

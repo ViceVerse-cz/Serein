@@ -2871,6 +2871,7 @@ mod tests {
 				id: Id(10),
 				guild: None,
 				kind: 1,
+				user_limit: 0,
 				recipients: vec![user(2)],
 				name: "Synthetic DM".into(),
 				parent_id: None,

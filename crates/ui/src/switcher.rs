@@ -711,6 +711,7 @@ mod tests {
 				position: 0,
 				name: format!("Room {id}"),
 				kind: 1,
+				user_limit: 0,
 				recipients: vec![model::User {
 					id: Id(90),
 					name: "Žofie Example".into(),

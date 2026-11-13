@@ -297,6 +297,7 @@ mod tests {
 				guild: None,
 				name: "Synthetic bot DM".into(),
 				kind: 1,
+				user_limit: 0,
 				recipients: vec![bot],
 				icon: None,
 				last_message: None,

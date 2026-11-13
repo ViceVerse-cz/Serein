@@ -16,6 +16,7 @@ fn state() -> State {
 			position: 0,
 			name: "Synthetic search conversation".into(),
 			kind: 1,
+			user_limit: 0,
 			recipients: vec![test_support::message(2, Id(10)).author],
 			icon: None,
 			member_list_id: None,

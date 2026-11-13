@@ -315,6 +315,7 @@ mod tests {
 			guild: Some(Id(1)),
 			parent_id: parent,
 			kind,
+			user_limit: 0,
 			position: 0,
 			name: format!("Thread {}", id.0),
 			recipients: vec![],

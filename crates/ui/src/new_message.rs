@@ -292,6 +292,7 @@ mod tests {
 			position: 0,
 			name: "Synthetic group".into(),
 			kind: 3,
+			user_limit: 0,
 			recipients: people.clone(),
 			member_list_id: None,
 			tags: None,
