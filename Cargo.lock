@@ -5378,6 +5378,7 @@ dependencies = [
  "objc2-foundation 0.3.2",
  "objc2-user-notifications 0.3.2",
  "objc2-video-toolbox",
+ "objc2-web-kit",
  "rfd",
  "serde_json",
  "symphonia",

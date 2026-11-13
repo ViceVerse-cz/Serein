@@ -22,6 +22,11 @@ const REQUESTED_MENU: PCWSTR = w!("Serein.CustomCaption.RequestedMenu");
 // Modal move loops dispatch other windows' messages on this same thread.
 const TEMPORARY_DRAG: PCWSTR = w!("Serein.CustomCaption.TemporaryDragDepth");
 
+pub(super) fn visual_styles() -> bool {
+	// SAFETY: IsAppThemed takes no arguments and only reads the process's theme state.
+	unsafe { windows::Win32::UI::Controls::IsAppThemed() }.as_bool()
+}
+
 // winit retains WS_SYSMENU even for undecorated windows and restores it on style changes.
 // With a full-client DWM frame this paints native buttons underneath our custom buttons.
 unsafe extern "system" fn custom_caption(

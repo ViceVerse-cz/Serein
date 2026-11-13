@@ -4605,6 +4605,11 @@ profiles-board-empty = No games on this board yet.
 profiles-board-show-more = Show more
 profiles-board-show-less = Show less
 profiles-activity-empty = Paylaşılan etkinlik yok.
+profiles-in-voice-server = { $server } sunucusunda
+profiles-in-voice-join = Katıl
+profiles-in-voice-joined = Zaten bu ses kanalındasınız.
+profiles-in-voice-failed = Önce başarısız aramayı kapatın, sonra yeniden katılın.
+profiles-in-voice-unavailable = Şu anda bu ses kanalına katılamazsınız.
 profiles-mutuals-empty = Nothing to show here.
 
 reading-double-click-reaction = Double-click reaction

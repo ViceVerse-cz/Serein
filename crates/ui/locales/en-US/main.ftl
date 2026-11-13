@@ -3570,9 +3570,6 @@ settings-storage-page-removes-cached-messages-and-media-drafts-and-your-login-st
 settings-storage-page-serein-does-not-collect-telemetry-or-upload-diagnostics-discord-retains = Serein does not collect telemetry or upload diagnostics. Discord retains service-side data according to its own policies.
 # Context: storage_page
 settings-storage-page-your-privacy = Your privacy
-settings-storage-page-saved-login = Saved login
-settings-storage-page-plaintext-login = Save login in plaintext without a keyring
-settings-storage-page-plaintext-login-description = Used only when no OS keyring (GNOME Keyring, KWallet, Keychain or Credential Manager) works. The token is stored unencrypted in a private file in Serein's data folder, where anyone with access to your user account can read it. Turning this off deletes those files.
 # Context: cosmetic_settings
 settings-cosmetics = Profile cosmetics
 # Context: cosmetic_settings
@@ -4744,6 +4741,11 @@ profiles-board-empty = No games on this board yet.
 profiles-board-show-more = Show more
 profiles-board-show-less = Show less
 profiles-activity-empty = No activity shared.
+profiles-in-voice-server = in { $server }
+profiles-in-voice-join = Join
+profiles-in-voice-joined = You’re in this voice channel.
+profiles-in-voice-failed = Dismiss the failed call first, then join again.
+profiles-in-voice-unavailable = You can’t join this voice channel right now.
 profiles-mutuals-empty = Nothing to show here.
 
 reading-double-click-reaction = Double-click reaction

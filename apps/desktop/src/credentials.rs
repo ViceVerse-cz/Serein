@@ -2,7 +2,6 @@
 use client_core::auth::SessionSecret;
 use eframe::egui;
 use platform::CredentialError;
-use std::path::PathBuf;
 use std::sync::{
 	Arc,
 	mpsc::{self, Receiver, SyncSender},
@@ -19,11 +18,6 @@ pub enum Operation {
 	LoadAccount(model::Id),
 	SaveAccount(model::Id, Arc<SessionSecret>),
 	ForgetAccount(model::Id),
-	/// Turns the owner's plaintext fallback on, or off while deleting every file it wrote.
-	SetPlaintext {
-		directory: PathBuf,
-		enabled: bool,
-	},
 	RetainAccounts(Vec<model::Id>, Option<model::Id>),
 }
 pub enum Outcome {
@@ -34,7 +28,6 @@ pub enum Outcome {
 	Forgotten(Result<(), CredentialError>),
 	/// A per-account entry; never touches the launch-restore status or `forgetting`.
 	AccountForgotten(Result<(), CredentialError>),
-	PlaintextSet(bool, Result<(), CredentialError>),
 	Reconciled(Result<(), CredentialError>),
 }
 /// Identifies one queued credential operation. Writes and deletions use `Request::NONE`,
@@ -60,17 +53,8 @@ impl Store {
 		let (send, commands) = mpsc::sync_channel::<(u64, Request, Operation)>(4);
 		let (events, receive) = mpsc::sync_channel(4);
 		std::thread::spawn(move || {
-			let (directory, enabled) = platform::plaintext_login::configuration();
-			if let Some(directory) = directory {
-				let result = if enabled {
-					platform::plaintext_login::cleanup_temporary(&directory)
-				} else {
-					platform::plaintext_login::forget_all(&directory)
-				};
-				if result.is_err() {
-					let _ = events.send((0, Request::NONE, Outcome::PlaintextSet(enabled, result)));
-					ctx.request_repaint();
-				}
+			if let Some(directory) = platform::plaintext_login::configuration() {
+				let _ = platform::plaintext_login::cleanup_temporary(&directory);
 			}
 			// Saved entries remain protected until a later committed roster acknowledges
 			// them. A delayed older snapshot must not erase an incoming account's token.
@@ -101,22 +85,10 @@ impl Store {
 					}
 					Operation::RetainAccounts(accounts, active) => {
 						let accounts = cleanup_accounts(accounts, active, &mut unacknowledged);
-						let (directory, _) = platform::plaintext_login::configuration();
+						let directory = platform::plaintext_login::configuration();
 						Outcome::Reconciled(directory.map_or(Ok(()), |directory| {
 							platform::plaintext_login::retain_accounts(&directory, &accounts)
 						}))
-					}
-					Operation::SetPlaintext { directory, enabled } => {
-						if enabled {
-							platform::plaintext_login::configure(Some(directory), true);
-							Outcome::PlaintextSet(true, Ok(()))
-						} else {
-							platform::plaintext_login::configure(Some(directory.clone()), false);
-							Outcome::PlaintextSet(
-								false,
-								platform::plaintext_login::forget_all(&directory),
-							)
-						}
 					}
 				};
 				if events.send((generation, request, outcome)).is_err() {
@@ -244,11 +216,10 @@ fn cleanup_accounts(
 pub fn loaded_status(result: &Result<Option<SessionSecret>, CredentialError>) -> &'static str {
 	match result {
 		Ok(Some(_)) => "Saved login found; connecting to Discord",
-		Ok(None) => "No saved login found. Sign in with Discord to save one.",
-		Err(CredentialError::Invalid) => "Saved login is invalid. Sign in with Discord again.",
-		Err(CredentialError::NoStore) => {
-			"No OS keyring found; sign in each launch. Install GNOME Keyring or KWallet, or allow plaintext saved login in Settings › Storage."
+		Ok(None) | Err(CredentialError::NoStore) => {
+			"No saved login found. Sign in with Discord to save one."
 		}
+		Err(CredentialError::Invalid) => "Saved login is invalid. Sign in with Discord again.",
 		Err(CredentialError::Unavailable) => "Saved login unavailable; sign in with Discord.",
 		Err(CredentialError::TimedOut) => {
 			"Saved-login check timed out. Sign in with Discord; the credential store did not respond."

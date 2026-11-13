@@ -5,19 +5,30 @@
 //! them is unverified; an earlier Serein identity without them coincided with account
 //! restrictions (spam flag, attachment limits), which is not proof of cause. Every transport
 //! uses the desktop metadata below. Embedded verification keeps its engine-specific identity.
-//! Locale and timezone come from the operating system. Desktop version constants are an
-//! unofficial SakuraCord reference baseline, not evidence of an Electron runtime.
+//! Locale and timezone come from the operating system. Host versions are observed
+//! platform metadata; the older paired engine/profile baseline remains
+//! an unofficial reference, not evidence of an Electron runtime.
 
 /// Chrome version advertised on Windows, where verification runs in Chromium WebView2.
 const CHROME_MAJOR: &str = "149";
 /// Safari version advertised on macOS and Linux, where verification runs in WebKit.
 const SAFARI_VERSION: &str = "26.4";
-/// Separately observed public web build; not verified as paired with the desktop baseline.
-pub const CLIENT_BUILD_NUMBER: u64 = 634_304;
+/// Observed in the public `/app` bundle on 2026-11-12; see identity provenance in the
+/// compatibility notes. The remote web build is separate from the native host version.
+pub const CLIENT_BUILD_NUMBER: u64 = 670_026;
 mod locale;
 pub use locale::{accept_language, discord_locale, system_locale, timezone};
-/// Version baseline observed in SakuraCord's public desktop metadata (unofficial).
-const DESKTOP_VERSION: &str = "0.0.408";
+/// Stable host versions from Discord's platform update manifests on 2026-11-12.
+/// Keep the platform mapping explicit: a macOS host version is not a Linux/Windows one.
+fn desktop_version() -> &'static str {
+	match std::env::consts::OS {
+		"windows" => "1.0.9268",
+		"macos" => "0.0.422",
+		_ => "1.0.169",
+	}
+}
+/// Retained paired engine baseline: the pinned wreq-util has no Chromium 152 profile.
+/// The downloaded Linux core declares Electron 44.9.3, so this is not a current runtime claim.
 const ELECTRON_VERSION: &str = "42.7.1";
 const DESKTOP_CHROMIUM_VERSION: &str = "148.0.7778.280";
 const WEBKIT: bool = !cfg!(windows);
@@ -53,8 +64,9 @@ pub fn browser_version() -> String {
 /// Desktop transport identity; this does not change the native UI into Electron.
 pub fn user_agent() -> String {
 	format!(
-		"Mozilla/5.0 ({}) AppleWebKit/537.36 (KHTML, like Gecko) discord/{DESKTOP_VERSION} Chrome/{DESKTOP_CHROMIUM_VERSION} Electron/{ELECTRON_VERSION} Safari/537.36",
-		platform_token()
+		"Mozilla/5.0 ({}) AppleWebKit/537.36 (KHTML, like Gecko) discord/{} Chrome/{DESKTOP_CHROMIUM_VERSION} Electron/{ELECTRON_VERSION} Safari/537.36",
+		platform_token(),
+		desktop_version()
 	)
 }
 
@@ -117,7 +129,7 @@ pub fn properties() -> String {
 		ua = user_agent(),
 		version = browser_version(),
 		build = CLIENT_BUILD_NUMBER,
-		DESKTOP_VERSION = DESKTOP_VERSION,
+		DESKTOP_VERSION = desktop_version(),
 	)
 }
 
