@@ -778,6 +778,24 @@ mod tests {
 			.collect();
 		assert_eq!(volumes, [vec![(7, 35)], vec![(7, 80)]]);
 		assert!(!settings.saved(Ok(()), Some(&cache), 1));
+
+		// A change the full queue refuses stays pending and is sent once the queue has room.
+		while cache.queue(1, Id(0), Operation::LoadAppearance) {}
+		view.set_voice_user_volume_overrides(&[(7, 120)]);
+		settings.observe(&view);
+		assert!(!settings.save(Some(&cache), 1));
+		assert!(!settings.retry(Some(&cache), 1));
+		drop(commands.try_recv().unwrap());
+		assert!(settings.retry(Some(&cache), 1));
+		assert!(!settings.retry(Some(&cache), 1));
+		let volumes: Vec<_> = commands
+			.try_iter()
+			.filter_map(|(_, _, _, operation, _)| match operation {
+				Operation::SaveAppPreferences(value) => Some(value.user_volumes.clone()),
+				_ => None,
+			})
+			.collect();
+		assert_eq!(volumes, [vec![(7, 120)]]);
 	}
 
 	#[test]

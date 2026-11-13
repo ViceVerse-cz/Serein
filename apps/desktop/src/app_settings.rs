@@ -55,6 +55,12 @@ impl Settings {
 		self.state.failed = result.is_err();
 		self.save(cache, generation)
 	}
+	/// Resends preferences a full cache queue refused. Every queued operation answers and wakes
+	/// the UI, so calling this after reading outcomes retries once the queue has room, even in a
+	/// window hidden in the tray, which has no UI pass. Returns whether a save was queued.
+	pub fn retry(&mut self, cache: Option<&crate::cache::Cache>, generation: u64) -> bool {
+		self.state.dirty && !self.state.saving && self.save(cache, generation)
+	}
 	/// Marks changed, valid device preferences for asynchronous persistence.
 	pub fn observe(&mut self, ui: &ui::MessagingUi) {
 		let value = AppPreferences {

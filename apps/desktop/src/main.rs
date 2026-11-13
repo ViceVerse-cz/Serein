@@ -5037,6 +5037,10 @@ impl Desktop {
 				| cache::Outcome::AccountPresenceSaved(_) => unreachable!(),
 			}
 		}
+		self.cache_pending += usize::from(
+			self.app_settings
+				.retry(self.cache.as_ref(), self.state.generation),
+		);
 		self.retry_history_clears();
 		self.sync_plaintext_login();
 		self.sync_diagnostics_log(ctx);
