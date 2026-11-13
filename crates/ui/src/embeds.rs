@@ -87,6 +87,13 @@ fn source_fallback(
 		return None;
 	}
 	let url = embed.url.as_deref().and_then(external_url)?;
+	// The preview already opens this image and its menu can copy the URL.
+	// Use the embed metadata so loading, eviction and clipping cannot change row height.
+	if inline_image(embed).is_some_and(|image| {
+		image.valid() && image.url.as_deref().and_then(external_url).as_ref() == Some(&url)
+	}) {
+		return None;
+	}
 	if (message_links_shown && cache.get(message.id, &message.content).links.contains(&url))
 		|| (!inline
 			&& [&embed.author, &embed.provider]
@@ -616,11 +623,8 @@ pub fn show(
 					),
 					demo,
 				);
-				let response = ui.interact(
-					painted.response.rect,
-					painted.response.id.with("media"),
-					egui::Sense::click(),
-				);
+				let response =
+					ui.interact(painted.rect, painted.id.with("media"), egui::Sense::click());
 				response.widget_info(|| {
 					egui::WidgetInfo::labeled(
 						egui::Role::Button,
@@ -647,12 +651,7 @@ pub fn show(
 				{
 					download.view_embed(message.id, image);
 				}
-				if let Some(url) = &source_url
-					&& (matches!(
-						painted.quality,
-						crate::avatars::media::Quality::Placeholder { .. }
-					) || image.url.as_deref() != Some(url.as_str()))
-				{
+				if let Some(url) = &source_url {
 					link(
 						ui,
 						&crate::i18n::translate("embeds-link-open-link"),
@@ -1130,6 +1129,17 @@ mod tests {
 		embed.video = Some(model::EmbedMedia::default());
 		assert_eq!(source_fallback(&message, &embed, &mut cache, true), None);
 		embed.video = None;
+		embed.kind = "image".into();
+		embed.image = Some(model::EmbedMedia {
+			url: embed.url.clone(),
+			..Default::default()
+		});
+		assert_eq!(source_fallback(&message, &embed, &mut cache, true), None);
+		embed.image.as_mut().unwrap().url = Some("https://example.org/preview.png".into());
+		assert_eq!(
+			source_fallback(&message, &embed, &mut cache, true),
+			embed.url
+		);
 		for url in [
 			None,
 			Some("javascript:alert(1)"),

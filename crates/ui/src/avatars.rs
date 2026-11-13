@@ -1550,14 +1550,14 @@ impl Avatars {
 			);
 		}
 	}
-	pub(crate) fn show_gif_embed(
+	pub fn show_gif_embed(
 		&mut self,
 		ui: &mut egui::Ui,
 		embed: &model::Embed,
 		gif: Option<&model::Gif>,
 		size: egui::Vec2,
 		demo: bool,
-	) -> media::Shown {
+	) -> egui::Response {
 		let poster = embed.image.as_ref().or(embed.thumbnail.as_ref());
 		let video = self
 			.animate_gifs
@@ -1634,6 +1634,7 @@ impl Avatars {
 			demo,
 			Surface::Inline,
 		)
+		.response
 	}
 	pub(crate) fn paint_user(
 		&mut self,
