@@ -1132,6 +1132,7 @@ mod tests {
 			selected: Some(channel),
 			freshness: model::Freshness::Fresh,
 			channels: vec![model::Channel {
+				user_limit: None,
 				id: channel,
 				guild: None,
 				parent_id: None,

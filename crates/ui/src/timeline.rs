@@ -5891,6 +5891,7 @@ mod tests {
 			older_exhausted: false,
 			selected: Some(Id(20)),
 			channels: vec![model::Channel {
+				user_limit: None,
 				id: Id(20),
 				guild: None,
 				parent_id: None,
@@ -6160,6 +6161,7 @@ mod tests {
 			state.history_after = None;
 			state.older_exhausted = true;
 			state.channels = vec![model::Channel {
+				user_limit: None,
 				id: Id(20),
 				guild: None,
 				parent_id: None,
@@ -7219,6 +7221,7 @@ mod tests {
 				request,
 				result: Ok(client_core::thread_previews::Loaded {
 					channel: Some(model::Channel {
+						user_limit: None,
 						id: thread,
 						guild: Some(Id(10)),
 						parent_id: Some(parent),
@@ -7959,6 +7962,7 @@ mod tests {
 				selected: Some(Id(20)),
 				search_target: Some(Id(19)),
 				channels: vec![model::Channel {
+					user_limit: None,
 					id: Id(20),
 					guild: None,
 					parent_id: None,
@@ -8092,6 +8096,7 @@ mod tests {
 		let channels = [(10, 1), (11, 1), (20, 2)]
 			.into_iter()
 			.map(|(id, guild)| model::Channel {
+				user_limit: None,
 				id: Id(id),
 				guild: Some(Id(guild)),
 				parent_id: None,
@@ -8369,6 +8374,7 @@ mod tests {
 				older_exhausted,
 				selected: Some(Id(20)),
 				channels: vec![model::Channel {
+					user_limit: None,
 					id: Id(20),
 					guild: None,
 					parent_id: None,
@@ -8469,6 +8475,7 @@ mod tests {
 			older_exhausted: true,
 			selected: Some(Id(20)),
 			channels: vec![model::Channel {
+				user_limit: None,
 				id: Id(20),
 				guild: None,
 				parent_id: None,
@@ -8573,6 +8580,7 @@ mod tests {
 			older_exhausted: true,
 			selected: Some(Id(20)),
 			channels: vec![model::Channel {
+				user_limit: None,
 				id: Id(20),
 				guild: None,
 				parent_id: None,
@@ -8813,6 +8821,7 @@ mod tests {
 			freshness: model::Freshness::Fresh,
 			selected: Some(Id(20)),
 			channels: vec![model::Channel {
+				user_limit: None,
 				id: Id(20),
 				guild: None,
 				parent_id: None,
@@ -10037,6 +10046,7 @@ mod tests {
 			..Default::default()
 		};
 		state.channels.push(model::Channel {
+			user_limit: None,
 			id: Id(4),
 			guild: Some(Id(5)),
 			name: "a".into(),
@@ -10127,6 +10137,7 @@ mod tests {
 		state.apply(client_core::Envelope {
 			generation: state.generation,
 			event: client_core::Event::ChannelChanged(model::ChannelPatch {
+				user_limit: model::Patch::Absent,
 				id: Id(4),
 				name: model::Patch::Value("a-much-longer-channel-reference".into()),
 				last_message: model::Patch::Absent,
@@ -10736,6 +10747,7 @@ mod tests {
 			older_exhausted: true,
 			freshness: model::Freshness::Fresh,
 			channels: vec![model::Channel {
+				user_limit: None,
 				id: Id(channel),
 				guild: None,
 				parent_id: None,

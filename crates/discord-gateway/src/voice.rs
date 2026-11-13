@@ -60,6 +60,9 @@ pub(super) struct Calls {
 	departing_guild: Option<Id>,
 	departing_session: Option<Secret>,
 	pub(super) departure_deadline: Option<Instant>,
+	/// An expired departure a later join replaced, kept until Discord shows that join, so a
+	/// late acknowledgement ends the old call and never the new one.
+	superseded: Option<(Id, u64, Option<Id>)>,
 	stream: Option<StreamAttempt>,
 	watch: Option<WatchAttempt>,
 	// Optional metadata, retained until READY_SUPPLEMENTAL or reset within the roster budget.
@@ -73,6 +76,7 @@ impl Calls {
 		self.departing = None;
 		self.departing_session = None;
 		self.departure_deadline = None;
+		self.superseded = None;
 		self.users.clear();
 	}
 	/// A fresh READY: Discord dropped every voice state bound to the previous session.
@@ -90,6 +94,7 @@ impl Calls {
 		self.departing = None;
 		self.departing_session = None;
 		self.departure_deadline = None;
+		self.superseded = None;
 		self.stream = None;
 		self.watch = None;
 		self.users.clear();
@@ -117,7 +122,7 @@ impl Calls {
 			Event::Voice(voice::Event::Failed {
 				channel,
 				request,
-				message: "Discord did not acknowledge hangup; reconnect before calling again",
+				message: "Discord did not acknowledge hangup",
 			})
 		})
 	}
@@ -310,11 +315,17 @@ impl Calls {
 				// A join for a channel this account is already in changes nothing on Discord's
 				// side and returns no voice credentials, so a rejoin leaves first and comes back
 				// through this branch only once the departure is confirmed.
+				// A departure Discord never acknowledged stops blocking once it expires, or
+				// every later join would fail until the gateway reconnects.
 				if self.active.is_some_and(|(active, _)| active != channel)
-					|| self.departing.is_some()
+					|| (self.departing.is_some() && self.departure_deadline.is_some())
 				{
 					return Err(Failure::Protocol);
 				}
+				if let Some((channel, request)) = self.departing.take() {
+					self.superseded = Some((channel, request, self.departing_guild));
+				}
+				self.departing_session = None;
 				self.active = Some((channel, request));
 				self.stream = None;
 				self.watch = None;
@@ -865,6 +876,15 @@ impl Calls {
 	) -> Result<(), Failure> {
 		let session = state.session_id.take().map(Zeroizing::new);
 		let own = owner == Some(state.user_id);
+		if own
+			&& state.channel_id.is_none()
+			&& let Some((channel, request, _)) = self
+				.superseded
+				.filter(|(_, _, guild)| *guild == state.guild_id)
+		{
+			self.superseded = None;
+			return emit(Event::Voice(voice::Event::Departed { channel, request }));
+		}
 		if own && self.departing.is_some() {
 			let departure_session = session
 				.as_ref()
@@ -899,6 +919,10 @@ impl Calls {
 				.active
 				.is_some_and(|(channel, _)| state.channel_id == Some(channel))
 			&& self.active_guild == state.guild_id;
+		if own && matches_active {
+			// Discord has applied the join, so any earlier hangup was processed before it.
+			self.superseded = None;
+		}
 		if own
 			&& allowed
 			&& state.channel_id.is_some()
@@ -1432,17 +1456,6 @@ mod tests {
 					.is_err()
 			);
 			assert!(calls.departure_expired().is_some());
-			assert!(
-				calls
-					.packet(Command::Join {
-						channel: Id(2),
-						request: 8,
-						ring: false,
-						mute: false,
-						deaf: false,
-					})
-					.is_err()
-			);
 			calls
 				.dispatch(
 					"VOICE_STATE_UPDATE",
@@ -1471,6 +1484,42 @@ mod tests {
 				.unwrap();
 			calls.dispatch("VOICE_STATE_UPDATE",br#"{"guild_id":"9","channel_id":"10","user_id":"1","session_id":"synthetic-session"}"#,Some(Id(1)),&emit).unwrap();
 			assert!(calls.active.is_none());
+			// A hangup Discord never acknowledges must not refuse every later join.
+			let join = |request| Command::Join {
+				channel: Id(2),
+				request,
+				ring: false,
+				mute: false,
+				deaf: false,
+			};
+			calls.packet(join(9)).unwrap();
+			calls
+				.packet(Command::Leave {
+					channel: Id(2),
+					request: 9,
+				})
+				.unwrap();
+			assert!(calls.packet(join(10)).is_err());
+			assert!(calls.departure_expired().is_some());
+			assert!(calls.packet(join(10)).unwrap().is_some());
+			assert!(calls.departing.is_none());
+			// Its late acknowledgement then ends the old call, never the join that replaced it.
+			calls
+				.dispatch(
+					"VOICE_STATE_UPDATE",
+					br#"{"channel_id":null,"user_id":"1","session_id":"synthetic-late-session"}"#,
+					Some(Id(1)),
+					&emit,
+				)
+				.unwrap();
+			assert_eq!(calls.active, Some((Id(2), 10)));
+			assert!(matches!(
+				events.lock().unwrap().last(),
+				Some(Event::Voice(voice::Event::Departed {
+					channel: Id(2),
+					request: 9
+				}))
+			));
 		}
 	}
 	#[test]

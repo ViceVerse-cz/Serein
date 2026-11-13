@@ -334,6 +334,7 @@ fn user() -> User {
 }
 fn channel(id: u64, kind: u8, parent: Option<Id>) -> Channel {
 	Channel {
+		user_limit: None,
 		id: Id(id),
 		guild: Some(Id(10)),
 		parent_id: parent,
@@ -1268,6 +1269,7 @@ fn deleting_an_unassigned_role_prunes_its_overwrites_and_invalidates_cached_deci
 					0 => Event::ThreadChanged {
 						guild: Id(10),
 						patch: ChannelPatch {
+							user_limit: Patch::Absent,
 							icon: model::Patch::Absent,
 							id: Id(30),
 							parent_id: Patch::Value(parent),

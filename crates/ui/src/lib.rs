@@ -6892,6 +6892,7 @@ mod composer_tests {
 		let mut state = State {
 			selected: Some(Id(10)),
 			channels: vec![model::Channel {
+				user_limit: None,
 				id: Id(10),
 				guild: None,
 				parent_id: None,
@@ -8840,6 +8841,7 @@ mod composer_tests {
 				.unwrap();
 			state.selected = Some(Id(11));
 			state.channels.push(model::Channel {
+				user_limit: None,
 				id: Id(11),
 				guild: None,
 				kind: 1,
@@ -8913,6 +8915,7 @@ mod composer_tests {
 			demo: true,
 			selected: Some(Id(1)),
 			channels: vec![model::Channel {
+				user_limit: None,
 				last_message: None,
 				id: Id(1),
 				guild: Some(Id(2)),
@@ -9106,6 +9109,7 @@ mod composer_tests {
 				cosmetics: None,
 			}),
 			channels: vec![model::Channel {
+				user_limit: None,
 				last_message: None,
 				id: Id(1),
 				guild: None,
@@ -9507,6 +9511,7 @@ mod composer_tests {
 				demo: true,
 				selected: Some(Id(1)),
 				channels: vec![model::Channel {
+					user_limit: None,
 					last_message: None,
 					id: Id(1),
 					guild,
@@ -9997,6 +10002,7 @@ mod composer_tests {
 		let mut state = State {
 			selected: Some(Id(1)),
 			channels: vec![model::Channel {
+				user_limit: None,
 				last_message: None,
 				id: Id(1),
 				guild: None,

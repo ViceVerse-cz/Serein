@@ -442,6 +442,7 @@ mod tests {
 			gateway_connected: true,
 			channels: (1..=MAX_WINDOWS as u64 + 2)
 				.map(|id| Channel {
+					user_limit: None,
 					id: Id(id),
 					guild: None,
 					parent_id: None,
@@ -847,6 +848,7 @@ mod tests {
 		{
 			for event in [
 				Event::ChannelChanged(model::ChannelPatch {
+					user_limit: Patch::Absent,
 					icon: model::Patch::Absent,
 					id: Id(1),
 					parent_id: Patch::Value(Id(99)),

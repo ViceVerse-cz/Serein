@@ -598,6 +598,7 @@ mod tests {
 			freshness: Freshness::Fresh,
 			channels: (1..=3)
 				.map(|id| Channel {
+					user_limit: None,
 					id: Id(id),
 					guild: None,
 					parent_id: None,

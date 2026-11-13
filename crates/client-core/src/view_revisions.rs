@@ -95,6 +95,7 @@ mod tests {
 	fn message_churn_preserves_catalogs_and_guild_rows_but_updates_dm_order_and_badges() {
 		let mut state = State {
 			channels: vec![Channel {
+				user_limit: None,
 				id: Id(1),
 				guild: Some(Id(10)),
 				parent_id: None,

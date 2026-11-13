@@ -600,6 +600,7 @@ mod tests {
 				emojis: None,
 			}],
 			channels: vec![model::Channel {
+				user_limit: None,
 				id: Id(3),
 				guild: Some(Id(2)),
 				name: "general".into(),

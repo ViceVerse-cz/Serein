@@ -597,11 +597,8 @@ pub(crate) fn join_blocked(
 		Some(_) => Some("profiles-in-voice-joined"),
 		None => (!state.can_call(channel)).then_some("profiles-in-voice-unavailable"),
 	};
-	key.map(crate::i18n::translate).or_else(|| {
-		state
-			.call_full(channel)
-			.then(|| client_core::voice::CALL_FULL.to_owned())
-	})
+	key.map(crate::i18n::translate)
+		.or_else(|| state.call_full(channel).map(str::to_owned))
 }
 
 /// Up to three of the channel's people on a rounded tile, the profile's owner first. A larger
