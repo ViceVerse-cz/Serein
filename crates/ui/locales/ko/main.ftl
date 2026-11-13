@@ -3562,9 +3562,6 @@ settings-storage-page-removes-cached-messages-and-media-drafts-and-your-login-st
 settings-storage-page-serein-does-not-collect-telemetry-or-upload-diagnostics-discord-retains = Serein은 원격 측정 데이터를 수집하거나 진단 정보를 업로드하지 않습니다. Discord는 자체 정책에 따라 서비스 측 데이터를 보관합니다.
 # Context: storage_page
 settings-storage-page-your-privacy = 개인정보 보호
-settings-storage-page-saved-login = 저장된 로그인
-settings-storage-page-plaintext-login = 키링 없이 로그인을 평문으로 저장
-settings-storage-page-plaintext-login-description = 운영체제 키링(GNOME Keyring, KWallet, Keychain, 자격 증명 관리자)을 사용할 수 없을 때만 사용합니다. 토큰은 Serein 데이터 폴더의 비공개 파일에 암호화하지 않고 저장되므로 사용자 계정에 접근할 수 있는 사람은 읽을 수 있습니다. 이 설정을 끄면 해당 파일을 삭제합니다.
 # Context: cosmetic_settings
 settings-cosmetics = 프로필 꾸미기
 # Context: cosmetic_settings

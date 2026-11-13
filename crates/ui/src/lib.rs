@@ -351,8 +351,6 @@ pub struct MessagingUi {
 	pub image_cache: model::CachePreferences,
 	/// Clock style for message times.
 	pub time_format: model::TimeFormat,
-	/// Saved logins may fall back to plain files when no OS keyring works.
-	pub plaintext_login: bool,
 	/// First-run setup still to show; the desktop restores and persists it.
 	pub setup_pending: bool,
 	setup_step: usize,
@@ -511,6 +509,7 @@ pub struct MessagingUi {
 	ring_request: Option<(Id, u64, Id, bool)>,
 	voice_moderation: Option<(Id, Id, Id, model::server_admin::VoiceChange)>,
 	stream_preview_open: Option<((Id, Id, Id), u64)>,
+	stream_preview_hover: Option<((Id, Id, Id), egui::Rect)>,
 	stream_preview_request: Option<(Id, Id, Id)>,
 	stream_preview_watch: Option<(Id, Id)>,
 	/// Guild voice channel double-clicked in the channel list, joined after selection applies.
@@ -2265,6 +2264,9 @@ impl MessagingUi {
 					divider(ui);
 				}
 				if in_call {
+					if self.voice_stream_section(ui, state) {
+						divider(ui);
+					}
 					self.voice_card_section(ui, state, commands);
 					divider(ui);
 				}
@@ -4398,6 +4400,7 @@ impl MessagingUi {
 			.is_none()
 			.then(|| state.known_profile(recipient.id))
 			.flatten();
+		self.dm_profile.calls_blocked = self.calls_unavailable(state);
 		let mut action = None;
 		// The panel shares the conversation surface, so the card floats on the chat itself.
 		egui::Panel::right("dm-profile-pane")
@@ -4543,6 +4546,13 @@ impl MessagingUi {
 					if let Some(command) = state.select_guild(guild) {
 						commands.push(command);
 					}
+				}
+			}
+			profiles::Action::JoinVoice { guild, channel } => {
+				match self.join_from_profile(state, guild, channel, commands) {
+					Ok(()) => self.profile.close(),
+					// The card stays open beside the reason.
+					Err(reason) => self.toasts.push(design::Level::Error, reason),
 				}
 			}
 			profiles::Action::EditStatus => self.open_custom_status_editor(),
@@ -6007,6 +6017,7 @@ impl MessagingUi {
 				.clone_from(&self.own_presence.custom_status);
 			let anchor = self.profile.anchor_or_place(&ctx, user.id);
 			self.profile.ingest_opener_rect(&ctx);
+			self.profile.calls_blocked = self.calls_unavailable(state);
 			let action = profiles::show_with_session(
 				ui,
 				&user,
@@ -9591,6 +9602,133 @@ mod composer_tests {
 				.iter()
 				.any(|command| matches!(command, Command::Send { .. }))
 		);
+	}
+
+	#[test]
+	fn in_voice_card_joins_a_visible_server_channel_without_ringing() {
+		use model::permissions as p;
+		let mut state = test_support::voice_demo_state();
+		state.demo = false;
+		state.gateway_connected = true;
+		state.voice.active = None;
+		state.select(Id(20));
+		// Robin shares room 25 with Fern and the account.
+		let user = test_support::message(1, Id(20)).author;
+		let spot = profiles::voice_spot(&state, user.id, None).expect("Robin is in a visible room");
+		assert_eq!(
+			(spot.guild.id, spot.channel.id, spot.count),
+			(Id(10), Id(25), 3)
+		);
+		assert_eq!(
+			spot.shown[0].participant.user, user.id,
+			"the owner leads the tile"
+		);
+		let mut view = MessagingUi {
+			voice_available: true,
+			..Default::default()
+		};
+		view.profile.command_open(user.clone());
+		// The card's Join is enabled exactly when the join path would accept it.
+		let agree = |view: &MessagingUi, state: &State| {
+			let blocked = profiles::join_blocked(state, Id(25), view.calls_unavailable(state));
+			assert_eq!(
+				blocked.is_none(),
+				view.call_unavailable(state, Id(25)).is_none()
+			);
+			blocked
+		};
+		assert_eq!(agree(&view, &state), None);
+		// Session-wide refusals disable Join too, with the reason the call buttons give.
+		view.voice_available = false;
+		assert_eq!(
+			agree(&view, &state).as_deref(),
+			view.calls_unavailable(&state)
+		);
+		view.voice_available = true;
+		let mut commands = vec![];
+		// A refused join (here a full room) keeps the card open and goes nowhere.
+		let mut crowd = state.voice.roster[2].clone();
+		for id in 100..161 {
+			crowd.participant.user = Id(id);
+			state.voice.roster.push(crowd.clone());
+		}
+		assert_eq!(
+			agree(&view, &state).as_deref(),
+			Some(client_core::voice::CALL_FULL)
+		);
+		let join = profiles::Action::JoinVoice {
+			guild: Id(10),
+			channel: Id(25),
+		};
+		view.profile_action(
+			&egui::Context::default(),
+			&mut state,
+			&mut commands,
+			&user,
+			None,
+			join,
+		);
+		assert!(commands.is_empty() && state.voice.active.is_none());
+		assert_eq!(state.selected, Some(Id(20)));
+		assert!(view.profile.open_user().is_some());
+		// Asking again still says why, although the status line already holds that reason.
+		assert_eq!(
+			view.join_from_profile(&mut state, Id(10), Id(25), &mut commands),
+			Err(client_core::voice::CALL_FULL.to_owned())
+		);
+		state.voice.roster.truncate(3);
+		view.profile_action(
+			&egui::Context::default(),
+			&mut state,
+			&mut commands,
+			&user,
+			None,
+			profiles::Action::JoinVoice {
+				guild: Id(10),
+				channel: Id(25),
+			},
+		);
+		let joins: Vec<_> = commands
+			.iter()
+			.filter_map(|command| match command {
+				Command::Voice(client_core::voice::Command::Join { channel, ring, .. }) => {
+					Some((*channel, *ring))
+				}
+				_ => None,
+			})
+			.collect();
+		assert_eq!(joins, [(Id(25), false)], "one join, never a ring");
+		assert_eq!(state.selected, Some(Id(25)), "the joined room opens");
+		assert!(view.profile.open_user().is_none());
+		assert_eq!(
+			agree(&view, &state),
+			Some(crate::i18n::translate("profiles-in-voice-joined"))
+		);
+		// A failed call is dismissed from its call card first; Join must not offer a retry
+		// that the join path then refuses.
+		state.voice.active.as_mut().unwrap().phase = client_core::voice::Phase::Failed;
+		assert_eq!(
+			agree(&view, &state),
+			Some(crate::i18n::translate("profiles-in-voice-failed"))
+		);
+		// Discord may report rosters for rooms this account cannot see; those stay hidden.
+		let mut snapshot = test_support::permission_snapshot(&state);
+		// The voice fixture reuses id 26 for its quiet room; a snapshot lists each id once.
+		let mut seen = std::collections::BTreeSet::new();
+		snapshot.channels.retain(|channel| seen.insert(channel.id));
+		snapshot
+			.channels
+			.iter_mut()
+			.find(|channel| channel.id == Id(25))
+			.unwrap()
+			.overwrites = Some(vec![p::Overwrite {
+			id: Id(10),
+			kind: 0,
+			allow: 0,
+			deny: p::VIEW_CHANNEL,
+		}]);
+		state.permissions.replace(snapshot).unwrap();
+		assert!(profiles::voice_spot(&state, user.id, None).is_none());
 	}
 
 	#[test]

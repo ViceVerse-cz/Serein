@@ -163,8 +163,9 @@ Voice follows Discord's call screens: a black stage with 80px participant avatar
 above the conversation) or 16:9 tiles with name badges (guild channels), a bottom control bar
 of dark pills (mute with settings chevron, camera, screen share, activities, soundboard, more)
 and a red hang-up button, a green "In a call" badge in the header, mute/deafen toggles in the
-account card, and a "Voice Connected" panel above it while connected. Camera, screen share,
-activities and soundboard are shown disabled: Serein has no such features.
+account card, and a "Voice Connected" panel above it while connected. While this device's
+screen share is capturing, a live section above "Voice Connected" shows the source, chosen
+height/frame rate and a stop control. Activities and soundboard are shown disabled.
 
 ## Verification notes
 

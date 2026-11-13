@@ -1,4 +1,7 @@
-use std::fmt;
+use std::{
+	fmt,
+	sync::{Arc, OnceLock},
+};
 use zeroize::Zeroizing;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -84,6 +87,23 @@ impl Failure {
 		)
 	}
 }
+/// Which response ended a session as expired, for the copyable failure report. `source` is a
+/// fixed label; `route` keeps only static path words, never IDs, codes, queries or remote text.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Expiry {
+	pub source: &'static str,
+	pub route: Option<Box<str>>,
+}
+impl fmt::Display for Expiry {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		match &self.route {
+			Some(route) => write!(f, "{} on {route}", self.source),
+			None => f.write_str(self.source),
+		}
+	}
+}
+/// Shared between the transports and the app; the first recorded cause wins.
+pub type ExpirySlot = Arc<OnceLock<Expiry>>;
 /// Intentionally neither Clone nor Serialize. Exposure is limited to transport adapters.
 pub struct SessionSecret(Zeroizing<String>);
 impl SessionSecret {

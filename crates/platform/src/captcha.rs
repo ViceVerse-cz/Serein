@@ -3,9 +3,10 @@ use client_core::captcha::{Challenge, Solution};
 #[cfg(not(target_os = "linux"))]
 use std::sync::Arc;
 
+#[cfg(target_os = "windows")]
+use std::borrow::Cow;
 #[cfg(not(target_os = "linux"))]
 use std::{
-	borrow::Cow,
 	sync::mpsc::{self, Receiver},
 	time::{Duration, Instant},
 };
@@ -13,6 +14,17 @@ use std::{
 use wry::WebViewBuilderExtWindows;
 #[cfg(not(target_os = "linux"))]
 use wry::{WebView, WebViewBuilder};
+
+/// The verification page's address. The page is local (a base URL on macOS and Linux, an
+/// intercepted request on Windows): no Discord document is fetched and no token is present.
+pub(crate) const PAGE: &str = "https://discord.com/channels/@me";
+
+/// An HTTP CONNECT proxy shared with REST, so the webview takes the client's network route.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Proxy {
+	pub host: String,
+	pub port: u16,
+}
 
 #[cfg(target_os = "linux")]
 #[path = "captcha_linux.rs"]
@@ -33,14 +45,23 @@ impl CaptchaView {
 		parent: Arc<winit::window::Window>,
 		challenge: &Challenge,
 		dark: bool,
+		proxy: Option<&Proxy>,
 		wake: impl Fn() + Send + Sync + 'static,
 	) -> Result<Self, &'static str> {
-		Self::build(parent, challenge, dark, wake, include_str!("captcha.js"))
+		Self::build(
+			parent,
+			challenge,
+			dark,
+			proxy,
+			wake,
+			include_str!("captcha.js"),
+		)
 	}
 	fn build(
 		parent: Arc<winit::window::Window>,
 		challenge: &Challenge,
 		dark: bool,
+		proxy: Option<&Proxy>,
 		wake: impl Fn() + Send + Sync + 'static,
 		script: &str,
 	) -> Result<Self, &'static str> {
@@ -50,20 +71,10 @@ impl CaptchaView {
 			&config(challenge, dark, &capability).to_string(),
 		);
 		let (send, results) = mpsc::sync_channel(1);
-		// Preserve the actual verification engine identity independently of desktop REST.
 		let builder = WebViewBuilder::new()
-			.with_user_agent(client_core::fingerprint::verification_user_agent())
 			.with_visible(false)
-			.with_incognito(true).with_devtools(false)
-			.with_custom_protocol("serein-captcha".into(), move |_, request| {
-				let valid = request.method() == "GET" && request.uri() == "serein-captcha://verification.invalid/";
-				wry::http::Response::builder().status(if valid {200} else {404})
-					.header("Content-Type", "text/html; charset=utf-8")
-					.header("Cache-Control", "no-store")
-					.header("Content-Security-Policy", "default-src 'none'; script-src https://hcaptcha.com https://*.hcaptcha.com; frame-src https://hcaptcha.com https://*.hcaptcha.com; connect-src https://hcaptcha.com https://*.hcaptcha.com; style-src 'unsafe-inline' https://hcaptcha.com https://*.hcaptcha.com; img-src data: https://hcaptcha.com https://*.hcaptcha.com; base-uri 'none'; form-action 'none'")
-					.body(Cow::Owned(if valid {html.as_bytes().to_vec()} else {Vec::new()})).expect("static response headers")
-			})
-			.with_url("serein-captcha://verification.invalid/")
+			.with_incognito(true)
+			.with_devtools(false)
 			.with_initialization_script_for_main_only(script, true)
 			.with_navigation_handler(|url| own_origin(&url) || hcaptcha_origin(&url))
 			.with_new_window_req_handler(|_, _| wry::NewWindowResponse::Deny)
@@ -71,16 +82,46 @@ impl CaptchaView {
 			.with_ipc_handler(move |request| {
 				// Wry binds WebView2's top-level WebMessageReceived, not its frame events.
 				// The main-only bootstrap also checks window.top and keeps the capability private.
-				if !own_origin(&request.uri().to_string()) || request.body().len() > 8270 { return; }
+				if !own_origin(&request.uri().to_string()) || request.body().len() > 8270 {
+					return;
+				}
 				let body = zeroize::Zeroizing::new(request.into_body());
-				let Some(result) = parse_result(&body, &capability) else { return; };
-				if send.try_send(result).is_ok() {wake();}
+				let Some(result) = parse_result(&body, &capability) else {
+					return;
+				};
+				if send.try_send(result).is_ok() {
+					wake();
+				}
 			});
+		// WebView2 serves the `discord` protocol as https://discord.com/…, only inside this view.
 		#[cfg(target_os = "windows")]
-		let builder = builder.with_https_scheme(true);
+		let builder = builder
+			.with_https_scheme(true)
+			.with_custom_protocol("discord".into(), move |_, request| {
+				let valid = request.method() == "GET" && request.uri() == "discord://com/channels/@me";
+				wry::http::Response::builder().status(if valid {200} else {404})
+					.header("Content-Type", "text/html; charset=utf-8")
+					.header("Cache-Control", "no-store")
+					.header("Content-Security-Policy", "default-src 'none'; script-src https://hcaptcha.com https://*.hcaptcha.com; frame-src https://hcaptcha.com https://*.hcaptcha.com; connect-src https://hcaptcha.com https://*.hcaptcha.com; style-src 'unsafe-inline' https://hcaptcha.com https://*.hcaptcha.com; img-src data: https://hcaptcha.com https://*.hcaptcha.com; base-uri 'none'; form-action 'none'")
+					.body(Cow::Owned(if valid {html.as_bytes().to_vec()} else {Vec::new()})).expect("static response headers")
+			})
+			.with_url("discord://com/channels/@me");
+		// wry's macOS proxy needs a macOS 14 symbol, so macOS keeps the OS route.
+		#[cfg(target_os = "macos")]
+		let _ = proxy;
+		#[cfg(target_os = "windows")]
+		let builder = match proxy {
+			Some(proxy) => builder.with_proxy_config(wry::ProxyConfig::Http(wry::ProxyEndpoint {
+				host: proxy.host.clone(),
+				port: proxy.port.to_string(),
+			})),
+			None => builder,
+		};
 		let view = builder
 			.build_as_child(parent.as_ref())
 			.map_err(|_| "The native verification window could not open.")?;
+		#[cfg(target_os = "macos")]
+		load_page(&view, &html)?;
 		Ok(Self {
 			view,
 			results,
@@ -105,6 +146,22 @@ impl CaptchaView {
 	pub fn expired(&self) -> bool {
 		self.opened.elapsed() >= Duration::from_secs(300)
 	}
+}
+
+/// WKWebView keeps a base URL for a string document; wry's own `with_html` passes none.
+#[cfg(target_os = "macos")]
+#[allow(unsafe_code)]
+fn load_page(view: &WebView, html: &str) -> Result<(), &'static str> {
+	use objc2_foundation::{NSString, NSURL};
+	use wry::WebViewExtMacOS;
+	let base = NSURL::URLWithString(&NSString::from_str(PAGE))
+		.ok_or("The native verification window could not open.")?;
+	// SAFETY: runs on the main thread that built the view, with retained Foundation objects.
+	unsafe {
+		view.webview()
+			.loadHTMLString_baseURL(&NSString::from_str(html), Some(&base));
+	}
+	Ok(())
 }
 
 fn config(challenge: &Challenge, dark: bool, capability: &str) -> serde_json::Value {
@@ -151,19 +208,7 @@ pub(super) fn parse_result(body: &str, capability: &str) -> Option<Result<Soluti
 
 #[cfg(any(not(target_os = "linux"), test))]
 fn own_origin(value: &str) -> bool {
-	url::Url::parse(value).is_ok_and(|url| {
-		((url.scheme() == "https"
-			&& url.host_str() == Some("serein-captcha.verification.invalid")
-			&& url.port_or_known_default() == Some(443))
-			|| (cfg!(target_os = "macos")
-				&& url.scheme() == "serein-captcha"
-				&& url.host_str() == Some("verification.invalid")
-				&& url.port().is_none()))
-			&& url.username().is_empty()
-			&& url.password().is_none()
-			&& url.path() == "/"
-			&& url.query().is_none()
-	})
+	value == PAGE
 }
 
 pub(crate) fn hcaptcha_origin(value: &str) -> bool {
@@ -230,16 +275,14 @@ mod tests {
 
 	#[test]
 	fn ipc_is_restricted_to_the_local_verification_page() {
-		assert!(super::own_origin(
-			"https://serein-captcha.verification.invalid/"
-		));
+		assert!(super::own_origin("https://discord.com/channels/@me"));
 		for url in [
 			"https://discord.com/",
-			"https://serein-captcha.verification.invalid.evil.test/",
-			"http://serein-captcha.verification.invalid/",
-			"https://user@serein-captcha.verification.invalid/",
-			"https://serein-captcha.verification.invalid:444/",
-			"https://serein-captcha.verification.invalid/other",
+			"https://discord.com.evil.test/channels/@me",
+			"http://discord.com/channels/@me",
+			"https://user@discord.com/channels/@me",
+			"https://discord.com:444/channels/@me",
+			"https://discord.com/channels/@me?next=1",
 		] {
 			assert!(!super::own_origin(url));
 		}
@@ -278,9 +321,10 @@ mod tests {
 				);
 				let challenge = Challenge::new("synthetic-sitekey".into(), None, None, None, false)
 					.expect("synthetic challenge");
-				let script = r#"(() => { const config = __SEREIN_CAPTCHA_CONFIG__; document.addEventListener('DOMContentLoaded', () => { if(window === window.top && location.origin === 'https://serein-captcha.verification.invalid' && document.getElementById('captcha')) { document.getElementById('status').textContent = 'Offline verification surface loaded.'; window.ipc.postMessage(config.capability + 'verified:synthetic-passcode'); } }); })();"#;
-				let view = CaptchaView::build(window.clone(), &challenge, true, || {}, script)
-					.expect("native webview");
+				let script = r#"(() => { const config = __SEREIN_CAPTCHA_CONFIG__; document.addEventListener('DOMContentLoaded', () => { if(window === window.top && location.href === 'https://discord.com/channels/@me' && document.getElementById('captcha')) { document.getElementById('status').textContent = 'Offline verification surface loaded.'; window.ipc.postMessage(config.capability + 'verified:synthetic-passcode'); } }); })();"#;
+				let view =
+					CaptchaView::build(window.clone(), &challenge, true, None, || {}, script)
+						.expect("native webview");
 				view.set_bounds(0, 0, 500, 400);
 				self.view = Some(view);
 				self.window = Some(window);

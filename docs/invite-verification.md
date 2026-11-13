@@ -27,17 +27,23 @@ fails locally with a bounded reason and the session stays connected.
 
 The sitekey is taken from the service response, never hardcoded. The challenge's
 enterprise data, request token and session ID remain bound to that attempt. The
-verification view has its own incognito context, an app-local reserved
-origin and a random IPC capability. It presents the same user agent as the REST client
-that later submits the passcode (`client_core::fingerprint`); on macOS and Linux that
-identity is Safari, because the widget runs in WebKit and a Chrome-fingerprinted submission
-of a WebKit-solved passcode was observed to trigger phone verification on September 13, 2026.
-Linux presented Chrome until November 2026; account bans after Linux invite verification
-were reported in #874 (unverified cause). REST, upload and Gateway connections use the
-matching browser TLS/HTTP2 handshake (unofficial and live-unverified; wreq emulation of the
-same browser version), as do voice WebSockets; see [authentication](authentication.md).
-It receives no Discord account token and uses no solver, browser-profile access, origin
-spoofing, per-attempt fingerprint override or backend.
+verification view has its own incognito context and a random IPC capability. Its local page
+is addressed as `https://discord.com/channels/@me`, the host the official client solves
+challenges on, without fetching any Discord document (a base URL on macOS and Linux, an
+in-view custom protocol on Windows), and it passes no `host` override to hCaptcha. Until
+November 2026 it used an app-local reserved origin with hCaptcha's mobile-SDK host, so the
+provider reported a mobile app host for a desktop client's challenge.
+
+The view sends its engine's own user agent rather than a hardcoded one. REST still presents
+the desktop identity (`client_core::fingerprint`), so on macOS and Linux a WebKit-solved
+passcode is submitted by a Chromium-identified client: the combination observed to trigger
+phone verification on September 13, 2026. An owner test on November 12, 2026 (macOS, new
+account) had a message-send and an invite-join passcode accepted with no restriction; one run
+is not evidence that restrictions are prevented. Account bans after invite verification were
+reported in #874 (unverified cause). When REST uses a plain `http://` proxy, Windows and
+Linux route the view through it too; macOS keeps the OS route because wry's proxy support
+needs macOS 14. It receives no Discord account token and uses no solver, browser-profile
+access, per-attempt fingerprint override or backend.
 The widget's generated passcode is not saved to SQLite or diagnostics. The browser
 engine and hCaptcha necessarily process the user's interaction; this is not a claim
 that a third-party widget or OS leaves no traces.

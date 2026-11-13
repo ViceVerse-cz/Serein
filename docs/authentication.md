@@ -17,7 +17,7 @@ The main-document response and candidate origin checks still restrict login to
 https://discord.com. Website-data access requests are allowed only for hcaptcha.com
 or its subdomains embedded in discord.com, while the main page is still Discord.
 The invite-verification view applies the same permission rule while its exact local
-verification page is open, with WebKit's `verification.invalid` registrable domain.
+verification page (`https://discord.com/channels/@me`, never fetched) is open.
 This uses the existing ephemeral sessions and does not enable persistent storage.
 It removes a possible challenge-state blocker; live acceptance and the reported Linux
 QR/CAPTCHA loop remain unverified. Popups, downloads, file choosers, other permission
@@ -41,10 +41,12 @@ were unverified.
 **Transport identity (unofficial, live-unverified).** Native REST, uploads,
 Gateway and voice WebSockets, and Discord CDN downloads use a shared desktop-style
 profile from `client_core::fingerprint`: `Discord Client`, Electron 42.7.1 and
-Chromium 148, with the Chromium 148 wreq/BoringSSL transport profile. The versions
-come from SakuraCord's checked-in macOS reference baseline and are reused on
-Windows and Linux; they are not verified current platform-specific Discord builds.
-Super-properties retain some web fields and a separately observed web build.
+Chromium 148, with the Chromium 148 wreq/BoringSSL transport profile. The paired
+engine/profile versions remain SakuraCord reference constants. Host
+versions are platform-specific manifest observations (Linux 1.0.169, Windows
+1.0.9268, macOS 0.0.422), and web build 670026 comes from the public `/app` bundle
+on November 12. These do not establish a complete current Electron identity.
+Super-properties retain some web fields.
 See [compatibility notes](discord-compatibility.md#desktop-metadata-reference--november-12)
 for the partial profile and omissions.
 
@@ -81,7 +83,7 @@ Serein uses Discord’s official login page in a temporary platform webview, not
 
 1. Build `cargo run --locked` on a supported platform. Use a private conversation controlled by the account owner. The owner enables the private-test acknowledgment and presses **Sign in with Discord**.
 2. Complete one of the real login methods available in Discord’s page. Do not bypass a challenge, and do not change the webview's engine identity or the identity described above to get past a rejection. Cancel if the page or handoff is unsupported. The webview expires after ten minutes and closes when it supplies a candidate token.
-3. Native REST verifies `/users/@me`, rejects a bot account, retrieves the gateway location, and waits for normal-user READY. A socket opening is not authentication success. The token is saved in the OS credential store only after readiness; if saving fails, the UI reports session-only login unless the owner explicitly enabled the plaintext fallback in Settings › Storage. That opt-in saves bounded, unencrypted login files and warns about local access; see [storage policy](storage-policy.md). On a desktop without any OS credential store (Linux with no Secret Service provider such as GNOME Keyring, KWallet or KeePassXC), sign-in still works session-only: startup and the post-login notice say to install a keyring, and expiry cleanup does not report a removal failure for a store that does not exist. When no Secret Service answers, Serein D-Bus-activates `org.kde.kwalletd6`/`kwalletd5` (KWallet is often not activatable as `org.freedesktop.secrets` outside Plasma) and retries the store at most every 15 seconds rather than for the rest of the run; KWallet's Secret Service integration must be enabled (unverified on a live KDE desktop). `AUTH_SESSION_CHANGE` only updates the auth-session hash and does not end the session; revocation is HTTP 401 or Gateway close 4004.
+3. Native REST verifies `/users/@me`, rejects a bot account, retrieves the gateway location, and waits for normal-user READY. A socket opening is not authentication success. The token is saved in the OS credential store only after readiness; if a keyring exists but saving fails, the UI reports session-only login. On a desktop without any OS credential store (Linux with no Secret Service provider such as GNOME Keyring, KWallet or KeePassXC), the login is saved to a bounded, private, unencrypted file instead and the post-login status says so; see [storage policy](storage-policy.md). Expiry cleanup does not report a removal failure for a store that does not exist. When no Secret Service answers, Serein D-Bus-activates `org.kde.kwalletd6`/`kwalletd5` (KWallet is often not activatable as `org.freedesktop.secrets` outside Plasma) and retries the store at most every 15 seconds rather than for the rest of the run; KWallet's Secret Service integration must be enabled (unverified on a live KDE desktop). `AUTH_SESSION_CHANGE` only updates the auth-session hash and does not end the session; revocation is HTTP 401 or Gateway close 4004.
 4. Choose the existing private channel/DM. Load one 50-message page. Deliberately compose and send one short test message. Verify it appears in an official Discord client. Reply from that official client and verify the reply appears natively through Gateway. Do not count an offline fixture, matching text, or a bot reply as success.
 5. In the same conversation, verify an edit, deletion, HTTP/Gateway confirmation ordering, permission rejection if available, disconnect/resume and non-resumable reload. Keep traffic small; run stress tests only against synthetic transports.
 6. Quit after local saves finish. Relaunch and verify credential-store restoration and saved draft recovery without opening the webview. Inspect recovered drafts before sending: an interrupted send can have succeeded remotely.
@@ -91,7 +93,7 @@ Record only date, OS/build, methods tested, pass/fail and redacted failure categ
 
 Every build's sign-in screen also offers "Sign in with a token": the owner pastes a session token they already hold, for example from another signed-in Serein install. It skips Discord's hosted login page entirely, still requires the owner-authorization checkbox, still validates through `SessionSecret::from_owner_input` (which drops surrounding whitespace and one pair of surrounding double quotes, as browser storage displays the value), and is saved to the OS credential store the same way a normal login is. It never reads or extracts a credential from another application.
 
-Saved-login startup reports credential lookup separately from Discord connection. A found credential advances the status immediately; absent/invalid/unavailable outcomes remain visible. The UI stops awaiting lookup after 10 seconds and permits manual hosted login. Manual login, preview, logout and timeout discard late lookup results. Native login credential IO uses one bounded worker (one active job and one queued job), with a five-second wait per operation. Expired queued work is skipped; a native operation already in progress may finish later. Plaintext IO and cleanup continue on the credential coordinator after that wait. Empty authority markers prevent late or older OS writes from reviving a deleted plaintext login or a logged-out session. Plaintext fallback is disabled unless explicitly enabled; proxy credentials remain OS-store-only.
+Saved-login startup reports credential lookup separately from Discord connection. A found credential advances the status immediately; absent/invalid/unavailable outcomes remain visible. The UI stops awaiting lookup after 10 seconds and permits manual hosted login. Manual login, preview, logout and timeout discard late lookup results. Native login credential IO uses one bounded worker (one active job and one queued job), with a five-second wait per operation. Expired queued work is skipped; a native operation already in progress may finish later. Plaintext IO and cleanup continue on the credential coordinator after that wait. Empty authority markers prevent late or older OS writes from reviving a deleted plaintext login or a logged-out session. Plaintext fallback applies only when no OS credential store exists; proxy credentials remain OS-store-only.
 
 Gateway login keeps optional voice identity metadata within 4,096 entries / 1 MiB per cache.
 Extra referenced users or merged members are omitted from that cache; eligible voice participants
