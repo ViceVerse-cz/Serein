@@ -15,6 +15,78 @@ const BITS: u128 = p::VIEW_CHANNEL
 	| p::USE_VAD;
 
 #[test]
+fn profile_roles_follow_hierarchy_when_the_gateway_list_does_not() {
+	let mut state = state();
+	let role = |id, position, name: &str| p::Role {
+		id: Id(id),
+		bits: 0,
+		name: name.into(),
+		position,
+		color: 1,
+		secondary_color: None,
+		tertiary_color: None,
+		hoist: false,
+		managed: false,
+	};
+	// Stored order is neither ascending nor descending position. Reversing it would
+	// put "Tied older" ahead of "High".
+	for role in [
+		role(30, 1, "Low"),
+		role(50, 5, "Tied newer"),
+		role(20, 9, "High"),
+		role(40, 5, "Tied older"),
+		role(60, 8, "Unassigned"),
+	] {
+		permission(
+			&mut state,
+			PermissionEvent::Role {
+				guild: Id(10),
+				role,
+			},
+		);
+	}
+	permission(
+		&mut state,
+		PermissionEvent::Member {
+			guild: Id(10),
+			roles: Patch::Value(vec![Id(10), Id(50), Id(30), Id(20), Id(40)]),
+			timeout_until: Patch::Absent,
+		},
+	);
+	let profile = model::GuildProfile {
+		guild: Id(10),
+		roles: vec![Id(60)],
+		nick: None,
+		avatar: None,
+		banner: None,
+		bio: String::new(),
+		pronouns: String::new(),
+		joined_at: None,
+	};
+	let names = |state: &State| -> Vec<String> {
+		state
+			.profile_roles(Id(2), &profile)
+			.iter()
+			.map(|role| role.name.clone())
+			.collect()
+	};
+	assert_eq!(names(&state), ["High", "Tied older", "Tied newer", "Low"]);
+	let promoted = role(30, 12, "Low");
+	permission(
+		&mut state,
+		PermissionEvent::Role {
+			guild: Id(10),
+			role: promoted,
+		},
+	);
+	assert_eq!(
+		names(&state),
+		["Low", "High", "Tied older", "Tied newer"],
+		"a position update reorders the chips without moving the stored role"
+	);
+}
+
+#[test]
 fn author_gradients_follow_role_hierarchy_and_reject_invalid_stops() {
 	let mut state = state();
 	let mut role = state.guild_roles(Id(10)).unwrap()[1].clone();

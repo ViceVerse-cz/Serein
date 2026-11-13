@@ -1691,6 +1691,8 @@ holographic colors. Equal positions favor the lower role ID, consistent with
 Names retain hue when readable; the theme adjusts insufficient contrast, including hover.
 Profile name colors and role chips prefer current self/member assignments, including empty
 assignments, and fall back to fetched profile roles when current membership is unavailable.
+Profile chips list those assignments from the top of the hierarchy: higher `position` first,
+and the lower role ID first when positions match.
 Gradients color shaped glyph vertices without splitting Unicode text or recoloring color
 emoji. Inline mention pills and composer mention previews retain their primary color.
 `--features demo -- --demo --demo-chat --demo-role-gradients` enables synthetic gradients;
