@@ -8960,6 +8960,7 @@ dependencies = [
  "btls",
  "btls-sys",
  "bytes",
+ "cookie",
  "futures-util",
  "http",
  "http-body",

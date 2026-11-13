@@ -4129,6 +4129,10 @@ verification-show-one-quick-check = 간단한 확인
 verification-show-verification-required = 인증 필요
 # Context: show
 verification-show-verify = 인증
+# Context: show
+verification-show-safer-in-the-official-discord-app = 공식 Discord 앱에서 이 확인을 완료하는 것이 더 안전합니다. Serein에서 확인을 완료하면 Discord가 새 계정에 전화번호 인증을 요구할 수 있습니다.
+# Context: show
+verification-show-open-discord = Discord 열기
 
 ## crates/ui/src/video.rs
 # Context: show_player

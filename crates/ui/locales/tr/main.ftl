@@ -4097,6 +4097,10 @@ verification-show-one-quick-check = Hızlı bir kontrol
 verification-show-verification-required = Doğrulama gerekli
 # Context: show
 verification-show-verify = Doğrulamak
+# Context: show
+verification-show-safer-in-the-official-discord-app = Bu doğrulamayı resmi Discord uygulamasında tamamlamak daha güvenlidir. Serein'de çözülen bir doğrulamadan sonra Discord, yeni hesaplardan telefon numarası doğrulaması isteyebilir.
+# Context: show
+verification-show-open-discord = Discord'u aç
 
 ## crates/ui/src/video.rs
 # Context: show_player

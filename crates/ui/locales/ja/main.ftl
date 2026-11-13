@@ -4097,6 +4097,10 @@ verification-show-one-quick-check = 簡単なチェックを 1 つ
 verification-show-verification-required = 要検証
 # Context: show
 verification-show-verify = 確認する
+# Context: show
+verification-show-safer-in-the-official-discord-app = この確認は公式のDiscordアプリで行う方が安全です。Sereinで確認を完了すると、Discordが新しいアカウントに電話番号の認証を求めることがあります。
+# Context: show
+verification-show-open-discord = Discordを開く
 
 ## crates/ui/src/video.rs
 # Context: show_player

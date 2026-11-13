@@ -55,10 +55,33 @@ fn policy() -> Result<(), String> {
 		let features = node["features"].as_array().ok_or("Missing features")?;
 		for feature in features {
 			let feature = feature.as_str().unwrap_or("");
-			if (id.contains("#eframe@") || id.contains("#egui@")) && feature == "persistence"
-				|| (id.contains("#wreq@") && feature == "cookies")
-			{
+			if (id.contains("#eframe@") || id.contains("#egui@")) && feature == "persistence" {
 				return Err(format!("Forbidden runtime feature: {id} / {feature}"));
+			}
+		}
+	}
+	// wreq's cookie support exists for one store: the bounded discord.com device state in
+	// `discord-api`. No other client may keep cookies.
+	let mut sources = Vec::new();
+	for root in ["apps", "crates"].map(std::path::Path::new) {
+		// A workspace without one of these simply has nothing there to check.
+		if root.is_dir() {
+			rust_sources(root, &mut sources)?;
+		}
+	}
+	for path in sources {
+		let text = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+		let allowed = path == std::path::Path::new("crates/discord-api/src/lib.rs");
+		for (at, _) in text.match_indices(".cookie_") {
+			let call = &text[at..];
+			let stores =
+				call.starts_with(".cookie_store(") || call.starts_with(".cookie_provider(");
+			if stores && !(allowed && call.starts_with(".cookie_provider(device::store().clone())"))
+			{
+				return Err(format!(
+					"Cookie store outside the Discord device: {}",
+					path.display()
+				));
 			}
 		}
 	}
@@ -75,8 +98,22 @@ fn policy() -> Result<(), String> {
 		return Err("Authentication webview must be ephemeral".into());
 	}
 	println!(
-		"Policy checks passed: no eframe persistence, one renderer, no REST cookie jar, ephemeral login requested."
+		"Policy checks passed: no eframe persistence, one renderer, cookies only in the Discord device store, ephemeral login requested."
 	);
+	Ok(())
+}
+/// Every `.rs` file under `root`, skipping build output.
+fn rust_sources(root: &std::path::Path, out: &mut Vec<std::path::PathBuf>) -> Result<(), String> {
+	for entry in std::fs::read_dir(root).map_err(|e| e.to_string())? {
+		let path = entry.map_err(|e| e.to_string())?.path();
+		if path.is_dir() {
+			if path.file_name().is_some_and(|name| name != "target") {
+				rust_sources(&path, out)?;
+			}
+		} else if path.extension().is_some_and(|ext| ext == "rs") {
+			out.push(path);
+		}
+	}
 	Ok(())
 }
 fn licenses() -> Result<(), String> {
