@@ -489,11 +489,13 @@ impl State {
 			if let Some(update) = updates.iter().find(|update| update.user == row.user.id)
 				&& (row.status != update.status
 					|| row.custom_status != update.custom_status
-					|| row.activities != update.activities)
+					|| row.activities != update.activities
+					|| row.clients != update.clients)
 			{
 				row.status = update.status.clone();
 				row.custom_status = update.custom_status.clone();
 				row.activities = update.activities.clone();
+				row.clients = update.clients;
 				changed = true;
 			}
 		}
@@ -622,6 +624,28 @@ mod tests {
 
 	fn row(state: &State) -> &Member {
 		person(&state.members.as_ref().unwrap().slots[0])
+	}
+
+	#[test]
+	fn platform_only_presence_updates_live_and_cached_member_rows() {
+		let mut state = state();
+		let list = state.members.as_mut().unwrap();
+		list.lazy = true;
+		state.member_chunks.merge(list);
+		let mut presence = update(2, Some("online"), None);
+		presence.clients.web = true;
+		apply(&mut state, event(vec![presence.clone()]));
+		assert_eq!(row(&state).clients, presence.clients);
+		assert!(
+			matches!(state.member_slot(0), Some(MemberSlot::Person(cached)) if cached.clients == presence.clients)
+		);
+
+		presence.clients = ClientPlatforms::default();
+		apply(&mut state, event(vec![presence.clone()]));
+		assert_eq!(row(&state).clients, presence.clients);
+		assert!(
+			matches!(state.member_slot(0), Some(MemberSlot::Person(cached)) if cached.clients == presence.clients)
+		);
 	}
 
 	#[test]

@@ -4706,6 +4706,10 @@ screen-macos-system-picker = macOS 시스템 선택기로 선택
 screen-macos-system-picker-kind = 시스템 콘텐츠 선택기
 
 member-in-voice = 음성 채널 참여 중
+member-platform-desktop = 데스크톱
+member-platform-mobile = 모바일
+member-platform-web = 웹 브라우저
+member-platform-vr = VR 헤드셋
 settings-chat-box = 채팅 입력창
 settings-convert-emoticons = 메시지의 이모티콘을 이모지로 자동 변환
 settings-convert-emoticons-description = 메시지를 보내거나 편집할 때 :) 같은 단독 이모티콘을 🙂로 변환합니다. 코드와 링크는 변경하지 않습니다.
@@ -5073,6 +5077,22 @@ timestamp-style-full = 전체 날짜 및 시간
 timestamp-style-relative = 상대 시간
 timestamp-style-short-date-time = 짧은 날짜 및 시간
 timestamp-style-short-date-seconds = 초를 포함한 짧은 날짜 및 시간
+steady-refresh-prompt-title = G-SYNC 디스플레이가 감지되었습니다
+steady-refresh-prompt-body = Serein은 화면에 변경 사항이 있을 때만 다시 그리므로, 활성 창일 때 G-SYNC 디스플레이가 깜박일 수 있습니다. 고정 주사율을 켜면 디스플레이의 주사율에 맞춰 화면을 그려 깜박임을 방지하지만 전력을 더 사용합니다. 켜시겠습니까?
+steady-refresh-prompt-turn-on = 켜기
+steady-refresh-prompt-keep-off = 끄기 유지
+steady-refresh-prompt-settings = 나중에 설정 > { $page } > { $group }에서 변경할 수 있습니다.
+voice-connection-title = 연결
+voice-connection-ping-value = { $millis }ms
+voice-connection-ping-pending = 첫 번째 핑 응답을 기다리는 중…
+voice-connection-average-ping = 평균 핑: { $value }
+voice-connection-last-ping = 최근 핑: { $value }
+voice-connection-ping-description = 음성 시그널링 서버까지의 왕복 시간입니다.
+profiles-in-voice-server = { $server }에서
+profiles-in-voice-join = 참가
+profiles-in-voice-joined = 이 음성 채널에 참가 중입니다.
+profiles-in-voice-failed = 실패한 통화를 닫은 후 다시 참가하세요.
+profiles-in-voice-unavailable = 지금은 이 음성 채널에 참가할 수 없습니다.
 # Context: moderation
 moderation-menu-timeout = { $name } 님 타임아웃
 # Context: moderation
