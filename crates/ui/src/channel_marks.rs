@@ -5,6 +5,7 @@ use egui::emath::GuiRounding;
 use egui::{Color32, Pos2, Rect, Vec2};
 
 const DIM: f32 = 0.6;
+pub(crate) const ROW_HEIGHT: f32 = 30.0;
 const EYE: f32 = 22.0;
 const SCROLL: f32 = 16.0;
 const LOCK: f32 = 8.0;
@@ -29,7 +30,7 @@ pub(crate) fn tint(colors: &Palette, access: ChannelAccess, emphasis: Emphasis) 
 		Emphasis::Unavailable => colors.muted.gamma_multiply(DIM),
 		Emphasis::Connected => colors.accent,
 		Emphasis::Focused | Emphasis::Unread => colors.text_strong,
-		Emphasis::Idle => colors.muted,
+		Emphasis::Idle => colors.muted.lerp_to_gamma(colors.text, 0.25),
 	}
 }
 

@@ -401,7 +401,7 @@ fn category_header(
 			crate::icons::Icon::ChevronDown
 		},
 		egui::Rect::from_center_size(
-			egui::pos2(rect.left() + 7.0, rect.bottom() - 13.0),
+			egui::pos2(rect.left() + 7.0, rect.bottom() - 11.0),
 			egui::Vec2::splat(12.0),
 		),
 		color,
@@ -416,7 +416,7 @@ fn category_header(
 	job.wrap.break_anywhere = true;
 	let label = ui.painter().layout_job(job);
 	let label_rect = egui::Rect::from_min_size(
-		egui::pos2(rect.left() + 16.0, rect.bottom() - 6.0 - label.size().y),
+		egui::pos2(rect.left() + 16.0, rect.bottom() - 4.0 - label.size().y),
 		egui::vec2(rect.width() - 24.0, label.size().y),
 	);
 	ui.painter()
@@ -724,7 +724,11 @@ impl MessagingUi {
 			ui.label(RichText::new(language.text("no-conversations")).color(colors.muted));
 		}
 		let dm_list = self.guild.is_none();
-		let row_height = if dm_list { 44.0 } else { 34.0 };
+		let row_height = if dm_list {
+			40.0
+		} else {
+			channel_marks::ROW_HEIGHT
+		};
 		// An empty DM remainder still gets its "no conversations" line under the heading.
 		let empty_dms = dm_list
 			&& matches!(
@@ -799,10 +803,14 @@ impl MessagingUi {
 						}
 						CachedRow::Participant(entry) => {
 							let entry = &state.voice.roster[entry];
-							let response = ui.horizontal(|ui| {
-								ui.add_space(28.0);
-								self.voice_participant(ui, state, entry);
-							});
+							let response = ui.allocate_ui_with_layout(
+								egui::vec2(ui.available_width(), row_height),
+								egui::Layout::left_to_right(egui::Align::Center),
+								|ui| {
+									ui.add_space(28.0);
+									self.voice_participant(ui, state, entry);
+								},
+							);
 							paint_shelf_rule(
 								ui,
 								response.response.rect,
@@ -1029,6 +1037,7 @@ impl MessagingUi {
 									colors.text_strong,
 								);
 							}
+							let emphasized = active || unread && !access.muted();
 							let name_color = channel_marks::tint(
 								&colors,
 								access,
@@ -1054,13 +1063,13 @@ impl MessagingUi {
 										language.text("new")
 									),
 									egui::FontId::proportional(12.0),
-									colors.muted,
+									colors.link,
 								)
 							});
 							let badge_width = new_label
 								.as_ref()
 								.map_or(if count > 0 { 34.0 } else { 0.0 }, |label| {
-									label.size().x + 12.0
+									label.size().x + 6.0
 								});
 							let request = slot == Slot::Request;
 							let trailing = badge_width
@@ -1078,7 +1087,7 @@ impl MessagingUi {
 									.max_rect(content)
 									.layout(egui::Layout::left_to_right(egui::Align::Center)),
 							);
-							inner.spacing_mut().item_spacing.x = if dm_list { 12.0 } else { 6.0 };
+							inner.spacing_mut().item_spacing.x = if dm_list { 12.0 } else { 4.0 };
 							let mut glyph = None;
 							if channel.guild.is_none() {
 								if channel.kind == 3 {
@@ -1233,7 +1242,14 @@ impl MessagingUi {
 													ui,
 													user,
 													&label,
-													15.0,
+													if emphasized {
+														egui::FontId::new(
+															15.0,
+															design::medium_family(ui.ctx()),
+														)
+													} else {
+														egui::FontId::proportional(15.0)
+													},
 													(name_color, None, colors.sidebar),
 													egui::Sense::hover(),
 													trailing,
@@ -1248,13 +1264,15 @@ impl MessagingUi {
 												);
 											}
 										} else {
+											let name = if emphasized {
+												design::medium(ui, &label, 15.0)
+											} else {
+												RichText::new(&label).size(15.0)
+											};
 											ui.add(
-												egui::Label::new(
-													design::medium(ui, &label, 15.0)
-														.color(name_color),
-												)
-												.truncate()
-												.selectable(false),
+												egui::Label::new(name.color(name_color))
+													.truncate()
+													.selectable(false),
 											);
 										}
 									},
@@ -1340,7 +1358,7 @@ impl MessagingUi {
 							if let Some(label) = new_label {
 								let pos = row.right_center()
 									- egui::vec2(8.0 + lane + label.size().x, label.size().y * 0.5);
-								ui.painter().galley(pos, label, colors.muted);
+								ui.painter().galley(pos, label, colors.link);
 							}
 							if count > 0 {
 								crate::notifications::badge(

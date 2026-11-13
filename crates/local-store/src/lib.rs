@@ -3020,6 +3020,7 @@ mod tests {
 			store.reading_preferences().unwrap(),
 			ReadingPreferences {
 				zoom_percent: 80,
+				sidebar_width: 236,
 				animate_gifs: false,
 				..ReadingPreferences::default()
 			}
@@ -3039,6 +3040,7 @@ mod tests {
 			reopened.reading_preferences().unwrap(),
 			ReadingPreferences {
 				zoom_percent: 50,
+				sidebar_width: 236,
 				animate_gifs: false,
 				..ReadingPreferences::default()
 			}

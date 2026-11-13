@@ -87,6 +87,13 @@ fn source_fallback(
 		return None;
 	}
 	let url = embed.url.as_deref().and_then(external_url)?;
+	// The preview already opens this image and its menu can copy the URL.
+	// Use the embed metadata so loading, eviction and clipping cannot change row height.
+	if inline_image(embed).is_some_and(|image| {
+		image.valid() && image.url.as_deref().and_then(external_url).as_ref() == Some(&url)
+	}) {
+		return None;
+	}
 	if (message_links_shown && cache.get(message.id, &message.content).links.contains(&url))
 		|| (!inline
 			&& [&embed.author, &embed.provider]
@@ -948,7 +955,7 @@ pub fn estimated_height(embeds: &[Embed]) -> f32 {
 		let count = gallery_len(&embeds[index..]);
 		let e = &embeds[index];
 		let image_height = if count > 1 {
-			gallery_rect(count, count - 1, 456.0).bottom()
+			gallery_rect(count, count - 1, crate::avatars::media::MEDIA_MAX_WIDTH).bottom()
 		} else if e.image.is_some() || large_thumbnail(e).is_some() || clip_media(e).is_some() {
 			200.0
 		} else {
@@ -1122,6 +1129,17 @@ mod tests {
 		embed.video = Some(model::EmbedMedia::default());
 		assert_eq!(source_fallback(&message, &embed, &mut cache, true), None);
 		embed.video = None;
+		embed.kind = "image".into();
+		embed.image = Some(model::EmbedMedia {
+			url: embed.url.clone(),
+			..Default::default()
+		});
+		assert_eq!(source_fallback(&message, &embed, &mut cache, true), None);
+		embed.image.as_mut().unwrap().url = Some("https://example.org/preview.png".into());
+		assert_eq!(
+			source_fallback(&message, &embed, &mut cache, true),
+			embed.url
+		);
 		for url in [
 			None,
 			Some("javascript:alert(1)"),

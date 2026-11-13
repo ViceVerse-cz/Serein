@@ -222,6 +222,10 @@ pub fn header(utc: time::OffsetDateTime) -> String {
 	)
 }
 
+pub(crate) fn date(utc: time::OffsetDateTime) -> String {
+	DateOrder::current().date(local(utc).date())
+}
+
 /// [`header`] against an explicit local `today`, so day boundaries are testable.
 fn format_header(
 	at: time::OffsetDateTime,

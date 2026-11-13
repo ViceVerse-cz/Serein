@@ -324,7 +324,9 @@ impl MessagingUi {
 		commands: &mut Vec<client_core::Command>,
 	) {
 		let colors = design::palette_for(ctx);
-		let size = ctx.content_rect().size() - egui::vec2(32.0, 40.0);
+		const RADIUS: u8 = 10;
+		let viewport = ctx.content_rect();
+		let size = viewport.size() - egui::vec2(64.0, 80.0);
 		let width = size.x.clamp(280.0, 1100.0);
 		let height = size.y.clamp(240.0, 820.0);
 		let wide = width >= 620.0;
@@ -333,13 +335,28 @@ impl MessagingUi {
 			.frame(
 				egui::Frame::new()
 					.fill(colors.chat.to_opaque())
-					.corner_radius(crate::dialog::RADIUS)
+					.corner_radius(RADIUS)
 					.shadow(ctx.style_of(ctx.theme()).visuals.window_shadow)
 					.stroke(egui::Stroke::new(1.0, colors.border)),
 			)
 			.show(ctx, |ui| {
+				if self.shows_title_bar() {
+					// The modal owns pointer input, so give the blank caption area its
+					// own drag target on this layer.
+					let drag = egui::Rect::from_min_max(
+						viewport.left_top() + egui::vec2(96.0, 0.0),
+						egui::pos2(
+							viewport.right() - design::WINDOW_CONTROLS_WIDTH - 24.0,
+							viewport.top() + design::TITLE_BAR_HEIGHT,
+						),
+					);
+					design::window_drag(ui, drag);
+				}
 				ui.set_width(width);
 				ui.set_height(height);
+				ui.style_mut()
+					.text_styles
+					.insert(egui::TextStyle::Body, egui::FontId::proportional(14.0));
 				if wide {
 					egui::Panel::left("settings-navigation")
 						.exact_size(232.0)
@@ -348,8 +365,8 @@ impl MessagingUi {
 							egui::Frame::new()
 								.fill(colors.sidebar.to_opaque())
 								.corner_radius(egui::CornerRadius {
-									nw: crate::dialog::RADIUS,
-									sw: crate::dialog::RADIUS,
+									nw: RADIUS,
+									sw: RADIUS,
 									ne: 0,
 									se: 0,
 								})
@@ -364,10 +381,10 @@ impl MessagingUi {
 				}
 				egui::CentralPanel::default()
 					.frame(egui::Frame::new().inner_margin(egui::Margin {
-						left: if wide { 40 } else { 20 },
+						left: if wide { 32 } else { 20 },
 						right: 20,
-						top: 24,
-						bottom: 24,
+						top: 18,
+						bottom: 16,
 					}))
 					.show(ui, |ui| {
 						let editing_theme =
@@ -386,7 +403,7 @@ impl MessagingUi {
 							ui.vertical(|ui| {
 								ui.spacing_mut().item_spacing.y = 2.0;
 								ui.label(
-									design::semibold(ui, &heading, 20.0).color(colors.text_strong),
+									design::semibold(ui, &heading, 18.0).color(colors.text_strong),
 								);
 								ui.label(
 									RichText::new(&description).size(13.0).color(colors.muted),
@@ -419,7 +436,7 @@ impl MessagingUi {
 									}
 								});
 						}
-						ui.add_space(16.0);
+						ui.add_space(10.0);
 						if self.settings.page == Page::Themes && self.extensions.editing_theme() {
 							self.extensions.theme_editor_toolbar(ui);
 							ui.add_space(12.0);
@@ -445,7 +462,7 @@ impl MessagingUi {
 									0.0
 								};
 								ui.set_width((ui.available_width() - scroll_padding).min(720.0));
-								ui.spacing_mut().item_spacing.y = 12.0;
+								ui.spacing_mut().item_spacing.y = 8.0;
 								let query = self.settings.query.to_lowercase();
 								if !Page::ALL
 									.into_iter()
@@ -1531,7 +1548,7 @@ pub(super) fn nav_item(ui: &mut egui::Ui, label: &str, selected: bool) -> egui::
 	let label = crate::i18n::translate_if_key(label);
 	let colors = design::palette(ui);
 	let (rect, response) =
-		ui.allocate_exact_size(egui::vec2(ui.available_width(), 34.0), egui::Sense::click());
+		ui.allocate_exact_size(egui::vec2(ui.available_width(), 30.0), egui::Sense::click());
 	response.widget_info(|| {
 		egui::WidgetInfo::selected(egui::Role::Button, ui.is_enabled(), selected, &label)
 	});
@@ -1581,7 +1598,14 @@ pub(super) fn nav_item(ui: &mut egui::Ui, label: &str, selected: bool) -> egui::
 	// Long localized page names elide inside the row; hovering shows the full name.
 	let mut job = egui::text::LayoutJob::simple_singleline(
 		label.clone(),
-		egui::FontId::new(15.0, design::medium_family(ui.ctx())),
+		egui::FontId::new(
+			14.0,
+			if selected {
+				design::medium_family(ui.ctx())
+			} else {
+				egui::FontFamily::Proportional
+			},
+		),
 		color,
 	);
 	job.wrap = egui::text::TextWrapping::truncate_at_width(rect.width() - 24.0);

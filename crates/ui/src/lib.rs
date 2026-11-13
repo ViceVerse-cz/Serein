@@ -680,6 +680,8 @@ enum MentionWrite {
 	DidNotFit,
 }
 
+const DM_PROFILE_WIDTH: f32 = 320.0;
+
 impl MessagingUi {
 	pub fn interaction_modal_id(&self) -> Option<Id> {
 		self.interaction_components.modal_id()
@@ -2261,7 +2263,7 @@ impl MessagingUi {
 				let mut avatar_rect = None;
 				let mut avatar_focused = false;
 				egui::Frame::new()
-					.inner_margin(egui::Margin::symmetric(8, 6))
+					.inner_margin(egui::Margin::symmetric(10, 10))
 					.show(ui, |ui| {
 						ui.set_width(ui.available_width());
 						ui.horizontal(|ui| {
@@ -2699,13 +2701,7 @@ impl MessagingUi {
 					}
 					ui.add_space(4.0);
 					// A one-to-one DM docks the other person's profile instead of a member list.
-					let direct = state
-						.selected
-						.and_then(|id| state.channel(id))
-						.is_some_and(|channel| channel.kind == 1)
-						// Narrow windows keep the member dialog for every conversation.
-						&& wide_members;
-					let (icon, label) = if !direct {
+					let (icon, label) = if !dm {
 						(icons::Icon::People, language.text("show-member-list"))
 					} else if show_members {
 						(icons::Icon::Profile, language.text("hide-user-profile"))
@@ -2713,7 +2709,12 @@ impl MessagingUi {
 						(icons::Icon::Profile, language.text("show-user-profile"))
 					};
 					if icons::toggle(ui, icon, 32.0, show_members, &label).clicked() {
-						if wide_members {
+						if dm && !wide_members {
+							if let Some(user) = channel.as_ref().and_then(|c| c.recipients.first())
+							{
+								self.profile.open_full(user.clone());
+							}
+						} else if wide_members {
 							let shown = self.members_preference(state);
 							*shown = !*shown;
 						} else {
@@ -3668,7 +3669,8 @@ impl MessagingUi {
 			// The cap and the input form one block: undo the automatic vertical item gap.
 			ui.add_space(-ui.spacing().item_spacing.y);
 		}
-		design::glass_frame(ui, colors.raised, egui::Margin::symmetric(10, 6))
+		const INPUT_MARGIN: i8 = 10;
+		design::glass_frame(ui, colors.raised, egui::Margin::same(INPUT_MARGIN))
             .corner_radius(if cap_top.is_some() {
                 egui::CornerRadius { nw: 0, ne: 0, sw: 8, se: 8 }
             } else {
@@ -3678,8 +3680,8 @@ impl MessagingUi {
                 // Outer frame bounds for the autocomplete popout: undo the inner margin and
                 // include the reply/edit cap so the popout never covers it.
                 let composer_anchor = egui::Rect::from_min_max(
-                    egui::pos2(ui.max_rect().left() - 10.0, cap_top.unwrap_or(ui.max_rect().top() - 6.0)),
-                    egui::pos2(ui.max_rect().right() + 10.0, ui.max_rect().top()),
+                    egui::pos2(ui.max_rect().left() - f32::from(INPUT_MARGIN), cap_top.unwrap_or(ui.max_rect().top() - f32::from(INPUT_MARGIN))),
+                    egui::pos2(ui.max_rect().right() + f32::from(INPUT_MARGIN), ui.max_rect().top()),
                 );
                 if !editing_here && (self.attachment.is_some() || self.attachment_loading > 0) {
                     self.attachment_tray(ui, state.can_send(channel), upload_limit);
@@ -4391,7 +4393,7 @@ impl MessagingUi {
 		egui::Panel::right("dm-profile-pane")
 			.resizable(false)
 			.show_separator_line(false)
-			.exact_size(340.0)
+			.exact_size(DM_PROFILE_WIDTH)
 			.frame(
 				egui::Frame::new()
 					.fill(design::section_surface(
@@ -5078,7 +5080,17 @@ impl MessagingUi {
 		{
 			commands.push(command);
 		}
-		let wide_members = ui.available_width() >= 720.0;
+		let direct_recipient = state
+			.selected
+			.and_then(|id| state.channel(id))
+			.filter(|channel| channel.kind == 1 && channel.guild.is_none())
+			.and_then(|channel| channel.recipients.first().cloned());
+		let wide_members = ui.available_width()
+			>= if direct_recipient.is_some() {
+				DM_PROFILE_WIDTH + 400.0
+			} else {
+				720.0
+			};
 		if !settings_open
 			&& !self.switcher_frame
 			&& !self.ime_active
@@ -5112,7 +5124,7 @@ impl MessagingUi {
 			&& if wide_members {
 				*self.members_preference(state)
 			} else {
-				self.members_narrow_open
+				direct_recipient.is_none() && self.members_narrow_open
 			};
 		if search_open {
 			self.channel_header(
@@ -5158,11 +5170,7 @@ impl MessagingUi {
 				});
 		}
 		// A one-to-one DM shows the other person's profile where servers list members.
-		let dm_recipient = (show_members && wide_members)
-			.then(|| state.selected.and_then(|id| state.channel(id)))
-			.flatten()
-			.filter(|channel| channel.kind == 1)
-			.and_then(|channel| channel.recipients.first().cloned());
+		let dm_recipient = direct_recipient.filter(|_| show_members && wide_members);
 		if dm_recipient.is_none() {
 			self.dm_profile_link = None;
 		}
