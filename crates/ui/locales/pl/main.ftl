@@ -2413,8 +2413,6 @@ search-pane-hide-matching-text-highlight = Ukryj zaznaczenie pasującego tekstu
 # Context: pane
 search-pane-indexing-is-incomplete-results-may-be-missing = Indeksowanie jest niekompletne; wyników może brakować.
 # Context: pane
-search-pane-looking-for-matching-messages = Szukam pasujących wiadomości.
-# Context: pane
 search-pane-messages-are-unavailable-while-disconnected-or-without-channel-access = Wiadomości są niedostępne po rozłączeniu lub braku dostępu do kanału.
 # Context: pane
 search-pane-newest-first = Najpierw najnowsze
@@ -3606,6 +3604,8 @@ slash-commands-composer-choose-a-different-command = wybierz inne polecenie
 slash-commands-composer-command-unavailable-your-arguments-are-kept = Polecenie niedostępne. Twoje argumenty zostaną zachowane.
 # Context: footer
 slash-commands-footer-refresh-application-commands = Odśwież polecenia aplikacji
+# Context: list
+slash-commands-list-loading-application-commands = Wczytywanie poleceń aplikacji…
 
 ## crates/ui/src/stickers.rs
 # Context: message

@@ -158,22 +158,28 @@ impl Settings {
 		use crate::design;
 		use crate::icons::{Icon, paint};
 		const ROW: f32 = 32.0;
+		const SELECT: f32 = 40.0;
 		let colors = design::palette(ui);
+		ui.add_space(4.0);
 		let Some(families) = &self.families else {
-			ui.horizontal(|ui| {
-				ui.spinner();
-				ui.label(
-					egui::RichText::new(crate::i18n::translate("fonts-show-loading"))
-						.color(colors.muted),
-				);
-			});
+			// The family list opens from this select, so the select is what stands in for it.
+			crate::skeleton::custom(
+				ui,
+				&crate::i18n::translate("fonts-show-loading"),
+				egui::vec2(ui.available_width(), SELECT),
+				|painter, rect, fill| {
+					// Field-shaped, like the select it stands in for.
+					crate::skeleton::control(painter, fill, rect, crate::skeleton::CONTROL_RADIUS);
+				},
+			);
 			return;
 		};
 		let default = crate::i18n::translate("fonts-show-inter-default");
 		let current = self.name.clone().unwrap_or_else(|| default.clone());
-		ui.add_space(4.0);
-		let (rect, button) =
-			ui.allocate_exact_size(egui::vec2(ui.available_width(), 40.0), egui::Sense::click());
+		let (rect, button) = ui.allocate_exact_size(
+			egui::vec2(ui.available_width(), SELECT),
+			egui::Sense::click(),
+		);
 		button.widget_info(|| {
 			egui::WidgetInfo::labeled(egui::Role::ComboBox, button.enabled(), &current)
 		});

@@ -2449,8 +2449,6 @@ search-pane-hide-matching-text-highlight = 검색어 강조 표시 숨기기
 # Context: pane
 search-pane-indexing-is-incomplete-results-may-be-missing = 색인 작업이 완료되지 않아 일부 결과가 누락될 수 있습니다.
 # Context: pane
-search-pane-looking-for-matching-messages = 일치하는 메시지를 찾는 중입니다.
-# Context: pane
 search-pane-messages-are-unavailable-while-disconnected-or-without-channel-access = 연결이 끊어졌거나 채널 접근 권한이 없으면 메시지를 볼 수 없습니다.
 # Context: pane
 search-pane-newest-first = 최신순
@@ -3633,6 +3631,8 @@ slash-commands-composer-choose-a-different-command = 다른 명령어 선택
 slash-commands-composer-command-unavailable-your-arguments-are-kept = 명령어를 사용할 수 없습니다. 입력한 인수는 유지됩니다.
 # Context: footer
 slash-commands-footer-refresh-application-commands = 애플리케이션 명령어 새로고침
+# Context: list
+slash-commands-list-loading-application-commands = 애플리케이션 명령어를 불러오는 중…
 
 ## crates/ui/src/stickers.rs
 # Context: message

@@ -238,7 +238,6 @@ struct ResultPanel {
 
 /// Card chrome under the 16:9 preview: badges, title, blurb and the action row.
 const CARD_BODY: f32 = 196.0;
-const THEME_CARD_BODY: f32 = 108.0;
 const CARD_RADIUS: u8 = 12;
 const FOOTER_HEIGHT: f32 = 34.0;
 
@@ -885,6 +884,12 @@ impl ExtensionUi {
 				return;
 			}
 		}
+		if self.previews.get(id).is_some_and(|preview| preview.loading) {
+			// The artwork is on its way; a flat placeholder holds its area.
+			ui.painter()
+				.rect_filled(rect, radius, crate::skeleton::fill(ui));
+			return;
+		}
 		ui.painter().rect_filled(rect, radius, colors.sidebar);
 		let inset = rect.shrink(18.0);
 		let icon = egui::Rect::from_center_size(
@@ -901,9 +906,7 @@ impl ExtensionUi {
 		ui.painter().text(
 			inset.center() + egui::vec2(0.0, 23.0),
 			egui::Align2::CENTER_CENTER,
-			if self.previews.get(id).is_some_and(|preview| preview.loading) {
-				"Loading preview..."
-			} else if entry.preview.is_some() && !self.previews.contains_key(id) {
+			if entry.preview.is_some() && !self.previews.contains_key(id) {
 				"Preview not loaded"
 			} else {
 				"Preview unavailable"
@@ -1442,7 +1445,7 @@ impl ExtensionUi {
 		let card = (width - 2.0).max(1.0);
 		let body = (card - 28.0).max(1.0);
 		let body_height = if self.themes {
-			THEME_CARD_BODY
+			theme_card_body(ui)
 		} else {
 			CARD_BODY
 		};
@@ -1456,9 +1459,22 @@ impl ExtensionUi {
 			sw: 0,
 			se: 0,
 		};
+		// A refresh with nothing listed yet shows cards, not the empty catalog.
+		let placeholder = entries.is_empty() && self.catalog_refreshing && query.is_empty();
+		let themes = self.themes;
 		let mut visible = Vec::new();
 		ui.vertical(|ui| {
 			ui.spacing_mut().item_spacing.y = gap;
+			if placeholder {
+				let rows = crate::skeleton::visible_count(ui, row_height + gap, 4);
+				catalog_placeholder(
+					ui,
+					themes,
+					(columns, rows),
+					egui::vec2(width, row_height),
+					gap,
+				);
+			}
 			for row in entries.chunks(columns) {
 				let row_rect = egui::Rect::from_min_size(
 					ui.cursor().min,
@@ -1544,7 +1560,7 @@ impl ExtensionUi {
 			// One settling frame lets a newly visible card replace a previously visible thumbnail.
 			ui.ctx().request_repaint();
 		}
-		if entries.is_empty() {
+		if entries.is_empty() && !placeholder {
 			egui::Frame::new()
 				.fill(colors.raised)
 				.corner_radius(CARD_RADIUS)
@@ -1793,11 +1809,13 @@ impl ExtensionUi {
 			});
 		}
 		let body_height = if self.themes {
-			THEME_CARD_BODY
+			theme_card_body(ui)
 		} else {
 			CARD_BODY
 		};
-		let footer = ui.min_rect().top() + body_height - 24.0 - FOOTER_HEIGHT;
+		// The footer row is at least a control tall.
+		let footer = ui.min_rect().top() + body_height
+			- 24.0 - FOOTER_HEIGHT.max(ui.spacing().interact_size.y);
 		ui.add_space((footer - ui.cursor().top()).max(0.0));
 		let neutral = design::mix(colors.raised, colors.text, 0.1);
 		let outline = egui::Stroke::new(1.0, colors.border);
@@ -2766,6 +2784,101 @@ fn draw_native_preview(
 	}
 	panel(0.33, 0.86, 0.64, 0.09, colors.raised);
 	panel(0.89, 0.88, 0.05, 0.05, colors.accent);
+}
+
+/// Body height of a theme card: its name and creator rows are each a control tall, above the
+/// footer button and 12px padding top and bottom.
+fn theme_card_body(ui: &egui::Ui) -> f32 {
+	let control = ui.spacing().interact_size.y;
+	2.0 * control + 8.0 + FOOTER_HEIGHT.max(control) + 24.0
+}
+
+/// Placeholder catalog cards on the grid of [`ExtensionUi::settings`], each `cell` in size:
+/// its preview area, the body text of a plugin or theme card and the footer button.
+fn catalog_placeholder(
+	ui: &mut egui::Ui,
+	themes: bool,
+	(columns, rows): (usize, usize),
+	cell: egui::Vec2,
+	gap: f32,
+) {
+	let size = egui::vec2(ui.available_width(), rows as f32 * (cell.y + gap) - gap);
+	let control = ui.spacing().interact_size.y;
+	crate::skeleton::custom(
+		ui,
+		&crate::i18n::translate("extensions-ui-toolbar-checking-for-packages-and-updates"),
+		size,
+		|painter, rect, fill| {
+			for index in 0..columns * rows {
+				let (row, column) = (index / columns, index % columns);
+				let frame = egui::Rect::from_min_size(
+					rect.min
+						+ egui::vec2(column as f32 * (cell.x + gap), row as f32 * (cell.y + gap)),
+					cell,
+				);
+				crate::skeleton::outline(painter, fill, frame, f32::from(CARD_RADIUS));
+				// Inside the 1px stroke: the 16:9 preview, then the body's 14px side padding.
+				let card = frame.shrink(1.0);
+				let preview = egui::Rect::from_min_size(
+					card.min,
+					egui::vec2(card.width(), card.width() * 9.0 / 16.0),
+				);
+				painter.rect_filled(
+					preview,
+					egui::CornerRadius {
+						nw: CARD_RADIUS,
+						ne: CARD_RADIUS,
+						sw: 0,
+						se: 0,
+					},
+					fill,
+				);
+				let left = card.left() + 14.0;
+				let body = card.width() - 28.0;
+				let factor = crate::skeleton::width_factor(index);
+				// Offset below the preview, height and width share of each line `card_body`
+				// draws below its 12px top padding. Themes centre name and creator in a
+				// control-tall row each; plugins centre their kind eyebrow in one, then stack
+				// name, creator and description.
+				let centred = |row: f32, height: f32| 12.0 + row + (control - height) * 0.5;
+				let text = 12.0 + control + 6.0;
+				let footer = FOOTER_HEIGHT.max(control);
+				let lines: &[(f32, f32, f32)] = if themes {
+					&[
+						(centred(0.0, 14.0), 14.0, 0.6 * factor),
+						(centred(control + 6.0, 10.0), 10.0, 0.35),
+					]
+				} else {
+					&[
+						(centred(0.0, 10.0), 10.0, 0.12),
+						(text + 4.0, 14.0, 0.6 * factor),
+						(text + 29.0, 10.0, 0.35),
+						(text + 45.0, 10.0, 0.9 * factor),
+					]
+				};
+				for &(top, height, share) in lines {
+					crate::skeleton::bar(
+						painter,
+						fill,
+						egui::pos2(left, preview.bottom() + top),
+						egui::vec2(body * share, height),
+					);
+				}
+				crate::skeleton::block(
+					painter,
+					fill,
+					egui::Rect::from_min_size(
+						egui::pos2(
+							left,
+							card.bottom() - 12.0 - footer + (footer - FOOTER_HEIGHT) * 0.5,
+						),
+						egui::vec2(body, FOOTER_HEIGHT),
+					),
+					8.0,
+				);
+			}
+		},
+	);
 }
 
 /// Card action button: fixed size, hover feedback and the shared button typography.

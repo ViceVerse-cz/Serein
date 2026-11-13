@@ -17,6 +17,10 @@ pub(super) struct Page {
 
 /// Rows past this stay reachable through the filter instead of one very long list.
 const MAX_PICKER_ROWS: usize = 200;
+/// Height of the program list once it scrolls.
+const PICKER_HEIGHT: f32 = 240.0;
+/// A [`process_row`]: program glyph, name and path.
+const PROCESS_ROW: f32 = 40.0;
 
 impl MessagingUi {
 	pub(super) fn registered_games_settings(&mut self, ui: &mut egui::Ui, demo: bool) {
@@ -296,12 +300,19 @@ impl MessagingUi {
 		ui.add_space(4.0);
 		match &self.running_processes {
 			None => {
-				ui.horizontal(|ui| {
-					ui.spinner();
-					ui.label(
-						RichText::new(tr("settings-activity-reading-programs")).color(p.muted),
-					);
-				});
+				// As many rows as fill the list once it scrolls, glyph centred like the real one.
+				crate::skeleton::rows(
+					ui,
+					&tr("settings-activity-reading-programs"),
+					crate::skeleton::Row {
+						height: PROCESS_ROW,
+						avatar: 18.0,
+						square: true,
+						lines: 2,
+						inset: 9.0,
+					},
+					(PICKER_HEIGHT / PROCESS_ROW) as usize,
+				);
 			}
 			Some(paths) => {
 				let query = picker.query.trim().to_lowercase();
@@ -322,7 +333,7 @@ impl MessagingUi {
 				}
 				egui::ScrollArea::vertical()
 					.id_salt("registered-games-picker")
-					.max_height(240.0)
+					.max_height(PICKER_HEIGHT)
 					.auto_shrink([false, true])
 					.show(ui, |ui| {
 						ui.spacing_mut().item_spacing.y = 2.0;
@@ -428,8 +439,10 @@ fn game_detail(game: &RegisteredGame, today: time::Date) -> String {
 
 fn process_row(ui: &mut egui::Ui, path: &str, selected: bool) -> egui::Response {
 	let p = design::palette(ui);
-	let (rect, response) =
-		ui.allocate_exact_size(egui::vec2(ui.available_width(), 40.0), egui::Sense::click());
+	let (rect, response) = ui.allocate_exact_size(
+		egui::vec2(ui.available_width(), PROCESS_ROW),
+		egui::Sense::click(),
+	);
 	if ui.is_rect_visible(rect) {
 		let fill = if selected {
 			p.selected

@@ -379,7 +379,10 @@ impl RolesUi {
 				self.members_requested = false;
 			}
 		}
-		if state.server_admin.pending {
+		// The role list's first load is sketched in place instead of announced here.
+		let first_load = crate::server_admin::first_load(state, state.server_admin.roles.is_some())
+			&& self.selected.is_none();
+		if state.server_admin.pending && !first_load {
 			ui.horizontal(|ui| {
 				ui.spinner();
 				ui.weak(crate::i18n::translate_if_key(
@@ -402,15 +405,17 @@ impl RolesUi {
 				},
 			);
 		} else {
-			self.list(ui, state, guild, commands);
+			self.list(ui, state, guild, first_load, commands);
 		}
 		self.confirmations(ui.ctx(), state, guild, commands);
 	}
+	/// The role list; `first_load` sketches it while the roles first load.
 	fn list(
 		&mut self,
 		ui: &mut egui::Ui,
 		state: &mut State,
 		guild: Id,
+		first_load: bool,
 		commands: &mut Vec<Command>,
 	) {
 		let colors = design::palette(ui);
@@ -433,6 +438,9 @@ impl RolesUi {
 		);
 		ui.add_space(20.0);
 		let Some(catalog) = &state.server_admin.roles else {
+			if first_load {
+				pending_roles(ui, width);
+			}
 			return;
 		};
 		let query = self.search.to_lowercase();
@@ -450,7 +458,7 @@ impl RolesUi {
 			fixed_label(
 				ui,
 				&crate::i18n::translate("server-roles-list-members"),
-				(width * 0.48 - 108.0).max(48.0),
+				members_heading_width(width),
 				true,
 			);
 		});
@@ -469,7 +477,7 @@ impl RolesUi {
 						};
 						let name_width = width * 0.52;
 						let (rect, response) = ui.allocate_exact_size(
-							egui::vec2(name_width, 58.0),
+							egui::vec2(name_width, ROLE_ROW),
 							egui::Sense::click_and_drag(),
 						);
 						let name = crate::role_names::galley(
@@ -521,7 +529,7 @@ impl RolesUi {
 								|| crate::i18n::translate("server-roles-list-unknown"),
 								|count| count.to_string(),
 							),
-							(width * 0.48 - 116.0).max(48.0),
+							member_count_width(width),
 							false,
 						);
 						if boxed_icon(ui, icons::Icon::Pencil, "server-roles-list-edit-role-2")
@@ -1404,11 +1412,82 @@ fn tab_button(ui: &mut egui::Ui, tab: &mut Tab, value: Tab, label: &str) {
 		)
 	});
 }
+/// Height of a role row, of a table heading or count cell, and of a row's square buttons.
+const ROLE_ROW: f32 = 58.0;
+const LABEL_ROW: f32 = 36.0;
+const BOXED_ICON: f32 = 36.0;
+
+/// The role table while roles load: the real Members heading beside a placeholder for the
+/// role count, then rows of colour dot, name, member count and the edit and actions buttons.
+fn pending_roles(ui: &mut egui::Ui, width: f32) {
+	use crate::skeleton::{bar, circle, control, custom, visible_count, width_factor};
+	use egui::{pos2, vec2};
+	let label = crate::i18n::translate("server-roles-show-loading-roles");
+	let gap = ui.spacing().item_spacing;
+	ui.horizontal(|ui| {
+		custom(
+			ui,
+			&label,
+			vec2(width * 0.52, LABEL_ROW),
+			|painter, rect, fill| {
+				bar(
+					painter,
+					fill,
+					pos2(rect.left(), rect.center().y - 6.0),
+					vec2(88.0, 12.0),
+				);
+			},
+		);
+		fixed_label(
+			ui,
+			&crate::i18n::translate("server-roles-list-members"),
+			members_heading_width(width),
+			true,
+		);
+	});
+	ui.separator();
+	let count_left = width * 0.52 + gap.x;
+	let buttons = count_left + member_count_width(width) + gap.x;
+	// Each row sits over a 6px separator, one item spacing either side.
+	for index in 0..visible_count(ui, ROLE_ROW + 6.0 + 2.0 * gap.y, 12) {
+		custom(ui, "", vec2(width, ROLE_ROW), |painter, rect, fill| {
+			let middle = rect.center().y;
+			circle(painter, fill, pos2(rect.left() + 9.0, middle), 8.0);
+			bar(
+				painter,
+				fill,
+				pos2(rect.left() + 28.0, middle - 6.0),
+				vec2(
+					((width * 0.52 - 60.0) * 0.5 * width_factor(index)).max(48.0),
+					12.0,
+				),
+			);
+			bar(
+				painter,
+				fill,
+				pos2(rect.left() + count_left, middle - 6.0),
+				vec2(16.0, 12.0),
+			);
+			for offset in [0.0, BOXED_ICON + gap.x] {
+				control(
+					painter,
+					fill,
+					egui::Rect::from_min_size(
+						pos2(rect.left() + buttons + offset, middle - BOXED_ICON * 0.5),
+						vec2(BOXED_ICON, BOXED_ICON),
+					),
+					8.0,
+				);
+			}
+		});
+		ui.separator();
+	}
+}
 fn boxed_icon(ui: &mut egui::Ui, icon: icons::Icon, label: &str) -> egui::Response {
 	let label = crate::i18n::translate_if_key(label);
 	let colors = design::palette(ui);
 	let response = ui.add_sized(
-		[36.0, 36.0],
+		[BOXED_ICON, BOXED_ICON],
 		egui::Button::new(()).fill(colors.raised).corner_radius(8),
 	);
 	icons::paint(ui.painter(), icon, response.rect.shrink(9.0), colors.text);
@@ -1432,9 +1511,17 @@ fn section(ui: &mut egui::Ui, title: &str) {
 	design::divider(ui);
 	design::section(ui, title, None);
 }
+/// Width of the Members heading over a role list `width` wide.
+fn members_heading_width(width: f32) -> f32 {
+	(width * 0.48 - 108.0).max(48.0)
+}
+/// Width of a role row's member count, before its edit and menu buttons.
+fn member_count_width(width: f32) -> f32 {
+	(width * 0.48 - 116.0).max(48.0)
+}
 fn fixed_label(ui: &mut egui::Ui, text: &str, width: f32, strong: bool) {
 	ui.allocate_ui_with_layout(
-		egui::vec2(width, 36.0),
+		egui::vec2(width, LABEL_ROW),
 		egui::Layout::left_to_right(egui::Align::Center),
 		|ui| {
 			ui.set_width(width);

@@ -2414,8 +2414,6 @@ search-pane-hide-matching-text-highlight = 一致するテキストのハイラ�
 # Context: pane
 search-pane-indexing-is-incomplete-results-may-be-missing = インデックス作成が不完全です。結果が見つからない可能性があります。
 # Context: pane
-search-pane-looking-for-matching-messages = 一致するメッセージを探しています。
-# Context: pane
 search-pane-messages-are-unavailable-while-disconnected-or-without-channel-access = 接続が切断されている場合、またはチャネルにアクセスできない場合、メッセージは利用できません。
 # Context: pane
 search-pane-newest-first = 新しい順
@@ -3602,6 +3600,8 @@ slash-commands-composer-choose-a-different-command = 別のコマンドを選択
 slash-commands-composer-command-unavailable-your-arguments-are-kept = コマンドは使用できません。あなたの議論は維持されます。
 # Context: footer
 slash-commands-footer-refresh-application-commands = アプリケーションコマンドを更新する
+# Context: list
+slash-commands-list-loading-application-commands = アプリケーションコマンドを読み込んでいます…
 
 ## crates/ui/src/stickers.rs
 # Context: message

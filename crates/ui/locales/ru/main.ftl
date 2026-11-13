@@ -2414,8 +2414,6 @@ search-pane-hide-matching-text-highlight = Скрыть выделение со�
 # Context: pane
 search-pane-indexing-is-incomplete-results-may-be-missing = Индексация неполная; результаты могут отсутствовать.
 # Context: pane
-search-pane-looking-for-matching-messages = Ищем соответствующие сообщения.
-# Context: pane
 search-pane-messages-are-unavailable-while-disconnected-or-without-channel-access = Сообщения недоступны при отключении или отсутствии доступа к каналу.
 # Context: pane
 search-pane-newest-first = Сначала самые новые
@@ -3607,6 +3605,8 @@ slash-commands-composer-choose-a-different-command = выбери другую �
 slash-commands-composer-command-unavailable-your-arguments-are-kept = Команда недоступна. Ваши аргументы сохранены.
 # Context: footer
 slash-commands-footer-refresh-application-commands = Обновить команды приложения
+# Context: list
+slash-commands-list-loading-application-commands = Загрузка команд приложений…
 
 ## crates/ui/src/stickers.rs
 # Context: message

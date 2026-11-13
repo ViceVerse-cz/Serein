@@ -256,13 +256,50 @@ impl Browser {
 							ui.label(crate::i18n::translate("stickers-show-no-stickers-found"));
 						}
 						if state.stickers.loading {
-							ui.label(crate::i18n::translate("stickers-show-loading-sticker-packs"));
+							pending_pack(ui, size, columns);
 						}
 					});
 			});
 		});
 		chosen
 	}
+}
+
+/// A sticker pack still on its way: its collapsing header's name over two rows of `columns`
+/// stickers of side `tile`, indented and spaced like the loaded section body.
+fn pending_pack(ui: &mut egui::Ui, tile: f32, columns: usize) {
+	const ROWS: usize = 2;
+	let header = ui.spacing().interact_size.y;
+	// The header's arrow takes the same indent as the body under it.
+	let indent = ui.spacing().indent;
+	let gap = ui.spacing().item_spacing;
+	crate::skeleton::custom(
+		ui,
+		&crate::i18n::translate("stickers-show-loading-sticker-packs"),
+		egui::vec2(ui.available_width(), header + ROWS as f32 * (gap.y + tile)),
+		|painter, rect, fill| {
+			crate::skeleton::bar(
+				painter,
+				fill,
+				egui::pos2(rect.left() + indent, rect.top() + header * 0.5 - 6.0),
+				egui::vec2(120.0, 12.0),
+			);
+			for index in 0..ROWS * columns {
+				let (row, column) = (index / columns, index % columns);
+				let min = rect.min
+					+ egui::vec2(
+						indent + column as f32 * (tile + gap.x),
+						header + gap.y + row as f32 * (tile + gap.y),
+					);
+				crate::skeleton::block(
+					painter,
+					fill,
+					egui::Rect::from_min_size(min, egui::Vec2::splat(tile)),
+					8.0,
+				);
+			}
+		},
+	);
 }
 
 /// What a received sticker's details card says about its source.
@@ -411,9 +448,21 @@ pub(crate) fn message(
 							)));
 						}
 						Provenance::Loading => {
-							ui.add(line(crate::i18n::translate(
-								"stickers-message-loading-sticker-details",
-							)));
+							// One body line, where the source sentence will be.
+							let height = ui.text_style_height(&egui::TextStyle::Body).round();
+							crate::skeleton::custom(
+								ui,
+								&crate::i18n::translate("stickers-message-loading-sticker-details"),
+								egui::vec2(ui.available_width(), height),
+								|painter, rect, fill| {
+									crate::skeleton::bar(
+										painter,
+										fill,
+										egui::pos2(rect.left(), rect.center().y - 5.0),
+										egui::vec2(rect.width() * 0.85, 10.0),
+									);
+								},
+							);
 						}
 						Provenance::OtherServer if failed => {
 							retry_row(

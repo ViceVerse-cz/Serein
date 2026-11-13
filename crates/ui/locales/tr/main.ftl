@@ -2414,8 +2414,6 @@ search-pane-hide-matching-text-highlight = Eşleşen metin vurgusunu gizle
 # Context: pane
 search-pane-indexing-is-incomplete-results-may-be-missing = Dizin oluşturma tamamlanmadı; sonuçlar eksik olabilir.
 # Context: pane
-search-pane-looking-for-matching-messages = Eşleşen mesajlar aranıyor.
-# Context: pane
 search-pane-messages-are-unavailable-while-disconnected-or-without-channel-access = Bağlantı kesildiğinde veya kanal erişimi olmadığında mesajlar kullanılamaz.
 # Context: pane
 search-pane-newest-first = Önce en yeni
@@ -3602,6 +3600,8 @@ slash-commands-composer-choose-a-different-command = farklı bir komut seç
 slash-commands-composer-command-unavailable-your-arguments-are-kept = Komut kullanılamıyor. Argümanlarınız saklıdır.
 # Context: footer
 slash-commands-footer-refresh-application-commands = Uygulama komutlarını yenile
+# Context: list
+slash-commands-list-loading-application-commands = Uygulama komutları yükleniyor…
 
 ## crates/ui/src/stickers.rs
 # Context: message

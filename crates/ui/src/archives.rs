@@ -171,13 +171,20 @@ impl ArchivesUi {
 					if let Some(error) = view.error {
 						crate::dialog::notice(ui, crate::dialog::Level::Error, error);
 					}
+					// Every archive request clears its page, so a loading view lists no threads.
 					if view.loading {
-						ui.horizontal(|ui| {
-							ui.spinner();
-							ui.label(crate::i18n::translate(
-								"archives-show-loading-older-threads",
-							));
-						});
+						crate::skeleton::cards(
+							ui,
+							&crate::i18n::translate("archives-show-loading-older-threads"),
+							crate::skeleton::Card {
+								height: CARD_HEIGHT,
+								avatar: 0.0,
+								gap: CARD_GAP,
+								lines: 0,
+							},
+							// The older list holds about four cards before it scrolls.
+							4,
+						);
 					}
 					if let Some(page) = &view.page {
 						let older: Vec<_> = page
