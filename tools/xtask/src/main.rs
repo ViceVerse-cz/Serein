@@ -63,8 +63,11 @@ fn policy() -> Result<(), String> {
 	// wreq's cookie support exists for one store: the bounded discord.com device state in
 	// `discord-api`. No other client may keep cookies.
 	let mut sources = Vec::new();
-	for root in ["apps", "crates"] {
-		rust_sources(std::path::Path::new(root), &mut sources)?;
+	for root in ["apps", "crates"].map(std::path::Path::new) {
+		// A workspace without one of these simply has nothing there to check.
+		if root.is_dir() {
+			rust_sources(root, &mut sources)?;
+		}
 	}
 	for path in sources {
 		let text = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
