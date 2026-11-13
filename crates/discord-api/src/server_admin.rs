@@ -627,84 +627,86 @@ mod sticker_tests {
 			net::TcpListener,
 			time::Instant,
 		};
-		tokio::time::timeout(Duration::from_secs(10), async {
-			let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-			let mut api = DiscordApi::new(Arc::new(
-				SessionSecret::from_owner_input("SYNTHETIC_TIMEOUT_CLOCK".into()).unwrap(),
-			))
-			.unwrap();
-			api.base = format!("http://{}", listener.local_addr().unwrap());
-			let before = 1_700_000_000_000;
-			let after = before + 120_000;
-			let deadline = Instant::now() + Duration::from_millis(200);
-			*api.cooldown.lock().await = deadline;
-			*api.timeout_clock.lock().unwrap() = Some(Arc::new(move || {
-				if deadline.saturating_duration_since(Instant::now()) <= Duration::from_millis(30) {
-					after
-				} else {
-					before
-				}
-			}));
-			let server = tokio::spawn(async move {
-				let (mut stream, _) = listener.accept().await.unwrap();
-				let mut bytes = Vec::new();
-				let end = loop {
-					let mut chunk = [0; 4096];
-					let n = stream.read(&mut chunk).await.unwrap();
-					assert!(n > 0);
-					bytes.extend_from_slice(&chunk[..n]);
-					assert!(bytes.len() <= 16_384);
-					if let Some(end) = bytes.windows(4).position(|part| part == b"\r\n\r\n") {
-						break end + 4;
-					}
-				};
-				let headers = std::str::from_utf8(&bytes[..end]).unwrap();
-				assert!(headers.starts_with("PATCH /guilds/2/members/7 HTTP/1.1\r\n"));
-				let length = headers
-					.lines()
-					.find_map(|line| {
-						let (name, value) = line.split_once(':')?;
-						name.eq_ignore_ascii_case("content-length")
-							.then(|| value.trim().parse::<usize>().unwrap())
-					})
-					.unwrap();
-				while bytes.len() < end + length {
-					let mut chunk = [0; 256];
-					let n = stream.read(&mut chunk).await.unwrap();
-					assert!(n > 0);
-					bytes.extend_from_slice(&chunk[..n]);
-				}
-				assert_eq!(
-					serde_json::from_slice::<serde_json::Value>(&bytes[end..end + length]).unwrap(),
-					wire::timeout(Some(60), after).unwrap()
-				);
-				let body = r#"{"user":{"id":"7","username":"Member"},"roles":[],"communication_disabled_until":"2023-11-14T22:14:20Z"}"#;
-				stream
-					.write_all(
-						format!(
-							"HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-							body.len()
-						)
-						.as_bytes(),
-					)
-					.await
-					.unwrap();
-			});
-			assert!(matches!(
-				api.server_admin_action(
-					Id(2),
-					&Action::Timeout {
-						user: Id(7),
-						seconds: Some(60),
-					}
-				)
-				.await,
-				Ok(Outcome::Member(_))
-			));
-			server.await.unwrap();
-		})
-		.await
+		// Paused time stays put until this test advances it. A one-millisecond step lets the
+		// request reach the cooldown without opening it, so a sample taken before the wait
+		// still sees `before`. The hour step is the admission gate.
+		tokio::time::pause();
+		let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+		let mut api = DiscordApi::new(Arc::new(
+			SessionSecret::from_owner_input("SYNTHETIC_TIMEOUT_CLOCK".into()).unwrap(),
+		))
 		.unwrap();
+		api.base = format!("http://{}", listener.local_addr().unwrap());
+		let before = 1_700_000_000_000;
+		let after = before + 120_000;
+		let admitted = Instant::now() + Duration::from_secs(3600);
+		*api.cooldown.lock().await = admitted;
+		*api.timeout_clock.lock().unwrap() = Some(Arc::new(move || {
+			if Instant::now() >= admitted {
+				after
+			} else {
+				before
+			}
+		}));
+		let server = tokio::spawn(async move {
+			let (mut stream, _) = listener.accept().await.unwrap();
+			let mut bytes = Vec::new();
+			let end = loop {
+				let mut chunk = [0; 4096];
+				let n = stream.read(&mut chunk).await.unwrap();
+				assert!(n > 0);
+				bytes.extend_from_slice(&chunk[..n]);
+				assert!(bytes.len() <= 16_384);
+				if let Some(end) = bytes.windows(4).position(|part| part == b"\r\n\r\n") {
+					break end + 4;
+				}
+			};
+			let headers = std::str::from_utf8(&bytes[..end]).unwrap();
+			assert!(headers.starts_with("PATCH /guilds/2/members/7 HTTP/1.1\r\n"));
+			let length = headers
+				.lines()
+				.find_map(|line| {
+					let (name, value) = line.split_once(':')?;
+					name.eq_ignore_ascii_case("content-length")
+						.then(|| value.trim().parse::<usize>().unwrap())
+				})
+				.unwrap();
+			while bytes.len() < end + length {
+				let mut chunk = [0; 256];
+				let n = stream.read(&mut chunk).await.unwrap();
+				assert!(n > 0);
+				bytes.extend_from_slice(&chunk[..n]);
+			}
+			assert_eq!(
+				serde_json::from_slice::<serde_json::Value>(&bytes[end..end + length]).unwrap(),
+				wire::timeout(Some(60), after).unwrap()
+			);
+			let body = r#"{"user":{"id":"7","username":"Member"},"roles":[],"communication_disabled_until":"2023-11-14T22:14:20Z"}"#;
+			stream
+				.write_all(
+					format!(
+						"HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+						body.len()
+					)
+					.as_bytes(),
+				)
+				.await
+				.unwrap();
+		});
+		let action = tokio::spawn(async move {
+			api.server_admin_action(
+				Id(2),
+				&Action::Timeout {
+					user: Id(7),
+					seconds: Some(60),
+				},
+			)
+			.await
+		});
+		tokio::time::advance(Duration::from_millis(1)).await;
+		tokio::time::advance(Duration::from_secs(3600)).await;
+		assert!(matches!(action.await.unwrap(), Ok(Outcome::Member(_))));
+		server.await.unwrap();
 	}
 
 	#[test]
