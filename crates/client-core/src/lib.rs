@@ -32,6 +32,7 @@ pub mod reactions;
 pub mod read_state;
 mod replies;
 pub use replies::{HistoryNavigation, LinkResolution, ParkedReplies, Reply, ReplyDeletions};
+pub mod channel_list;
 pub mod group_actions;
 pub mod onboarding;
 pub mod resident;
@@ -132,6 +133,11 @@ pub enum Command {
 	ServerAction {
 		action: server_actions::Action,
 		request: u64,
+	},
+	/// One opt-in channel list settings write.
+	ChannelList {
+		request: u64,
+		write: Box<channel_list::Write>,
 	},
 	UserAction {
 		action: user_actions::Action,
@@ -526,6 +532,7 @@ pub enum Event {
 	},
 	UserAction(user_actions::Event),
 	ServerAction(server_actions::Event),
+	ChannelList(channel_list::Event),
 	GroupAction(group_actions::Event),
 	Invite {
 		code: String,
@@ -776,6 +783,7 @@ pub struct State {
 	pub folders_stale: bool,
 	pub user_actions: user_actions::Actions,
 	pub server_actions: server_actions::Actions,
+	pub channel_list: channel_list::ChannelList,
 	pub channel_actions: channel_actions::Actions,
 	pub server_settings: server_settings::Editor,
 	pub onboarding: onboarding::Onboarding,
@@ -1022,6 +1030,7 @@ impl Default for State {
 			folders_stale: false,
 			user_actions: user_actions::Actions::default(),
 			server_actions: server_actions::Actions::default(),
+			channel_list: channel_list::ChannelList::default(),
 			channel_actions: channel_actions::Actions::default(),
 			server_settings: server_settings::Editor::default(),
 			onboarding: onboarding::Onboarding::default(),
@@ -2286,6 +2295,16 @@ impl State {
 			});
 			return;
 		}
+		if let Command::ChannelList { request, write } = command {
+			let _ = self.apply_channel_list(channel_list::Event::Written {
+				guild: write.guild,
+				request,
+				result: Err(auth::Failure::ProtocolAt(
+					"Channel list change was not queued; try again",
+				)),
+			});
+			return;
+		}
 		if let Command::UserAction {
 			action, request, ..
 		} = command
@@ -3083,6 +3102,7 @@ impl State {
 				result
 			}
 			Event::ServerAction(event) => self.apply_server_action(event),
+			Event::ChannelList(event) => self.apply_channel_list(event),
 			Event::ChannelAction(event) => self.apply_channel_action(event),
 			Event::ServerSettings(event) => self.apply_server_settings(event),
 			Event::Onboarding(event) => self.apply_onboarding(event),
@@ -3631,6 +3651,7 @@ impl State {
 				self.notification_preferences = notifications::Preferences::default();
 				self.cancel_user_action();
 				self.cancel_server_action();
+				self.cancel_channel_list();
 				self.cancel_channel_action();
 				self.cancel_server_settings();
 				self.cancel_onboarding();
@@ -3640,6 +3661,7 @@ impl State {
 				self.cancel_guild_creation();
 				self.user_actions.reset();
 				self.server_actions.reset();
+				self.channel_list.reset();
 				self.channel_actions.reset();
 				self.server_settings.reset();
 				self.reset_onboarding();
@@ -4082,6 +4104,7 @@ impl State {
 				self.cancel_message_actions();
 				self.cancel_user_action();
 				self.cancel_server_action();
+				self.cancel_channel_list();
 				self.cancel_channel_action();
 				self.cancel_server_settings();
 				self.cancel_onboarding();
@@ -4114,6 +4137,7 @@ impl State {
 				self.cancel_message_actions();
 				self.cancel_user_action();
 				self.cancel_server_action();
+				self.cancel_channel_list();
 				self.cancel_channel_action();
 				self.cancel_server_settings();
 				self.cancel_onboarding();
@@ -4342,6 +4366,7 @@ impl State {
 			}
 			self.cancel_user_action();
 			self.cancel_server_action();
+			self.cancel_channel_list();
 			self.cancel_channel_action();
 			self.cancel_server_settings();
 			self.cancel_onboarding();

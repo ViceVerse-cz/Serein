@@ -407,6 +407,15 @@ message-request-title = Demande de message
 ## crates/ui/src/channel_menu.rs
 # Context: context
 channel-menu-context-add-to-favorites = Ajouter aux favoris
+channel-menu-context-remove-from-channel-list = Retirer de la liste des salons
+channel-menu-context-add-to-channel-list = Ajouter à la liste des salons
+channel-browser-title = Parcourir les salons
+channel-browser-subtitle = Choisis les salons qui apparaissent dans ta liste.
+channel-browser-show-all-channels = Afficher tous les salons
+channel-browser-search = Rechercher des salons
+channel-browser-follow-category = Suivre la catégorie
+channel-browser-saving = Enregistrement…
+channel-browser-unavailable = Les paramètres de la liste des salons sont indisponibles pour le moment.
 # Context: context
 channel-menu-context-copy-channel-id = Copier l'ID de la chaîne
 # Context: context

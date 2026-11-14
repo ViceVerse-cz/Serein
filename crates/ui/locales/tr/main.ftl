@@ -408,6 +408,15 @@ message-request-title = Mesaj isteği
 ## crates/ui/src/channel_menu.rs
 # Context: context
 channel-menu-context-add-to-favorites = Favorilere Ekle
+channel-menu-context-remove-from-channel-list = Kanal Listesinden Kaldır
+channel-menu-context-add-to-channel-list = Kanal Listesine Ekle
+channel-browser-title = Kanallara Göz At
+channel-browser-subtitle = Kanal listende hangi kanalların görüneceğini seç.
+channel-browser-show-all-channels = Tüm Kanalları Göster
+channel-browser-search = Kanallarda ara
+channel-browser-follow-category = Kategoriyi takip et
+channel-browser-saving = Kaydediliyor…
+channel-browser-unavailable = Kanal listesi ayarları şu anda kullanılamıyor.
 # Context: context
 channel-menu-context-copy-channel-id = Kanal Kimliğini Kopyala
 # Context: context

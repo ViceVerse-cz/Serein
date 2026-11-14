@@ -24,6 +24,9 @@ pub(super) struct ServerMenu {
 	pub mark_read_requested: Option<Id>,
 	pub mark_all_read_requested: bool,
 	pub mark_read_folder_requested: Option<Vec<Id>>,
+	/// Browse Channels was chosen for this server.
+	pub browse_requested: Option<Id>,
+	pub channel_list_requested: Option<(Id, client_core::channel_list::Change)>,
 	dialog: Option<Dialog>,
 	generation: u64,
 	invite: InviteDialog,
@@ -51,6 +54,67 @@ impl ServerMenu {
 			return true;
 		}
 		false
+	}
+	/// "Show All Channels" and "Browse Channels", once the opt-in settings are known.
+	pub fn channel_list_items(&mut self, ui: &mut egui::Ui, state: &State, guild: Id) {
+		let Some(opt_in) = state.channel_list_opt_in(guild) else {
+			return;
+		};
+		let colors = design::palette(ui);
+		let show_all = !opt_in;
+		let response = ui
+			.add_enabled_ui(state.can_change_channel_list(guild), |ui| {
+				menu_row(
+					ui,
+					icons::Icon::Hash,
+					"channel-browser-show-all-channels",
+					colors.text,
+				)
+			})
+			.inner;
+		response.widget_info(|| {
+			egui::WidgetInfo::selected(
+				egui::Role::CheckBox,
+				state.can_change_channel_list(guild),
+				show_all,
+				crate::i18n::translate("channel-browser-show-all-channels"),
+			)
+		});
+		let mark = egui::Rect::from_center_size(
+			egui::pos2(response.rect.right() - 16.0, response.rect.center().y),
+			egui::Vec2::splat(20.0),
+		);
+		ui.painter().rect(
+			mark,
+			4,
+			if show_all { colors.accent } else { colors.base },
+			egui::Stroke::new(1.0, colors.border),
+			egui::StrokeKind::Inside,
+		);
+		if show_all {
+			icons::paint(
+				ui.painter(),
+				icons::Icon::Check,
+				mark.shrink(4.0),
+				colors.text_strong,
+			);
+		}
+		if response.clicked() {
+			self.channel_list_requested =
+				Some((guild, client_core::channel_list::Change::ShowAll(!show_all)));
+			ui.close();
+		}
+		if menu_row(
+			ui,
+			icons::Icon::Search,
+			"channel-browser-title",
+			colors.text,
+		)
+		.clicked()
+		{
+			self.browse_requested = Some(guild);
+			ui.close();
+		}
 	}
 	pub fn read_item(&mut self, ui: &mut egui::Ui, state: &State, guild: Id) -> bool {
 		if ui
@@ -256,6 +320,7 @@ impl ServerMenu {
 					ui.separator();
 					self.settings_item(ui, state, guild);
 					self.notifications_item(ui, state, guild);
+					self.channel_list_items(ui, state, guild);
 					if ui
 						.add_enabled_ui(available, |ui| {
 							menu_row(

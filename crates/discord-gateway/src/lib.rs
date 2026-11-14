@@ -2198,6 +2198,12 @@ fn notification_preferences(
 						})
 						.collect()
 				}),
+				flags: s.flags,
+				channel_flags: s.channel_overrides.as_ref().map_or_else(Vec::new, |c| {
+					c.0.iter()
+						.filter_map(|c| c.flags.map(|flags| (c.channel_id, flags)))
+						.collect()
+				}),
 				channels: s
 					.channel_overrides
 					.map_or_else(Vec::new, |c| c.0)

@@ -407,6 +407,15 @@ message-request-title = Richiesta di messaggio
 ## crates/ui/src/channel_menu.rs
 # Context: context
 channel-menu-context-add-to-favorites = Aggiungi ai preferiti
+channel-menu-context-remove-from-channel-list = Rimuovi dall'elenco dei canali
+channel-menu-context-add-to-channel-list = Aggiungi all'elenco dei canali
+channel-browser-title = Sfoglia canali
+channel-browser-subtitle = Scegli quali canali compaiono nel tuo elenco.
+channel-browser-show-all-channels = Mostra tutti i canali
+channel-browser-search = Cerca canali
+channel-browser-follow-category = Segui categoria
+channel-browser-saving = Salvataggio…
+channel-browser-unavailable = Le impostazioni dell'elenco canali non sono disponibili al momento.
 # Context: context
 channel-menu-context-copy-channel-id = Copia l'ID del canale
 # Context: context

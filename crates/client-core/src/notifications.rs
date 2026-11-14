@@ -184,6 +184,10 @@ pub struct Setting {
 	pub hide_muted_channels: Option<bool>,
 	pub channels: Vec<(Id, Option<bool>, Option<u8>)>,
 	pub channel_mute_until: Vec<(Id, i64)>,
+	/// Guild settings flags; unknown until a full settings row is admitted.
+	pub flags: Option<u32>,
+	/// Known channel override flags, sorted by channel ID; absent rows are 0 when known.
+	pub channel_flags: Vec<(Id, u32)>,
 }
 impl Setting {
 	fn muted(&self) -> Option<bool> {
@@ -201,6 +205,17 @@ impl Setting {
 		size_of::<Self>()
 			+ self.channels.capacity() * size_of::<(Id, Option<bool>, Option<u8>)>()
 			+ self.channel_mute_until.capacity() * size_of::<(Id, i64)>()
+			+ self.channel_flags.capacity() * size_of::<(Id, u32)>()
+	}
+	/// Flags for one channel override, when this row's overrides are known.
+	pub(crate) fn channel_flags(&self, channel: Id) -> Option<u32> {
+		match self
+			.channel_flags
+			.binary_search_by_key(&channel, |(id, _)| *id)
+		{
+			Ok(index) => Some(self.channel_flags[index].1),
+			Err(_) => self.overrides_known.then_some(0),
+		}
 	}
 	fn mute_expired(&self, channel: Id) -> bool {
 		self.channel_mute_until
@@ -226,6 +241,7 @@ impl Event {
 						.map(|e| {
 							e.channels.capacity() * size_of::<(Id, Option<bool>, Option<u8>)>()
 								+ e.channel_mute_until.capacity() * size_of::<(Id, i64)>()
+								+ e.channel_flags.capacity() * size_of::<(Id, u32)>()
 						})
 						.sum::<usize>()
 			}
@@ -248,7 +264,7 @@ impl Preferences {
 			self.setting(Some(guild)).cloned().unwrap_or_default()
 		}
 	}
-	fn setting(&self, guild: Option<Id>) -> Option<&Setting> {
+	pub(crate) fn setting(&self, guild: Option<Id>) -> Option<&Setting> {
 		static DEFAULT_GUILD: Setting = Setting {
 			overrides_known: true,
 			guild: None,
@@ -260,6 +276,8 @@ impl Preferences {
 			hide_muted_channels: Some(false),
 			channels: Vec::new(),
 			channel_mute_until: Vec::new(),
+			flags: Some(0),
+			channel_flags: Vec::new(),
 		};
 		self.settings
 			.get(&guild)
@@ -356,7 +374,9 @@ impl State {
 			}
 			_ => self.channel_unread(channel) == Some(true),
 		};
-		unread && !self.muted_for_guild_rail(channel)
+		// Channels removed from the opt-in channel list do not light the server; mentions still
+		// count through the separate mention badge.
+		unread && !self.muted_for_guild_rail(channel) && self.channel_listed(channel)
 	}
 
 	pub fn muted_for_guild_rail(&self, channel: &model::Channel) -> bool {
@@ -476,6 +496,61 @@ impl State {
 			));
 		}
 		self.read_state.activity.clear_notifications();
+		self.check_notification_capacity()
+	}
+
+	/// Records a confirmed channel-list write; other override fields keep their known values.
+	pub(crate) fn confirm_channel_list(
+		&mut self,
+		write: &crate::channel_list::Write,
+	) -> Result<(), &'static str> {
+		let guild = write.guild;
+		let initial = self.notification_preferences.initial_guild_setting(guild);
+		let preferences = &mut self.notification_preferences;
+		let existing = preferences.settings.get(&Some(guild));
+		if existing.is_none() && preferences.settings.len() >= MAX_NAV {
+			return Err("Notification settings exceed safe capacity");
+		}
+		let added = write
+			.channels
+			.iter()
+			.filter(|(id, _)| !existing.is_some_and(|s| s.channels.iter().any(|(c, ..)| c == id)))
+			.count();
+		if preferences
+			.settings
+			.values()
+			.map(|s| s.channels.len())
+			.sum::<usize>()
+			.saturating_add(added)
+			> MAX_NAV
+		{
+			return Err("Notification settings exceed safe capacity");
+		}
+		let setting = preferences
+			.settings
+			.entry(Some(guild))
+			.or_insert_with(|| Setting {
+				guild: Some(guild),
+				..initial
+			});
+		if let Some(flags) = write.flags {
+			setting.flags = Some(flags);
+		}
+		let known = setting.overrides_known;
+		for (channel, flags) in &write.channels {
+			if !setting.channels.iter().any(|(id, ..)| id == channel) {
+				setting
+					.channels
+					.push((*channel, known.then_some(false), known.then_some(3)));
+			}
+			match setting
+				.channel_flags
+				.binary_search_by_key(channel, |(id, _)| *id)
+			{
+				Ok(index) => setting.channel_flags[index].1 = *flags,
+				Err(index) => setting.channel_flags.insert(index, (*channel, *flags)),
+			}
+		}
 		self.check_notification_capacity()
 	}
 
@@ -816,7 +891,13 @@ impl State {
 							}) {
 							return true;
 						}
+						let flagged: BTreeSet<_> =
+							s.channel_flags.iter().map(|(id, _)| *id).collect();
 						channels.len() != s.channels.len()
+							|| flagged.len() != s.channel_flags.len()
+							|| s.channel_flags
+								.iter()
+								.any(|(id, _)| !channels.contains_key(id))
 					}) {
 					self.notification_preferences = Preferences::default();
 					return Err(
@@ -824,6 +905,7 @@ impl State {
 					);
 				}
 				self.observe_server_notification_settings(&entries);
+				self.observe_channel_list_settings(&entries);
 				if replace {
 					self.notification_preferences.settings.clear();
 					self.startup_warnings.notifications = false;
@@ -831,6 +913,7 @@ impl State {
 				}
 				for mut setting in entries {
 					setting.overrides_known = true;
+					setting.channel_flags.sort_unstable_by_key(|(id, _)| *id);
 					self.notification_preferences
 						.settings
 						.insert(setting.guild, setting);
@@ -1241,6 +1324,8 @@ mod tests {
 					suppress_roles: Some(false),
 					hide_muted_channels: None,
 					channel_mute_until: vec![],
+					flags: Some(0),
+					channel_flags: vec![],
 					channels: vec![],
 				}],
 				replace: true,

@@ -3810,6 +3810,14 @@ impl Desktop {
 				Command::ServerAction { action, request } => {
 					server_settings_demo::execute_action(&mut self.state, action, request)
 				}
+				// Synthetic settings writes are confirmed as sent.
+				Command::ChannelList { request, write } => {
+					Event::ChannelList(client_core::channel_list::Event::Written {
+						guild: write.guild,
+						request,
+						result: Ok(()),
+					})
+				}
 				Command::UserAction {
 					action: client_core::user_actions::Action::OpenDm(user),
 					request,
