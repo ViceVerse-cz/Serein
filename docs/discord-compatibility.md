@@ -1136,7 +1136,11 @@ Unknown relationship/settings state is distinguished from false. One write is pe
 rejections, disconnects and ambiguous outcomes remain visible without automatic retries.
 Gateway updates take precedence over late HTTP confirmations. Notification suppression reuses
 the existing account settings and rejects alerts from known blocked authors. Existing timeline
-content is retained; this does not implement Discord's collapsed blocked-message presentation.
+content is retained. By default the native blocked-message presentation is unchanged; an explicit
+device-local Chat preference can omit known blocked authors from visible main/thread-starter rows,
+with a second option for known ignored authors. Unknown relationship state does not hide a row,
+and filtering does not mark messages read or mutate relationships. This local presentation filter
+is not Discord's collapsed blocked-group implementation or a service-side moderation change.
 Offline reducer, decoder and local HTTP tests cover these actions; normal-user acceptance,
 cross-device behavior and native interaction remain live-unverified. No accounts were accessed.
 

@@ -48,6 +48,10 @@ pub struct AppPreferences {
 	pub hide_nitro_emojis: bool,
 	/// Device-local opt-in; older saved preferences deserialize with conversion off.
 	pub convert_emoticons: bool,
+	/// Hide visible rows authored by blocked users without changing account relationships.
+	pub hide_blocked_messages: bool,
+	/// When the blocked-message filter is on, also hide rows authored by ignored users.
+	pub hide_ignored_messages: bool,
 	/// Request a conversation's page while the pointer rests on it. Off unless the owner turns
 	/// it on: the official client makes no such requests. A saved value is kept as it is.
 	pub preload_on_hover: bool,
@@ -119,6 +123,8 @@ impl Default for AppPreferences {
 			show_hidden_channels: false,
 			hide_nitro_emojis: false,
 			convert_emoticons: false,
+			hide_blocked_messages: false,
+			hide_ignored_messages: false,
 			preload_on_hover: false,
 			auto_idle: true,
 			hide_title_bar: false,
@@ -2191,7 +2197,7 @@ mod tests {
 			serde_json::from_str(r#"{"voice_noise_suppression":true}"#).unwrap();
 		assert!(legacy.voice_processing.is_none());
 		assert!(legacy.voice_noise_suppression);
-		// Existing installs run first-run setup once, like a fresh one.
+		assert!(!legacy.hide_blocked_messages && !legacy.hide_ignored_messages);
 		assert!(!legacy.setup_done);
 		// Existing serialized bindings omit the newly optional diagnostics shortcut.
 		let mut old_bindings = serde_json::to_value(model::Keybinds::default()).unwrap();
@@ -2261,6 +2267,8 @@ mod tests {
 				unread_badge: false,
 				..Default::default()
 			},
+			hide_blocked_messages: true,
+			hide_ignored_messages: true,
 			voice_noise_suppression: true,
 			voice_processing: Some(model::voice_settings::VoiceProcessing::from_legacy(true)),
 			voice_muted: true,

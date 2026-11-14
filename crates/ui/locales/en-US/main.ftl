@@ -2249,6 +2249,14 @@ reading-chat-reading-settings-hide-image-and-gif-links = Hide image and GIF link
 # Context: chat_reading_settings
 reading-chat-reading-settings-hide-standalone-links-when-their-image-or-gif-preview-is = Hide standalone links when their image or GIF preview is shown.
 # Context: chat_reading_settings
+reading-chat-reading-settings-hide-blocked-messages = Hide blocked users' messages
+# Context: chat_reading_settings
+reading-chat-reading-settings-hide-blocked-messages-description = Hide blocked authors from visible chat rows on this device. Messages stay on Discord, and unread/read state does not change.
+# Context: chat_reading_settings
+reading-chat-reading-settings-hide-ignored-messages = Also hide ignored users' messages
+# Context: chat_reading_settings
+reading-chat-reading-settings-hide-ignored-messages-description = Include ignored authors in the local filter. Unknown relationship state never hides a message.
+# Context: chat_reading_settings
 reading-chat-reading-settings-links = Links
 # Context: chat_reading_settings
 reading-chat-reading-settings-messages-and-media = Messages and media
