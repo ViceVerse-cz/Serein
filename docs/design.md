@@ -132,11 +132,12 @@ pages keep their existing status treatment; pending messages suppress the welcom
 `--features demo -- --demo --demo-empty-channel` previews this state offline;
 `--demo-empty-channel-long` exercises a long Unicode name and `--demo-light` selects light mode.
 
-Loading states are static skeletons from `crates/ui/src/skeleton.rs`: one fill colour, the real
-headings kept, and one accessible label per region. Action and media spinners remain. Avatars,
-server and group icons, badges, role and app icons, game covers and banners show a neutral
-placeholder while their image downloads, and initials, the generic glyph or the fallback colour
-only once the image failed or stalled for 30 s.
+Loading states are static skeletons from `crates/ui/src/skeleton.rs`: one fill colour (card and
+panel frames and form controls use fixed lighter tints of it, so the data on them stays
+legible), the real headings kept, and one accessible label per region. Action and media spinners
+remain. Avatars, server and group icons, badges, role and app icons, game covers and banners
+show a neutral placeholder while their image downloads, and initials, the generic glyph or the
+fallback colour only once the image failed or stalled for 30 s.
 
 `--demo-loading` leaves every fixture fetch unanswered, so loading states stay on screen; it also
 withholds the synthetic artwork (avatars, icons, badges, covers, banners) and keeps open profile
