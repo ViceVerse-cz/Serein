@@ -188,6 +188,7 @@ fn main() -> Result<(), serde_json::Error> {
             id: "show".into(),
             label: "Show current channel".into(),
             surface: Surface::Panel,
+            icon: None,
         }],
     };
     println!("{}", serde_json::to_string_pretty(&manifest)?);

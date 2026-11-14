@@ -935,7 +935,11 @@ impl VideoUi {
 				);
 			}
 		}
-		self.controls_focused = controls_focused.then_some(attachment.id);
+		if controls_focused {
+			self.controls_focused = Some(attachment.id);
+		} else if self.controls_focused == Some(attachment.id) {
+			self.controls_focused = None;
+		}
 		// Download/open controls stay visible regardless of load state, unlike the bottom bar.
 		// Added last so Tab order still reaches the playback controls first.
 		let overlay = egui::Rect::from_min_size(
