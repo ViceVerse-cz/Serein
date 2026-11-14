@@ -358,6 +358,10 @@ pub struct MessagingUi {
 	pub image_cache: model::CachePreferences,
 	/// Clock style for message times.
 	pub time_format: model::TimeFormat,
+	/// Saved logins may fall back to plain files when no OS keyring works.
+	pub plaintext_login: bool,
+	/// Chat-media masking supplied by an installed media-privacy plugin.
+	pub media_privacy: model::MediaPrivacyPreferences,
 	/// First-run setup still to show; the desktop restores and persists it.
 	pub setup_pending: bool,
 	setup_step: usize,
@@ -3791,6 +3795,14 @@ impl MessagingUi {
                                     .show(ui, state, channel, &mut self.avatars, commands)
                             })
                             .inner;
+                        // Right-to-left tray: this lands left of the GIF trigger.
+                        if let Some(response) = self
+                            .extensions
+                            .composer_media_toggle(ui, self.media_privacy.enabled, state)
+                            && response.clicked()
+                        {
+                            self.media_privacy.enabled = !self.media_privacy.enabled;
+                        }
                         let picked = pick.is_some() && !self.emoji_picker.is_open();
                         // A chosen GIF is its own message; the typed draft stays untouched.
                         if self.emoji_picker.is_open() {
@@ -4630,6 +4642,27 @@ impl MessagingUi {
 		}
 	}
 
+	fn sync_media_privacy(&mut self) {
+		let plugin_active = self.extensions.media_privacy_active();
+		let config = plugin_active.then_some(extensions::MediaPrivacy {
+			enabled: self.media_privacy.enabled,
+			reveal_on_hover: self.media_privacy.reveal_on_hover,
+			style: match self.media_privacy.style {
+				model::MediaPrivacyStyle::Blur => extensions::MediaPrivacyStyle::Blur,
+				model::MediaPrivacyStyle::Solid => extensions::MediaPrivacyStyle::Solid,
+			},
+			strength: self.media_privacy.strength,
+			opacity: self.media_privacy.opacity,
+			color: self.media_privacy.color,
+		});
+		// Panels need the full saved state. The caches also keep their coarse mask
+		// sources while masking is off so re-enabling it does not downgrade to a
+		// solid fallback; the paint paths check `enabled` themselves.
+		self.extensions.media_privacy = config;
+		self.avatars.media_privacy = config;
+		self.timeline.video.media_privacy = config;
+	}
+
 	/// Whether an enabled plugin switched `tweak` on.
 	pub fn interface_tweak_on(&self, tweak: extensions::InterfaceTweak) -> bool {
 		self.interface_tweaks.contains(&tweak)
@@ -4646,6 +4679,7 @@ impl MessagingUi {
 	/// Draws one frame of the signed-in client and returns the commands it produced for the
 	/// service layer.
 	pub fn show(&mut self, ui: &mut egui::Ui, state: &mut State) -> Vec<Command> {
+		self.sync_media_privacy();
 		interface_tweaks::publish(ui.ctx(), &self.interface_tweaks);
 		rtl::scope(
 			ui.ctx(),

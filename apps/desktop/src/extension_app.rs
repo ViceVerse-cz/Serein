@@ -1285,6 +1285,7 @@ mod tests {
 				id: "show".into(),
 				label: "Show".into(),
 				surface: Surface::Panel,
+				icon: None,
 			}],
 		}
 	}

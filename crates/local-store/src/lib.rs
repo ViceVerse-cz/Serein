@@ -101,6 +101,10 @@ pub struct AppPreferences {
 	pub image_cache: model::CachePreferences,
 	/// Clock style for message times; older preferences follow the language.
 	pub time_format: model::TimeFormat,
+	/// Owner opt-in: keep saved logins in private plain files when no OS keyring works.
+	pub plaintext_login: bool,
+	/// Chat-media masking supplied by an installed media-privacy plugin.
+	pub media_privacy: model::MediaPrivacyPreferences,
 	/// Owner opt-in diagnostic log; older preferences deserialize with logging off.
 	pub diagnostics_log: diagnostics::Level,
 	/// First-run setup finished or skipped; absent in older preferences, so existing installs
@@ -149,6 +153,8 @@ impl Default for AppPreferences {
 			cosmetics: Default::default(),
 			image_cache: Default::default(),
 			time_format: Default::default(),
+			plaintext_login: false,
+			media_privacy: Default::default(),
 			diagnostics_log: diagnostics::Level::Off,
 			setup_done: false,
 		}
@@ -176,6 +182,7 @@ impl AppPreferences {
 			&& self.muted_users.len() <= 64
 			&& self.keybinds.is_valid()
 			&& self.image_cache.is_valid()
+			&& self.media_privacy.is_valid()
 			&& [&self.voice_input, &self.voice_output]
 				.into_iter()
 				.all(|value| value.as_ref().is_none_or(|value| value.len() <= 1024))
@@ -2181,6 +2188,46 @@ mod tests {
 				collapsed
 			);
 		}
+		std::fs::remove_dir_all(root).unwrap();
+	}
+	#[test]
+	fn media_privacy_defaults_on_and_persists_with_the_plugin_state() {
+		let legacy: AppPreferences = serde_json::from_str("{}").unwrap();
+		assert!(legacy.media_privacy.enabled);
+		assert!(legacy.media_privacy.is_valid());
+		let root =
+			std::env::temp_dir().join(format!("serein-media-privacy-{}", std::process::id()));
+		std::fs::create_dir(&root).unwrap();
+		let path = root.join("preferences.sqlite3");
+		{
+			let store = LocalStore::open(&path).unwrap();
+			let mut preferences = store.app_preferences().unwrap();
+			preferences.media_privacy = model::MediaPrivacyPreferences {
+				enabled: false,
+				reveal_on_hover: false,
+				style: model::MediaPrivacyStyle::Solid,
+				strength: 80,
+				opacity: 60,
+				color: [32, 64, 96],
+			};
+			store.save_app_preferences(&preferences).unwrap();
+		}
+		let store = LocalStore::open(&path).unwrap();
+		assert_eq!(
+			store.app_preferences().unwrap().media_privacy,
+			model::MediaPrivacyPreferences {
+				enabled: false,
+				reveal_on_hover: false,
+				style: model::MediaPrivacyStyle::Solid,
+				strength: 80,
+				opacity: 60,
+				color: [32, 64, 96],
+			}
+		);
+		let mut invalid = store.app_preferences().unwrap();
+		invalid.media_privacy.opacity = 101;
+		assert!(store.save_app_preferences(&invalid).is_err());
+		drop(store);
 		std::fs::remove_dir_all(root).unwrap();
 	}
 	#[test]

@@ -71,6 +71,7 @@ fn sdk_manifests_round_trip_all_capabilities_and_surfaces_through_host_validatio
 		id: format!("action-{index}"),
 		label: "Example".into(),
 		surface,
+		icon: None,
 	})
 	.collect();
 	manifest.validate().unwrap();
@@ -119,6 +120,7 @@ fn test_manifest(capabilities: Vec<Capability>) -> Manifest {
 			id: "run".into(),
 			label: "Run".into(),
 			surface: Surface::Panel,
+			icon: None,
 		}],
 	}
 }
@@ -417,6 +419,7 @@ fn legacy_literals_and_wire_outputs_remain_unchanged() {
 		composer: None,
 		storage: None,
 		values: Default::default(),
+		media_privacy: None,
 	};
 	let event = sdk::EventInvocation {
 		invocation: invocation.clone(),
@@ -429,6 +432,7 @@ fn legacy_literals_and_wire_outputs_remain_unchanged() {
 		replacement: None,
 		panel: Vec::new(),
 		storage: None,
+		media_privacy: None,
 	};
 	let app_input = sdk::AppInvocation {
 		invocation: invocation.clone(),
@@ -599,6 +603,7 @@ fn app_events_are_unique_granted_and_have_no_direct_conversation_context() {
 		id: "second".into(),
 		label: "Second".into(),
 		surface: Surface::AppEvent,
+		icon: None,
 	});
 	assert!(manifest.validate().is_err());
 	manifest.actions.pop();
@@ -911,13 +916,14 @@ fn discovery_is_forward_tolerant_and_does_not_change_legacy_input() {
 		id: "events".into(),
 		label: "Events".into(),
 		surface: Surface::AppEvent,
+		icon: None,
 	});
 	supported.validate().unwrap();
 	assert!(host.supports("rich_presence"));
 	assert!(host.supports("api_proxy"));
-	assert_eq!(caps.len(), 56);
+	assert_eq!(caps.len(), 57);
 	assert_eq!(HostInfo::current().app_events.len(), 21);
-	assert_eq!(std::collections::BTreeSet::from_iter(caps).len(), 56);
+	assert_eq!(std::collections::BTreeSet::from_iter(caps).len(), 57);
 }
 
 #[test]
@@ -1169,6 +1175,7 @@ fn tracked_actions_and_extended_inputs_preserve_v1_wire_compatibility() {
 		id: "events".into(),
 		label: "Events".into(),
 		surface: Surface::AppEvent,
+		icon: None,
 	});
 	manifest.validate().unwrap();
 	let effect = HostEffect::TrackedAppAction {

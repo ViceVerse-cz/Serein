@@ -85,6 +85,8 @@ impl Settings {
 			cosmetics: ui.cosmetics,
 			image_cache: ui.image_cache,
 			time_format: ui.time_format,
+			plaintext_login: ui.plaintext_login,
+			media_privacy: ui.media_privacy,
 			diagnostics_log: ui.diagnostics_log,
 			setup_done: !ui.setup_pending,
 		};
@@ -141,6 +143,8 @@ impl Settings {
 		ui.cosmetics = value.cosmetics;
 		ui.image_cache = value.image_cache;
 		ui.time_format = value.time_format;
+		ui.plaintext_login = value.plaintext_login;
+		ui.media_privacy = value.media_privacy;
 		ui.diagnostics_log = value.diagnostics_log;
 		// Unreadable preferences fall back to defaults; never nag with setup on every launch.
 		ui.setup_pending = self.loaded && !value.setup_done;

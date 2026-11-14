@@ -205,9 +205,9 @@ impl Language {
 		let resource = FluentResource::try_new(language.source().to_owned())
 			.unwrap_or_else(|(_, errors)| panic!("invalid Fluent catalog: {errors:?}"));
 		let mut bundle = FluentBundle::new_concurrent(vec![language.identifier().clone()]);
-		bundle
-			.add_resource(resource)
-			.unwrap_or_else(|errors| panic!("invalid Fluent messages: {errors:?}"));
+		// A locale resource may redefine a few ids (for example after a merge);
+		// let the later definition win instead of failing to load the catalog.
+		bundle.add_resource_overriding(resource);
 		ActiveBundle { language, bundle }
 	}
 

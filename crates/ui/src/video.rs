@@ -11,6 +11,11 @@ const POSTER_MAX: usize = 128;
 /// Remembered undecodable posters; past this the failures are forgotten and may retry.
 const POSTER_SEEN_MAX: usize = 1024;
 
+type PosterMask = (
+	std::sync::Arc<egui::ColorImage>,
+	Option<(u8, egui::TextureHandle)>,
+);
+
 /// Reinterprets decoded RGBA as texels without a per-pixel pass. Every backend emits
 /// opaque frames, where premultiplied and straight alpha are the same bytes; a per-pixel
 /// `from_rgba_unmultiplied` cost a full core at 1080p30 in debug builds.
@@ -45,6 +50,10 @@ pub enum VideoCommand {
 }
 pub struct VideoUi {
 	pub active: Option<(Id, Id, Attachment)>,
+	/// Chat-media masking supplied by an enabled media-privacy plugin.
+	pub(crate) media_privacy: Option<extensions::MediaPrivacy>,
+	/// Video explicitly revealed by a click while hover reveal is disabled.
+	privacy_revealed: Option<Id>,
 	pub state: VideoState,
 	pub position: f64,
 	pub duration: f64,
@@ -64,6 +73,8 @@ pub struct VideoUi {
 	/// Decoded first frames by attachment id, painted on idle stages instead of
 	/// black. Byte-bounded below; Discord ships no video placeholders to reuse.
 	pub(crate) posters: HashMap<Id, (egui::TextureHandle, usize)>,
+	/// Coarse poster copies and their blur masks, keyed by attachment id.
+	poster_masks: HashMap<Id, PosterMask>,
 	/// Oldest-first poster insertion order for budget eviction.
 	poster_order: VecDeque<Id>,
 	/// Live poster bytes against [`POSTER_BUDGET`].
@@ -74,8 +85,9 @@ pub struct VideoUi {
 	/// frame through its own queue so poster work never consumes the single
 	/// playback command slot (and a later click cannot strand a request).
 	pub poster_queue: Vec<Attachment>,
-	/// Keyboard focus rested on an overlay control last frame, so keep the overlay visible.
-	controls_focused: bool,
+	/// Attachment whose overlay control held keyboard focus last frame, so only that
+	/// video keeps its controls and mask reveal.
+	controls_focused: Option<Id>,
 	/// Volume to restore when the mute button is pressed again.
 	unmuted_volume: Option<f32>,
 	/// Keep the viewport's previous mode so leaving playback restores the window.
@@ -87,6 +99,8 @@ impl Default for VideoUi {
 	fn default() -> Self {
 		Self {
 			active: None,
+			media_privacy: None,
+			privacy_revealed: None,
 			state: VideoState::Idle,
 			position: 0.0,
 			duration: 0.0,
@@ -98,11 +112,12 @@ impl Default for VideoUi {
 			frame: None,
 			shade: None,
 			posters: HashMap::new(),
+			poster_masks: HashMap::new(),
 			poster_order: VecDeque::new(),
 			poster_bytes: 0,
 			poster_seen: HashSet::new(),
 			poster_queue: Vec::new(),
-			controls_focused: false,
+			controls_focused: None,
 			unmuted_volume: None,
 			fullscreen: None,
 			fullscreen_request: None,
@@ -112,6 +127,7 @@ impl Default for VideoUi {
 impl VideoUi {
 	pub fn stop(&mut self) {
 		self.exit_fullscreen();
+		self.privacy_revealed = None;
 		self.active = None;
 		self.texture = None;
 		self.managed = None;
@@ -282,7 +298,17 @@ impl VideoUi {
 		{
 			return false;
 		}
-		let bytes = rgba.len();
+		let image = egui::ColorImage::new([width, height], video_pixels(rgba).to_vec());
+		// Keep the coarse copy unconditionally: posters cached before the privacy
+		// plugin is enabled must still be able to build a blur mask later.
+		let mask_source = Some(std::sync::Arc::new(crate::avatars::media::resize_box(
+			&image, 128,
+		)));
+		// Poster pixels plus the retained coarse mask copy share the same budget.
+		let bytes = rgba.len()
+			+ mask_source
+				.as_ref()
+				.map_or(0, |source| source.pixels().len() * 4);
 		// Reinserting refreshes recency; eviction below drops textures (GPU freed).
 		self.evict_poster(&id);
 		while self.poster_bytes + bytes > POSTER_BUDGET || self.posters.len() >= POSTER_MAX {
@@ -291,7 +317,9 @@ impl VideoUi {
 			};
 			self.evict_poster(&oldest);
 		}
-		let image = egui::ColorImage::new([width, height], video_pixels(rgba).to_vec());
+		if let Some(mask_source) = mask_source {
+			self.poster_masks.insert(id, (mask_source, None));
+		}
 		self.posters.insert(
 			id,
 			(
@@ -311,6 +339,54 @@ impl VideoUi {
 			self.poster_order.retain(|queued| queued != id);
 			self.poster_seen.remove(id);
 		}
+		self.poster_masks.remove(id);
+	}
+	/// Builds or reuses the coarse blur texture used while a poster is masked.
+	fn poster_mask_texture(
+		&mut self,
+		ctx: &egui::Context,
+		id: Id,
+		strength: u8,
+	) -> Option<egui::TextureHandle> {
+		let (texture, old_bytes) = {
+			let (source, cached) = self.poster_masks.get_mut(&id)?;
+			if let Some((build, texture)) = cached
+				&& *build == strength
+			{
+				return Some(texture.clone());
+			}
+			let image = crate::avatars::media::blur_box(
+				source,
+				crate::avatars::media::blur_radius(strength),
+			);
+			let texture =
+				ctx.load_texture("video-poster-mask", image, egui::TextureOptions::LINEAR);
+			let old = cached
+				.as_ref()
+				.map_or(0, |(_, texture)| texture.byte_size());
+			*cached = Some((strength, texture.clone()));
+			(texture, old)
+		};
+		let new_bytes = texture.byte_size();
+		if let Some((_, bytes)) = self.posters.get_mut(&id) {
+			*bytes = bytes.saturating_sub(old_bytes).saturating_add(new_bytes);
+		}
+		self.poster_bytes = self
+			.poster_bytes
+			.saturating_sub(old_bytes)
+			.saturating_add(new_bytes);
+		while self.poster_bytes > POSTER_BUDGET || self.posters.len() > POSTER_MAX {
+			let Some(oldest) = self
+				.poster_order
+				.iter()
+				.copied()
+				.find(|oldest| *oldest != id)
+			else {
+				break;
+			};
+			self.evict_poster(&oldest);
+		}
+		Some(texture)
 	}
 	/// Marks one cached poster as recently used so repeat views keep it.
 	fn touch_poster(&mut self, id: &Id) {
@@ -410,10 +486,92 @@ impl VideoUi {
 				.corner_radius(CORNER)
 				.paint_at(ui, image_rect);
 		}
+		let privacy = self.media_privacy.filter(|config| config.enabled);
 		let hovered = response.hovered() || ui.rect_contains_pointer(stage);
+		let playback_id = response.id.with("playback");
+		let focused = ui.memory(|memory| memory.has_focus(playback_id));
+		let keyboard_activation = focused
+			&& ui.input(|input| {
+				input.key_pressed(egui::Key::Enter) || input.key_pressed(egui::Key::Space)
+			});
+		let mut consume_activation = false;
+		// With hover reveal disabled, a pointer click or keyboard activation is
+		// the explicit way in; that first activation must not also start playback.
+		if privacy.is_some_and(|config| !config.reveal_on_hover)
+			&& self.privacy_revealed != Some(attachment.id)
+			&& ((ui.input(|input| input.pointer.primary_clicked())
+				&& ui.rect_contains_pointer(stage))
+				|| keyboard_activation)
+		{
+			self.privacy_revealed = Some(attachment.id);
+			consume_activation = true;
+		}
+		let clicked = self.privacy_revealed == Some(attachment.id);
+		let reveal_requested = privacy.is_some_and(|config| {
+			if config.reveal_on_hover {
+				hovered || focused || self.controls_focused == Some(attachment.id)
+			} else {
+				clicked
+			}
+		});
+		let masked = privacy.is_some() && !reveal_requested;
+		// Fit the mask to the painted frame, not the black stage, so cover/contain
+		// scaling and fullscreen keep the same shape before and after reveal.
+		let picture = self
+			.posters
+			.get(&attachment.id)
+			.map(|(poster, _)| {
+				let size = poster.resolution_vec2();
+				let scale = (stage.width() / size.x).min(stage.height() / size.y);
+				egui::Rect::from_center_size(stage.center(), size * scale)
+			})
+			.or_else(|| {
+				self.texture.filter(|_| active).map(|texture| {
+					let size = texture.size;
+					let scale = (stage.width() / size.x).min(stage.height() / size.y);
+					egui::Rect::from_center_size(stage.center(), size * scale)
+				})
+			})
+			.unwrap_or(stage);
+		if let Some(config) = privacy {
+			let reveal = ui.ctx().animate_bool_with_time(
+				ui.make_persistent_id(("video-privacy", attachment.id)),
+				reveal_requested,
+				0.18,
+			);
+			let visibility = 1.0 - reveal;
+			if visibility > 0.001 {
+				let alpha = config.opacity.min(100) as f32 / 100.0 * visibility;
+				let mask = match config.style {
+					extensions::MediaPrivacyStyle::Blur => {
+						self.poster_mask_texture(ui.ctx(), attachment.id, config.strength)
+					}
+					extensions::MediaPrivacyStyle::Solid => None,
+				};
+				match (config.style, mask) {
+					(extensions::MediaPrivacyStyle::Blur, Some(mask)) => {
+						egui::Image::new(egui::load::SizedTexture::new(mask.id(), picture.size()))
+							.tint(egui::Color32::WHITE.gamma_multiply(alpha))
+							.corner_radius(CORNER)
+							.paint_at(ui, picture);
+					}
+					_ => {
+						let [r, g, b] = config.color;
+						ui.painter().rect_filled(
+							picture,
+							CORNER,
+							egui::Color32::from_rgba_unmultiplied(r, g, b, (alpha * 255.0) as u8),
+						);
+					}
+				}
+			}
+		}
 		let show_controls = active
 			&& state != VideoState::Idle
-			&& (hovered || state != VideoState::Playing || self.controls_focused);
+			&& !masked
+			&& (hovered
+				|| state != VideoState::Playing
+				|| focused || self.controls_focused == Some(attachment.id));
 		// The controls are painted over the stage. Keep playback interaction out of both
 		// overlay bands so a control click cannot also become a play/pause click.
 		let action_top = (stage.top() + 44.0).min(stage.bottom());
@@ -545,7 +703,7 @@ impl VideoUi {
 			painter.rect_filled(badge, 4, egui::Color32::from_black_alpha(150));
 			painter.galley(badge.min + egui::vec2(6.0, 3.0), galley, white);
 		}
-		if action.clicked() {
+		if action.clicked() && !consume_activation {
 			self.toggle(message, attachment, state);
 		}
 		response = action | response;
@@ -777,7 +935,11 @@ impl VideoUi {
 				);
 			}
 		}
-		self.controls_focused = controls_focused;
+		if controls_focused {
+			self.controls_focused = Some(attachment.id);
+		} else if self.controls_focused == Some(attachment.id) {
+			self.controls_focused = None;
+		}
 		// Download/open controls stay visible regardless of load state, unlike the bottom bar.
 		// Added last so Tab order still reaches the playback controls first.
 		let overlay = egui::Rect::from_min_size(
@@ -1303,7 +1465,8 @@ mod tests {
 		// The decoded answer is cached and painted without further requests.
 		assert!(video.accept_poster(&ctx, Id(3), 2, 1, &[9, 9, 9, 255, 1, 1, 1, 255]));
 		assert_eq!(video.posters.len(), 1);
-		assert_eq!(video.poster_bytes, 8);
+		// Poster pixels plus the retained coarse mask copy share the same budget.
+		assert_eq!(video.poster_bytes, 16);
 		show(&mut video);
 		assert!(video.command.is_none());
 		assert_eq!(video.posters.len(), 1);

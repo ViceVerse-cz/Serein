@@ -5073,6 +5073,23 @@ timestamp-style-full = 전체 날짜 및 시간
 timestamp-style-relative = 상대 시간
 timestamp-style-short-date-time = 짧은 날짜 및 시간
 timestamp-style-short-date-seconds = 초를 포함한 짧은 날짜 및 시간
+
+steady-refresh-prompt-title = G-SYNC 디스플레이 감지됨
+steady-refresh-prompt-body = Serein은 변경될 때만 다시 그리므로 Serein이 활성 창일 때 G-SYNC 디스플레이가 깜박일 수 있습니다. 일정한 새로 고침 빈도는 디스플레이의 새로 고침 빈도로 그려 이를 방지하지만 전력을 더 사용합니다. 켜시겠습니까?
+steady-refresh-prompt-turn-on = 켜기
+steady-refresh-prompt-keep-off = 괜찮습니다
+steady-refresh-prompt-settings = 나중에 설정 > { $page } > { $group }에서 변경할 수 있습니다.
+voice-connection-title = 연결
+voice-connection-ping-value = { $millis } ms
+voice-connection-ping-pending = 첫 핑을 기다리는 중…
+voice-connection-average-ping = 평균 핑: { $value }
+voice-connection-last-ping = 마지막 핑: { $value }
+voice-connection-ping-description = 음성 시그널링 서버까지의 왕복 시간입니다.
+profiles-in-voice-server = { $server }에서
+profiles-in-voice-join = 참가
+profiles-in-voice-joined = 이 음성 채널에 참여 중입니다.
+profiles-in-voice-failed = 실패한 통화를 먼저 닫은 후 다시 참여하세요.
+profiles-in-voice-unavailable = 지금은 이 음성 채널에 참여할 수 없습니다.
 # Context: moderation
 moderation-menu-timeout = { $name } 님 타임아웃
 # Context: moderation

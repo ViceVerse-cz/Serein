@@ -17,7 +17,7 @@ from urllib.parse import urlsplit
 ROOT = Path(__file__).resolve().parent
 REPOSITORY = "ViceVerse-cz/Serein"
 PACKAGE_DIRS = ("themes", "plugins/packages")
-CAPABILITIES = {"selected_message", "composer", "storage", "deleted_messages", "image_sharing", "appearance", "rich_presence", "api_proxy", "external_navigation"}
+CAPABILITIES = {"selected_message", "composer", "media_privacy", "storage", "deleted_messages", "image_sharing", "appearance", "rich_presence", "api_proxy", "external_navigation"}
 RESERVED = {"con", "prn", "aux", "nul"} | {f"{prefix}{n}" for prefix in ("com", "lpt") for n in range(1, 10)}
 MAX_PREVIEW = 256 * 1024
 
@@ -60,13 +60,17 @@ def validate(data):
     require(isinstance(capabilities, list) and len(capabilities) <= 4 and len(set(capabilities)) == len(capabilities) and set(capabilities) <= CAPABILITIES, "invalid capabilities")
     require(isinstance(actions, list) and len(actions) <= 16 and len({a["id"] for a in actions}) == len(actions), "invalid action list")
     require(sum(a["surface"] == "activation" for a in actions) <= 1, "multiple activation actions")
+    require(sum(a["surface"] == "composer_toggle" for a in actions) <= 1, "multiple composer_toggle actions")
     if "api_proxy" in capabilities:
         require(set(capabilities) <= {"api_proxy", "storage"} and all(a["surface"] in ("panel", "activation") for a in actions), "API proxy requires connection-only actions and capabilities")
     for action in actions:
-        require(valid_id(action["id"]) and action["surface"] in ("message", "composer", "panel", "activation"), "invalid action")
+        require(valid_id(action["id"]) and action["surface"] in ("message", "composer", "composer_toggle", "panel", "activation"), "invalid action")
         label = action["label"]
         require(isinstance(label, str) and 0 < len(label.encode()) <= 128 and not any(ord(c) < 32 or 127 <= ord(c) <= 159 for c in label), "invalid action label")
-        capability = {"message": "selected_message", "composer": "composer"}.get(action["surface"])
+        icon = action.get("icon")
+        require(icon is None or (isinstance(icon, str) and 0 < len(icon.encode()) <= 32 and re.fullmatch(r"[a-z0-9-]+", icon)), "invalid action icon")
+        require(icon is None or action["surface"] == "composer_toggle", "icon requires composer_toggle surface")
+        capability = {"message": "selected_message", "composer": "composer", "composer_toggle": "media_privacy"}.get(action["surface"])
         require(capability is None or capability in capabilities, "action lacks required capability")
     for field, limit in (("wasm", 4 * 1024 * 1024), ("background_image", 2 * 1024 * 1024), ("cover_image", 2 * 1024 * 1024)):
         values = package.get(field, [])

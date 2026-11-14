@@ -61,6 +61,9 @@ pub enum InstallSource {
 	},
 }
 
+// Jobs are short-lived and few; Invoke carries the full invocation, so boxing
+// is not worth the churn.
+#[allow(clippy::large_enum_variant)]
 pub enum Job {
 	EditTheme {
 		id: String,
@@ -117,6 +120,10 @@ pub struct Starter {
 
 pub(crate) fn starters() -> Result<Vec<Starter>, String> {
 	let packages: &[(&'static [u8], &'static str)] = &[
+		(
+			include_bytes!("../../../extensions/plugins/packages/media-privacy.serein-extension"),
+			"Mask images, GIFs and videos in chat until you hover. Toggle beside GIF; configure the effect in its settings.",
+		),
 		#[cfg(any(test, feature = "demo"))]
 		(
 			include_bytes!(
@@ -193,13 +200,17 @@ pub(crate) fn starters() -> Result<Vec<Starter>, String> {
 #[cfg(feature = "demo")]
 pub fn demo_check_examples() -> Result<bool, String> {
 	let starters = starters()?;
-	if starters.len() != 10
+	if starters.len() != 11
 		|| starters
 			.iter()
 			.filter(|entry| entry.theme.is_some())
 			.count() != 9
+		|| starters
+			.iter()
+			.filter(|entry| entry.theme.is_none())
+			.count() != 2
 	{
-		return Err("Expected one starter plugin and nine themes".into());
+		return Err("Expected two starter plugins and nine themes".into());
 	}
 	let gate = Gate {
 		epoch: 0,
@@ -236,19 +247,30 @@ pub fn demo_check_examples() -> Result<bool, String> {
 			return Err(error);
 		}
 		if manifest.kind == ExtensionKind::Plugin {
-			let ok = match manifest.id.as_str() {
-				"message-delete-protector" => summary.preserve_deleted_messages,
-				_ => false,
-			};
-			if !ok {
-				return Err("Bundled plugin did not activate".into());
+			let activation = manifest
+				.actions
+				.iter()
+				.any(|action| action.surface == Surface::Activation);
+			if activation {
+				let ok = match manifest.id.as_str() {
+					"message-delete-protector" => summary.preserve_deleted_messages,
+					_ => false,
+				};
+				if !ok {
+					return Err("Bundled plugin did not activate".into());
+				}
+				stored.grants.clear();
+				let denied = stored.summary(&gate, None, true);
+				if denied.preserve_deleted_messages
+					|| denied.image_sharing
+					|| denied.error.is_none()
+				{
+					return Err("Plugin activation must require explicit permission".into());
+				}
+			} else if !manifest.capabilities.contains(&Capability::MediaPrivacy) {
+				return Err("Bundled plugin has no activation or supported toggle".into());
 			}
 			activated = true;
-			stored.grants.clear();
-			let denied = stored.summary(&gate, None, true);
-			if denied.preserve_deleted_messages || denied.image_sharing || denied.error.is_none() {
-				return Err("Plugin activation must require explicit permission".into());
-			}
 		} else if summary.preserve_deleted_messages
 			|| summary.image_sharing
 			|| summary.theme.is_none()
@@ -1808,6 +1830,7 @@ mod tests {
 			id: "settings".into(),
 			label: "Settings".into(),
 			surface: Surface::Panel,
+			icon: None,
 		}];
 		let installed = enable(
 			&root,

@@ -7,6 +7,7 @@ fn manifest(action: &str, surface: Surface) -> Manifest {
 	match surface {
 		Surface::Message => capabilities.push(Capability::SelectedMessage),
 		Surface::Composer => capabilities.push(Capability::Composer),
+		Surface::ComposerToggle => capabilities.push(Capability::MediaPrivacy),
 		Surface::Panel => capabilities.push(Capability::Appearance),
 		Surface::Activation => {
 			capabilities.extend([Capability::DeletedMessages, Capability::ImageSharing])
@@ -32,6 +33,7 @@ fn manifest(action: &str, surface: Surface) -> Manifest {
 			id: action.into(),
 			label: action.into(),
 			surface,
+			icon: None,
 		}],
 	};
 	manifest.validate().unwrap();
@@ -47,6 +49,7 @@ fn legacy_handler(input: sdk::Invocation) -> sdk::Output {
 		replacement: input.composer,
 		panel: Vec::new(),
 		storage: input.storage,
+		media_privacy: None,
 	}
 }
 /// Round-trips each surface's invocation through the SDK wire format and checks that legacy
@@ -122,6 +125,7 @@ fn host_invocations_and_legacy_handlers_keep_the_v1_contract() {
 				composer: input.composer.clone(),
 				storage: input.storage.clone(),
 				values: input.values.clone(),
+				media_privacy: None,
 			}
 		);
 		if let Some(target) = &input.menu_target {
@@ -213,6 +217,7 @@ fn host_invocations_and_legacy_handlers_keep_the_v1_contract() {
 			composer: None,
 			storage: None,
 			values: Default::default(),
+			media_privacy: None,
 		};
 		let legacy_bytes = serde_json::to_vec(&legacy).unwrap();
 		let extended: sdk::EventInvocation = serde_json::from_slice(&legacy_bytes).unwrap();
