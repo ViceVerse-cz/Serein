@@ -1,5 +1,47 @@
 use model::{Reaction, ReactionEmoji};
 
+/// VenSerein (SuperReactionTweaks): Disables heavy GPU super reaction animations, rendering clean pills.
+pub static SUPER_REACTION_TWEAKS_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_super_reaction_tweaks_enabled(enabled: bool) {
+	SUPER_REACTION_TWEAKS_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn super_reaction_tweaks_enabled() -> bool {
+	SUPER_REACTION_TWEAKS_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// VenSerein (WhoReacted): Shows an expanded list of reactors in the reaction tooltip without truncating after 3.
+pub static WHO_REACTED_EXPANDED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_who_reacted_expanded(enabled: bool) {
+	WHO_REACTED_EXPANDED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn who_reacted_expanded() -> bool {
+	WHO_REACTED_EXPANDED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// VenSerein (ReactionTimestamps): Global toggle for showing timestamps in the reaction popout.
+pub static REACTION_TIMESTAMPS_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn set_reaction_timestamps_enabled(enabled: bool) {
+	REACTION_TIMESTAMPS_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn reaction_timestamps_enabled() -> bool {
+	REACTION_TIMESTAMPS_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 #[derive(Debug, PartialEq)]
 pub enum Action {
 	Reload,
@@ -8,7 +50,8 @@ pub enum Action {
 }
 
 fn reacting_names<'a>(names: impl Iterator<Item = &'a str>, count: u32) -> String {
-	let names = names.take(3).collect::<Vec<_>>();
+	let limit = if who_reacted_expanded() { 12 } else { 3 };
+	let names = names.take(limit).collect::<Vec<_>>();
 	let remaining = count.saturating_sub(names.len() as u32);
 	let names = names.join(", ");
 	if remaining == 0 {
@@ -400,7 +443,23 @@ pub fn show_users(
 			for user in &details.users {
 				ui.horizontal(|ui| {
 					avatars.show_plain(ui, user, 36.0, state.demo);
-					ui.label(crate::design::medium(ui, &user.name, 15.0));
+					if REACTION_TIMESTAMPS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
+						ui.vertical(|ui| {
+							ui.label(crate::design::medium(ui, &user.name, 14.5));
+							let user_time = crate::timeline::timestamp(user.id);
+							let time_str = crate::local_time::full(user_time);
+							ui.add(egui::Label::new(
+								egui::RichText::new(format!("Joined: {time_str}"))
+									.size(11.0)
+									.color(ui.visuals().weak_text_color()),
+							))
+							.on_hover_text(
+								"Account registration timestamp derived from user snowflake ID",
+							);
+						});
+					} else {
+						ui.label(crate::design::medium(ui, &user.name, 15.0));
+					}
 				});
 			}
 			if details.users.len() >= client_core::reactions::MAX_REACTION_USERS {
@@ -513,5 +572,44 @@ mod tests {
 					|| (!toggle && action.is_none())
 			);
 		}
+	}
+
+	#[test]
+	fn super_reaction_tweaks_toggle_works() {
+		assert!(!super_reaction_tweaks_enabled());
+		set_super_reaction_tweaks_enabled(true);
+		assert!(super_reaction_tweaks_enabled());
+		set_super_reaction_tweaks_enabled(false);
+		assert!(!super_reaction_tweaks_enabled());
+	}
+
+	#[test]
+	fn who_reacted_expanded_toggle_and_limit() {
+		assert!(!who_reacted_expanded());
+		let sample_names = ["Alice", "Bob", "Charlie", "Dave", "Eve", "Frank"];
+		let default_str = reacting_names(sample_names.iter().copied(), 6);
+		assert!(default_str.contains("Alice, Bob, Charlie"));
+
+		set_who_reacted_expanded(true);
+		assert!(who_reacted_expanded());
+		let expanded_str = reacting_names(sample_names.iter().copied(), 6);
+		assert_eq!(expanded_str, "Alice, Bob, Charlie, Dave, Eve, Frank");
+
+		set_who_reacted_expanded(false);
+		assert!(!who_reacted_expanded());
+	}
+}
+
+#[cfg(test)]
+mod venserein_batch1_reactions_tests {
+	use super::*;
+
+	#[test]
+	fn test_reaction_timestamps_toggle() {
+		assert!(reaction_timestamps_enabled());
+		set_reaction_timestamps_enabled(false);
+		assert!(!reaction_timestamps_enabled());
+		set_reaction_timestamps_enabled(true);
+		assert!(reaction_timestamps_enabled());
 	}
 }

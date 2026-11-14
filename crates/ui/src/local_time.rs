@@ -8,6 +8,29 @@ pub(crate) const TIMESTAMP_REFRESH: std::time::Duration = std::time::Duration::f
 static TWELVE_HOUR: AtomicBool = AtomicBool::new(false);
 /// The [`DateOrder`] of numeric dates; follows the display language or system locale.
 static DATE_ORDER: AtomicU8 = AtomicU8::new(DateOrder::MonthDayYear as u8);
+/// VenSerein (DontRoundMyTimestamps): floor rounding instead of coarse rounding.
+static DONT_ROUND_TIMESTAMPS: AtomicBool = AtomicBool::new(true);
+
+/// VenSerein: Enable or disable DontRoundMyTimestamps precision mode.
+pub fn set_dont_round_timestamps(enable: bool) {
+	DONT_ROUND_TIMESTAMPS.store(enable, Ordering::Relaxed);
+}
+
+/// VenSerein: Returns whether DontRoundMyTimestamps is currently enabled.
+pub fn dont_round_timestamps() -> bool {
+	DONT_ROUND_TIMESTAMPS.load(Ordering::Relaxed)
+}
+
+/// VenSerein (CustomTimestamps): Option to display seconds in message timestamps and headers.
+static CUSTOM_TIMESTAMPS_SECONDS: AtomicBool = AtomicBool::new(false);
+
+pub fn custom_timestamps_seconds_enabled() -> bool {
+	CUSTOM_TIMESTAMPS_SECONDS.load(Ordering::Relaxed)
+}
+
+pub fn set_custom_timestamps_seconds_enabled(enabled: bool) {
+	CUSTOM_TIMESTAMPS_SECONDS.store(enabled, Ordering::Relaxed);
+}
 
 /// Applies the clock style and date order. `Auto` follows the display language, or the system
 /// locale when the language follows the system, as Discord does.
@@ -109,7 +132,7 @@ fn twelve_hour_locale(tag: &str) -> bool {
 
 /// A time of day in the chosen clock style: `14:05` or `2:05 PM`.
 pub fn clock(at: time::OffsetDateTime) -> String {
-	clock_with(at, false)
+	clock_with(at, custom_timestamps_seconds_enabled())
 }
 
 /// Stand-ins at least as wide as any [`clock`], so a column of times never shifts what follows.
@@ -229,7 +252,7 @@ fn format_header(
 	twelve: bool,
 	order: DateOrder,
 ) -> String {
-	let clock = format_clock(at, false, twelve);
+	let clock = format_clock(at, custom_timestamps_seconds_enabled(), twelve);
 	if at.date() == today {
 		clock
 	} else if today.previous_day() == Some(at.date()) {
@@ -307,34 +330,78 @@ fn relative(delta: time::Duration) -> String {
 	let seconds = delta.whole_seconds();
 	let ahead = seconds > 0;
 	let seconds = seconds.unsigned_abs();
-	// Rounded like the web client: 47 hours reads "2 days", not "1 day".
-	let minutes = (seconds + 30) / 60;
-	let hours = (minutes + 30) / 60;
-	let days = (hours + 12) / 24;
-	let months = (days + 15) / 30;
-	let years = (days + 182) / 365;
-	let amount = if seconds < 45 {
-		"a few seconds".to_owned()
-	} else if seconds < 90 {
-		"a minute".to_owned()
-	} else if minutes < 45 {
-		format!("{minutes} minutes")
-	} else if minutes < 90 {
-		"an hour".to_owned()
-	} else if hours < 22 {
-		format!("{hours} hours")
-	} else if hours < 36 {
-		"a day".to_owned()
-	} else if days < 26 {
-		format!("{days} days")
-	} else if days < 46 {
-		"a month".to_owned()
-	} else if days < 320 {
-		format!("{months} months")
-	} else if days < 548 {
-		"a year".to_owned()
+	let dont_round = DONT_ROUND_TIMESTAMPS.load(Ordering::Relaxed);
+	let amount = if dont_round {
+		let minutes = seconds / 60;
+		let hours = minutes / 60;
+		let days = hours / 24;
+		let years = days / 365;
+		if seconds < 5 {
+			"a few seconds".to_owned()
+		} else if seconds < 60 {
+			format!("{seconds} seconds")
+		} else if minutes < 60 {
+			if minutes == 1 {
+				"1 minute".to_owned()
+			} else {
+				format!("{minutes} minutes")
+			}
+		} else if hours < 24 {
+			if hours == 1 {
+				"1 hour".to_owned()
+			} else {
+				format!("{hours} hours")
+			}
+		} else if days < 30 {
+			if days == 1 {
+				"1 day".to_owned()
+			} else {
+				format!("{days} days")
+			}
+		} else if days < 365 {
+			let months = (days / 30).max(1);
+			if months == 1 {
+				"1 month".to_owned()
+			} else {
+				format!("{months} months")
+			}
+		} else {
+			if years == 1 {
+				"1 year".to_owned()
+			} else {
+				format!("{years} years")
+			}
+		}
 	} else {
-		format!("{years} years")
+		// Rounded like the web client: 47 hours reads "2 days", not "1 day".
+		let minutes = (seconds + 30) / 60;
+		let hours = (minutes + 30) / 60;
+		let days = (hours + 12) / 24;
+		let months = (days + 15) / 30;
+		let years = (days + 182) / 365;
+		if seconds < 45 {
+			"a few seconds".to_owned()
+		} else if seconds < 90 {
+			"a minute".to_owned()
+		} else if minutes < 45 {
+			format!("{minutes} minutes")
+		} else if minutes < 90 {
+			"an hour".to_owned()
+		} else if hours < 22 {
+			format!("{hours} hours")
+		} else if hours < 36 {
+			"a day".to_owned()
+		} else if days < 26 {
+			format!("{days} days")
+		} else if days < 46 {
+			"a month".to_owned()
+		} else if days < 320 {
+			format!("{months} months")
+		} else if days < 548 {
+			"a year".to_owned()
+		} else {
+			format!("{years} years")
+		}
 	};
 	if ahead {
 		format!("in {amount}")
@@ -528,6 +595,18 @@ mod tests {
 	}
 
 	#[test]
+	fn dont_round_my_timestamps_preserves_floor_precision() {
+		super::set_dont_round_timestamps(true);
+		assert_eq!(super::relative(time::Duration::seconds(70)), "in 1 minute");
+		assert_eq!(super::relative(time::Duration::hours(-47)), "1 day ago");
+		assert_eq!(super::relative(time::Duration::days(-360)), "12 months ago");
+		assert_eq!(super::relative(time::Duration::days(-364)), "12 months ago");
+		assert_eq!(super::relative(time::Duration::days(-365)), "1 year ago");
+		super::set_dont_round_timestamps(false);
+		assert_eq!(super::relative(time::Duration::hours(-47)), "2 days ago");
+	}
+
+	#[test]
 	fn formats_every_discord_timestamp_style() {
 		let at = 1_700_000_000;
 		for (style, expected) in [
@@ -567,5 +646,22 @@ mod tests {
 			);
 		}
 		assert_eq!(super::discord_timestamp(i64::MAX, b'f'), None);
+	}
+
+	#[test]
+	fn test_custom_timestamps_seconds_toggle_and_clock() {
+		assert!(!super::custom_timestamps_seconds_enabled());
+		let instant = time::OffsetDateTime::from_unix_timestamp(1_700_000_000).unwrap();
+		let normal_clock = super::clock(instant);
+		assert_eq!(normal_clock, "22:13");
+
+		super::set_custom_timestamps_seconds_enabled(true);
+		assert!(super::custom_timestamps_seconds_enabled());
+		let with_seconds = super::clock(instant);
+		assert_eq!(with_seconds, "22:13:20");
+
+		super::set_custom_timestamps_seconds_enabled(false);
+		assert!(!super::custom_timestamps_seconds_enabled());
+		assert_eq!(super::clock(instant), "22:13");
 	}
 }

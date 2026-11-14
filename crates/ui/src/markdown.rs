@@ -1,9 +1,90 @@
 //! Bounded native text formatting. No HTML renderer, image loader, or automatic URL access.
 use egui::{FontId, Stroke, TextFormat, text::LayoutJob};
 use model::Id;
-use pulldown_cmark::{CodeBlockKind, Event, LinkType, Options, Parser, Tag, TagEnd};
+use pulldown_cmark::{Alignment, CodeBlockKind, Event, LinkType, Options, Parser, Tag, TagEnd};
 use std::collections::HashMap;
 use unicode_segmentation::UnicodeSegmentation;
+
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// VenSerein (MarkdownTables): Global toggle for rendering GitHub-style markdown tables.
+static MARKDOWN_TABLES_ENABLED: AtomicBool = AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn set_markdown_tables_enabled(enable: bool) {
+	MARKDOWN_TABLES_ENABLED.store(enable, Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn markdown_tables_enabled() -> bool {
+	MARKDOWN_TABLES_ENABLED.load(Ordering::Relaxed)
+}
+
+/// VenSerein (MessageColors): Global toggle for rendering inline color swatches for hex color codes (#RRGGBB).
+static MESSAGE_COLORS_ENABLED: AtomicBool = AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn set_message_colors_enabled(enable: bool) {
+	MESSAGE_COLORS_ENABLED.store(enable, Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn message_colors_enabled() -> bool {
+	MESSAGE_COLORS_ENABLED.load(Ordering::Relaxed)
+}
+
+/// VenSerein (RevealAllSpoilers): Global toggle for auto-revealing all spoiler text in chat.
+static REVEAL_ALL_SPOILERS_ENABLED: AtomicBool = AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_reveal_all_spoilers_enabled(enable: bool) {
+	REVEAL_ALL_SPOILERS_ENABLED.store(enable, Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn reveal_all_spoilers_enabled() -> bool {
+	REVEAL_ALL_SPOILERS_ENABLED.load(Ordering::Relaxed)
+}
+
+/// VenSerein (MessageLinkTooltip): Shows message preview tooltip on hovering message link pills.
+static MESSAGE_LINK_TOOLTIP_ENABLED: AtomicBool = AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn set_message_link_tooltip_enabled(enable: bool) {
+	MESSAGE_LINK_TOOLTIP_ENABLED.store(enable, Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn message_link_tooltip_enabled() -> bool {
+	MESSAGE_LINK_TOOLTIP_ENABLED.load(Ordering::Relaxed)
+}
+
+/// VenSerein (ContentWarning): Global toggle for client-side content warning detection.
+static CONTENT_WARNING_ENABLED: AtomicBool = AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_content_warning_enabled(enable: bool) {
+	CONTENT_WARNING_ENABLED.store(enable, Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn content_warning_enabled() -> bool {
+	CONTENT_WARNING_ENABLED.load(Ordering::Relaxed)
+}
+
+/// VenSerein (ContentWarning): Detects whether text starts with or contains sensitive trigger prefixes.
+pub fn has_content_warning(text: &str) -> Option<&'static str> {
+	if !content_warning_enabled() {
+		return None;
+	}
+	let lower = text.to_lowercase();
+	for prefix in ["cw:", "tw:", "trigger warning:", "content warning:"] {
+		if lower.starts_with(prefix) || lower.contains(&format!(" {prefix}")) {
+			return Some("Sensitive Content");
+		}
+	}
+	None
+}
 
 /// Maximum rendered source bytes; metadata fingerprints use the same boundary.
 pub(crate) const MAX_INPUT: usize = 8192;
@@ -12,6 +93,15 @@ const MAX_DEPTH: usize = 16;
 const MAX_LINKS: usize = 16;
 const MAX_SPOILERS: u8 = 32;
 const MAX_BLOCKS: usize = 32;
+const MAX_TABLES: usize = 16;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct MarkdownTable {
+	pub headers: Vec<String>,
+	pub alignments: Vec<Alignment>,
+	pub rows: Vec<Vec<String>>,
+}
+
 const PREVIEW_EMOJI_SIZE: f32 = 16.0;
 /// Space on each side of a channel icon inside a reply preview pill.
 const PREVIEW_ICON_GAP: f32 = 2.0;
@@ -221,6 +311,8 @@ struct Style {
 	spoiler: Option<u8>,
 	/// Fenced code block index; the block widget replaces these spans when shown.
 	block: Option<u8>,
+	table: Option<u8>,
+	color_swatch: Option<egui::Color32>,
 }
 
 /// Split styled text into Unicode BiDi runs in visual order. The text inside each run stays in
@@ -365,6 +457,7 @@ pub struct CodeBlock {
 pub struct Formatted {
 	spans: Vec<(String, Style)>,
 	blocks: Vec<CodeBlock>,
+	pub tables: Vec<MarkdownTable>,
 	mention_count: usize,
 	/// Set when any span renders artwork, whose line is taller than the body font.
 	artwork: bool,
@@ -824,6 +917,91 @@ fn channel_reference_name<'a>(
 const QUOTE_RAIL: i8 = 4;
 const QUOTE_GAP: i8 = 8;
 
+fn parse_hex_color(token: &str) -> Option<egui::Color32> {
+	let hex = token.strip_prefix('#')?;
+	if hex.len() == 6 && hex.chars().all(|c| c.is_ascii_hexdigit()) {
+		let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
+		let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
+		let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
+		Some(egui::Color32::from_rgb(r, g, b))
+	} else if hex.len() == 3 && hex.chars().all(|c| c.is_ascii_hexdigit()) {
+		let r = u8::from_str_radix(&hex[0..1], 16).ok()? * 17;
+		let g = u8::from_str_radix(&hex[1..2], 16).ok()? * 17;
+		let b = u8::from_str_radix(&hex[2..3], 16).ok()? * 17;
+		Some(egui::Color32::from_rgb(r, g, b))
+	} else {
+		None
+	}
+}
+
+fn find_hex_colors(text: &str) -> Vec<(std::ops::Range<usize>, egui::Color32)> {
+	let mut matches = Vec::new();
+	let bytes = text.as_bytes();
+	let mut i = 0;
+	while i < bytes.len() {
+		if bytes[i] == b'#' {
+			let prev_boundary = if i == 0 {
+				true
+			} else if text.is_char_boundary(i) {
+				text[..i]
+					.chars()
+					.last()
+					.is_some_and(|c| c.is_whitespace() || c.is_ascii_punctuation())
+			} else {
+				false
+			};
+			if prev_boundary {
+				if i + 7 <= bytes.len()
+					&& text.is_char_boundary(i + 1)
+					&& text.is_char_boundary(i + 7)
+				{
+					let candidate = &text[i + 1..i + 7];
+					let after_boundary = if i + 7 == bytes.len() {
+						true
+					} else {
+						text[i + 7..]
+							.chars()
+							.next()
+							.is_some_and(|c| !c.is_ascii_alphanumeric())
+					};
+					if after_boundary
+						&& candidate.chars().all(|c| c.is_ascii_hexdigit())
+						&& let Some(color) = parse_hex_color(&text[i..i + 7])
+					{
+						matches.push((i..i + 7, color));
+						i += 7;
+						continue;
+					}
+				}
+				if i + 4 <= bytes.len()
+					&& text.is_char_boundary(i + 1)
+					&& text.is_char_boundary(i + 4)
+				{
+					let candidate = &text[i + 1..i + 4];
+					let after_boundary = if i + 4 == bytes.len() {
+						true
+					} else {
+						text[i + 4..]
+							.chars()
+							.next()
+							.is_some_and(|c| !c.is_ascii_alphanumeric())
+					};
+					if after_boundary
+						&& candidate.chars().all(|c| c.is_ascii_hexdigit())
+						&& let Some(color) = parse_hex_color(&text[i..i + 4])
+					{
+						matches.push((i..i + 4, color));
+						i += 4;
+						continue;
+					}
+				}
+			}
+		}
+		i += 1;
+	}
+	matches
+}
+
 impl Formatted {
 	/// Offline debug assertions for quote escaping and bounded literal fallbacks.
 	#[cfg(all(debug_assertions, feature = "demo"))]
@@ -880,6 +1058,7 @@ impl Formatted {
 		let mut output = Self {
 			spans: Vec::new(),
 			blocks: Vec::new(),
+			tables: Vec::new(),
 			mention_count: 0,
 			links: Vec::new(),
 			limited: end < source.len(),
@@ -902,6 +1081,11 @@ impl Formatted {
 		let mut subtext = false;
 		let mut block_end = 0;
 		let mut lists: Vec<Option<u64>> = Vec::new();
+		let mut active_table: Option<MarkdownTable> = None;
+		let mut in_table_head = false;
+		let mut current_row: Vec<String> = Vec::new();
+		let mut cell_text = String::new();
+		let mut in_table_cell = false;
 		let line_prefix = |at: usize| -> &str {
 			let line_start = input[..at].rfind('\n').map_or(0, |i| i + 1);
 			&input[line_start..at]
@@ -918,7 +1102,11 @@ impl Formatted {
 			return Self::limited_literal(&source[..end], source.contains("||"));
 		};
 		let protected = matches!(&parser_input, std::borrow::Cow::Owned(_));
-		let mut events = Parser::new_ext(&parser_input, Options::ENABLE_STRIKETHROUGH)
+		let mut parser_opts = Options::ENABLE_STRIKETHROUGH;
+		if markdown_tables_enabled() {
+			parser_opts |= Options::ENABLE_TABLES;
+		}
+		let mut events = Parser::new_ext(&parser_input, parser_opts)
 			.into_offset_iter()
 			.map(|(event, range)| {
 				let event = match event {
@@ -972,6 +1160,7 @@ impl Formatted {
 						| Tag::CodeBlock(_)
 						| Tag::BlockQuote(_)
 						| Tag::List(_) | Tag::Item
+						| Tag::Table(_)
 				) | Event::Rule
 			) {
 				// Source blank lines between blocks are kept. A block whose range excludes its
@@ -1056,6 +1245,21 @@ impl Formatted {
 							style.no_autolink = true;
 							output.push("[image: ", style);
 						}
+						Tag::Table(alignments) => {
+							if output.tables.len() < MAX_TABLES {
+								active_table = Some(MarkdownTable {
+									headers: Vec::new(),
+									alignments,
+									rows: Vec::new(),
+								});
+							}
+						}
+						Tag::TableHead => in_table_head = true,
+						Tag::TableRow => current_row.clear(),
+						Tag::TableCell => {
+							in_table_cell = true;
+							cell_text.clear();
+						}
 						_ => {}
 					}
 				}
@@ -1084,12 +1288,48 @@ impl Formatted {
 							block_end = block_end.max(range.end);
 						}
 						TagEnd::Image => output.push("]", style),
+						TagEnd::Table => {
+							if let Some(tbl) = active_table.take()
+								&& output.tables.len() < MAX_TABLES
+							{
+								let table_idx = output.tables.len() as u8;
+								output.tables.push(tbl);
+								let mut table_style = style;
+								table_style.table = Some(table_idx);
+								if !output.line_start() {
+									output.push("\n", style);
+								}
+								output.push(" ", table_style);
+								output.push("\n", style);
+							}
+							block_end = block_end.max(range.end);
+						}
+						TagEnd::TableHead => in_table_head = false,
+						TagEnd::TableRow => {
+							if !in_table_head && let Some(tbl) = &mut active_table {
+								tbl.rows.push(std::mem::take(&mut current_row));
+							}
+						}
+						TagEnd::TableCell => {
+							in_table_cell = false;
+							let text = std::mem::take(&mut cell_text);
+							if in_table_head {
+								if let Some(tbl) = &mut active_table {
+									tbl.headers.push(text);
+								}
+							} else {
+								current_row.push(text);
+							}
+						}
 						_ => {}
 					}
 					if matches!(tag, TagEnd::BlockQuote(_)) {
 						quote_lazy = false;
 					}
 					style = stack.pop().unwrap_or_default();
+				}
+				Event::Text(text) if in_table_cell => {
+					cell_text.push_str(&text);
 				}
 				Event::Text(text) => {
 					let mut range = range;
@@ -1163,13 +1403,21 @@ impl Formatted {
 						output.close_block(block);
 					}
 				}
-				Event::Code(text) => output.push(
-					&text,
-					Style {
+				Event::Code(text) if in_table_cell => {
+					cell_text.push_str(&text);
+				}
+				Event::Code(text) => {
+					let mut code_style = Style {
 						code: true,
 						..style
-					},
-				),
+					};
+					if message_colors_enabled()
+						&& let Some(swatch) = parse_hex_color(&text)
+					{
+						code_style.color_swatch = Some(swatch);
+					}
+					output.push(&text, code_style);
+				}
 				Event::SoftBreak | Event::HardBreak => {
 					subtext = false;
 					if style.quote && !quote_all && !quote_lazy {
@@ -1218,9 +1466,9 @@ impl Formatted {
 			style
 				.channel
 				.filter(|_| {
-					style
-						.spoiler
-						.is_none_or(|region| revealed & 1 << region != 0)
+					style.spoiler.is_none_or(|region| {
+						reveal_all_spoilers_enabled() || revealed & 1 << region != 0
+					})
 				})
 				.filter(|id| {
 					state.channel(*id).is_none() && state.channel_reference_name(*id).is_none()
@@ -1237,6 +1485,7 @@ impl Formatted {
 				},
 			)],
 			blocks: Vec::new(),
+			tables: Vec::new(),
 			mention_count: 0,
 			links: Vec::new(),
 			limited: true,
@@ -1320,9 +1569,44 @@ impl Formatted {
 		self.push_literal(&text[consumed..], style);
 		true
 	}
+	fn push_styled(&mut self, text: &str, style: Style) {
+		if !message_colors_enabled()
+			|| style.code
+			|| style.link.is_some()
+			|| style.block.is_some()
+			|| style.table.is_some()
+			|| !text.contains('#')
+		{
+			self.push(text, style);
+			return;
+		}
+		let matches = find_hex_colors(text);
+		if matches.is_empty() {
+			self.push(text, style);
+			return;
+		}
+		let mut consumed = 0;
+		for (range, color) in matches {
+			if range.start > consumed {
+				self.push(&text[consumed..range.start], style);
+			}
+			self.push(
+				&text[range.clone()],
+				Style {
+					color_swatch: Some(color),
+					code: true,
+					..style
+				},
+			);
+			consumed = range.end;
+		}
+		if consumed < text.len() {
+			self.push(&text[consumed..], style);
+		}
+	}
 	fn push_literal(&mut self, text: &str, style: Style) {
 		if style.no_autolink {
-			self.push(text, style);
+			self.push_styled(text, style);
 		} else {
 			self.push_mentions(text, style, text);
 		}
@@ -1360,7 +1644,7 @@ impl Formatted {
 				&& let Some(link) = self.add_link(target)
 			{
 				let link_start = start + word.len() - candidate.len();
-				self.push(&text[consumed..link_start], style);
+				self.push_styled(&text[consumed..link_start], style);
 				let link_occurrence = self.next_link_occurrence();
 				self.push(
 					target,
@@ -1374,7 +1658,7 @@ impl Formatted {
 				consumed = link_start + target.len();
 			}
 		}
-		self.push(&text[consumed..], style);
+		self.push_styled(&text[consumed..], style);
 	}
 	fn push_mentions(&mut self, text: &str, style: Style, source: &str) {
 		let mut consumed = 0;
@@ -1710,6 +1994,7 @@ impl Formatted {
 					}
 					let spoiler = spans[start].1.spoiler;
 					if let Some(region) = spoiler
+						&& !reveal_all_spoilers_enabled()
 						&& *render.revealed & (1_u32 << region) == 0
 					{
 						// Hidden text never reaches labels, selection, tooltips, links,
@@ -1845,11 +2130,21 @@ impl Formatted {
 						let colors = crate::design::palette(ui);
 						let user = crate::mentions::find_user(id, render.users, render.source);
 						let label = crate::mentions::mention_label(id, render.users, render.source);
+						let role_color = if crate::mentions::role_color_everywhere_enabled() {
+							crate::mentions::user_role_color(id, render.source, render.roles)
+						} else {
+							None
+						};
+						let (mention_fg, mention_bg) = if let Some(rgb) = role_color {
+							mention_colors(ui, Some(rgb))
+						} else {
+							(colors.mention_text, colors.mention_bg)
+						};
 						let response = crate::channel_pill::mention(
 							ui,
 							&label,
-							colors.mention_text,
-							colors.mention_bg,
+							mention_fg,
+							mention_bg,
 							egui::Sense::click(),
 							render.line,
 							Some(&mut *render.surface),
@@ -1911,6 +2206,26 @@ impl Formatted {
 							egui::WidgetInfo::labeled(egui::Role::Label, ui.is_enabled(), &label)
 						});
 						start += 1;
+						continue;
+					}
+					if let Some(table_idx) = spans[start].1.table {
+						let count = spans[start..]
+							.iter()
+							.take_while(|(_, style)| style.table == Some(table_idx))
+							.count();
+						ui.end_row();
+						if let Some(tbl) = self.tables.get(usize::from(table_idx)) {
+							let table_rect = Self::show_table(
+								ui,
+								tbl,
+								table_idx,
+								render.surface,
+								render.card_surface,
+							);
+							render.surface.exclude(table_rect);
+						}
+						ui.end_row();
+						start += count;
 						continue;
 					}
 					if let Some(block) = spans[start].1.block {
@@ -2019,14 +2334,31 @@ impl Formatted {
 							)
 							.on_hover_text(url)
 						} else if let Some(pill) = &pill {
-							pill.show(
+							let resp = pill.show(
 								ui,
 								render.images,
 								render.demo,
 								render.line,
 								Some((&mut *render.surface, url)),
-							)
-							.on_hover_text(url)
+							);
+							if message_link_tooltip_enabled()
+								&& let Some(link) = &message_link
+								&& let Some(msg_id) = link.message
+								&& let Some(source) = render.source
+								&& let Some(msg) = source.state.timeline.get(msg_id)
+							{
+								let author = source.state.message_author_name(msg);
+								let text = msg.display_text();
+								let preview = if text.len() > 100 {
+									let end = text.floor_char_boundary(100);
+									format!("{}…", &text[..end])
+								} else {
+									text.into_owned()
+								};
+								resp.on_hover_text(format!("👤 {author}: {preview}\n{url}"))
+							} else {
+								resp.on_hover_text(url)
+							}
 						} else {
 							Self::show_emoji(
 								spans,
@@ -2074,6 +2406,83 @@ impl Formatted {
 			},
 		);
 	}
+	fn show_table(
+		ui: &mut egui::Ui,
+		table: &MarkdownTable,
+		table_idx: u8,
+		_surface: &mut crate::select::Surface,
+		card_surface: crate::design::MessageCardSurface,
+	) -> egui::Rect {
+		let colors = crate::design::palette(ui);
+		let width = ui.available_width().min(640.0);
+		let id = ui.scope_id().with(("markdown-table", table_idx));
+		ui.allocate_ui_with_layout(
+			egui::vec2(width, 0.0),
+			egui::Layout::top_down(egui::Align::Min),
+			|ui| {
+				ui.set_width(width);
+				ui.add_space(4.0);
+				let frame = egui::Frame::new()
+					.fill(card_surface.fill(ui, ui.visuals().code_bg_color))
+					.stroke(Stroke::new(1.0, colors.border))
+					.corner_radius(6)
+					.inner_margin(egui::Margin::symmetric(10, 8));
+				frame
+					.show(ui, |ui| {
+						ui.set_width(ui.available_width());
+						egui::Grid::new(id)
+							.striped(true)
+							.spacing(egui::vec2(14.0, 6.0))
+							.show(ui, |ui| {
+								for (i, header) in table.headers.iter().enumerate() {
+									let align =
+										table.alignments.get(i).copied().unwrap_or(Alignment::None);
+									let halign = match align {
+										Alignment::Center => egui::Align::Center,
+										Alignment::Right => egui::Align::Max,
+										_ => egui::Align::Min,
+									};
+									ui.with_layout(egui::Layout::top_down(halign), |ui| {
+										ui.label(
+											egui::RichText::new(header)
+												.family(crate::design::semibold_family(ui.ctx()))
+												.color(colors.text_strong)
+												.size(13.5),
+										);
+									});
+								}
+								ui.end_row();
+
+								for row in &table.rows {
+									for (i, cell) in row.iter().enumerate() {
+										let align = table
+											.alignments
+											.get(i)
+											.copied()
+											.unwrap_or(Alignment::None);
+										let halign = match align {
+											Alignment::Center => egui::Align::Center,
+											Alignment::Right => egui::Align::Max,
+											_ => egui::Align::Min,
+										};
+										ui.with_layout(egui::Layout::top_down(halign), |ui| {
+											ui.label(
+												egui::RichText::new(cell)
+													.color(colors.text)
+													.size(13.0),
+											);
+										});
+									}
+									ui.end_row();
+								}
+							});
+					})
+					.response
+					.rect
+			},
+		)
+		.inner
+	}
 	/// Full-width framed block: optional language header with a copy control, then the
 	/// highlighted, wrapped, selectable monospace text.
 	fn show_code_block(
@@ -2095,11 +2504,12 @@ impl Formatted {
 			.map_or_else(|| block.tag.clone(), str::to_owned);
 		let display = block.display.as_deref().unwrap_or(&block.code);
 		let plain = [(0, display.len() as u32, crate::highlight::Token::Plain)];
-		let segments: &[crate::highlight::Segment] = if block.segments.is_empty() {
-			&plain
-		} else {
-			&block.segments
-		};
+		let segments: &[crate::highlight::Segment] =
+			if block.segments.is_empty() || !crate::highlight::shiki_codeblocks_enabled() {
+				&plain
+			} else {
+				&block.segments
+			};
 		let id = ui.scope_id().with(("code-block", index));
 		ui.allocate_ui_with_layout(
 			egui::vec2(width, 0.0),
@@ -3413,6 +3823,7 @@ impl Formatted {
 						+ b.segments.capacity() * size_of::<crate::highlight::Segment>()
 				})
 				.sum::<usize>()
+			+ self.tables.capacity() * size_of::<MarkdownTable>()
 			+ self.links.capacity() * size_of::<String>()
 			+ self.links.iter().map(String::capacity).sum::<usize>()
 	}
@@ -3421,7 +3832,16 @@ impl Formatted {
 		let colors = crate::design::palette(ui);
 		let body = egui::TextStyle::Body.resolve(ui.style());
 		let mention = mention_colors(ui, style.role_color);
-		let color = if style.mass_mention {
+		let color = if let Some(swatch) = style.color_swatch {
+			let lum =
+				(swatch.r() as f32 * 0.299 + swatch.g() as f32 * 0.587 + swatch.b() as f32 * 0.114)
+					/ 255.0;
+			if lum > 0.55 {
+				egui::Color32::BLACK
+			} else {
+				egui::Color32::WHITE
+			}
+		} else if style.mass_mention {
 			mention.0
 		} else if style.link.is_some() {
 			visuals.hyperlink_color
@@ -3451,7 +3871,9 @@ impl Formatted {
 				FontId::new(size, body.family)
 			},
 			color,
-			background: if style.mass_mention {
+			background: if let Some(swatch) = style.color_swatch {
+				swatch
+			} else if style.mass_mention {
 				mention.1
 			} else if style.spoiler.is_some() {
 				// Only revealed spoilers reach the formatter.
@@ -6977,5 +7399,98 @@ mod tests {
 			"only visible logical matches paint complete shaping-cluster rectangles"
 		);
 		output.drop_without_applying_deltas();
+	}
+}
+
+#[cfg(test)]
+mod venserein_markdown_tests {
+	use super::*;
+
+	#[test]
+	fn test_markdown_tables_parsing_and_toggle() {
+		set_markdown_tables_enabled(true);
+		let source = "| Header 1 | Header 2 |\n| :--- | ---: |\n| Cell 1 | Cell 2 |";
+		let parsed = Formatted::parse(source);
+		assert_eq!(parsed.tables.len(), 1);
+		assert_eq!(parsed.tables[0].headers, vec!["Header 1", "Header 2"]);
+		assert_eq!(parsed.tables[0].rows, vec![vec!["Cell 1", "Cell 2"]]);
+		assert_eq!(parsed.tables[0].alignments[0], Alignment::Left);
+		assert_eq!(parsed.tables[0].alignments[1], Alignment::Right);
+
+		// Toggle off
+		set_markdown_tables_enabled(false);
+		let parsed_off = Formatted::parse(source);
+		assert!(parsed_off.tables.is_empty());
+
+		// Restore
+		set_markdown_tables_enabled(true);
+	}
+
+	#[test]
+	fn test_message_colors_detection_and_toggle() {
+		set_message_colors_enabled(true);
+		assert_eq!(
+			parse_hex_color("#ff0077"),
+			Some(egui::Color32::from_rgb(255, 0, 119))
+		);
+		assert_eq!(
+			parse_hex_color("#fff"),
+			Some(egui::Color32::from_rgb(255, 255, 255))
+		);
+		assert_eq!(
+			parse_hex_color("#123456"),
+			Some(egui::Color32::from_rgb(18, 52, 86))
+		);
+		assert_eq!(parse_hex_color("#invalid"), None);
+
+		let source = "Look at this color #ff0077 in chat!";
+		let parsed = Formatted::parse(source);
+		let has_swatch = parsed.spans.iter().any(|(text, style)| {
+			text == "#ff0077" && style.color_swatch == Some(egui::Color32::from_rgb(255, 0, 119))
+		});
+		assert!(has_swatch, "Hex color span with swatch must be present");
+
+		// Regression test: multi-byte non-ASCII and emoji following '#' must never panic
+		let non_ascii_samples = ["#abф", "#f00мир", "#123456🎉", "#тест", "#fff👍"];
+		for sample in non_ascii_samples {
+			let _ = Formatted::parse(sample);
+		}
+
+		// Toggle off
+		set_message_colors_enabled(false);
+		let parsed_off = Formatted::parse(source);
+		let has_swatch_off = parsed_off
+			.spans
+			.iter()
+			.any(|(_, style)| style.color_swatch.is_some());
+		assert!(!has_swatch_off, "Swatch must not be present when disabled");
+
+		// Restore
+		set_message_colors_enabled(true);
+	}
+	#[test]
+	fn test_content_warning_detection_and_toggle() {
+		assert!(!content_warning_enabled());
+		assert_eq!(has_content_warning("cw: spoilers ahead"), None);
+
+		set_content_warning_enabled(true);
+		assert!(content_warning_enabled());
+		assert_eq!(
+			has_content_warning("cw: spoilers ahead"),
+			Some("Sensitive Content")
+		);
+		assert_eq!(
+			has_content_warning("TW: blood and gore"),
+			Some("Sensitive Content")
+		);
+		assert_eq!(
+			has_content_warning("content warning: sensitive"),
+			Some("Sensitive Content")
+		);
+		assert_eq!(has_content_warning("hello world!"), None);
+
+		set_content_warning_enabled(false);
+		assert!(!content_warning_enabled());
+		assert_eq!(has_content_warning("cw: spoilers ahead"), None);
 	}
 }

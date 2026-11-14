@@ -52,6 +52,8 @@ struct Gate {
 	generation: AtomicU64,
 	paused: AtomicBool,
 	volume: AtomicU32,
+	/// Speed factor stored as f32 bits (1.0=normal, 0.5=half, 2.0=double).
+	speed: AtomicU32,
 	seek_millis: AtomicU64,
 	position_frames: AtomicU64,
 	failed: AtomicBool,
@@ -66,6 +68,7 @@ impl Default for Gate {
 			generation: AtomicU64::new(0),
 			paused: AtomicBool::new(false),
 			volume: AtomicU32::new(1.0f32.to_bits()),
+			speed: AtomicU32::new(1.0f32.to_bits()),
 			seek_millis: AtomicU64::new(NO_SEEK),
 			position_frames: AtomicU64::new(0),
 			failed: AtomicBool::new(false),
@@ -236,6 +239,13 @@ impl Audio {
 			self.gate
 				.volume
 				.store(volume.clamp(0.0, 1.0).to_bits(), Ordering::Release);
+		}
+	}
+	pub fn speed(&mut self, speed: f32) {
+		if speed.is_finite() && speed > 0.0 {
+			self.gate
+				.speed
+				.store(speed.clamp(0.25, 4.0).to_bits(), Ordering::Release);
 		}
 	}
 	pub fn stop(&mut self) {

@@ -6,6 +6,220 @@ use client_core::State;
 use egui::RichText;
 use model::{Channel, Id, Shortcut};
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// VenSerein (CleanerChannelGroups): Global toggle to keep collapsed categories clean without popping out unread channels.
+static CLEANER_CHANNEL_GROUPS_ENABLED: AtomicBool = AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_cleaner_channel_groups_enabled(enabled: bool) {
+	CLEANER_CHANNEL_GROUPS_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn cleaner_channel_groups_enabled() -> bool {
+	CLEANER_CHANNEL_GROUPS_ENABLED.load(Ordering::Relaxed)
+}
+
+/// VenSerein (MessagePeek): Global toggle for showing the last message preview snippet in DM list.
+static MESSAGE_PEEK_ENABLED: AtomicBool = AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn set_message_peek_enabled(enabled: bool) {
+	MESSAGE_PEEK_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn message_peek_enabled() -> bool {
+	MESSAGE_PEEK_ENABLED.load(Ordering::Relaxed)
+}
+
+/// VenSerein (DraftNavigator): Displays an indicator next to channels that have unsent message drafts.
+pub static DRAFT_NAVIGATOR_ENABLED: AtomicBool = AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn set_draft_navigator_enabled(enabled: bool) {
+	DRAFT_NAVIGATOR_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn draft_navigator_enabled() -> bool {
+	DRAFT_NAVIGATOR_ENABLED.load(Ordering::Relaxed)
+}
+
+/// VenSerein (CleanChannelName): Removes decorative emojis, unicode small-caps and symbols from channel names.
+pub static CLEAN_CHANNEL_NAME_ENABLED: AtomicBool = AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn clean_channel_name_enabled() -> bool {
+	CLEAN_CHANNEL_NAME_ENABLED.load(Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_clean_channel_name_enabled(enabled: bool) {
+	CLEAN_CHANNEL_NAME_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+pub fn clean_channel_name(name: &str) -> std::borrow::Cow<'_, str> {
+	if !clean_channel_name_enabled() {
+		return std::borrow::Cow::Borrowed(name);
+	}
+	let mut cleaned = String::with_capacity(name.len());
+	let mut changed = false;
+	for ch in name.chars() {
+		let mapped = match ch {
+			'\u{1d00}' => 'a',
+			'\u{0299}' => 'b',
+			'\u{1d04}' => 'c',
+			'\u{1d05}' => 'd',
+			'\u{1d07}' => 'e',
+			'\u{a730}' => 'f',
+			'\u{0262}' => 'g',
+			'\u{029c}' => 'h',
+			'\u{026a}' => 'i',
+			'\u{1d0a}' => 'j',
+			'\u{1d0b}' => 'k',
+			'\u{029f}' => 'l',
+			'\u{1d0d}' => 'm',
+			'\u{0274}' => 'n',
+			'\u{1d0f}' => 'o',
+			'\u{1d18}' => 'p',
+			'\u{01eb}' => 'q',
+			'\u{0280}' => 'r',
+			'\u{a731}' => 's',
+			'\u{1d1b}' => 't',
+			'\u{1d1c}' => 'u',
+			'\u{1d20}' => 'v',
+			'\u{1d21}' => 'w',
+			'\u{028f}' => 'y',
+			'\u{1d22}' => 'z',
+			'\u{ff21}'..='\u{ff3a}' => (b'a' + (ch as u32 - 0xff21) as u8) as char,
+			'\u{ff41}'..='\u{ff5a}' => (b'a' + (ch as u32 - 0xff41) as u8) as char,
+			_ => ch,
+		};
+		if mapped != ch {
+			changed = true;
+		}
+		if mapped.is_alphanumeric() || mapped == '-' || mapped == '_' || mapped == ' ' {
+			cleaned.push(mapped);
+		} else {
+			changed = true; // character was dropped
+		}
+	}
+	if !changed {
+		return std::borrow::Cow::Borrowed(name);
+	}
+	let trimmed = cleaned.trim().trim_matches('-').trim_matches('_').trim();
+	if !trimmed.is_empty() {
+		std::borrow::Cow::Owned(trimmed.to_owned())
+	} else {
+		std::borrow::Cow::Borrowed(name)
+	}
+}
+
+/// VenSerein (ChannelBadges): Shows channel type badges (Text, Voice, Forum, Stage, Announce).
+pub static CHANNEL_BADGES_ENABLED: AtomicBool = AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn channel_badges_enabled() -> bool {
+	CHANNEL_BADGES_ENABLED.load(Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_channel_badges_enabled(enabled: bool) {
+	CHANNEL_BADGES_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+pub fn channel_badge_label(kind: u8) -> Option<&'static str> {
+	if !channel_badges_enabled() {
+		return None;
+	}
+	match kind {
+		0 => Some("Text"),
+		2 => Some("Voice"),
+		5 => Some("Announce"),
+		13 => Some("Stage"),
+		15 | 16 => Some("Forum"),
+		10..=12 => Some("Thread"),
+		_ => None,
+	}
+}
+
+/// VenSerein (ChannelTabs): Allows browser-like tabs for switching between channels.
+pub static CHANNEL_TABS_ENABLED: AtomicBool = AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn channel_tabs_enabled() -> bool {
+	CHANNEL_TABS_ENABLED.load(Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_channel_tabs_enabled(enabled: bool) {
+	CHANNEL_TABS_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+/// VenSerein (ShowResourceChannels): Shows channels hidden behind server resources in the channel list.
+pub static SHOW_RESOURCE_CHANNELS_ENABLED: AtomicBool = AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn show_resource_channels_enabled() -> bool {
+	SHOW_RESOURCE_CHANNELS_ENABLED.load(Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_show_resource_channels_enabled(enabled: bool) {
+	SHOW_RESOURCE_CHANNELS_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+/// VenSerein (UnreadBadgeCount): Shows unread message count badge on unread channels in the channel list.
+pub static UNREAD_BADGE_COUNT_ENABLED: AtomicBool = AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn unread_badge_count_enabled() -> bool {
+	UNREAD_BADGE_COUNT_ENABLED.load(Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_unread_badge_count_enabled(enabled: bool) {
+	UNREAD_BADGE_COUNT_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+/// VenSerein (MemberCount): Global toggle for showing the member count in the server channel sidebar header.
+pub static MEMBER_COUNT_ENABLED: AtomicBool = AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn member_count_enabled() -> bool {
+	MEMBER_COUNT_ENABLED.load(Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_member_count_enabled(enabled: bool) {
+	MEMBER_COUNT_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+/// VenSerein (MemberCount): Returns (total, Option<online>) member counts for the given guild if available.
+pub fn guild_member_counts(state: &State, guild: Id) -> Option<(u64, Option<u64>)> {
+	let list = state.members.as_ref()?;
+	if list.guild != Some(guild) {
+		return None;
+	}
+	let total = list.total;
+	if total == 0 {
+		return None;
+	}
+	let online = if list.groups.is_empty() {
+		None
+	} else {
+		let on: u64 = list
+			.groups
+			.iter()
+			.filter(|(group_id, _)| group_id != "offline")
+			.map(|(_, count)| *count)
+			.sum();
+		Some(on)
+	};
+	Some((total, online))
+}
 
 /// Voice and stage channels keep a separate position list, drawn below other channels.
 fn voice_lane(kind: u8) -> bool {
@@ -923,7 +1137,12 @@ impl MessagingUi {
 									),
 								);
 								self.preload.conversation(&response, || Some(channel.id));
-								if response.clicked() {
+								if crate::voice::vc_double_click_enabled() {
+									response.clone().on_hover_text("Double-click to join voice");
+									if response.double_clicked() {
+										selected = Some(channel.id);
+									}
+								} else if response.clicked() {
 									selected = Some(channel.id);
 								}
 								if response.double_clicked() {
@@ -1188,25 +1407,83 @@ impl MessagingUi {
 									),
 								);
 							}
-							let mut label =
-								crate::emoji::presentation(state.conversation_name(channel))
-									.into_owned();
+							let has_draft = DRAFT_NAVIGATOR_ENABLED.load(Ordering::Relaxed)
+								&& state
+									.drafts
+									.get(&channel.id)
+									.is_some_and(|d| !d.trim().is_empty());
+							let name = crate::emoji::presentation(state.conversation_name(channel));
+							let mut label = if has_draft {
+								format!("✏️ {name}")
+							} else {
+								name.into_owned()
+							};
 							if !enabled && visible {
 								label.push_str(" · unavailable");
 							}
 							let subtitle = if dm_list && channel.kind == 1 {
-								channel.recipients.first().and_then(|user| {
-									let (_, custom, activities, _) =
-										crate::profiles::presence(state, user.id, None);
-									crate::profiles::subtitle(custom, activities)
-								})
+								if MESSAGE_PEEK_ENABLED.load(Ordering::Relaxed)
+									&& let Some(last_id) = channel.last_message
+									&& let Some(last_msg) = state.timeline.get(last_id)
+								{
+									let snippet = if !last_msg.content.is_empty() {
+										let mut s = last_msg.content.replace('\n', " ");
+										if s.len() > 60 {
+											let mut end = 60;
+											while !s.is_char_boundary(end) {
+												end -= 1;
+											}
+											s.truncate(end);
+											s.push('…');
+										}
+										s
+									} else if !last_msg.attachments.is_empty() {
+										"[Attachment]".to_owned()
+									} else {
+										String::new()
+									};
+									if !snippet.is_empty() {
+										let author = state.message_author_name(last_msg);
+										Some(format!("{author}: {snippet}"))
+									} else {
+										channel.recipients.first().and_then(|user| {
+											let (_, custom, activities, _) =
+												crate::profiles::presence(state, user.id, None);
+											crate::profiles::subtitle(custom, activities)
+										})
+									}
+								} else {
+									channel.recipients.first().and_then(|user| {
+										let (_, custom, activities, _) =
+											crate::profiles::presence(state, user.id, None);
+										crate::profiles::subtitle(custom, activities)
+									})
+								}
 							} else {
 								(dm_list && channel.kind == 3).then(|| {
-									format!(
-										"{} {}",
-										channel.recipients.len() + 1,
-										language.text("members-count")
-									)
+									if MESSAGE_PEEK_ENABLED.load(Ordering::Relaxed)
+										&& let Some(last_id) = channel.last_message
+										&& let Some(last_msg) = state.timeline.get(last_id)
+										&& !last_msg.content.is_empty()
+									{
+										let mut s = last_msg.content.replace('\n', " ");
+										if s.len() > 50 {
+											let mut end = 50;
+											while !s.is_char_boundary(end) {
+												end -= 1;
+											}
+											s.truncate(end);
+											s.push('…');
+										}
+										let author = state.message_author_name(last_msg);
+										format!("{author}: {s}")
+									} else {
+										format!(
+											"{} {}",
+											channel.recipients.len() + 1,
+											language.text("members-count")
+										)
+									}
 								})
 							};
 							let direct_user = (dm_list && channel.kind == 1)
@@ -1342,7 +1619,9 @@ impl MessagingUi {
 									- egui::vec2(8.0 + lane + label.size().x, label.size().y * 0.5);
 								ui.painter().galley(pos, label, colors.muted);
 							}
-							if count > 0 {
+							if count > 0
+								|| (unread && UNREAD_BADGE_COUNT_ENABLED.load(Ordering::Relaxed))
+							{
 								crate::notifications::badge(
 									ui,
 									row.right_center()
@@ -1355,7 +1634,7 @@ impl MessagingUi {
 												},
 											0.0,
 										),
-									count,
+									count.max(1),
 									if active {
 										colors.selected
 									} else if hovered {
@@ -1369,9 +1648,19 @@ impl MessagingUi {
 								channel_marks::paint(ui.painter(), access, row, glyph, name_color);
 							}
 							let response = response.on_hover_text_with(|| {
+								let has_draft = DRAFT_NAVIGATOR_ENABLED.load(Ordering::Relaxed)
+									&& state
+										.drafts
+										.get(&channel.id)
+										.is_some_and(|d| !d.trim().is_empty());
+								let display_name = clean_channel_name(&channel.name);
+								let badge_suffix = channel_badge_label(channel.kind)
+									.map_or(String::new(), |b| format!(" [{b}]"));
 								format!(
-									"{} · {}{}{}",
-									channel.name,
+									"{}{}{} · {}{}{}",
+									if has_draft { "✏️ " } else { "" },
+									display_name,
+									badge_suffix,
 									crate::i18n::translate_if_key(kind_label(channel.kind)),
 									channel_marks::label(access),
 									if unread && !forum && state.channel_unread(channel).is_none() {
@@ -2904,5 +3193,109 @@ mod tests {
 				}
 			)]
 		));
+	}
+}
+
+#[cfg(test)]
+mod venserein_batch1_categories_tests {
+	use super::*;
+
+	#[test]
+	fn test_categories_toggles() {
+		assert!(!cleaner_channel_groups_enabled());
+		set_cleaner_channel_groups_enabled(true);
+		assert!(cleaner_channel_groups_enabled());
+		set_cleaner_channel_groups_enabled(false);
+		assert!(!cleaner_channel_groups_enabled());
+
+		assert!(message_peek_enabled());
+		set_message_peek_enabled(false);
+		assert!(!message_peek_enabled());
+		set_message_peek_enabled(true);
+		assert!(message_peek_enabled());
+
+		assert!(draft_navigator_enabled());
+		set_draft_navigator_enabled(false);
+		assert!(!draft_navigator_enabled());
+		set_draft_navigator_enabled(true);
+		assert!(draft_navigator_enabled());
+
+		assert!(clean_channel_name_enabled());
+		set_clean_channel_name_enabled(false);
+		assert!(!clean_channel_name_enabled());
+		set_clean_channel_name_enabled(true);
+		assert!(clean_channel_name_enabled());
+		assert_eq!(clean_channel_name("💬・chat"), "chat");
+		assert_eq!(clean_channel_name("📢・ᴀɴɴᴏᴜɴᴄᴇᴍᴇɴᴛs"), "announcements");
+		// When disabled, function returns a borrowed slice (no allocation).
+		set_clean_channel_name_enabled(false);
+		assert!(matches!(
+			clean_channel_name("general"),
+			std::borrow::Cow::Borrowed("general")
+		));
+		set_clean_channel_name_enabled(true);
+		// Plain ASCII without special chars: borrowed, no allocation.
+		assert!(matches!(
+			clean_channel_name("general"),
+			std::borrow::Cow::Borrowed("general")
+		));
+		// Decorated name: owned (allocation happens only when needed).
+		assert!(matches!(
+			clean_channel_name("💬・chat"),
+			std::borrow::Cow::Owned(_)
+		));
+
+		assert!(channel_badges_enabled());
+		set_channel_badges_enabled(false);
+		assert!(!channel_badges_enabled());
+		set_channel_badges_enabled(true);
+		assert!(channel_badges_enabled());
+		assert_eq!(channel_badge_label(0), Some("Text"));
+		assert_eq!(channel_badge_label(2), Some("Voice"));
+		assert_eq!(channel_badge_label(15), Some("Forum"));
+
+		assert!(channel_tabs_enabled());
+		set_channel_tabs_enabled(false);
+		assert!(!channel_tabs_enabled());
+		set_channel_tabs_enabled(true);
+		assert!(channel_tabs_enabled());
+
+		assert!(show_resource_channels_enabled());
+		set_show_resource_channels_enabled(false);
+		assert!(!show_resource_channels_enabled());
+		set_show_resource_channels_enabled(true);
+		assert!(show_resource_channels_enabled());
+
+		assert!(unread_badge_count_enabled());
+		set_unread_badge_count_enabled(false);
+		assert!(!unread_badge_count_enabled());
+		set_unread_badge_count_enabled(true);
+		assert!(unread_badge_count_enabled());
+
+		assert!(member_count_enabled());
+		set_member_count_enabled(false);
+		assert!(!member_count_enabled());
+		set_member_count_enabled(true);
+		assert!(member_count_enabled());
+
+		let mut mock_state = State::default();
+		assert_eq!(guild_member_counts(&mock_state, Id(123)), None);
+		mock_state.members = Some(model::MemberList {
+			guild: Some(Id(123)),
+			channel: Id(456),
+			request: 1,
+			start: 0,
+			slots: vec![],
+			total: 50,
+			lazy: false,
+			freshness: model::Freshness::Fresh,
+			groups: vec![("online".to_string(), 12), ("offline".to_string(), 38)],
+			ranges: vec![],
+		});
+		assert_eq!(
+			guild_member_counts(&mock_state, Id(123)),
+			Some((50, Some(12)))
+		);
+		assert_eq!(guild_member_counts(&mock_state, Id(999)), None);
 	}
 }

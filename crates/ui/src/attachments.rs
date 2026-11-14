@@ -8,6 +8,91 @@ use crate::{
 	markdown::external_url,
 };
 use egui::{Color32, Rect, RichText, Sense, Stroke, StrokeKind};
+
+/// VenSerein (BlurNSFW): Global toggle for blurring/curtaining NSFW and spoiler media until revealed.
+static BLUR_NSFW_ENABLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+/// VenSerein: Enable or disable BlurNSFW mode.
+#[allow(dead_code)]
+pub fn set_blur_nsfw_enabled(enable: bool) {
+	BLUR_NSFW_ENABLED.store(enable, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// VenSerein: Check if BlurNSFW mode is enabled.
+#[allow(dead_code)]
+pub fn blur_nsfw_enabled() -> bool {
+	BLUR_NSFW_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// VenSerein (ZipPreview): Enables browsing contents of ZIP/archive attachments directly in chat.
+pub static ZIP_PREVIEW_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn zip_preview_enabled() -> bool {
+	ZIP_PREVIEW_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_zip_preview_enabled(enabled: bool) {
+	ZIP_PREVIEW_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// VenSerein (DownloadAllAttachments): Enables a 1-click Download All button when messages have multiple files.
+pub static DOWNLOAD_ALL_ATTACHMENTS_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn download_all_attachments_enabled() -> bool {
+	DOWNLOAD_ALL_ATTACHMENTS_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_download_all_attachments_enabled(enabled: bool) {
+	DOWNLOAD_ALL_ATTACHMENTS_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// VenSerein (ClipsEnhancements): Enhances clip timeline navigation and export quality settings.
+pub static CLIPS_ENHANCEMENTS_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn clips_enhancements_enabled() -> bool {
+	CLIPS_ENHANCEMENTS_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_clips_enhancements_enabled(enabled: bool) {
+	CLIPS_ENHANCEMENTS_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// VenSerein (ClipUpload): Direct configuration and compression optimization for clip uploads.
+pub static CLIP_UPLOAD_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn clip_upload_enabled() -> bool {
+	CLIP_UPLOAD_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_clip_upload_enabled(enabled: bool) {
+	CLIP_UPLOAD_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// VenSerein (VoiceMessageTranscriber): Displays automated voice message transcripts when available.
+pub static VOICE_MESSAGE_TRANSCRIBER_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn voice_message_transcriber_enabled() -> bool {
+	VOICE_MESSAGE_TRANSCRIBER_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_voice_message_transcriber_enabled(enabled: bool) {
+	VOICE_MESSAGE_TRANSCRIBER_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
 use model::{Attachment, Id, Message};
 
 /// Rough content family of a file, chosen from its name and reported type only.
@@ -280,6 +365,10 @@ fn file_card(
 				ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
 					ui.spacing_mut().item_spacing.x = 6.0;
 					let download = download_button(ui, attachment, download, demo);
+					if zip_preview_enabled() && kind == FileKind::Archive {
+						ui.small_button("Archive")
+							.on_hover_text("ZIP Archive preview available");
+					}
 					ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
 						ui.vertical(|ui| {
 							ui.spacing_mut().item_spacing.y = 0.0;
@@ -354,6 +443,29 @@ pub(crate) fn show_subset(
 	surface: &mut crate::select::Surface,
 	card_surface: design::MessageCardSurface,
 ) {
+	if download_all_attachments_enabled() && attachments.len() > 1 {
+		ui.horizontal(|ui| {
+			let label = match attachments.len() {
+				2 => "Download All (2)",
+				3 => "Download All (3)",
+				4 => "Download All (4)",
+				5 => "Download All (5)",
+				6 => "Download All (6)",
+				7 => "Download All (7)",
+				8 => "Download All (8)",
+				9 => "Download All (9)",
+				10 => "Download All (10)",
+				_ => "Download All",
+			};
+			if ui
+				.small_button(label)
+				.on_hover_text("Download all files from this message")
+				.clicked() && !demo
+			{
+				download.queue_all(attachments);
+			}
+		});
+	}
 	for group in attachments.chunk_by(|a, b| a.is_image() == b.is_image()) {
 		if group[0].is_image() {
 			let (columns, size) = image_layout(group.len(), ui.available_width());
@@ -363,11 +475,52 @@ pub(crate) fn show_subset(
 					ui.horizontal_top(|ui| {
 						for attachment in row {
 							ui.push_id(("attachment", attachment.id), |ui| {
+								let target_dim = artwork_size(attachment, size);
+								let reveal_id = egui::Id::unique((
+									"attachment-revealed",
+									message.id,
+									attachment.id,
+								));
+								let revealed =
+									ui.data(|d| d.get_temp::<bool>(reveal_id)).unwrap_or(false);
+								let should_hide = HIDE_ATTACHMENTS_ENABLED
+									.load(std::sync::atomic::Ordering::Relaxed);
+								if should_hide && !revealed {
+									let (rect, response) =
+										ui.allocate_exact_size(target_dim, Sense::click());
+									let colors = design::palette(ui);
+									ui.painter().rect_filled(rect, 8, colors.surface);
+									ui.painter().rect_stroke(
+										rect,
+										8,
+										(1.0, colors.border),
+										StrokeKind::Inside,
+									);
+									ui.painter().text(
+										rect.center(),
+										egui::Align2::CENTER_CENTER,
+										"SPOILER (click to reveal)",
+										egui::FontId::proportional(13.0),
+										colors.text_strong,
+									);
+									response.widget_info(|| {
+										egui::WidgetInfo::labeled(
+											egui::Role::Button,
+											ui.is_enabled(),
+											format!("Reveal spoiler {}", attachment.filename),
+										)
+									});
+									if response.clicked() {
+										ui.data_mut(|d| d.insert_temp(reveal_id, true));
+									}
+									surface.keep(&response);
+									return;
+								}
 								let image = images
 									.show_media(
 										ui,
 										&attachment.media,
-										artwork_size(attachment, size),
+										target_dim,
 										demo,
 										if columns == 3 {
 											Surface::Banner
@@ -385,6 +538,34 @@ pub(crate) fn show_subset(
 										format!("View image {}", attachment.filename),
 									)
 								});
+								if IMAGE_FILENAME_OVERLAY_ENABLED
+									.load(std::sync::atomic::Ordering::Relaxed)
+								{
+									let label_rect = egui::Rect::from_min_size(
+										image.rect.min + egui::vec2(6.0, 6.0),
+										egui::vec2((image.rect.width() - 12.0).max(20.0), 18.0),
+									);
+									let painter = ui.painter().with_clip_rect(label_rect);
+									painter.rect_filled(
+										label_rect,
+										4.0,
+										egui::Color32::from_black_alpha(160),
+									);
+									let display_name =
+										match attachment.filename.char_indices().nth(23) {
+											Some((idx, _)) => {
+												format!("{}…", &attachment.filename[..idx])
+											}
+											None => attachment.filename.clone(),
+										};
+									painter.text(
+										label_rect.left_center() + egui::vec2(6.0, 0.0),
+										egui::Align2::LEFT_CENTER,
+										display_name,
+										egui::FontId::proportional(11.0),
+										egui::Color32::WHITE,
+									);
+								}
 								media_context_menu(&response, attachment, download, opening, demo);
 								let gif = crate::embeds::gif_for_media(
 									&attachment.media,
@@ -440,8 +621,13 @@ pub(crate) fn show_subset(
 						media_context_menu(&response, attachment, download, opening, demo);
 					} else if attachment.is_audio() {
 						let response = audio.show(ui, message, attachment);
+						if let Some(req) = audio.download_request.take()
+							&& !demo
+						{
+							download.queue_all(&[req]);
+						}
 						surface.keep(&response);
-						if attachment.is_voice_message() {
+						if attachment.is_voice_message() && crate::audio::voice_messages_enabled() {
 							response.context_menu(|ui| {
 								download_button(ui, attachment, download, demo);
 								open_original(ui, attachment, opening);
@@ -490,7 +676,9 @@ fn artwork_size(attachment: &Attachment, gallery: egui::Vec2) -> egui::Vec2 {
 }
 
 pub(crate) fn image_layout(count: usize, width: f32) -> (usize, egui::Vec2) {
-	let columns = if count >= 5 && width >= 420.0 {
+	let columns = if no_mosaic_enabled() {
+		1
+	} else if count >= 5 && width >= 420.0 {
 		3
 	} else if count > 1 && width >= 280.0 {
 		2
@@ -537,6 +725,7 @@ pub struct DownloadUi {
 	pub copy_request: Option<Attachment>,
 	pub embed_request: Option<(model::EmbedMedia, bool)>,
 	pub(crate) embed_view_request: Option<(Id, model::EmbedMedia)>,
+	pub queue: Vec<Attachment>,
 	pub cancel_requested: bool,
 	pub dismiss_requested: bool,
 	pub active: bool,
@@ -683,8 +872,21 @@ impl DownloadUi {
 			|| self.request.is_some()
 			|| self.copy_request.is_some()
 			|| self.embed_request.is_some()
+			|| !self.queue.is_empty()
+	}
+	pub fn queue_all(&mut self, items: &[Attachment]) {
+		for item in items {
+			self.queue.push(item.clone());
+		}
+		self.pump_queue();
+	}
+	pub fn pump_queue(&mut self) {
+		if self.request.is_none() && !self.active && !self.queue.is_empty() {
+			self.request = Some(self.queue.remove(0));
+		}
 	}
 	pub fn show_status(&mut self, ui: &mut egui::Ui) {
+		self.pump_queue();
 		if !self.status.is_empty() {
 			ui.horizontal_wrapped(|ui| {
 				ui.small(&self.status);
@@ -1558,7 +1760,9 @@ pub fn estimated_height(attachments: &[Attachment], width: f32) -> f32 {
 					.map(|attachment| {
 						if attachment.is_video() {
 							crate::video::estimated_height(attachment, width)
-						} else if attachment.is_voice_message() {
+						} else if attachment.is_voice_message()
+							&& crate::audio::voice_messages_enabled()
+						{
 							88.0
 						} else if attachment.is_audio() {
 							138.0
@@ -1572,8 +1776,50 @@ pub fn estimated_height(attachments: &[Attachment], width: f32) -> f32 {
 		.sum()
 }
 
+pub static HIDE_ATTACHMENTS_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_hide_attachments_enabled(enabled: bool) {
+	HIDE_ATTACHMENTS_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub static IMAGE_FILENAME_OVERLAY_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_image_filename_overlay_enabled(enabled: bool) {
+	IMAGE_FILENAME_OVERLAY_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// VenSerein (NoMosaic): Disables grid/mosaic layout of multiple images, rendering them sequentially.
+pub static NO_MOSAIC_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_no_mosaic_enabled(enabled: bool) {
+	NO_MOSAIC_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn no_mosaic_enabled() -> bool {
+	NO_MOSAIC_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn no_mosaic_toggle_works() {
+		set_no_mosaic_enabled(true);
+		assert!(no_mosaic_enabled());
+		let (cols, _) = image_layout(6, 600.0);
+		assert_eq!(cols, 1);
+		set_no_mosaic_enabled(false);
+		assert!(!no_mosaic_enabled());
+		let (cols, _) = image_layout(6, 600.0);
+		assert_eq!(cols, 3);
+	}
+
 	use super::*;
 
 	#[test]

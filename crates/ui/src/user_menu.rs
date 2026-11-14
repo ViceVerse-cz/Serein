@@ -3,6 +3,110 @@ use crate::shortcuts::{Intent, ShortcutView};
 use client_core::{Command, State};
 use model::{Shortcut, User};
 
+/// VenSerein (LastActive): Global toggle for showing user's last active message time in menu or profile.
+pub static LAST_ACTIVE_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(true);
+
+pub fn last_active_enabled() -> bool {
+	LAST_ACTIVE_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn set_last_active_enabled(enabled: bool) {
+	LAST_ACTIVE_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// VenSerein (CopyUserMention): Adds option to copy user's mention tag.
+pub static COPY_USER_MENTION_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn copy_user_mention_enabled() -> bool {
+	COPY_USER_MENTION_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_copy_user_mention_enabled(enabled: bool) {
+	COPY_USER_MENTION_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// VenSerein (CopyProfileColors): Adds option to copy user's profile gradient hex colors.
+pub static COPY_PROFILE_COLORS_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn copy_profile_colors_enabled() -> bool {
+	COPY_PROFILE_COLORS_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_copy_profile_colors_enabled(enabled: bool) {
+	COPY_PROFILE_COLORS_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// VenSerein (CopyStatusUrls): Adds option to copy user's status URL.
+pub static COPY_STATUS_URLS_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn copy_status_urls_enabled() -> bool {
+	COPY_STATUS_URLS_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_copy_status_urls_enabled(enabled: bool) {
+	COPY_STATUS_URLS_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// VenSerein (CancelFriendRequest): Adds option to cancel an outgoing friend request.
+pub static CANCEL_FRIEND_REQUEST_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn cancel_friend_request_enabled() -> bool {
+	CANCEL_FRIEND_REQUEST_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_cancel_friend_request_enabled(enabled: bool) {
+	CANCEL_FRIEND_REQUEST_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// VenSerein (CustomUserColors): Allows setting custom local colors for users.
+pub static CUSTOM_USER_COLORS_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn custom_user_colors_enabled() -> bool {
+	CUSTOM_USER_COLORS_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_custom_user_colors_enabled(enabled: bool) {
+	CUSTOM_USER_COLORS_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub static CUSTOM_USER_COLORS: std::sync::RwLock<
+	std::collections::BTreeMap<model::Id, egui::Color32>,
+> = std::sync::RwLock::new(std::collections::BTreeMap::new());
+
+#[allow(dead_code)]
+pub fn set_custom_user_color(user: model::Id, color: egui::Color32) {
+	if let Ok(mut map) = CUSTOM_USER_COLORS.write() {
+		map.insert(user, color);
+	}
+}
+
+#[allow(dead_code)]
+pub fn custom_user_color(user: model::Id) -> Option<egui::Color32> {
+	if !custom_user_colors_enabled() {
+		return None;
+	}
+	CUSTOM_USER_COLORS
+		.read()
+		.ok()
+		.and_then(|map| map.get(&user).copied())
+}
+
 /// The conversation a user row belongs to. Plugin user actions receive it with the user, so
 /// a row outside the open conversation never reports that conversation's IDs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -35,6 +139,7 @@ pub enum Action {
 	StartCall(User),
 	AddFriend(User),
 	AcceptFriend(model::Id),
+	CancelFriendRequest(model::Id),
 	CloseDm(model::Id),
 	Block {
 		user: model::Id,
@@ -83,6 +188,7 @@ pub(super) fn prepare(action: Action, state: &mut State) -> Option<Command> {
 		| Action::Moderate { .. } => None,
 		Action::AddFriend(user) => state.add_profile_friend(user.id),
 		Action::AcceptFriend(user) => state.resolve_friend_request(user, true),
+		Action::CancelFriendRequest(user) => state.resolve_friend_request(user, false),
 		Action::CloseDm(channel) => state.close_dm(channel),
 		Action::Block { user, blocked } => state.set_user_blocked(user, blocked),
 		Action::Ignore { user, ignored } => state.set_user_ignored(user, ignored),
@@ -193,6 +299,14 @@ pub(super) fn contents(
 	let colors = crate::design::palette(ui);
 	ui.set_min_width(200.0);
 	ui.spacing_mut().button_padding = egui::vec2(8.0, 6.0);
+	if last_active_enabled()
+		&& let Some(last_id) = state.user_last_active_message(user.id)
+	{
+		let last_time = crate::timeline::timestamp(last_id);
+		let text = format!("🕒 Last active: {}", crate::local_time::header(last_time));
+		ui.label(egui::RichText::new(text).size(11.0).color(colors.muted));
+		ui.separator();
+	}
 	if !user.webhook {
 		let channel = place.channel(state).and_then(|id| state.channel(id));
 		let mut targets = vec![extensions::MenuTarget::User {
@@ -239,6 +353,25 @@ pub(super) fn contents(
 	}
 	if !user.webhook {
 		crate::profiles::copy_username_button(ui, state, user);
+		if copy_user_mention_enabled() && ui.button("Copy User Mention").clicked() {
+			ui.ctx().copy_text(format!("<@{}>", user.id));
+			ui.close();
+		}
+		if copy_profile_colors_enabled() {
+			let theme_colors = state
+				.profile
+				.as_ref()
+				.filter(|p| p.user == user.id)
+				.and_then(|p| p.data.as_ref().and_then(|d| d.theme_colors))
+				.or_else(|| state.profile_cache.get_user_theme_colors(user.id));
+			if let Some(theme_colors) = theme_colors
+				&& ui.button("Copy Profile Colors").clicked()
+			{
+				let hex = format!("#{:06X}, #{:06X}", theme_colors[0], theme_colors[1]);
+				ui.ctx().copy_text(hex);
+				ui.close();
+			}
+		}
 		if let Some(guild) = state
 			.selected
 			.and_then(|id| state.channel(id).and_then(|channel| channel.guild))
@@ -297,6 +430,11 @@ pub(super) fn contents(
 				(
 					"profiles-friend-action-accept",
 					Some(Action::AcceptFriend(user.id)),
+				)
+			} else if cancel_friend_request_enabled() {
+				(
+					"Cancel Friend Request",
+					Some(Action::CancelFriendRequest(user.id)),
 				)
 			} else {
 				("profiles-friend-action-sent", None)
@@ -971,5 +1109,58 @@ mod tests {
 			);
 			assert!(render(&mut view, &mut state, vec![]).0.is_empty());
 		}
+	}
+
+	#[test]
+	fn test_last_active_toggle_and_timeline() {
+		assert!(last_active_enabled());
+		set_last_active_enabled(false);
+		assert!(!last_active_enabled());
+		set_last_active_enabled(true);
+		assert!(last_active_enabled());
+
+		let state = State::default();
+		assert_eq!(state.user_last_active_message(model::Id(123)), None);
+	}
+
+	#[test]
+	fn test_venserein_phase2_batch3_user_menu_toggles() {
+		assert!(copy_user_mention_enabled());
+		set_copy_user_mention_enabled(false);
+		assert!(!copy_user_mention_enabled());
+		set_copy_user_mention_enabled(true);
+		assert!(copy_user_mention_enabled());
+
+		assert!(copy_profile_colors_enabled());
+		set_copy_profile_colors_enabled(false);
+		assert!(!copy_profile_colors_enabled());
+		set_copy_profile_colors_enabled(true);
+		assert!(copy_profile_colors_enabled());
+
+		assert!(copy_status_urls_enabled());
+		set_copy_status_urls_enabled(false);
+		assert!(!copy_status_urls_enabled());
+		set_copy_status_urls_enabled(true);
+		assert!(copy_status_urls_enabled());
+
+		assert!(cancel_friend_request_enabled());
+		set_cancel_friend_request_enabled(false);
+		assert!(!cancel_friend_request_enabled());
+		set_cancel_friend_request_enabled(true);
+		assert!(cancel_friend_request_enabled());
+
+		assert!(custom_user_colors_enabled());
+		set_custom_user_colors_enabled(false);
+		assert!(!custom_user_colors_enabled());
+		set_custom_user_colors_enabled(true);
+		assert!(custom_user_colors_enabled());
+
+		let test_user = model::Id(777);
+		assert_eq!(custom_user_color(test_user), None);
+		set_custom_user_color(test_user, egui::Color32::from_rgb(255, 128, 0));
+		assert_eq!(
+			custom_user_color(test_user),
+			Some(egui::Color32::from_rgb(255, 128, 0))
+		);
 	}
 }

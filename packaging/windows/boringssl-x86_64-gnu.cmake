@@ -1,0 +1,5 @@
+# CMake toolchain file for BoringSSL (btls-sys) on Windows GNU (MinGW)
+set(CMAKE_SYSTEM_NAME Windows)
+set(CMAKE_C_COMPILER gcc)
+set(CMAKE_CXX_COMPILER g++)
+set(OPENSSL_NO_ASM YES CACHE BOOL "" FORCE)

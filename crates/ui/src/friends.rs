@@ -711,7 +711,7 @@ impl MessagingUi {
 										);
 									}
 								});
-								let subtitle = restricted
+								let mut subtitle = restricted
 									.map(|(_, _, ignored)| {
 										language.text(if *ignored {
 											"friends-ignored"
@@ -726,6 +726,12 @@ impl MessagingUi {
 											|status| profiles::presence_label(status).to_owned(),
 										)
 									});
+								if profiles::user_voice_show_enabled()
+									&& restricted.is_none() && let Some(ch_name) =
+									profiles::user_voice_channel_name(state, user.id)
+								{
+									subtitle = format!("{subtitle} · 🔊 {ch_name}");
+								}
 								text.horizontal(|ui| {
 									ui.spacing_mut().item_spacing.x = 4.0;
 									profiles::voice_badge(

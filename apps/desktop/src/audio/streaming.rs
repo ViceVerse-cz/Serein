@@ -92,7 +92,8 @@ impl Playback {
 				output[0] = T::from_sample(stereo[0]);
 				output[1] = T::from_sample(stereo[1]);
 			}
-			let step = f64::from(self.rate) / f64::from(output_rate);
+			let speed = f32::from_bits(gate.speed.load(Ordering::Acquire));
+			let step = (f64::from(self.rate) / f64::from(output_rate)) * f64::from(speed);
 			self.phase += step;
 			self.position += step;
 			gate.position_frames

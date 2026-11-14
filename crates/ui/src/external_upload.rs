@@ -7,6 +7,20 @@ use model::{
 	public_upload::{Error, Host, eligible},
 };
 
+/// VenSerein (BetterUploadButton): Enhanced upload button behaviors and file picker prompts.
+pub static BETTER_UPLOAD_BUTTON_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_better_upload_button_enabled(enabled: bool) {
+	BETTER_UPLOAD_BUTTON_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn better_upload_button_enabled() -> bool {
+	BETTER_UPLOAD_BUTTON_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 #[derive(Default)]
 pub struct ExternalUpload {
 	prompt: Option<Prompt>,
@@ -362,6 +376,15 @@ fn append_link(state: &mut State, channel: Id, link: &str) -> bool {
 }
 #[cfg(test)]
 mod tests {
+
+	#[test]
+	fn better_upload_button_toggle_works() {
+		assert!(!better_upload_button_enabled());
+		set_better_upload_button_enabled(true);
+		assert!(better_upload_button_enabled());
+		set_better_upload_button_enabled(false);
+		assert!(!better_upload_button_enabled());
+	}
 	use super::*;
 	use client_core::MAX_CONTENT;
 	fn frame(

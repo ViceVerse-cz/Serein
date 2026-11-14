@@ -1,4 +1,3 @@
-"""Package a reviewed local build; this script never downloads or executes creator code."""
 import argparse
 import hashlib
 import json
@@ -102,7 +101,7 @@ def main():
             parser.error(f"cannot embed license: {error}")
     if len(wasm) > MAX_WASM:
         parser.error("Wasm with license exceeds the package limit")
-    package = {"manifest": json.loads(args.manifest.read_text(encoding="utf-8")), "wasm": list(wasm)}
+    package = {"manifest": json.loads(args.manifest.read_text(encoding="utf-8-sig")), "wasm": list(wasm)}
     data = json.dumps(package, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
     if len(data) > 16 * 1024 * 1024:
         parser.error("package exceeds 16 MiB")

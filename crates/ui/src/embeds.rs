@@ -6,6 +6,75 @@ use crate::{
 };
 use egui::RichText;
 use model::{Embed, Gif, Message};
+
+pub static FIX_SPOTIFY_EMBEDS_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(true);
+
+pub fn fix_spotify_embeds_enabled() -> bool {
+	FIX_SPOTIFY_EMBEDS_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn set_fix_spotify_embeds_enabled(enabled: bool) {
+	FIX_SPOTIFY_EMBEDS_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub static FIX_YOUTUBE_EMBEDS_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(true);
+
+pub fn fix_youtube_embeds_enabled() -> bool {
+	FIX_YOUTUBE_EMBEDS_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn set_fix_youtube_embeds_enabled(enabled: bool) {
+	FIX_YOUTUBE_EMBEDS_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// VenSerein (ShowMessageEmbeds): Allows forcing embeds to display even if suppressed.
+pub static SHOW_MESSAGE_EMBEDS_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(true);
+
+pub fn show_message_embeds_enabled() -> bool {
+	SHOW_MESSAGE_EMBEDS_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn set_show_message_embeds_enabled(enabled: bool) {
+	SHOW_MESSAGE_EMBEDS_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn clean_embed_url(url: &str) -> String {
+	if let Ok(mut parsed) = url::Url::parse(url) {
+		let host = parsed.host_str().unwrap_or("").to_ascii_lowercase();
+		let is_spotify = fix_spotify_embeds_enabled()
+			&& (host == "spotify.com" || host.ends_with(".spotify.com"));
+		let is_youtube = fix_youtube_embeds_enabled()
+			&& (host == "youtube.com"
+				|| host.ends_with(".youtube.com")
+				|| host == "youtu.be"
+				|| host.ends_with(".youtu.be"));
+
+		if is_spotify {
+			parsed.set_query(None);
+			return parsed.into();
+		} else if is_youtube && let Some(query) = parsed.query() {
+			let cleaned: Vec<&str> = query
+				.split('&')
+				.filter(|part| {
+					!part.starts_with("si=")
+						&& !part.starts_with("feature=")
+						&& !part.starts_with("utm_")
+				})
+				.collect();
+			if cleaned.is_empty() {
+				parsed.set_query(None);
+			} else {
+				let joined = cleaned.join("&");
+				parsed.set_query(Some(&joined));
+			}
+			return parsed.into();
+		}
+	}
+	url.to_owned()
+}
 use std::hash::{DefaultHasher, Hash, Hasher};
 
 pub fn has_spoilers(message: &Message) -> bool {
@@ -86,8 +155,10 @@ fn source_fallback(
 	{
 		return None;
 	}
-	let url = embed.url.as_deref().and_then(external_url)?;
-	if (message_links_shown && cache.get(message.id, &message.content).links.contains(&url))
+	let raw_url = embed.url.as_deref().and_then(external_url)?;
+	let url = clean_embed_url(&raw_url);
+	let links = &cache.get(message.id, &message.content).links;
+	if (message_links_shown && (links.contains(&url) || links.contains(&raw_url)))
 		|| (!inline
 			&& [&embed.author, &embed.provider]
 				.into_iter()
@@ -560,7 +631,7 @@ pub fn show(
 	card_surface: crate::design::MessageCardSurface,
 	hide_media_links: bool,
 ) -> Option<Gif> {
-	if message.embeds_suppressed {
+	if message.embeds_suppressed && !show_message_embeds_enabled() {
 		return None;
 	}
 	let source = crate::mentions::MentionSource {
@@ -1015,6 +1086,59 @@ mod tests {
 	use super::*;
 
 	/// A link that resolves to a hosted clip carries no poster; the card paints the clip.
+	#[test]
+	fn test_show_message_embeds_toggle() {
+		assert!(show_message_embeds_enabled());
+		set_show_message_embeds_enabled(false);
+		assert!(!show_message_embeds_enabled());
+		set_show_message_embeds_enabled(true);
+		assert!(show_message_embeds_enabled());
+	}
+
+	#[test]
+	fn clean_embed_url_spotify_and_youtube_cleaning() {
+		assert!(fix_spotify_embeds_enabled());
+		assert!(fix_youtube_embeds_enabled());
+
+		let spotify_dirty =
+			"https://open.spotify.com/track/12345?si=abcdef123456&context=spotify%3Aalbum";
+		assert_eq!(
+			clean_embed_url(spotify_dirty),
+			"https://open.spotify.com/track/12345"
+		);
+
+		let yt_dirty =
+			"https://www.youtube.com/watch?v=dQw4w9WgXcQ&si=tracking_token_123&feature=shared";
+		assert_eq!(
+			clean_embed_url(yt_dirty),
+			"https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+		);
+
+		let yt_short = "https://youtu.be/dQw4w9WgXcQ?si=tracking_123";
+		assert_eq!(clean_embed_url(yt_short), "https://youtu.be/dQw4w9WgXcQ");
+
+		set_fix_spotify_embeds_enabled(false);
+		assert_eq!(clean_embed_url(spotify_dirty), spotify_dirty);
+		set_fix_spotify_embeds_enabled(true);
+
+		set_fix_youtube_embeds_enabled(false);
+		assert_eq!(clean_embed_url(yt_dirty), yt_dirty);
+		set_fix_youtube_embeds_enabled(true);
+
+		assert_eq!(
+			clean_embed_url("https://youtu.be/VIDEO?si=TOKEN#t=90"),
+			"https://youtu.be/VIDEO#t=90"
+		);
+		assert_eq!(
+			clean_embed_url("https://www.youtube.com/watch?v=abc&si=token&t=42"),
+			"https://www.youtube.com/watch?v=abc&t=42"
+		);
+		assert_eq!(
+			clean_embed_url("https://example.com/view?source=spotify.com&id=123"),
+			"https://example.com/view?source=spotify.com&id=123"
+		);
+	}
+
 	#[test]
 	fn a_video_card_without_a_poster_shows_its_clip() {
 		let mut embed = Embed {

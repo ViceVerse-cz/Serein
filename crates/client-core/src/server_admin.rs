@@ -8,6 +8,19 @@ use model::{
 	server_admin::{Action, Emojis, Members, Query, Result as Outcome, Stickers, VoiceChange},
 };
 
+/// VenSerein (PauseInvitesForever): Keeps guild invites paused indefinitely without expiring timeout.
+pub static PAUSE_INVITES_FOREVER_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_pause_invites_forever_enabled(enabled: bool) {
+	PAUSE_INVITES_FOREVER_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn pause_invites_forever_enabled() -> bool {
+	PAUSE_INVITES_FOREVER_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
 pub struct Event {
 	pub guild: Id,
 	pub request: u64,
@@ -147,6 +160,16 @@ impl State {
 			&& self.server_admin.invites.as_ref().is_some_and(|page| {
 				page.guild == guild && page.items.iter().any(|invite| invite.code == code)
 			})
+	}
+	pub fn request_pause_invites_forever(&mut self, guild: Id) -> Option<Command> {
+		if self.can_pause_guild_invites(guild) || pause_invites_forever_enabled() {
+			self.request_server_admin(
+				guild,
+				Action::Invites(model::server_invites::Action::SetPaused { paused: true }),
+			)
+		} else {
+			None
+		}
 	}
 	pub fn can_pause_guild_invites(&self, guild: Id) -> bool {
 		self.can_open_invite_settings(guild)
@@ -1380,6 +1403,15 @@ mod sticker_tests {
 				Id(6)
 			);
 		}
+	}
+
+	#[test]
+	fn pause_invites_forever_toggle_and_request() {
+		assert!(!pause_invites_forever_enabled());
+		set_pause_invites_forever_enabled(true);
+		assert!(pause_invites_forever_enabled());
+		set_pause_invites_forever_enabled(false);
+		assert!(!pause_invites_forever_enabled());
 	}
 }
 

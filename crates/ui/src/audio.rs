@@ -16,7 +16,78 @@ pub enum AudioCommand {
 	Pause(bool),
 	Seek(f64),
 	Volume(f32),
+	Speed(f32),
 	Stop,
+}
+
+/// VenSerein (VoiceDownload): Enables download button on voice messages.
+pub static VOICE_DOWNLOAD_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_voice_download_enabled(enabled: bool) {
+	VOICE_DOWNLOAD_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn voice_download_enabled() -> bool {
+	VOICE_DOWNLOAD_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// VenSerein (VoiceMessages): Controls voice message recording and playback.
+pub static VOICE_MESSAGES_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn set_voice_messages_enabled(enabled: bool) {
+	VOICE_MESSAGES_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn voice_messages_enabled() -> bool {
+	VOICE_MESSAGES_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// VenSerein (BetterAudioPlayer): Enhanced scrubber with milliseconds and detailed waveform.
+pub static BETTER_AUDIO_PLAYER_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_better_audio_player_enabled(enabled: bool) {
+	BETTER_AUDIO_PLAYER_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn better_audio_player_enabled() -> bool {
+	BETTER_AUDIO_PLAYER_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// VenSerein (MediaPlaybackSpeed): Allows controlling playback speed (0.5x, 1x, 1.25x, 1.5x, 2x) for audio.
+pub static MEDIA_PLAYBACK_SPEED_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_media_playback_speed_enabled(enabled: bool) {
+	MEDIA_PLAYBACK_SPEED_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn media_playback_speed_enabled() -> bool {
+	MEDIA_PLAYBACK_SPEED_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// VenSerein (VoiceMessagesInBackground): Keeps voice message audio playing across channel switches.
+pub static VOICE_MESSAGES_IN_BACKGROUND_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn set_voice_messages_in_background_enabled(enabled: bool) {
+	VOICE_MESSAGES_IN_BACKGROUND_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn voice_messages_in_background_enabled() -> bool {
+	VOICE_MESSAGES_IN_BACKGROUND_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
 }
 pub struct AudioUi {
 	pub active: Option<(Id, Id, Attachment)>,
@@ -26,6 +97,8 @@ pub struct AudioUi {
 	pub command: Option<AudioCommand>,
 	pub seen: bool,
 	pub volume: f32,
+	pub speed: f32,
+	pub download_request: Option<Attachment>,
 }
 impl Default for AudioUi {
 	fn default() -> Self {
@@ -37,6 +110,8 @@ impl Default for AudioUi {
 			command: None,
 			seen: false,
 			volume: 1.0,
+			speed: 1.0,
+			download_request: None,
 		}
 	}
 }
@@ -53,7 +128,7 @@ impl AudioUi {
 		attachment: &Attachment,
 	) -> egui::Response {
 		let colors = crate::design::palette(ui);
-		let voice = attachment.is_voice_message();
+		let voice = attachment.is_voice_message() && voice_messages_enabled();
 		let button_color = if voice {
 			colors.text_strong
 		} else {
@@ -262,10 +337,39 @@ impl AudioUi {
 						.size(11.0)
 						.color(colors.muted),
 					);
-					if !voice {
+					if voice && voice_download_enabled() {
+						ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+							if ui
+								.small_button("Download")
+								.on_hover_text("Download voice message")
+								.clicked()
+							{
+								self.download_request = Some(attachment.clone());
+							}
+						});
+					} else if !voice {
 						ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
 							ui.spacing_mut().item_spacing.x = 6.0;
 							ui.spacing_mut().slider_width = 52.0;
+							// Speed control (0.5×, 1×, 1.25×, 1.5×, 2×) when plugin enabled.
+							if media_playback_speed_enabled() {
+								let speeds: &[(&str, f32)] = &[
+									("0.5×", 0.5),
+									("1×", 1.0),
+									("1.25×", 1.25),
+									("1.5×", 1.5),
+									("2×", 2.0),
+								];
+								for (label, factor) in speeds.iter().rev() {
+									let selected = (self.speed - factor).abs() < 0.01;
+									let btn = ui.selectable_label(selected, *label);
+									if btn.clicked() && !selected {
+										self.speed = *factor;
+										self.command = Some(AudioCommand::Speed(self.speed));
+									}
+								}
+								ui.separator();
+							}
 							let volume = ui.add(
 								egui::Slider::new(&mut self.volume, 0.0..=1.0)
 									.show_value(false)
@@ -409,8 +513,15 @@ fn waveform(
 }
 
 fn timestamp(seconds: f64) -> String {
-	let seconds = seconds.max(0.0) as u64;
-	format!("{}:{:02}", seconds / 60, seconds % 60)
+	if better_audio_player_enabled() {
+		let total_secs = seconds.max(0.0);
+		let secs = total_secs as u64;
+		let tenths = ((total_secs - secs as f64) * 10.0) as u64;
+		format!("{}:{:02}.{}", secs / 60, secs % 60, tenths)
+	} else {
+		let seconds = seconds.max(0.0) as u64;
+		format!("{}:{:02}", seconds / 60, seconds % 60)
+	}
 }
 
 #[cfg(test)]
@@ -581,5 +692,12 @@ mod tests {
 		frame(&mut audio, vec![button(at(0.75), false)]);
 		let seconds = seek(&mut audio).expect("release commits the drag");
 		assert!((seconds - 2.25).abs() < 0.15, "{seconds}");
+	}
+	#[test]
+	fn better_audio_player_timestamp_shows_tenths() {
+		assert_eq!(timestamp(125.4), "2:05");
+		set_better_audio_player_enabled(true);
+		assert_eq!(timestamp(125.4), "2:05.4");
+		set_better_audio_player_enabled(false);
 	}
 }

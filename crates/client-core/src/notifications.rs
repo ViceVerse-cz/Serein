@@ -59,10 +59,12 @@ pub(crate) struct Activity {
 	/// Channel, message, local mention, service coverage, and proven service contribution at creation.
 	observed: VecDeque<(Id, Id, bool, bool, bool)>,
 	notifications: VecDeque<Notification>,
+	pub(crate) alerted_dms: std::collections::BTreeSet<Id>,
 }
 impl Activity {
 	pub(crate) fn clear_notifications(&mut self) {
 		self.notifications.clear();
+		self.alerted_dms.clear();
 	}
 	pub(crate) fn forget(&mut self, channel: Id) {
 		self.high_water.remove(&channel);
@@ -73,6 +75,7 @@ impl Activity {
 		self.observed_counts.remove(&channel);
 		self.observed.retain(|(c, ..)| *c != channel);
 		self.notifications.retain(|n| n.channel != channel);
+		self.alerted_dms.remove(&channel);
 	}
 	pub(crate) fn delete(&mut self, channel: Id, message: Id) {
 		self.observed
@@ -117,6 +120,7 @@ impl Activity {
 		if latest.is_some_and(|latest| latest <= message) {
 			self.counts.remove(&channel);
 		}
+		self.alerted_dms.remove(&channel);
 		self.recount(channel);
 	}
 
@@ -1064,6 +1068,18 @@ impl State {
 		if !allowed {
 			return;
 		}
+		let is_dm = self
+			.channel(message.channel)
+			.is_some_and(|c| c.guild.is_none());
+		if ONE_PING_PER_DM_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+			&& is_dm && self
+			.read_state
+			.activity
+			.alerted_dms
+			.contains(&message.channel)
+		{
+			return;
+		}
 		let sender = alert_text(self.message_author_name(message), 80, 256);
 		let sender = if sender.is_empty() {
 			"Unknown sender".to_owned()
@@ -1114,12 +1130,31 @@ impl State {
 		{
 			activity.notifications.pop_front();
 		}
+		if is_dm {
+			activity.alerted_dms.insert(message.channel);
+		}
 		activity.notifications.push_back(notification);
 	}
 }
 
+pub static ONE_PING_PER_DM_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_one_ping_per_dm_enabled(enabled: bool) {
+	ONE_PING_PER_DM_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn one_ping_per_dm_toggle_works() {
+		set_one_ping_per_dm_enabled(true);
+		assert!(ONE_PING_PER_DM_ENABLED.load(std::sync::atomic::Ordering::Relaxed));
+		set_one_ping_per_dm_enabled(false);
+		assert!(!ONE_PING_PER_DM_ENABLED.load(std::sync::atomic::Ordering::Relaxed));
+	}
+
 	use super::*;
 
 	use model::{Channel, Guild, Patch, User, permissions as p};

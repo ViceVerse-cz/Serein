@@ -11,6 +11,131 @@ use model::{
 };
 use std::collections::BTreeSet;
 
+pub static BETTER_FOLDERS_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+pub fn better_folders_enabled() -> bool {
+	BETTER_FOLDERS_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn set_better_folders_enabled(enabled: bool) {
+	BETTER_FOLDERS_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub static BETTER_FOLDERS_CLOSE_OTHERS_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+pub fn better_folders_close_others_enabled() -> bool {
+	BETTER_FOLDERS_CLOSE_OTHERS_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn set_better_folders_close_others_enabled(enabled: bool) {
+	BETTER_FOLDERS_CLOSE_OTHERS_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// VenSerein (HideServers): Allows hiding servers from the server list via context menu.
+pub static HIDE_SERVERS_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn hide_servers_enabled() -> bool {
+	HIDE_SERVERS_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_hide_servers_enabled(enabled: bool) {
+	HIDE_SERVERS_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub static HIDDEN_SERVERS: std::sync::RwLock<BTreeSet<Id>> =
+	std::sync::RwLock::new(BTreeSet::new());
+
+#[allow(dead_code)]
+pub fn hide_server(id: Id) {
+	if let Ok(mut set) = HIDDEN_SERVERS.write() {
+		set.insert(id);
+	}
+}
+
+#[allow(dead_code)]
+pub fn unhide_server(id: Id) {
+	if let Ok(mut set) = HIDDEN_SERVERS.write() {
+		set.remove(&id);
+	}
+}
+
+#[allow(dead_code)]
+pub fn is_server_hidden(id: Id) -> bool {
+	if !hide_servers_enabled() {
+		return false;
+	}
+	HIDDEN_SERVERS.read().is_ok_and(|set| set.contains(&id))
+}
+
+/// VenSerein (CustomFolderIcons): Customize folder icons in the server rail.
+pub static CUSTOM_FOLDER_ICONS_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn custom_folder_icons_enabled() -> bool {
+	CUSTOM_FOLDER_ICONS_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_custom_folder_icons_enabled(enabled: bool) {
+	CUSTOM_FOLDER_ICONS_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// VenSerein (ServerSearch): Quick search and filter in the server rail.
+pub static SERVER_SEARCH_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn server_search_enabled() -> bool {
+	SERVER_SEARCH_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_server_search_enabled(enabled: bool) {
+	SERVER_SEARCH_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// VenSerein (HomeTyping): Displays typing indicator on the Home direct messages rail tile when someone is typing.
+pub static HOME_TYPING_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn home_typing_enabled() -> bool {
+	HOME_TYPING_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_home_typing_enabled(enabled: bool) {
+	HOME_TYPING_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// VenSerein (ServerCounter): Global toggle for showing the server count badge at the bottom of the server rail.
+pub static SERVER_COUNTER_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn server_counter_enabled() -> bool {
+	SERVER_COUNTER_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_server_counter_enabled(enabled: bool) {
+	SERVER_COUNTER_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn server_counter_label(count: usize) -> String {
+	if count > 100 {
+		format!("{count}/200")
+	} else {
+		format!("{count}/100")
+	}
+}
+
 #[derive(Default)]
 pub(super) struct FolderUi {
 	expanded: BTreeSet<u64>,
@@ -45,7 +170,7 @@ impl FolderUi {
 		let mut rows: Vec<Row> = state
 			.guilds
 			.iter()
-			.filter(|g| !seen.contains(&g.id))
+			.filter(|g| !seen.contains(&g.id) && !is_server_hidden(g.id))
 			.map(|g| (Item::Server(g.id), None))
 			.collect();
 		if let Some(settings) = &state.guild_folders {
@@ -65,7 +190,10 @@ impl FolderUi {
 					));
 				}
 				for &id in &folder.guild_ids {
-					if folder.id.is_none_or(shown) && state.guild(id).is_some() {
+					if folder.id.is_none_or(shown)
+						&& state.guild(id).is_some()
+						&& !is_server_hidden(id)
+					{
 						rows.push((
 							Item::Server(id),
 							folder.id.map(|folder_id| {
@@ -90,6 +218,14 @@ impl FolderUi {
 		if self.expanded.remove(&id) {
 			self.closing.insert(id);
 		} else {
+			if better_folders_close_others_enabled() {
+				for &other in &self.expanded {
+					if other != id {
+						self.closing.insert(other);
+					}
+				}
+				self.expanded.retain(|&other| other == id);
+			}
 			self.expanded.insert(id);
 			self.closing.remove(&id);
 		}
@@ -266,6 +402,42 @@ fn mosaic_cell(tile: egui::Rect, index: usize) -> egui::Rect {
 	)
 }
 
+pub static PLAIN_FOLDER_ICON_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_plain_folder_icon_enabled(enabled: bool) {
+	PLAIN_FOLDER_ICON_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// VenSerein (ReadAllNotificationsButton): Exposes mark-all-read shortcut in server navigation.
+pub static READ_ALL_NOTIFICATIONS_BUTTON_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_read_all_notifications_button_enabled(enabled: bool) {
+	READ_ALL_NOTIFICATIONS_BUTTON_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn read_all_notifications_button_enabled() -> bool {
+	READ_ALL_NOTIFICATIONS_BUTTON_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// VenSerein (MutedServersActivityBadge): Suppresses unread dots and count badges on muted servers.
+pub static MUTED_SERVERS_ACTIVITY_BADGE_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_muted_servers_activity_badge_enabled(enabled: bool) {
+	MUTED_SERVERS_ACTIVITY_BADGE_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn muted_servers_activity_badge_enabled() -> bool {
+	MUTED_SERVERS_ACTIVITY_BADGE_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 fn paint_folder_tile(
 	ui: &mut egui::Ui,
 	avatars: &mut crate::avatars::Avatars,
@@ -276,6 +448,15 @@ fn paint_folder_tile(
 ) {
 	let plate = (rect.width().min(rect.height()) * 0.29) as u8;
 	ui.painter().rect_filled(rect, plate, fill);
+	if PLAIN_FOLDER_ICON_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
+		icons::paint(
+			ui.painter(),
+			Icon::Folder,
+			egui::Rect::from_center_size(rect.center(), egui::vec2(20.0, 20.0)),
+			design::palette(ui).text,
+		);
+		return;
+	}
 	let circle = (MOSAIC_ICON * 0.5).ceil() as u8;
 	for (index, guild) in mosaic.into_iter().enumerate() {
 		if let Some(guild) = guild {
@@ -485,7 +666,13 @@ impl MessagingUi {
 								self.guild == Some(id),
 								state.demo,
 							);
-							let (unread, count) = self.rail_cache.guild_badge(id);
+							let (mut unread, mut count) = self.rail_cache.guild_badge(id);
+							if muted_servers_activity_badge_enabled()
+								&& state.server_notification_settings(id).muted == Some(true)
+							{
+								unread = false;
+								count = 0;
+							}
 							rail_indicator(
 								ui,
 								response.id,
@@ -558,13 +745,20 @@ impl MessagingUi {
 								ui.set_opacity(opacity);
 							}
 
-							let unread = folder
-								.guild_ids
-								.iter()
-								.any(|g| self.rail_cache.guild_badge(*g).0);
-							let count = folder.guild_ids.iter().fold(0u32, |sum, g| {
-								sum.saturating_add(self.rail_cache.guild_badge(*g).1)
-							});
+							let (unread, count) = folder.guild_ids.iter().fold(
+								(false, 0u32),
+								|(has_unread, sum), g| {
+									let (mut u, mut c) = self.rail_cache.guild_badge(*g);
+									if muted_servers_activity_badge_enabled()
+										&& state.server_notification_settings(*g).muted
+											== Some(true)
+									{
+										u = false;
+										c = 0;
+									}
+									(has_unread || u, sum.saturating_add(c))
+								},
+							);
 							// Always tracked so the pill shrinks away when the folder opens.
 							rail_indicator(
 								ui,
@@ -640,6 +834,22 @@ impl MessagingUi {
 							let leave = self.server_menu.leave_item(ui, state, id);
 							if settings || notifications || leave {
 								self.guild = Some(id);
+							}
+							if hide_servers_enabled() {
+								let hidden = is_server_hidden(id);
+								let label = if hidden {
+									"Unhide Server"
+								} else {
+									"Hide Server"
+								};
+								if ui.button(label).clicked() {
+									if hidden {
+										unhide_server(id);
+									} else {
+										hide_server(id);
+									}
+									ui.close();
+								}
 							}
 							ui.separator();
 						}
@@ -980,6 +1190,33 @@ impl MessagingUi {
 
 #[cfg(test)]
 mod tests {
+
+	#[test]
+	fn muted_servers_activity_badge_toggle_works() {
+		assert!(!muted_servers_activity_badge_enabled());
+		set_muted_servers_activity_badge_enabled(true);
+		assert!(muted_servers_activity_badge_enabled());
+		set_muted_servers_activity_badge_enabled(false);
+		assert!(!muted_servers_activity_badge_enabled());
+	}
+
+	#[test]
+	fn read_all_notifications_button_toggle_works() {
+		assert!(!read_all_notifications_button_enabled());
+		set_read_all_notifications_button_enabled(true);
+		assert!(read_all_notifications_button_enabled());
+		set_read_all_notifications_button_enabled(false);
+		assert!(!read_all_notifications_button_enabled());
+	}
+
+	#[test]
+	fn plain_folder_icon_toggle_works() {
+		set_plain_folder_icon_enabled(true);
+		assert!(PLAIN_FOLDER_ICON_ENABLED.load(std::sync::atomic::Ordering::Relaxed));
+		set_plain_folder_icon_enabled(false);
+		assert!(!PLAIN_FOLDER_ICON_ENABLED.load(std::sync::atomic::Ordering::Relaxed));
+	}
+
 	use super::*;
 	use client_core::read_state::Event as ReadEvent;
 	use model::{Channel, permissions as perms};
@@ -1537,5 +1774,76 @@ mod tests {
 			!has_voice_badge_failed,
 			"Collapsed folder must not render a voice badge when call phase is Failed"
 		);
+	}
+
+	#[test]
+	fn better_folders_toggles_and_close_others() {
+		assert!(!better_folders_enabled());
+		set_better_folders_enabled(true);
+		assert!(better_folders_enabled());
+
+		assert!(!better_folders_close_others_enabled());
+		set_better_folders_close_others_enabled(true);
+		assert!(better_folders_close_others_enabled());
+
+		let mut ui = FolderUi::default();
+		ui.toggle(10);
+		assert!(ui.expanded.contains(&10));
+
+		// When close_others is true, expanding 20 closes 10
+		ui.toggle(20);
+		assert!(ui.expanded.contains(&20));
+		assert!(!ui.expanded.contains(&10));
+		assert!(ui.closing.contains(&10));
+
+		// Now disable close_others and verify both can be open
+		set_better_folders_close_others_enabled(false);
+		ui.toggle(10);
+		assert!(ui.expanded.contains(&10));
+		assert!(ui.expanded.contains(&20));
+
+		set_better_folders_enabled(false);
+	}
+
+	#[test]
+	fn test_venserein_phase2_batch2_guild_folder_toggles() {
+		assert!(hide_servers_enabled());
+		set_hide_servers_enabled(false);
+		assert!(!hide_servers_enabled());
+		set_hide_servers_enabled(true);
+		assert!(hide_servers_enabled());
+
+		let test_id = Id(4242);
+		assert!(!is_server_hidden(test_id));
+		hide_server(test_id);
+		assert!(is_server_hidden(test_id));
+		unhide_server(test_id);
+		assert!(!is_server_hidden(test_id));
+
+		assert!(custom_folder_icons_enabled());
+		set_custom_folder_icons_enabled(false);
+		assert!(!custom_folder_icons_enabled());
+		set_custom_folder_icons_enabled(true);
+		assert!(custom_folder_icons_enabled());
+
+		assert!(server_search_enabled());
+		set_server_search_enabled(false);
+		assert!(!server_search_enabled());
+		set_server_search_enabled(true);
+		assert!(server_search_enabled());
+
+		assert!(home_typing_enabled());
+		set_home_typing_enabled(false);
+		assert!(!home_typing_enabled());
+		set_home_typing_enabled(true);
+		assert!(home_typing_enabled());
+
+		assert!(server_counter_enabled());
+		set_server_counter_enabled(false);
+		assert!(!server_counter_enabled());
+		set_server_counter_enabled(true);
+		assert!(server_counter_enabled());
+		assert_eq!(server_counter_label(15), "15/100");
+		assert_eq!(server_counter_label(150), "150/200");
 	}
 }

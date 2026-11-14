@@ -15,6 +15,20 @@ const EMOJI_LIMIT: usize = 256;
 const ROW: f32 = 36.0;
 const VISIBLE_ROWS: f32 = 8.5;
 
+/// VenSerein (MentionAvatars): Toggle for rendering member avatars in mention autocompletion.
+pub static MENTION_AVATARS_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn set_mention_avatars_enabled(enabled: bool) {
+	MENTION_AVATARS_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn mention_avatars_enabled() -> bool {
+	MENTION_AVATARS_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 #[derive(Default)]
 pub struct Menu {
 	catalog_revision: u64,
@@ -247,6 +261,34 @@ fn recent_user_ranks(
 pub struct MentionSource<'a> {
 	pub state: &'a State,
 	pub channel: Id,
+}
+
+/// VenSerein (RoleColorEverywhere): Renders member's highest role color across mentions and UI elements.
+pub static ROLE_COLOR_EVERYWHERE_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(false);
+
+#[allow(dead_code)]
+pub fn set_role_color_everywhere_enabled(enabled: bool) {
+	ROLE_COLOR_EVERYWHERE_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn role_color_everywhere_enabled() -> bool {
+	ROLE_COLOR_EVERYWHERE_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn user_role_color(
+	id: Id,
+	source: Option<&MentionSource<'_>>,
+	roles: &[model::permissions::Role],
+) -> Option<u32> {
+	let source = source?;
+	let member = member(source.state, source.channel, id)?;
+	roles
+		.iter()
+		.filter(|r| r.color != 0 && member.roles.contains(&r.id))
+		.max_by_key(|r| r.position)
+		.map(|r| r.color)
 }
 
 fn member(state: &State, channel: Id, id: Id) -> Option<&model::Member> {
@@ -999,8 +1041,10 @@ fn row(
 			game.name.clone()
 		}
 		Candidate::User { user, name } => {
-			let mut child = ui.new_child(egui::UiBuilder::new().max_rect(icon));
-			avatars.show(&mut child, user, 24.0, demo);
+			if mention_avatars_enabled() {
+				let mut child = ui.new_child(egui::UiBuilder::new().max_rect(icon));
+				avatars.show(&mut child, user, 24.0, demo);
+			}
 			name.clone()
 		}
 		Candidate::Mass { .. } | Candidate::Role { .. } => {
@@ -1117,6 +1161,15 @@ fn row(
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn mention_avatars_toggle_works() {
+		assert!(mention_avatars_enabled());
+		set_mention_avatars_enabled(false);
+		assert!(!mention_avatars_enabled());
+		set_mention_avatars_enabled(true);
+		assert!(mention_avatars_enabled());
+	}
 	use model::Channel;
 
 	#[test]
@@ -2652,5 +2705,19 @@ pub fn debug_role_mentions_check(state: &mut State) {
 	if let Some(dm) = state.channels.iter().find(|c| c.guild.is_none()) {
 		menu.refresh(state, dm.id, "@Role", Some(5), &[]);
 		assert!(menu.candidates.is_empty(), "roles must not leak into DMs");
+	}
+}
+
+#[cfg(test)]
+mod tests_role_color {
+	use super::*;
+
+	#[test]
+	fn role_color_everywhere_toggle_works() {
+		assert!(!role_color_everywhere_enabled());
+		set_role_color_everywhere_enabled(true);
+		assert!(role_color_everywhere_enabled());
+		set_role_color_everywhere_enabled(false);
+		assert!(!role_color_everywhere_enabled());
 	}
 }

@@ -111,6 +111,19 @@ impl SearchUi {
 		self.filters_open = self.open && !pins;
 		self.open
 	}
+	/// Open text search with an initial query (e.g. `"mentions:123456789012345678"`),
+	/// toggling the pane open and pre-filling the input box.
+	pub fn open_with_query(&mut self, query: String) {
+		self.open = true;
+		self.pins = false;
+		self.query = query;
+		self.relabel = true;
+		self.focus = true;
+		self.filters_open = false;
+		self.filter_draft = None;
+		self.pending_submit = false;
+		self.viewing = None;
+	}
 	/// Fixture-only: open a text search for `query` and submit it on the next frame.
 	#[cfg(any(test, feature = "demo"))]
 	pub fn preview(&mut self, query: &str) {

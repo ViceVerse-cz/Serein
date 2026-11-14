@@ -1,7 +1,21 @@
-use crate::{MessagingUi, design};
+use crate::{
+	MessagingUi,
+	design::{self, LazyHover},
+};
 use client_core::{Command, State};
 use egui::{Align2, Color32, FontId};
 use model::Id;
+
+pub static SERVER_LIST_INDICATORS_ENABLED: std::sync::atomic::AtomicBool =
+	std::sync::atomic::AtomicBool::new(true);
+
+pub fn server_list_indicators_enabled() -> bool {
+	SERVER_LIST_INDICATORS_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn set_server_list_indicators_enabled(enabled: bool) {
+	SERVER_LIST_INDICATORS_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
 
 /// Fixed width of the server rail column.
 pub(super) const RAIL_WIDTH: f32 = 64.0;
@@ -187,15 +201,25 @@ pub(super) fn rail_indicator(
 			egui::emath::easing::cubic_out,
 		)
 	};
+	let unread_scale = if server_list_indicators_enabled() {
+		10.0
+	} else {
+		7.0
+	};
 	let height = (34.0 * ease("rail-pill-selected", selected))
 		.max(17.0 * ease("rail-pill-hover", hovered))
-		.max(7.0 * ease("rail-pill-unread", unread));
+		.max(unread_scale * ease("rail-pill-unread", unread));
 	if height < 0.5 {
 		return;
 	}
+	let pill_width = if server_list_indicators_enabled() {
+		9.0
+	} else {
+		8.0
+	};
 	let pill = egui::Rect::from_center_size(
 		egui::pos2(rect.left() - f32::from(RAIL_MARGIN) + 1.0, rect.center().y),
-		egui::vec2(8.0, height),
+		egui::vec2(pill_width, height),
 	);
 	ui.painter()
 		.rect_filled(pill, 4, design::palette(ui).text_strong);
@@ -259,6 +283,10 @@ fn indicator(ui: &egui::Ui, id: egui::Id, response: &egui::Response, unread: boo
 impl MessagingUi {
 	pub fn viewing_latest(&self, channel: Id) -> bool {
 		self.timeline.viewing_latest(channel)
+	}
+	#[allow(dead_code)]
+	pub fn jump_to_top(&mut self) {
+		self.timeline.jump_to_top();
 	}
 	/// Draws the server rail: the Home button with its request badge, direct conversations with
 	/// unread messages, and servers and folders with their badges.
@@ -481,6 +509,27 @@ impl MessagingUi {
 						if response.clicked() {
 							self.join_server.open_picker(state.generation);
 						}
+						if crate::guild_folders::server_counter_enabled() {
+							ui.add_space(4.0);
+							let count = state.guilds.len();
+							let (rect, response) = ui.allocate_exact_size(
+								egui::vec2(RAIL_TILE, 18.0),
+								egui::Sense::hover(),
+							);
+							ui.painter().rect_filled(
+								rect.shrink2(egui::vec2(4.0, 1.0)),
+								6,
+								colors.raised,
+							);
+							ui.painter().text(
+								rect.center(),
+								egui::Align2::CENTER_CENTER,
+								crate::guild_folders::server_counter_label(count),
+								egui::FontId::new(10.0, design::medium_family(ui.ctx())),
+								colors.muted,
+							);
+							response.on_hover_text_with(|| format!("{count} servers joined"));
+						}
 					});
 			});
 		if let Some(id) = selected
@@ -673,6 +722,58 @@ mod tests {
 			!group(&drawn(&mut state, true)),
 			"request group hides its count"
 		);
+	}
+
+	#[test]
+	fn server_list_indicators_toggle() {
+		assert!(server_list_indicators_enabled());
+
+		let ctx = egui::Context::default();
+		design::apply(&ctx);
+		let rect = egui::Rect::from_min_size(egui::pos2(50.0, 50.0), egui::vec2(40.0, 40.0));
+		let id = egui::Id::unique("test-rail-indicator");
+
+		let mut output_enabled = ctx.run_ui(egui::RawInput::default(), |ui| {
+			ui.ctx().animate_bool_with_time_and_easing(
+				id.with("rail-pill-unread"),
+				true,
+				0.0_f32,
+				egui::emath::easing::cubic_out,
+			);
+			rail_indicator(ui, id, rect, false, false, true);
+		});
+		output_enabled.textures_delta.clear();
+		let shapes_enabled = output_enabled.shapes;
+
+		let pill_width_enabled = shapes_enabled.iter().find_map(|s| match &s.shape {
+			egui::Shape::Rect(r) => Some(r.rect.width()),
+			_ => None,
+		});
+		assert_eq!(pill_width_enabled, Some(9.0));
+
+		set_server_list_indicators_enabled(false);
+		assert!(!server_list_indicators_enabled());
+
+		let mut output_disabled = ctx.run_ui(egui::RawInput::default(), |ui| {
+			ui.ctx().animate_bool_with_time_and_easing(
+				id.with("rail-pill-unread"),
+				true,
+				0.0_f32,
+				egui::emath::easing::cubic_out,
+			);
+			rail_indicator(ui, id, rect, false, false, true);
+		});
+		output_disabled.textures_delta.clear();
+		let shapes_disabled = output_disabled.shapes;
+
+		let pill_width_disabled = shapes_disabled.iter().find_map(|s| match &s.shape {
+			egui::Shape::Rect(r) => Some(r.rect.width()),
+			_ => None,
+		});
+		assert_eq!(pill_width_disabled, Some(8.0));
+
+		set_server_list_indicators_enabled(true);
+		assert!(server_list_indicators_enabled());
 	}
 
 	#[test]

@@ -2,6 +2,150 @@ use crate::{avatars::Avatars, design, icons};
 use client_core::State;
 use model::{Channel, Id};
 use std::collections::HashSet;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// VenSerein (FrequentQuickSwitcher): Prioritizes frequently visited and unread channels in the switcher.
+pub static FREQUENT_QUICK_SWITCHER_ENABLED: AtomicBool = AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn set_frequent_quick_switcher_enabled(enabled: bool) {
+	FREQUENT_QUICK_SWITCHER_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn frequent_quick_switcher_enabled() -> bool {
+	FREQUENT_QUICK_SWITCHER_ENABLED.load(Ordering::Relaxed)
+}
+
+/// VenSerein (RecentDMSwitcher): Prioritizes recent DMs and provides quick switching between direct messages.
+pub static RECENT_DM_SWITCHER_ENABLED: AtomicBool = AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn set_recent_dm_switcher_enabled(enabled: bool) {
+	RECENT_DM_SWITCHER_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn recent_dm_switcher_enabled() -> bool {
+	RECENT_DM_SWITCHER_ENABLED.load(Ordering::Relaxed)
+}
+
+/// VenSerein (CommandPalette): Executes actions when query starts with `>` or matches common command names.
+pub static COMMAND_PALETTE_ENABLED: AtomicBool = AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn set_command_palette_enabled(enabled: bool) {
+	COMMAND_PALETTE_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub fn command_palette_enabled() -> bool {
+	COMMAND_PALETTE_ENABLED.load(Ordering::Relaxed)
+}
+
+/// VenSerein (FriendTags): Allows filtering friends by custom tags or notes in the switcher with `&`.
+pub static FRIEND_TAGS_ENABLED: AtomicBool = AtomicBool::new(true);
+
+#[allow(dead_code)]
+pub fn friend_tags_enabled() -> bool {
+	FRIEND_TAGS_ENABLED.load(Ordering::Relaxed)
+}
+
+#[allow(dead_code)]
+pub fn set_friend_tags_enabled(enabled: bool) {
+	FRIEND_TAGS_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+pub enum CommandPaletteAction {
+	OpenSettings,
+	MarkAllRead,
+	ToggleMute,
+	ToggleDeafen,
+	JumpToPresent,
+	JumpToOldest,
+	OpenPins,
+	OpenMentions,
+	ToggleMemberCount,
+	ToggleServerCounter,
+	ToggleShowConnections,
+	ToggleMessageDetails,
+}
+
+pub const COMMAND_ACTIONS: &[(CommandPaletteAction, &str, &str, &str)] = &[
+	(
+		CommandPaletteAction::OpenSettings,
+		"Settings",
+		"Open User Settings",
+		">settings",
+	),
+	(
+		CommandPaletteAction::MarkAllRead,
+		"Mark All Read",
+		"Mark all channels as read",
+		">mark-all-read",
+	),
+	(
+		CommandPaletteAction::ToggleMute,
+		"Toggle Mute",
+		"Mute or unmute microphone",
+		">mute",
+	),
+	(
+		CommandPaletteAction::ToggleDeafen,
+		"Toggle Deafen",
+		"Deafen or undeafen audio",
+		">deaf",
+	),
+	(
+		CommandPaletteAction::JumpToPresent,
+		"Jump to Present",
+		"Jump to newest message in channel",
+		">jump-present",
+	),
+	(
+		CommandPaletteAction::JumpToOldest,
+		"Jump to Oldest",
+		"Jump to oldest message in channel",
+		">jump-oldest",
+	),
+	(
+		CommandPaletteAction::OpenPins,
+		"Pinned Messages",
+		"Open channel pinned messages",
+		">pins",
+	),
+	(
+		CommandPaletteAction::OpenMentions,
+		"Mentions Inbox",
+		"Open recent mentions and inbox",
+		">inbox",
+	),
+	(
+		CommandPaletteAction::ToggleMemberCount,
+		"Toggle Member Count",
+		"Show or hide member count in server sidebar",
+		">member-count",
+	),
+	(
+		CommandPaletteAction::ToggleServerCounter,
+		"Toggle Server Counter",
+		"Show or hide server counter badge on rail",
+		">server-count",
+	),
+	(
+		CommandPaletteAction::ToggleShowConnections,
+		"Toggle Show Connections",
+		"Show connected accounts in user profile popouts",
+		">connections",
+	),
+	(
+		CommandPaletteAction::ToggleMessageDetails,
+		"Toggle Message Details",
+		"Show snowflake IDs and edit times in message timestamps",
+		">msg-details",
+	),
+];
 
 const QUERY_CHARS: usize = 128;
 const QUERY_BYTES: usize = QUERY_CHARS * 4;
@@ -20,18 +164,20 @@ pub(super) struct Switcher {
 	searched: Option<(String, f64)>,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Kind {
 	Text,
 	Voice,
 	Direct,
 	Group,
+	Action,
 }
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub(super) enum Target {
 	Channel(Id),
 	Friend(Id),
+	Action(CommandPaletteAction),
 }
 
 struct Candidate {
@@ -50,6 +196,7 @@ impl Candidate {
 			Kind::Text => "#",
 			Kind::Voice => "switcher-kind-voice-roster",
 			Kind::Direct | Kind::Group => "",
+			Kind::Action => ">",
 		};
 		format!(
 			"{} {} · {}",
@@ -132,6 +279,71 @@ pub(super) fn channel_matches(
 }
 
 fn candidates(state: &State, query: &str) -> Vec<Candidate> {
+	if friend_tags_enabled() && query.trim_start().starts_with('&') {
+		let clean = query
+			.trim_start()
+			.trim_start_matches('&')
+			.trim()
+			.to_lowercase();
+		let words: Vec<&str> = clean.split_whitespace().collect();
+		let mut friend_choices = Vec::new();
+		for user in state.friends() {
+			let labels = [
+				Some(user.name.as_str()),
+				state.friend_nickname(user.id),
+				state.friend_username(user.id),
+			]
+			.into_iter()
+			.flatten();
+			let mut label = String::new();
+			let mut matched = vec![false; words.len()];
+			if labels_match(labels, &words, &mut label, &mut matched) {
+				friend_choices.push(Candidate {
+					target: Target::Friend(user.id),
+					kind: Kind::Direct,
+					name: bounded(state.user_display_name(user)),
+					scope: bounded(state.friend_username(user.id).unwrap_or("Friend")),
+					current: false,
+					user: Some(user.clone()),
+				});
+				if friend_choices.len() == RESULTS {
+					break;
+				}
+			}
+		}
+		return friend_choices;
+	}
+	if command_palette_enabled() && query.trim_start().starts_with('>') {
+		let clean = query
+			.trim_start()
+			.trim_start_matches('>')
+			.trim()
+			.to_lowercase();
+		let words: Vec<&str> = clean.split_whitespace().collect();
+		let mut commands = Vec::new();
+		for &(action, name, desc, prefix) in COMMAND_ACTIONS {
+			let name_lower = name.to_lowercase();
+			let desc_lower = desc.to_lowercase();
+			if words.is_empty()
+				|| words
+					.iter()
+					.all(|w| name_lower.contains(w) || desc_lower.contains(w) || prefix.contains(w))
+			{
+				commands.push(Candidate {
+					target: Target::Action(action),
+					kind: Kind::Action,
+					name: bounded(name),
+					scope: bounded(desc),
+					current: false,
+					user: None,
+				});
+				if commands.len() == RESULTS {
+					break;
+				}
+			}
+		}
+		return commands;
+	}
 	let query = bounded(query).to_lowercase();
 	let words: Vec<_> = query.split_whitespace().collect();
 	// One reused buffer instead of a lowercase copy of every label per keystroke.
@@ -144,9 +356,16 @@ fn candidates(state: &State, query: &str) -> Vec<Candidate> {
 		.iter()
 		.filter(|c| (c.supports_text() || c.kind == 2) && state.can_view(c.id) && matches(c))
 		.collect();
-	// Current conversation first, then the most recently active ones.
+	// Current conversation first, then frecency/unread/DM priority, then activity.
+	let frequent = frequent_quick_switcher_enabled();
+	let recent_dms = recent_dm_switcher_enabled();
 	recent_first(&mut found, RESULTS, |c| {
-		(Some(c.id) == state.selected, activity(c))
+		let is_current = Some(c.id) == state.selected;
+		let is_unread =
+			frequent && (state.channel_unread(c).is_some() || state.unread(c.id) == Some(true));
+		let is_dm = recent_dms && c.guild.is_none();
+		let act = activity(c);
+		(is_current, is_unread, is_dm, act)
 	});
 	let mut choices: Vec<_> = found
 		.into_iter()
@@ -229,6 +448,29 @@ fn candidates(state: &State, query: &str) -> Vec<Candidate> {
 			});
 			if choices.len() == RESULTS {
 				break;
+			}
+		}
+	}
+	if command_palette_enabled() && !words.is_empty() && choices.len() < RESULTS {
+		for &(action, name, desc, prefix) in COMMAND_ACTIONS {
+			let name_lower = name.to_lowercase();
+			let desc_lower = desc.to_lowercase();
+			if words.iter().all(|w| {
+				name_lower.contains(w)
+					|| desc_lower.contains(w)
+					|| prefix.trim_start_matches('>').contains(w)
+			}) {
+				choices.push(Candidate {
+					target: Target::Action(action),
+					kind: Kind::Action,
+					name: bounded(name),
+					scope: bounded(desc),
+					current: false,
+					user: None,
+				});
+				if choices.len() == RESULTS {
+					break;
+				}
 			}
 		}
 	}
@@ -340,6 +582,16 @@ fn result_row(
 				icons::Icon::People,
 				icon_rect.shrink(8.0),
 				colors.accent_text,
+			);
+		}
+		Kind::Action => {
+			let painter = ui.painter();
+			painter.rect_filled(icon_rect, 8, colors.raised);
+			icons::paint(
+				painter,
+				icons::Icon::Gear,
+				icon_rect.shrink(7.0),
+				if selected { text } else { dim },
 			);
 		}
 		Kind::Text | Kind::Voice => {
@@ -787,7 +1039,7 @@ mod tests {
 			} else {
 				egui::Visuals::light()
 			});
-			let state = state();
+			let state = tests::state();
 			let mut switcher = Switcher::default();
 			let mut avatars = Avatars::default();
 			let prior = egui::Id::unique("previous-input");
@@ -938,5 +1190,44 @@ mod tests {
 			frame(&mut switcher, vec![key(egui::Key::Escape)]);
 			assert!(!switcher.is_open());
 		}
+	}
+
+	#[test]
+	fn test_venserein_switcher_toggles_and_command_palette() {
+		assert!(frequent_quick_switcher_enabled());
+		set_frequent_quick_switcher_enabled(false);
+		assert!(!frequent_quick_switcher_enabled());
+		set_frequent_quick_switcher_enabled(true);
+		assert!(frequent_quick_switcher_enabled());
+
+		assert!(recent_dm_switcher_enabled());
+		set_recent_dm_switcher_enabled(false);
+		assert!(!recent_dm_switcher_enabled());
+		set_recent_dm_switcher_enabled(true);
+		assert!(recent_dm_switcher_enabled());
+
+		assert!(command_palette_enabled());
+		set_command_palette_enabled(false);
+		assert!(!command_palette_enabled());
+		set_command_palette_enabled(true);
+		assert!(command_palette_enabled());
+
+		let state = state();
+		let actions = candidates(&state, ">settings");
+		assert!(!actions.is_empty());
+		assert_eq!(
+			actions[0].target,
+			Target::Action(CommandPaletteAction::OpenSettings)
+		);
+		assert_eq!(actions[0].kind, Kind::Action);
+
+		let all_actions = candidates(&state, ">");
+		assert_eq!(all_actions.len(), COMMAND_ACTIONS.len());
+
+		assert!(friend_tags_enabled());
+		set_friend_tags_enabled(false);
+		assert!(!friend_tags_enabled());
+		set_friend_tags_enabled(true);
+		assert!(friend_tags_enabled());
 	}
 }
