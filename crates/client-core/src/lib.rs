@@ -622,14 +622,6 @@ pub enum Event {
 		request: u64,
 		result: Result<Box<UserProfile>, auth::Failure>,
 	},
-	Connections {
-		request: u64,
-		result: Result<model::connections::ConnectionsPage, auth::Failure>,
-	},
-	ConnectionVisibility {
-		request: u64,
-		result: Result<model::connections::Connection, auth::Failure>,
-	},
 	SafetyHub {
 		request: u64,
 		result: Result<model::safety_hub::Snapshot, auth::Failure>,
@@ -852,7 +844,6 @@ pub struct State {
 	pub profile_cosmetics: model::CosmeticPreferences,
 	pub own_profile: profile::OwnProfile,
 	pub badge_editor: profile::BadgeEditor,
-	pub connections: connections::Connections,
 	pub safety_hub: safety_hub::View,
 	pub invites: invites::Cache,
 	pub invite_join: invites::Join,
@@ -1093,7 +1084,6 @@ impl Default for State {
 			profile_cosmetics: Default::default(),
 			own_profile: Default::default(),
 			badge_editor: Default::default(),
-			connections: Default::default(),
 			safety_hub: Default::default(),
 			invites: Default::default(),
 			invite_join: Default::default(),
@@ -2768,7 +2758,6 @@ impl State {
 			self.local_game_activity = Default::default();
 			self.invalidate_messaging_permissions(None);
 			self.interrupt_own_profile();
-			self.interrupt_connections();
 			self.interrupt_safety_hub();
 		}
 		if let Event::Typing(signal) = &envelope.event {
@@ -3239,14 +3228,6 @@ impl State {
 			}
 			Event::BadgeSettings { request, result } => {
 				self.apply_badge_settings(request, result);
-				Ok(())
-			}
-			Event::Connections { request, result } => {
-				self.apply_connections(request, result);
-				Ok(())
-			}
-			Event::ConnectionVisibility { request, result } => {
-				self.apply_connection_visibility(request, result);
 				Ok(())
 			}
 			Event::SafetyHub { request, result } => {
@@ -4422,7 +4403,6 @@ impl State {
 			self.invalidate_messaging_permissions(Some(failure));
 			self.interrupt_own_profile();
 			self.interrupt_badge_settings();
-			self.interrupt_connections();
 			self.interrupt_safety_hub();
 			self.local_game_activity = Default::default();
 			self.cancel_message_actions();

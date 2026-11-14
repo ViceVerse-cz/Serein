@@ -14,7 +14,6 @@ pub(super) struct Settings {
 	pub(super) notifications: crate::notification_settings::Navigation,
 	pub(super) messaging_permissions: crate::messaging_permissions::Navigation,
 	pub(super) games: crate::registered_games::Page,
-	connections_requested: bool,
 	pub(super) safety_hub_opening: Option<String>,
 }
 
@@ -1378,16 +1377,6 @@ impl MessagingUi {
 			},
 		);
 		self.image_cache_settings(ui, state.demo);
-		design::group(ui, "settings-storage-page-saved-login", |ui| {
-			ui.add_enabled_ui(!state.demo, |ui| {
-				design::switch(
-					ui,
-					"settings-storage-page-plaintext-login",
-					Some("settings-storage-page-plaintext-login-description"),
-					&mut self.plaintext_login,
-				);
-			});
-		});
 		self.safety_hub_settings(ui, state, commands);
 		design::group(
 			ui,
