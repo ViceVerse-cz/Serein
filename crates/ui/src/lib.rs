@@ -123,6 +123,7 @@ mod server_stickers;
 mod settings;
 mod setup;
 mod shortcuts;
+mod skeleton;
 mod switcher;
 mod text_menu;
 mod thumbhash;
@@ -199,6 +200,17 @@ fn shift_clicked(ui: &egui::Ui, response: &egui::Response) -> bool {
 		})
 	})
 }
+
+/// Height of every member list row, group header or person.
+const MEMBER_ROW: f32 = 42.0;
+
+/// A person row that has not arrived, where `member_rows` paints the 32px avatar inset 8px and
+/// the name 12px after it. Status lines are optional, so only the name is drawn.
+const PENDING_MEMBER: skeleton::Row = skeleton::Row {
+	lines: 1,
+	height: MEMBER_ROW,
+	..skeleton::Row::PERSON
+};
 
 fn thread_member_rows<'a>(
 	state: &'a State,
@@ -1234,7 +1246,20 @@ impl MessagingUi {
 		self.voice_fullscreen_request.take()
 	}
 	pub fn clear_avatars(&mut self) {
+		// The `--demo-loading` artwork hold is a setting, not cached data, so it survives.
+		#[cfg(feature = "demo")]
+		let hold = self.avatars.hold_demo_images;
 		self.avatars = avatars::Avatars::default();
+		#[cfg(feature = "demo")]
+		{
+			self.avatars.hold_demo_images = hold;
+		}
+	}
+	/// `--demo-loading`: withhold synthetic artwork, so avatars, icons and badges show their
+	/// loading state.
+	#[cfg(feature = "demo")]
+	pub fn hold_demo_images(&mut self) {
+		self.avatars.hold_demo_images = true;
 	}
 	pub fn take_avatar_requests(&mut self) -> Vec<String> {
 		self.avatars.take_requests()
@@ -1659,23 +1684,6 @@ impl MessagingUi {
 					.on_hover_text(&text);
 				});
 		}
-		if !has_entry {
-			ui.add_space(8.0);
-			if list.freshness != Freshness::Fresh {
-				let text = if list.freshness == Freshness::Unavailable {
-					language.text("people-unavailable")
-				} else {
-					language.text("loading-people")
-				};
-				ui.label(RichText::new(text).small().color(colors.muted));
-			} else {
-				ui.label(
-					RichText::new(language.text("no-people"))
-						.small()
-						.color(colors.muted),
-				);
-			}
-		}
 		// Thread snapshots contain people only; paged channel lists supply their own headers.
 		let thread_rows = (!list.lazy
 			&& state
@@ -1699,8 +1707,61 @@ impl MessagingUi {
 		} else {
 			thread_rows.as_ref().map_or(list.slots.len(), Vec::len)
 		};
+		// An invalidated list keeps its total but will not fill its slots, so it shows no
+		// placeholders.
+		let placeholders = list.freshness != Freshness::Unavailable;
+		if !has_entry {
+			if placeholders && list.freshness != Freshness::Fresh {
+				if row_count == 0 {
+					// Guild and thread lists both open with a group header such as ONLINE — N,
+					// its 12px label centred below a 16px top margin; as many people as fit
+					// follow it.
+					let people = ((ui.available_height() - MEMBER_ROW) / MEMBER_ROW)
+						.floor()
+						.max(1.0) as usize;
+					ui.scope(|ui| {
+						ui.spacing_mut().item_spacing.y = 0.0;
+						let (header, _) = ui.allocate_exact_size(
+							egui::vec2(ui.available_width(), MEMBER_ROW),
+							egui::Sense::hover(),
+						);
+						skeleton::bar(
+							ui.painter(),
+							skeleton::fill(ui),
+							egui::pos2(header.left() + 8.0, header.top() + 24.0),
+							egui::vec2(72.0, 10.0),
+						);
+						skeleton::rows(
+							ui,
+							&language.text("loading-people"),
+							PENDING_MEMBER,
+							people,
+						);
+					});
+					return;
+				}
+				// Otherwise the list's own empty slots hold the placeholders below.
+			} else if !placeholders {
+				ui.add_space(8.0);
+				ui.label(
+					RichText::new(language.text("people-unavailable"))
+						.small()
+						.color(colors.muted),
+				);
+			} else {
+				ui.add_space(8.0);
+				ui.label(
+					RichText::new(language.text("no-people"))
+						.small()
+						.color(colors.muted),
+				);
+			}
+		}
 		let row_spacing = ui.spacing().item_spacing.y;
 		ui.spacing_mut().item_spacing.y = 0.0;
+		// Slots that have not arrived yet hold a person placeholder; only the first visible one
+		// is announced.
+		let mut pending = language.text("loading-people");
 		let mut visible = 0usize..0;
 		let mut area = egui::ScrollArea::vertical().auto_shrink([false, false]);
 		if reset_scroll {
@@ -1709,7 +1770,7 @@ impl MessagingUi {
 		let output = self
 			.scroll
 			.attach(ui, ("people", guild_or_channel, list.request), area)
-			.show_rows(ui, 42.0, row_count, |ui, range| {
+			.show_rows(ui, MEMBER_ROW, row_count, |ui, range| {
 				visible = range.clone();
 				for index in range {
 					let slot = if lazy {
@@ -1753,7 +1814,7 @@ impl MessagingUi {
 								.map(|count| format!("{name} - {count}"))
 								.unwrap_or(name);
 							let (rect, _) = ui.allocate_exact_size(
-								egui::vec2(ui.available_width(), 42.0),
+								egui::vec2(ui.available_width(), MEMBER_ROW),
 								egui::Sense::hover(),
 							);
 							let mut header = ui.new_child(
@@ -1794,7 +1855,7 @@ impl MessagingUi {
 							let online =
 								status.is_some_and(|s| matches!(s, "online" | "idle" | "dnd"));
 							let (rect, response) = ui.allocate_exact_size(
-								egui::vec2(ui.available_width(), 42.0),
+								egui::vec2(ui.available_width(), MEMBER_ROW),
 								egui::Sense::click(),
 							);
 							response.widget_info(|| {
@@ -2003,9 +2064,19 @@ impl MessagingUi {
 								}
 							});
 						}
+						None if placeholders => {
+							skeleton::custom(
+								ui,
+								&std::mem::take(&mut pending),
+								egui::vec2(ui.available_width(), MEMBER_ROW),
+								|painter, rect, fill| {
+									skeleton::paint_row(painter, fill, rect, PENDING_MEMBER, index);
+								},
+							);
+						}
 						None => {
 							ui.allocate_exact_size(
-								egui::vec2(ui.available_width(), 42.0),
+								egui::vec2(ui.available_width(), MEMBER_ROW),
 								egui::Sense::hover(),
 							);
 						}
@@ -4394,6 +4465,9 @@ impl MessagingUi {
 			.is_none()
 			.then(|| state.known_profile(recipient.id))
 			.flatten();
+		// `--demo-loading` keeps the docked card loading, like every open profile card.
+		#[cfg(feature = "demo")]
+		let cached = cached.filter(|_| !self.avatars.hold_demo_images);
 		self.dm_profile.calls_blocked = self.calls_unavailable(state);
 		let mut action = None;
 		// The panel shares the conversation surface, so the card floats on the chat itself.

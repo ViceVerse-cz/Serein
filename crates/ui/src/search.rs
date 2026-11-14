@@ -942,19 +942,6 @@ impl SearchUi {
 			);
 		}
 		if let Some(view) = state.search.as_ref().filter(|view| view.pins) {
-			if view.loading {
-				ui.label(
-					RichText::new(crate::i18n::translate_if_key(
-						if view.pin_before.is_some() {
-							"search-pins-content-loading-older-pins"
-						} else {
-							"search-pins-content-loading-pinned-messages"
-						},
-					))
-					.small()
-					.color(colors.muted),
-				);
-			}
 			if let Some(error) = view.error {
 				ui.label(RichText::new(error).color(colors.danger));
 			}
@@ -980,6 +967,18 @@ impl SearchUi {
 					})
 					.inner
 					.clicked();
+			}
+			// Every pins request clears its page; placeholder cards hold the list's place.
+			if view.loading {
+				result_placeholders(
+					ui,
+					if view.pin_before.is_some() {
+						"search-pins-content-loading-older-pins"
+					} else {
+						"search-pins-content-loading-pinned-messages"
+					},
+					3,
+				);
 			}
 			if let Some(page) = &view.page {
 				egui::ScrollArea::vertical()
@@ -1186,12 +1185,28 @@ impl SearchUi {
 		}
 		match &view.page {
 			None if view.loading => {
-				design::empty_state(
+				// Every page opens with its first hit's channel heading.
+				// Decorative: the result cards below carry the region's label.
+				crate::skeleton::custom(
 					ui,
-					icons::Icon::Search,
-					&crate::i18n::translate("search-pane-searching"),
-					&crate::i18n::translate("search-pane-looking-for-matching-messages"),
+					"",
+					egui::vec2(ui.available_width(), CHANNEL_HEADING_HEIGHT),
+					|painter, rect, fill| {
+						crate::skeleton::bar(
+							painter,
+							fill,
+							rect.left_top() + egui::vec2(0.0, 4.0),
+							egui::vec2(120.0, 12.0),
+						);
+					},
 				);
+				// As many cards as fit above the pager without scrolling.
+				let count = crate::skeleton::fitting_count(
+					ui.available_height() - PAGER_HEIGHT,
+					RESULT_CARD_HEIGHT + RESULT_GAP,
+					RESULT_GAP,
+				);
+				result_placeholders(ui, "search-pane-searching", count);
 			}
 			None => {}
 			Some(page) => {
@@ -2113,6 +2128,28 @@ fn hairline(ui: &mut egui::Ui) {
 		egui::Stroke::new(1.0, colors.border),
 	);
 }
+/// Height of [`channel_heading`] above a group of results.
+const CHANNEL_HEADING_HEIGHT: f32 = 20.0;
+/// A [`SearchUi::result_card`] with a one-line excerpt: 40px avatar, author row and text.
+const RESULT_CARD_HEIGHT: f32 = 65.0;
+/// Results and pins are spaced like this.
+const RESULT_GAP: f32 = 8.0;
+
+/// Placeholder result cards while a search or pins page loads, labelled by locale `key`.
+fn result_placeholders(ui: &mut egui::Ui, key: &str, count: usize) {
+	crate::skeleton::cards(
+		ui,
+		&crate::i18n::translate(key),
+		crate::skeleton::Card {
+			height: RESULT_CARD_HEIGHT,
+			avatar: 40.0,
+			gap: RESULT_GAP,
+			lines: 0,
+		},
+		count,
+	);
+}
+
 /// Section heading above a result: where the message lives, and its thread parent or category.
 fn channel_heading(ui: &mut egui::Ui, state: &State, channel: &model::Channel) {
 	let colors = design::palette(ui);
@@ -2130,7 +2167,7 @@ fn channel_heading(ui: &mut egui::Ui, state: &State, channel: &model::Channel) {
 			)
 		});
 	ui.allocate_ui_with_layout(
-		egui::vec2(ui.available_width(), 20.0),
+		egui::vec2(ui.available_width(), CHANNEL_HEADING_HEIGHT),
 		egui::Layout::left_to_right(egui::Align::Center),
 		|ui| {
 			ui.spacing_mut().item_spacing.x = 6.0;

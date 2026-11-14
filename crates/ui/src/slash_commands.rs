@@ -8,6 +8,8 @@ use model::{
 
 const RESULTS: usize = 64;
 const ROW: f32 = 56.0;
+/// Rows standing in for application commands while they load.
+const PLACEHOLDER_ROWS: usize = 4;
 const RAIL: f32 = 56.0;
 const HEADING: f32 = 30.0;
 const FOOTER: f32 = 26.0;
@@ -336,23 +338,24 @@ impl Menu {
 		// Discord parity: a bare "/" browses by application beside an icon rail; once the
 		// user types a name, one flat "commands matching" list with per-row icons takes over.
 		let flat = self.query.as_deref().is_some_and(|query| !query.is_empty());
-		let footer = state.application_commands.loading
-			|| self.error.is_some()
-			|| state.application_commands.error.is_some();
+		let footer = self.error.is_some() || state.application_commands.error.is_some();
 		let footer_height = if footer { FOOTER } else { 0.0 };
+		// Application commands still loading lead the list as one group of placeholder rows.
+		let pending = state.application_commands.loading && self.filter != Filter::Builtins;
+		let placeholders = if pending { PLACEHOLDER_ROWS } else { 0 };
 		let groups = self
 			.items
 			.iter()
 			.map(|item| item.application_id)
 			.collect::<std::collections::BTreeSet<_>>()
-			.len();
+			.len() + usize::from(pending);
+		let rows = self.items.len() + placeholders;
 		let height = if self.active.is_some() {
 			HELP
 		} else if flat {
-			(HEADING + (self.items.len().clamp(1, 6) as f32) * ROW + 10.0 + footer_height)
-				.min(420.0)
+			(HEADING + (rows.clamp(1, 6) as f32) * ROW + 10.0 + footer_height).min(420.0)
 		} else {
-			((self.items.len().clamp(2, 6) as f32) * ROW
+			((rows.clamp(2, 6) as f32) * ROW
 				+ groups.min(3) as f32 * HEADING
 				+ 16.0 + footer_height)
 				.min(420.0)
@@ -432,6 +435,9 @@ impl Menu {
 						.max_height(content_rect.height() - HEADING)
 						.auto_shrink([false, false])
 						.show(&mut body, |ui| {
+							if pending {
+								command_placeholders(ui, true);
+							}
 							for (index, item) in self.items.iter().enumerate() {
 								let response = command_row(
 									ui,
@@ -446,7 +452,7 @@ impl Menu {
 									picked = Some(item.clone());
 								}
 							}
-							if self.items.is_empty() {
+							if self.items.is_empty() && !pending {
 								empty_row(ui);
 							}
 						});
@@ -553,10 +559,13 @@ impl Menu {
 					.max_height(content_rect.height())
 					.auto_shrink([false, false])
 					.show(&mut body, |ui| {
+						if pending {
+							command_placeholders(ui, false);
+						}
 						let mut previous = None;
 						for (index, item) in self.items.iter().enumerate() {
 							if previous != Some(item.application_id) {
-								if index > 0 {
+								if index > 0 || pending {
 									ui.add_space(6.0);
 								}
 								let (heading, _) = ui.allocate_exact_size(
@@ -602,7 +611,7 @@ impl Menu {
 								picked = Some(item.clone());
 							}
 						}
-						if self.items.is_empty() {
+						if self.items.is_empty() && !pending {
 							empty_row(ui);
 						}
 					});
@@ -613,7 +622,7 @@ impl Menu {
 		self.rect = Some(response.response.rect);
 		picked
 	}
-	/// Loading and failure states only; a healthy list needs no chrome below it.
+	/// Failure states only; a healthy or loading list needs no chrome below it.
 	fn footer(&mut self, ui: &mut egui::Ui, rect: egui::Rect, state: &State, channel: Id) {
 		let colors = design::palette(ui);
 		let footer_rect = egui::Rect::from_min_max(
@@ -637,11 +646,7 @@ impl Menu {
 		);
 		body.set_clip_rect(footer_rect);
 		body.spacing_mut().item_spacing.x = 8.0;
-		let (hint, color) = if state.application_commands.loading {
-			("Loading application commands…", colors.muted)
-		} else if let Some(error) = self.error.or(state.application_commands.error) {
-			(error, colors.danger)
-		} else {
+		let Some(hint) = self.error.or(state.application_commands.error) else {
 			return;
 		};
 		if !state.application_commands.loading
@@ -656,8 +661,10 @@ impl Menu {
 		{
 			self.retry = true;
 		}
-		body.add(egui::Label::new(egui::RichText::new(hint).size(12.0).color(color)).truncate())
-			.on_hover_text(hint);
+		body.add(
+			egui::Label::new(egui::RichText::new(hint).size(12.0).color(colors.danger)).truncate(),
+		)
+		.on_hover_text(hint);
 	}
 	/// The active application's icon replaces the attach button, as in the official client.
 	pub fn composer_badge(&self, ui: &mut egui::Ui, state: &State, avatars: &mut Avatars) -> bool {
@@ -1125,6 +1132,43 @@ fn command_icon(
 			}
 		}
 	}
+}
+
+/// Placeholder rows for application commands still loading. A flat list gives each row its
+/// application icon; a grouped one leads them with a group heading instead.
+fn command_placeholders(ui: &mut egui::Ui, flat: bool) {
+	if !flat {
+		crate::skeleton::custom(
+			ui,
+			"",
+			egui::vec2(ui.available_width(), HEADING),
+			|painter, rect, fill| {
+				let icon = egui::Rect::from_min_size(
+					rect.min + egui::vec2(10.0, 7.0),
+					egui::Vec2::splat(16.0),
+				);
+				crate::skeleton::block(painter, fill, icon, 4.0);
+				crate::skeleton::bar(
+					painter,
+					fill,
+					egui::pos2(rect.left() + 34.0, icon.center().y - 5.0),
+					egui::vec2(96.0, 10.0),
+				);
+			},
+		);
+	}
+	crate::skeleton::rows(
+		ui,
+		&crate::i18n::translate("slash-commands-list-loading-application-commands"),
+		crate::skeleton::Row {
+			height: ROW,
+			avatar: if flat { 36.0 } else { 0.0 },
+			square: true,
+			lines: 2,
+			inset: 12.0,
+		},
+		PLACEHOLDER_ROWS,
+	);
 }
 
 fn empty_row(ui: &mut egui::Ui) {

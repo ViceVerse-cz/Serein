@@ -2441,8 +2441,6 @@ search-pane-hide-matching-text-highlight = Skrýt zvýraznění shodného textu
 # Context: pane
 search-pane-indexing-is-incomplete-results-may-be-missing = Indexování je neúplné; výsledky mohou chybět.
 # Context: pane
-search-pane-looking-for-matching-messages = Hledání odpovídajících zpráv.
-# Context: pane
 search-pane-messages-are-unavailable-while-disconnected-or-without-channel-access = Zprávy nejsou dostupné, pokud jste odpojeni nebo nemáte přístup ke kanálu.
 # Context: pane
 search-pane-newest-first = Nejdříve nejnovější
@@ -3635,6 +3633,8 @@ slash-commands-composer-choose-a-different-command = zvolte jiný příkaz
 slash-commands-composer-command-unavailable-your-arguments-are-kept = Příkaz nedostupný. Vaše argumenty jsou zachovány.
 # Context: footer
 slash-commands-footer-refresh-application-commands = Obnovit příkazy aplikace
+# Context: list
+slash-commands-list-loading-application-commands = Načítání příkazů aplikací…
 
 ## crates/ui/src/stickers.rs
 # Context: message

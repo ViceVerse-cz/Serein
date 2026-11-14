@@ -1836,6 +1836,67 @@ fn section(ui: &mut egui::Ui, theme: &Theme, count: &mut usize, text: &str, full
 		ui.add_space(2.0);
 	}
 }
+/// Stand-ins for the sections every profile that is not private lists, laid out like [`section`]
+/// and the row under it: Member Since with its date row and, when `note` is shown, the private
+/// note. About Me, roles and connections depend on the profile, so they are not sketched.
+fn pending_sections(ui: &mut egui::Ui, count: &mut usize, full: bool, note: bool) {
+	let (gap, after_heading, heading, body) = if full {
+		(18.0, 4.0, 13.0, 15.0)
+	} else {
+		(10.0, 2.0, 12.0, 13.0)
+	};
+	if *count > 0 {
+		ui.add_space(gap);
+	}
+	let drawn = 1 + usize::from(note);
+	*count += drawn;
+	// Labels lay text out on whole-point rows.
+	let (heading, body) = ui.fonts_mut(|fonts| {
+		(
+			fonts
+				.row_height(&egui::FontId::proportional(heading))
+				.round(),
+			fonts.row_height(&egui::FontId::proportional(body)).round(),
+		)
+	});
+	let spacing = ui.spacing().item_spacing.y;
+	// The date row is a wrapped horizontal row, at least one control tall.
+	let date = ui.spacing().interact_size.y.max(body);
+	let section = heading + spacing + after_heading;
+	let note_height = if note {
+		spacing + gap + section + body
+	} else {
+		0.0
+	};
+	let height = section + date + note_height;
+	crate::skeleton::custom(
+		ui,
+		&crate::i18n::translate("profiles-show-loading-profile"),
+		vec2(ui.available_width(), height),
+		|painter, rect, fill| {
+			// (section top, heading width, row height, row width) for Member Since, then the note.
+			let note_top = rect.top() + section + date + spacing + gap;
+			let sections = [
+				(rect.top(), 88.0, date, 160.0),
+				(note_top, 56.0, body, rect.width() * 0.6),
+			];
+			for (top, heading_width, row, row_width) in sections.into_iter().take(drawn) {
+				crate::skeleton::bar(
+					painter,
+					fill,
+					pos2(rect.left(), top + (heading - 10.0) * 0.5),
+					vec2(heading_width, 10.0),
+				);
+				crate::skeleton::bar(
+					painter,
+					fill,
+					pos2(rect.left(), top + section + (row - 10.0) * 0.5),
+					vec2(row_width.min(rect.width()), 10.0),
+				);
+			}
+		},
+	);
+}
 /// The compact card's all-caps headings read as shouting at full-profile scale.
 fn sentence(text: &str) -> String {
 	let turkish = crate::i18n::current().resolved() == crate::i18n::Language::Turkish;
@@ -1906,6 +1967,9 @@ fn mutual_link(ui: &mut egui::Ui, theme: &Theme, icon: Icon, text: String) -> eg
 	response.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
+/// Height of a [`mutual_row`].
+const MUTUAL_ROW: f32 = 44.0;
+
 /// One clickable row in the mutuals panel: a 32 px face painted by `face`, then the name.
 fn mutual_row(
 	ui: &mut egui::Ui,
@@ -1914,7 +1978,7 @@ fn mutual_row(
 	face: impl FnOnce(&mut egui::Ui, Rect),
 ) -> egui::Response {
 	let (rect, response) =
-		ui.allocate_exact_size(vec2(ui.available_width(), 44.0), egui::Sense::click());
+		ui.allocate_exact_size(vec2(ui.available_width(), MUTUAL_ROW), egui::Sense::click());
 	if response.hovered() {
 		ui.painter().rect_filled(rect, 8, theme.chip_hover);
 	}
@@ -2469,6 +2533,9 @@ pub(crate) fn role_chips(
 	});
 }
 
+/// Board game cover art size.
+const BOARD_COVER: Vec2 = vec2(84.0, 112.0);
+
 /// One board entry: portrait cover, then the name, tag chips and comment centred beside it.
 fn board_game(
 	ui: &mut egui::Ui,
@@ -2477,7 +2544,6 @@ fn board_game(
 	demo: bool,
 	theme: &Theme,
 ) {
-	const COVER: Vec2 = vec2(84.0, 112.0);
 	// Names normally arrive with the board; an unresolved entry still needs a stable label.
 	let name = game
 		.name
@@ -2485,7 +2551,7 @@ fn board_game(
 		.unwrap_or_else(|| format!("Game {}", game.id));
 	ui.horizontal(|ui| {
 		ui.spacing_mut().item_spacing.x = 16.0;
-		let cover = avatars.show_cover(ui, game.cover_key(), COVER, demo, &name);
+		let cover = avatars.show_cover(ui, game.cover_key(), BOARD_COVER, demo, &name);
 		let mut text = ui.new_child(
 			UiBuilder::new()
 				.max_rect(Rect::from_x_y_ranges(
@@ -2497,7 +2563,7 @@ fn board_game(
 		// Centre the block on the cover's midline using last frame's measured height.
 		let id = ui.auto_id_with(("board-game-height", game.id));
 		let height = text.data(|data| data.get_temp::<f32>(id)).unwrap_or(0.0);
-		text.add_space(((COVER.y - height) * 0.5).max(0.0));
+		text.add_space(((BOARD_COVER.y - height) * 0.5).max(0.0));
 		let top = text.cursor().top();
 		board_text(&mut text, game, &name, theme);
 		let measured = text.min_rect().bottom() - top;
@@ -2617,6 +2683,34 @@ pub(crate) fn debug_activity_panel(state: &State) {
 	);
 }
 
+/// A [`mutual_row`]: a 32px face inset 8px, then the name 12px after it.
+const PENDING_MUTUAL: crate::skeleton::Row = crate::skeleton::Row {
+	height: MUTUAL_ROW,
+	avatar: 32.0,
+	square: false,
+	lines: 1,
+	inset: 8.0,
+};
+
+/// The Board tab while the profile loads. A loaded board is often only its "empty" or
+/// "unavailable" line, so one text line stands in for it.
+fn pending_board(ui: &mut egui::Ui, label: &str) {
+	let line = ui.text_style_height(&egui::TextStyle::Body);
+	crate::skeleton::custom(
+		ui,
+		label,
+		vec2(ui.available_width(), line),
+		|painter, rect, fill| {
+			crate::skeleton::bar(
+				painter,
+				fill,
+				pos2(rect.left(), rect.center().y - 5.0),
+				vec2((rect.width() * 0.5).min(200.0), 10.0),
+			);
+		},
+	);
+}
+
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 enum FullTab {
 	#[default]
@@ -2708,7 +2802,13 @@ fn full_panel(
 	ui.push_id(("full-profile-tab", *tab as u8), |ui| {
 		ui.spacing_mut().item_spacing.y = 12.0;
 		if *tab != FullTab::Activity && view.is_none_or(|view| view.loading) && data.is_none() {
-			ui.spinner();
+			let label = crate::i18n::translate("profiles-show-loading-profile");
+			if *tab == FullTab::Board {
+				pending_board(ui, &label);
+			} else {
+				let gap = ui.spacing().item_spacing.y;
+				crate::skeleton::rows_spaced(ui, &label, PENDING_MUTUAL, 3, gap);
+			}
 			return;
 		}
 		match tab {
@@ -4241,19 +4341,11 @@ fn card_view(
 								voice_badge(ui, in_voice, false);
 							});
 						}
-						if !user.webhook && view.map_or(data.is_none(), |v| v.loading) {
-							ui.add_space(4.0);
-							ui.horizontal(|ui| {
-								ui.spinner();
-								ui.label(
-									RichText::new(crate::i18n::translate(
-										"profiles-show-loading-profile",
-									))
-									.size(13.0)
-									.color(theme.muted),
-								);
-							});
-						}
+						// Until the first profile arrives, its always-present sections are sketched
+						// where the details list them. Reloading a profile already shown keeps it
+						// on screen without a placeholder or spinner (owner decision).
+						let pending =
+							!user.webhook && data.is_none() && view.is_none_or(|view| view.loading);
 						if let Some(error) = view.and_then(|v| v.error) {
 							ui.add_space(4.0);
 							if ui
@@ -4264,7 +4356,7 @@ fn card_view(
 								action = Some(Action::Retry);
 							}
 						}
-						if data.is_some() || !activities.is_empty() || spot.is_some() {
+						if data.is_some() || pending || !activities.is_empty() || spot.is_some() {
 							if full {
 								ui.add_space(8.0);
 							} else {
@@ -4309,6 +4401,17 @@ fn card_view(
 									) {
 										action = Some(picked);
 									}
+								}
+								if pending {
+									pending_sections(
+										ui,
+										&mut sections,
+										full,
+										!own && !crate::interface_tweaks::on(
+											ui.ctx(),
+											extensions::InterfaceTweak::HiddenProfileNotes,
+										),
+									);
 								}
 								if let Some(data) = data.filter(|d| d.private) {
 									// The service withheld the rest; say so, like Discord.

@@ -209,10 +209,14 @@ impl Body<'_> {
 			})
 			.inner
 	}
+	/// The most [`Self::scroll`] shows before it scrolls, given the same `reserved` space.
+	pub fn scroll_height(&self, reserved: f32) -> f32 {
+		(self.available_height - reserved).clamp(120.0, 620.0)
+	}
 	/// Padded content that scrolls once it outgrows the viewport. `reserved` is the vertical
 	/// space the header and footer need.
 	pub fn scroll<R>(&mut self, reserved: f32, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
-		let max = (self.available_height - reserved).clamp(120.0, 620.0);
+		let max = self.scroll_height(reserved);
 		self.content(|ui| {
 			egui::ScrollArea::vertical()
 				.max_height(max)

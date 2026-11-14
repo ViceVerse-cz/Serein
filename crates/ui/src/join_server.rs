@@ -611,6 +611,11 @@ impl JoinDialog {
 				.inner_margin(14)
 				.show(ui, |ui| {
 					ui.set_width(ui.available_width());
+					// Without a preview the lookup is still running; the card below always has one.
+					if preview.is_none() {
+						pending_server(ui);
+						return;
+					}
 					ui.horizontal(|ui| {
 						ui.spacing_mut().item_spacing.x = 14.0;
 						let (icon, _) =
@@ -689,8 +694,6 @@ impl JoinDialog {
 											egui::RichText::new(crate::i18n::translate_if_key(
 												if member {
 													"join-server-body-you-are-already-a-member"
-												} else if loading {
-													"join-server-body-fetching-server-details"
 												} else {
 													"join-server-body-review-this-server-then-choose-join-server"
 												},
@@ -702,22 +705,18 @@ impl JoinDialog {
 									);
 								}
 							}
-							if preview.is_some() {
-								ui.add(
-									egui::Label::new(
-										egui::RichText::new(crate::i18n::translate_if_key(
-											if member {
-												"join-server-body-you-are-already-a-member-of-this-server"
-											} else {
-												"join-server-body-choose-join-server-to-confirm"
-											},
-										))
-										.size(12.0)
-										.color(colors.muted),
-									)
-									.wrap(),
-								);
-							}
+							ui.add(
+								egui::Label::new(
+									egui::RichText::new(crate::i18n::translate_if_key(if member {
+										"join-server-body-you-are-already-a-member-of-this-server"
+									} else {
+										"join-server-body-choose-join-server-to-confirm"
+									}))
+									.size(12.0)
+									.color(colors.muted),
+								)
+								.wrap(),
+							);
 						});
 					});
 				});
@@ -808,6 +807,52 @@ impl JoinDialog {
 			}
 		}
 	}
+}
+
+/// The server card while its invite is looked up: the icon slot, the name, the counts row and
+/// the one-line hint under them, centred against each other like the loaded row.
+fn pending_server(ui: &mut egui::Ui) {
+	const ICON: f32 = 52.0;
+	const GAP: f32 = 4.0;
+	let (title, hint) = ui.fonts_mut(|fonts| {
+		(
+			fonts
+				.row_height(&egui::FontId::new(17.0, design::semibold_family(ui.ctx())))
+				.round(),
+			fonts.row_height(&egui::FontId::proportional(12.0)).round(),
+		)
+	});
+	// The counts sit in a horizontal row, one control tall.
+	let counts = ui.spacing().interact_size.y;
+	let text = title + GAP + counts + GAP + hint;
+	let height = text.max(ICON);
+	crate::skeleton::custom(
+		ui,
+		&crate::i18n::translate("join-server-body-fetching-server-details"),
+		egui::vec2(ui.available_width(), height),
+		|painter, rect, fill| {
+			let icon = egui::Rect::from_min_size(
+				egui::pos2(rect.left(), rect.center().y - ICON * 0.5),
+				egui::Vec2::splat(ICON),
+			);
+			crate::skeleton::block(painter, fill, icon, 16.0);
+			let left = icon.right() + 14.0;
+			let width = (rect.right() - left).max(0.0);
+			let top = rect.center().y - text * 0.5;
+			for (offset, row, bar, share) in [
+				(0.0, title, 12.0, 0.6),
+				(title + GAP, counts, 10.0, 0.7),
+				(title + GAP + counts + GAP, hint, 10.0, 0.85),
+			] {
+				crate::skeleton::bar(
+					painter,
+					fill,
+					egui::pos2(left, top + offset + (row - bar) * 0.5),
+					egui::vec2(width * share, bar),
+				);
+			}
+		},
+	);
 }
 
 #[cfg(test)]

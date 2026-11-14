@@ -1,4 +1,5 @@
 //! One permission-checked, session-only server settings draft.
+use crate::skeleton::form as pending;
 use crate::{MessagingUi, avatars::Avatars, design, dialog};
 use client_core::{Command, State};
 use egui::Color32;
@@ -22,6 +23,24 @@ enum Page {
 	AuditLog,
 }
 impl Page {
+	/// Title and supporting line of the pages laid out here; the other pages head themselves.
+	fn heading(self) -> Option<(&'static str, &'static str)> {
+		match self {
+			Self::Profile => Some((
+				"server-settings-profile-form-server-profile",
+				"server-settings-profile-form-customize-how-your-server-appears-in-invite-links-and-if",
+			)),
+			Self::Engagement => Some((
+				"server-settings-engagement-engagement",
+				"server-settings-engagement-manage-settings-that-help-keep-your-server-active",
+			)),
+			Self::Safety => Some((
+				"server-settings-page-safety",
+				"server-settings-safety-subtitle",
+			)),
+			_ => None,
+		}
+	}
 	fn allowed(self, state: &State, guild: Id) -> bool {
 		match self {
 			Self::Profile | Self::Engagement | Self::Safety => state.can_manage_guild(guild),
@@ -871,12 +890,7 @@ impl Editor {
 		}
 		if self.draft.is_none() {
 			if state.server_settings.pending {
-				ui.horizontal(|ui| {
-					ui.spinner();
-					ui.label(crate::i18n::translate(
-						"server-settings-page-body-loading-server-settings",
-					));
-				});
+				pending_page(ui, self.page, guild);
 			} else if !state.gateway_connected && !state.demo {
 				ui.weak(crate::i18n::translate(
 					"server-settings-page-body-reconnect-to-load-server-settings",
@@ -965,39 +979,11 @@ impl Editor {
 	}
 
 	fn profile(&mut self, ui: &mut egui::Ui, state: &State, avatars: &mut Avatars) {
-		design::page_header(
-			ui,
-			"server-settings-profile-form-server-profile",
-			Some(
-				"server-settings-profile-form-customize-how-your-server-appears-in-invite-links-and-if",
-			),
-			|_| {},
-		);
-		let width = ui.available_width();
-		if width >= 700.0 {
-			let preview_width = if width >= 820.0 { 300.0 } else { 260.0 };
-			let form_width = width - preview_width - 32.0;
-			ui.horizontal_top(|ui| {
-				ui.spacing_mut().item_spacing.x = 32.0;
-				ui.allocate_ui_with_layout(
-					egui::vec2(form_width, 0.0),
-					egui::Layout::top_down(egui::Align::Min),
-					|ui| {
-						ui.set_width(form_width);
-						self.profile_form(ui);
-					},
-				);
-				ui.vertical(|ui| {
-					ui.set_width(preview_width);
-					ui.add_space(4.0);
-					self.preview(ui, state, avatars);
-				});
-			});
-		} else {
-			self.profile_form(ui);
-			ui.add_space(28.0);
-			self.preview(ui, state, avatars);
-		}
+		page_heading(ui, Page::Profile);
+		profile_layout(ui, |ui, column| match column {
+			Column::Form => self.profile_form(ui),
+			Column::Preview => self.preview(ui, state, avatars),
+		});
 	}
 	fn profile_form(&mut self, ui: &mut egui::Ui) {
 		let Some(draft) = &mut self.draft else {
@@ -1046,8 +1032,8 @@ impl Editor {
 		ui.add_space(16.0);
 		design::group(ui, "server-settings-profile-form-banner", |ui| {
 			ui.spacing_mut().item_spacing = egui::vec2(8.0, 8.0);
-			let swatch_width = ((ui.available_width() - 32.0) / 5.0).max(20.0);
-			for row in BANNER_SWATCHES.chunks(5) {
+			let swatch_width = swatch_width(ui.available_width());
+			for row in BANNER_SWATCHES.chunks(SWATCHES_PER_ROW) {
 				ui.horizontal(|ui| {
 					for &color in row {
 						banner_swatch(ui, draft, color, swatch_width, &colors);
@@ -1075,16 +1061,10 @@ impl Editor {
 				"server-settings-profile-form-add-up-to-5-traits-to-show-off-your-server",
 			);
 			ui.add_space(4.0);
-			let columns = if ui.available_width() >= 480.0 {
-				3
-			} else if ui.available_width() >= 330.0 {
-				2
-			} else {
-				1
-			};
+			let columns = trait_columns(ui.available_width());
 			let cell_width = (ui.available_width() - 8.0 * (columns - 1) as f32) / columns as f32;
 			let mut traits = draft.traits.clone();
-			traits.resize_with(5, || Trait {
+			traits.resize_with(TRAIT_SLOTS, || Trait {
 				label: String::new(),
 				emoji: None,
 			});
@@ -1125,7 +1105,7 @@ impl Editor {
 					))
 					.char_limit(300)
 					.desired_width(f32::INFINITY)
-					.desired_rows(4),
+					.desired_rows(DESCRIPTION_ROWS),
 			)
 			.on_hover_text(crate::i18n::translate(
 				"server-settings-profile-form-description",
@@ -1142,25 +1122,7 @@ impl Editor {
 			});
 		});
 		ui.add_space(16.0);
-		let guild = draft.guild;
-		design::group(ui, "server-settings-profile-server-id", |ui| {
-			design::row(
-				ui,
-				&guild.0.to_string(),
-				Some("server-settings-profile-server-id-help"),
-				|ui| {
-					if design::button(
-						ui,
-						"server-settings-profile-copy-id",
-						design::ButtonKind::Outline,
-					)
-					.clicked()
-					{
-						ui.ctx().copy_text(guild.0.to_string());
-					}
-				},
-			);
-		});
+		server_id_group(ui, draft.guild);
 	}
 	fn preview(&self, ui: &mut egui::Ui, state: &State, avatars: &mut Avatars) {
 		let Some(draft) = &self.draft else {
@@ -1177,7 +1139,7 @@ impl Editor {
 			.show(ui, |ui| {
 				ui.set_width(width);
 				let (banner, _) =
-					ui.allocate_exact_size(egui::vec2(width, 125.0), egui::Sense::hover());
+					ui.allocate_exact_size(egui::vec2(width, PREVIEW_BANNER), egui::Sense::hover());
 				gradient(ui, banner, draft.banner_color.unwrap_or(0x2153dc), 16);
 				egui::Frame::new().inner_margin(16).show(ui, |ui| {
 					ui.set_width(width - 32.0);
@@ -1257,6 +1219,354 @@ impl Editor {
 	}
 }
 
+/// `(form, preview)` column widths of the profile page, or `None` when the preview stacks
+/// under the form.
+fn profile_columns(width: f32) -> Option<(f32, f32)> {
+	(width >= 700.0).then(|| {
+		let preview = if width >= 820.0 { 300.0 } else { 260.0 };
+		(width - preview - 32.0, preview)
+	})
+}
+
+#[derive(Clone, Copy)]
+enum Column {
+	Form,
+	Preview,
+}
+
+/// The profile page's two columns, side by side when wide and stacked otherwise. The loaded
+/// page and its loading placeholder share it, so both put the form and preview in one place.
+fn profile_layout(ui: &mut egui::Ui, mut add: impl FnMut(&mut egui::Ui, Column)) {
+	if let Some((form_width, preview_width)) = profile_columns(ui.available_width()) {
+		ui.horizontal_top(|ui| {
+			ui.spacing_mut().item_spacing.x = 32.0;
+			ui.allocate_ui_with_layout(
+				egui::vec2(form_width, 0.0),
+				egui::Layout::top_down(egui::Align::Min),
+				|ui| {
+					ui.set_width(form_width);
+					add(ui, Column::Form);
+				},
+			);
+			ui.vertical(|ui| {
+				ui.set_width(preview_width);
+				ui.add_space(4.0);
+				add(ui, Column::Preview);
+			});
+		});
+	} else {
+		add(ui, Column::Form);
+		ui.add_space(28.0);
+		add(ui, Column::Preview);
+	}
+}
+
+const PREVIEW_BANNER: f32 = 125.0;
+const SWATCHES_PER_ROW: usize = 5;
+const SWATCH_HEIGHT: f32 = 56.0;
+const TRAIT_SLOTS: usize = 5;
+const DESCRIPTION_ROWS: usize = 4;
+
+/// Width of one banner swatch in a row of five 8px apart.
+fn swatch_width(available: f32) -> f32 {
+	((available - 32.0) / SWATCHES_PER_ROW as f32).max(20.0)
+}
+
+/// Trait cells per row at this width.
+fn trait_columns(width: f32) -> usize {
+	if width >= 480.0 {
+		3
+	} else if width >= 330.0 {
+		2
+	} else {
+		1
+	}
+}
+
+fn page_heading(ui: &mut egui::Ui, page: Page) {
+	if let Some((title, subtitle)) = page.heading() {
+		design::page_header(ui, title, Some(subtitle), |_| {});
+	}
+}
+
+/// A settings-form page whose settings have not arrived: the page's real headings, group
+/// titles and help lines, with placeholders inside the cards sized from the loaded controls.
+fn pending_page(ui: &mut egui::Ui, page: Page, guild: Id) {
+	let mut label = crate::i18n::translate("server-settings-page-body-loading-server-settings");
+	match page {
+		Page::Profile => {
+			page_heading(ui, page);
+			profile_layout(ui, |ui, column| match column {
+				Column::Form => pending_profile_form(ui, &std::mem::take(&mut label), guild),
+				Column::Preview => pending_preview(ui),
+			});
+		}
+		Page::Engagement => pending_engagement(ui, label),
+		Page::Safety => pending_safety(ui, label),
+		// These pages load their own data and sketch it themselves.
+		Page::Emoji
+		| Page::Stickers
+		| Page::Members
+		| Page::Roles
+		| Page::Invites
+		| Page::Integrations
+		| Page::AuditLog => {}
+	}
+}
+
+fn pending_profile_form(ui: &mut egui::Ui, label: &str, guild: Id) {
+	ui.spacing_mut().item_spacing = egui::vec2(8.0, 8.0);
+	design::group(ui, "server-settings-profile-form-name", |ui| {
+		pending::input(ui, label, None, 1);
+	});
+	ui.add_space(16.0);
+	design::group(ui, "server-settings-profile-form-icon", |ui| {
+		design::hint(
+			ui,
+			"server-settings-profile-form-we-recommend-an-image-of-at-least-512512",
+		);
+		ui.add_space(4.0);
+		// Change Server Icon and Remove Icon.
+		pending::controls(ui, "", &[164.0, 120.0], design::BUTTON_HEIGHT);
+	});
+	ui.add_space(16.0);
+	design::group(ui, "server-settings-profile-form-banner", |ui| {
+		let width = swatch_width(ui.available_width());
+		pending::grid(
+			ui,
+			"",
+			BANNER_SWATCHES.len(),
+			SWATCHES_PER_ROW,
+			egui::vec2(width, SWATCH_HEIGHT),
+		);
+		design::card_divider(ui);
+		design::row(
+			ui,
+			"server-settings-profile-form-banner-custom",
+			Some("server-settings-profile-form-banner-custom-help"),
+			|ui| {
+				let height = ui.spacing().interact_size.y;
+				pending::controls(ui, "", &[96.0], height);
+			},
+		);
+	});
+	ui.add_space(16.0);
+	design::group(ui, "server-settings-profile-form-traits", |ui| {
+		design::hint(
+			ui,
+			"server-settings-profile-form-add-up-to-5-traits-to-show-off-your-server",
+		);
+		ui.add_space(4.0);
+		let columns = trait_columns(ui.available_width());
+		let cell = (ui.available_width() - 8.0 * (columns - 1) as f32) / columns as f32;
+		// A cell pads its emoji button and name field by 8px on a row one control tall.
+		let height = ui.spacing().interact_size.y.max(28.0) + 16.0;
+		pending::grid(ui, "", TRAIT_SLOTS, columns, egui::vec2(cell, height));
+	});
+	ui.add_space(16.0);
+	design::group(ui, "server-settings-profile-form-description", |ui| {
+		design::hint(
+			ui,
+			"server-settings-profile-form-how-did-your-server-get-started-why-should-people-join",
+		);
+		ui.add_space(4.0);
+		pending::input(ui, "", None, DESCRIPTION_ROWS);
+		// The character counter's line.
+		let line = ui.fonts_mut(|fonts| fonts.row_height(&egui::FontId::proportional(12.0)));
+		crate::skeleton::custom(
+			ui,
+			"",
+			egui::vec2(ui.available_width(), line),
+			|painter, rect, fill| {
+				crate::skeleton::bar(
+					painter,
+					fill,
+					egui::pos2(rect.right() - 44.0, rect.center().y - 5.0),
+					egui::vec2(44.0, 10.0),
+				);
+			},
+		);
+	});
+	ui.add_space(16.0);
+	server_id_group(ui, guild);
+}
+
+/// The preview card as `preview` lays it out: banner, the server icon on its card-coloured
+/// ring, the name and the founding date every preview shows. Online and member counts and
+/// traits are optional, so they are not sketched.
+fn pending_preview(ui: &mut egui::Ui) {
+	use crate::skeleton::{bar, block, frame_tint, outline};
+	ui.spacing_mut().item_spacing = egui::vec2(6.0, 6.0);
+	let width = ui.available_width().min(300.0) - 2.0;
+	let page = design::palette(ui).chat;
+	let (name, date) = ui.fonts_mut(|fonts| {
+		(
+			fonts.row_height(&egui::FontId::new(16.0, design::semibold_family(ui.ctx()))),
+			fonts.row_height(&egui::FontId::proportional(13.0)),
+		)
+	});
+	// The icon hangs 36px under the banner; the name and date follow one item spacing apart,
+	// inside the card's 16px margin.
+	let icon_bottom = PREVIEW_BANNER + 36.0;
+	let height = icon_bottom + 6.0 + name + 6.0 + date + 16.0;
+	crate::skeleton::custom(ui, "", egui::vec2(width, height), |painter, rect, fill| {
+		outline(painter, fill, rect, 16.0);
+		let banner = egui::Rect::from_min_size(rect.min, egui::vec2(width, PREVIEW_BANNER));
+		outline(painter, fill, banner, 16.0);
+		let icon = egui::Rect::from_min_size(
+			rect.min + egui::vec2(16.0, icon_bottom - 72.0),
+			egui::Vec2::splat(72.0),
+		);
+		// The ring in the card's own colour: the page colour under the card's frame tint.
+		let ring = icon.expand(4.0);
+		block(painter, page, ring, 20.0);
+		block(painter, frame_tint(fill), ring, 20.0);
+		block(painter, fill, icon, 16.0);
+		let text = egui::pos2(icon.left(), icon.bottom() + 6.0);
+		bar(
+			painter,
+			fill,
+			text + egui::vec2(0.0, (name - 12.0) * 0.5),
+			egui::vec2(width * 0.55, 12.0),
+		);
+		bar(
+			painter,
+			fill,
+			text + egui::vec2(0.0, name + 6.0 + (date - 10.0) * 0.5),
+			egui::vec2(width * 0.4, 10.0),
+		);
+	});
+}
+
+fn pending_engagement(ui: &mut egui::Ui, mut label: String) {
+	ui.set_max_width(ui.available_width().min(850.0));
+	page_heading(ui, Page::Engagement);
+	design::section(
+		ui,
+		"server-settings-engagement-system-messages",
+		Some("server-settings-engagement-configure-system-event-messages-sent-to-your-server"),
+	);
+	design::card(ui, |ui| {
+		for (index, (_, text)) in SYSTEM_MESSAGES.into_iter().enumerate() {
+			if index > 0 {
+				design::card_divider(ui);
+			}
+			pending::switch(ui, &std::mem::take(&mut label), text, None);
+		}
+		design::card_divider(ui);
+		design::row(
+			ui,
+			"server-settings-engagement-system-messages-channel",
+			Some("server-settings-engagement-this-is-the-channel-we-send-system-event-messages-to"),
+			pending_picker,
+		);
+	});
+	ui.add_space(24.0);
+	design::section(
+		ui,
+		"server-settings-engagement-activity-feed-settings",
+		Some("server-settings-engagement-shows-a-feed-of-activity-from-games-and-connected-apps"),
+	);
+	design::card(ui, |ui| {
+		pending::switch(
+			ui,
+			"",
+			"server-settings-engagement-display-activity-feed-in-this-server",
+			None,
+		);
+	});
+	ui.add_space(24.0);
+	design::section(
+		ui,
+		"server-settings-engagement-default-notification-settings",
+		Some(
+			"server-settings-engagement-this-will-determine-whether-members-who-have-not-explicitly-set",
+		),
+	);
+	design::card(ui, |ui| {
+		for (_, title, detail) in NOTIFICATION_LEVELS {
+			pending::radio(ui, "", title, detail);
+		}
+	});
+	ui.add_space(24.0);
+	design::section(
+		ui,
+		"server-settings-engagement-inactive-channel",
+		Some(
+			"server-settings-engagement-automatically-move-members-to-this-channel-and-mute-them-when",
+		),
+	);
+	design::card(ui, |ui| {
+		design::row(
+			ui,
+			"server-settings-engagement-inactive-channel",
+			None,
+			pending_picker,
+		);
+		design::card_divider(ui);
+		design::row(
+			ui,
+			"server-settings-engagement-inactive-timeout",
+			None,
+			pending_picker,
+		);
+	});
+}
+
+fn pending_safety(ui: &mut egui::Ui, mut label: String) {
+	ui.set_max_width(ui.available_width().min(850.0));
+	page_heading(ui, Page::Safety);
+	design::section(
+		ui,
+		"server-settings-safety-verification",
+		Some("server-settings-safety-verification-help"),
+	);
+	design::card(ui, |ui| {
+		for (title, detail) in VERIFICATION_LEVELS {
+			pending::radio(ui, &std::mem::take(&mut label), title, Some(detail));
+		}
+	});
+	ui.add_space(24.0);
+	design::section(
+		ui,
+		"server-settings-safety-filter",
+		Some("server-settings-safety-filter-help"),
+	);
+	design::card(ui, |ui| {
+		for title in CONTENT_FILTERS {
+			pending::radio(ui, "", title, None);
+		}
+	});
+}
+
+/// A channel or timeout picker's placeholder at the pickers' width and height.
+fn pending_picker(ui: &mut egui::Ui) {
+	let width = PICKER_WIDTH.min(ui.available_width());
+	pending::controls(ui, "", &[width], design::SELECT_HEIGHT);
+}
+
+/// The Server ID group: the ID with its copy button, known before the settings load.
+fn server_id_group(ui: &mut egui::Ui, guild: Id) {
+	design::group(ui, "server-settings-profile-server-id", |ui| {
+		design::row(
+			ui,
+			&guild.0.to_string(),
+			Some("server-settings-profile-server-id-help"),
+			|ui| {
+				if design::button(
+					ui,
+					"server-settings-profile-copy-id",
+					design::ButtonKind::Outline,
+				)
+				.clicked()
+				{
+					ui.ctx().copy_text(guild.0.to_string());
+				}
+			},
+		);
+	});
+}
+
 const BANNER_SWATCHES: [u32; 10] = [
 	0x2153dc, 0xf916a0, 0xed171a, 0xef7912, 0xf1cd29, 0x763a94, 0x04adf1, 0x46dcca, 0x496b00,
 	0x282828,
@@ -1298,7 +1608,8 @@ fn banner_swatch(
 	width: f32,
 	colors: &design::Palette,
 ) {
-	let (rect, response) = ui.allocate_exact_size(egui::vec2(width, 56.0), egui::Sense::click());
+	let (rect, response) =
+		ui.allocate_exact_size(egui::vec2(width, SWATCH_HEIGHT), egui::Sense::click());
 	let selected = draft.banner_color == Some(color);
 	let lift = ui.ctx().animate_bool_with_time(
 		response.id.with("lift"),
@@ -1440,12 +1751,7 @@ const PICKER_WIDTH: f32 = 240.0;
 
 fn engagement(ui: &mut egui::Ui, state: &State, draft: &mut Settings) {
 	ui.set_max_width(ui.available_width().min(850.0));
-	design::page_header(
-		ui,
-		"server-settings-engagement-engagement",
-		Some("server-settings-engagement-manage-settings-that-help-keep-your-server-active"),
-		|_| {},
-	);
+	page_heading(ui, Page::Engagement);
 	design::section(
 		ui,
 		"server-settings-engagement-system-messages",
@@ -1505,16 +1811,7 @@ fn engagement(ui: &mut egui::Ui, state: &State, draft: &mut Settings) {
 		),
 	);
 	design::card(ui, |ui| {
-		for (value, label, detail) in [
-			(0, "server-settings-engagement-all-messages", None),
-			(
-				1,
-				"server-settings-engagement-only-mentions",
-				Some(
-					"server-settings-engagement-we-highly-recommend-setting-this-to-only-mentions-for-a",
-				),
-			),
-		] {
+		for (value, label, detail) in NOTIFICATION_LEVELS {
 			let selected = draft.default_message_notifications == value;
 			if design::radio_row(ui, selected, label, detail).clicked() {
 				draft.default_message_notifications = value;
@@ -1573,6 +1870,15 @@ const VERIFICATION_LEVELS: [(&str, &str); 5] = [
 		"server-settings-safety-verification-highest-detail",
 	),
 ];
+/// Default notification levels: all messages, or only mentions with its recommendation.
+const NOTIFICATION_LEVELS: [(u8, &str, Option<&str>); 2] = [
+	(0, "server-settings-engagement-all-messages", None),
+	(
+		1,
+		"server-settings-engagement-only-mentions",
+		Some("server-settings-engagement-we-highly-recommend-setting-this-to-only-mentions-for-a"),
+	),
+];
 const CONTENT_FILTERS: [&str; 3] = [
 	"server-settings-safety-filter-disabled",
 	"server-settings-safety-filter-no-roles",
@@ -1581,12 +1887,7 @@ const CONTENT_FILTERS: [&str; 3] = [
 
 fn safety(ui: &mut egui::Ui, draft: &mut Settings) {
 	ui.set_max_width(ui.available_width().min(850.0));
-	design::page_header(
-		ui,
-		"server-settings-page-safety",
-		Some("server-settings-safety-subtitle"),
-		|_| {},
-	);
+	page_heading(ui, Page::Safety);
 	let community = draft.community();
 	if community {
 		design::notice(

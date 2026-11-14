@@ -72,10 +72,7 @@ impl ContactEditor {
 				ui.label(crate::design::semibold(ui, &user.name, 15.0).color(colors.text_strong));
 				if !self.loaded {
 					if busy {
-						ui.horizontal(|ui| {
-							ui.spinner();
-							ui.label(crate::i18n::translate("contact-editor-show-loading-note"));
-						});
+						pending_note(ui);
 					} else {
 						crate::dialog::notice(
 							ui,
@@ -206,6 +203,59 @@ impl ContactEditor {
 			*self = Self::default();
 		}
 	}
+}
+
+/// The note editor while the note loads: its label, the five-row input and the counter line
+/// under it, at the loaded editor's sizes.
+fn pending_note(ui: &mut egui::Ui) {
+	use crate::skeleton::{CONTROL_RADIUS, bar, control};
+	use egui::{Rect, pos2, vec2};
+	let spacing = ui.spacing().item_spacing.y;
+	let row = ui.text_style_height(&egui::TextStyle::Body) + ui.spacing().extra_text_line_spacing;
+	let (label, hint) = ui.fonts_mut(|fonts| {
+		(
+			fonts
+				.row_height(&egui::FontId::new(
+					12.0,
+					crate::design::semibold_family(ui.ctx()),
+				))
+				.round(),
+			fonts.row_height(&egui::FontId::proportional(12.0)).round(),
+		)
+	});
+	// Labels take whole pixels and add 6px under themselves; the input pads its five rows by
+	// 9px each side.
+	let input_top = label + spacing + 6.0;
+	let input = 5.0 * row + 18.0;
+	let hint_top = input_top + input + spacing + 4.0;
+	crate::skeleton::custom(
+		ui,
+		&crate::i18n::translate("contact-editor-show-loading-note"),
+		vec2(ui.available_width(), hint_top + hint),
+		|painter, rect, fill| {
+			bar(
+				painter,
+				fill,
+				pos2(rect.left(), rect.top() + (label - 10.0) * 0.5),
+				vec2(40.0, 10.0),
+			);
+			control(
+				painter,
+				fill,
+				Rect::from_min_size(
+					pos2(rect.left(), rect.top() + input_top),
+					vec2(rect.width(), input),
+				),
+				CONTROL_RADIUS,
+			);
+			bar(
+				painter,
+				fill,
+				pos2(rect.left(), rect.top() + hint_top + (hint - 10.0) * 0.5),
+				vec2(rect.width().min(180.0), 10.0),
+			);
+		},
+	);
 }
 
 #[cfg(test)]

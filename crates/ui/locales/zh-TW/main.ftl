@@ -2444,8 +2444,6 @@ search-pane-hide-matching-text-highlight = 隱藏符合文字的反白
 # Context: pane
 search-pane-indexing-is-incomplete-results-may-be-missing = 索引尚未完成，結果可能有遺漏。
 # Context: pane
-search-pane-looking-for-matching-messages = 正在尋找符合的訊息。
-# Context: pane
 search-pane-messages-are-unavailable-while-disconnected-or-without-channel-access = 斷線或無法存取頻道時，訊息無法使用。
 # Context: pane
 search-pane-newest-first = 最新在前
@@ -3635,6 +3633,8 @@ slash-commands-composer-choose-a-different-command = 改選其他指令
 slash-commands-composer-command-unavailable-your-arguments-are-kept = 指令無法使用。你的參數已保留。
 # Context: footer
 slash-commands-footer-refresh-application-commands = 重新整理應用指令
+# Context: list
+slash-commands-list-loading-application-commands = 正在載入應用指令…
 
 ## crates/ui/src/stickers.rs
 # Context: message

@@ -901,7 +901,7 @@ impl Dialog {
 						"channel-menu-overview-let-everyone-know-how-to-use-this-channel",
 					))
 					.char_limit(1024)
-					.desired_rows(3),
+					.desired_rows(TOPIC_ROWS),
 			)
 			.labelled_by(label.id);
 			if topic.changed() {
@@ -1002,12 +1002,7 @@ impl Dialog {
 		}
 		if !self.loaded {
 			if pending {
-				ui.horizontal(|ui| {
-					ui.spinner();
-					ui.label(crate::i18n::translate(
-						"channel-menu-show-loading-channel-settings",
-					));
-				});
+				self.pending_page(ui, state);
 			} else {
 				dialog::notice(
 					ui,
@@ -1051,6 +1046,88 @@ impl Dialog {
 			{
 				commands.push(command);
 				self.loaded = false;
+			}
+		}
+	}
+
+	/// The selected settings page while the channel's settings load: its real headings and
+	/// labels, with placeholders for the controls sized from the loaded ones.
+	fn pending_page(&self, ui: &mut egui::Ui, state: &State) {
+		use crate::skeleton::form as pending;
+		let label = crate::i18n::translate("channel-menu-show-loading-channel-settings");
+		let kind = state.channel(self.channel).map(|channel| channel.kind);
+		let category = kind == Some(4);
+		match self.page {
+			Page::Overview => {
+				design::page_title(ui, "channel-menu-editor-overview");
+				dialog::label(
+					ui,
+					if category {
+						"channel-menu-overview-category-name"
+					} else {
+						"channel-menu-overview-channel-name"
+					},
+				);
+				pending::input(ui, &label, None, 1);
+				if matches!(kind, Some(0 | 5)) {
+					ui.add_space(14.0);
+					dialog::label(ui, "channel-menu-overview-topic");
+					pending::input(ui, "", None, TOPIC_ROWS);
+					ui.add_space(14.0);
+					dialog::label(ui, "channel-menu-overview-slowmode");
+					// The slowmode picker is at most 560px wide.
+					let width = ui.available_width().min(560.0);
+					pending::controls(ui, "", &[width], design::SELECT_HEIGHT);
+					dialog::hint(
+						ui,
+						"channel-menu-overview-members-will-be-restricted-to-one-message-in-this-interval",
+					);
+					ui.add_space(6.0);
+					pending::switch(
+						ui,
+						"",
+						"channel-menu-overview-age-restricted-channel",
+						Some(
+							"channel-menu-overview-members-must-confirm-they-are-of-age-before-viewing",
+						),
+					);
+				}
+			}
+			Page::Permissions => {
+				design::page_title(ui, "server-roles-editor-permissions");
+				let colors = design::palette(ui);
+				// The private-channel card, framed as the loaded page frames it.
+				egui::Frame::new()
+					.fill(colors.raised)
+					.stroke(egui::Stroke::new(1.0, colors.border))
+					.corner_radius(12)
+					.inner_margin(16)
+					.show(ui, |ui| {
+						let (title, detail) = if category {
+							(
+								"channel-permissions-show-private-category",
+								"channel-permissions-show-only-selected-members-and-roles-can-view-this-category-synced",
+							)
+						} else {
+							(
+								"channel-permissions-show-private-channel",
+								"channel-permissions-show-only-selected-members-and-roles-can-view-this-channel-administrators",
+							)
+						};
+						pending::switch(ui, &label, title, Some(detail));
+					});
+			}
+			Page::Integrations => {
+				ui.set_max_width(ui.available_width().min(720.0));
+				design::page_header(
+					ui,
+					"server-integrations-show-integrations-2",
+					Some(
+						"server-integrations-overview-manage-webhooks-and-followed-channels-posting-to-this-channel",
+					),
+					|_| {},
+				);
+				crate::server_integrations::pending_summary(ui, &label);
 			}
 		}
 	}
@@ -1186,6 +1263,9 @@ impl Dialog {
 		}
 	}
 }
+
+/// Text rows the topic field shows.
+const TOPIC_ROWS: usize = 3;
 
 fn toggle_row(ui: &mut egui::Ui, label: &str, value: &mut bool) -> egui::Response {
 	let mut response = row(ui, label, true, false);

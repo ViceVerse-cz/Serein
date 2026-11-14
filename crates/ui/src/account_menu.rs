@@ -529,6 +529,26 @@ impl MessagingUi {
 							.wrap(),
 						);
 					}
+				} else if state.own_profile.loading {
+					// The username line every loaded profile adds under the name. Only a first
+					// load is sketched: a reload keeps the shown profile silently (owner decision).
+					let font = egui::FontId::new(14.0, design::medium_family(ui.ctx()));
+					let height = ui.fonts_mut(|fonts| fonts.row_height(&font).round());
+					crate::skeleton::custom(
+						ui,
+						&crate::i18n::translate(
+							"account-menu-account-identity-card-loading-profile",
+						),
+						vec2(ui.available_width(), height),
+						|painter, rect, fill| {
+							crate::skeleton::bar(
+								painter,
+								fill,
+								egui::pos2(rect.left(), rect.center().y - 5.0),
+								vec2(96.0_f32.min(rect.width()), 10.0),
+							);
+						},
+					);
 				}
 				if !self.own_presence.custom_status.is_empty() {
 					ui.add_space(10.0);
@@ -543,16 +563,6 @@ impl MessagingUi {
 								.color(colors.text),
 						)
 						.wrap(),
-					);
-				}
-				if state.own_profile.loading {
-					ui.add_space(6.0);
-					ui.label(
-						RichText::new(crate::i18n::translate(
-							"account-menu-account-identity-card-loading-profile",
-						))
-						.small()
-						.color(colors.muted),
 					);
 				}
 				if let Some(error) = state.own_profile.error {

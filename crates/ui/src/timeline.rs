@@ -115,6 +115,8 @@ pub struct TimelineView {
 	starter_row: Option<Id>,
 	/// Whether the direct-message introduction leads the rows of an exhausted conversation.
 	intro_row: bool,
+	/// Whether a placeholder for the pending older page leads the rows.
+	older_row: bool,
 	suppressed_deleted_highlight: BTreeSet<Id>,
 	pub(super) remove_preserved: Option<Id>,
 	toolbar: Option<(Id, egui::Rect)>,
@@ -269,44 +271,84 @@ fn channel_welcome(ui: &mut egui::Ui, channel: &model::Channel, height: f32) {
 		});
 }
 
-fn loading_messages(ui: &mut egui::Ui) {
-	let colors = crate::design::palette(ui);
-	let height = ui.available_height();
-	let (rect, response) = ui.allocate_exact_size(
-		egui::vec2(ui.available_width(), height),
-		egui::Sense::hover(),
+/// Placeholder rows standing in for a pending older page.
+const OLDER_ROWS: usize = 2;
+fn loading_messages(ui: &mut egui::Ui, compact: bool) {
+	let height = ui.available_height().max(0.0);
+	let pitch = placeholder_pitch(compact);
+	// A partial last row fills the view; the region stops at `height` and clips it, so it never
+	// paints over the composer below.
+	let count = ((height.max(pitch) / pitch).ceil() as usize).min(crate::skeleton::MAX_ITEMS);
+	placeholder_messages(
+		ui,
+		&crate::i18n::translate("timeline-loading-messages-loading-messages"),
+		compact,
+		count,
+		Some(height),
 	);
-	response.widget_info(|| {
-		egui::WidgetInfo::labeled(
-			egui::Role::Label,
-			false,
-			crate::i18n::translate("timeline-loading-messages-loading-messages"),
-		)
-	});
-	let painter = ui.painter().with_clip_rect(ui.clip_rect().intersect(rect));
-	let fill = colors.muted.gamma_multiply(0.22);
-	let text_width = (rect.width() - 88.0).clamp(0.0, 480.0);
-	let rows = (height / 68.0).ceil().clamp(0.0, 128.0) as usize;
-	for (index, length) in [0.85, 0.65, 0.95, 0.55]
-		.into_iter()
-		.cycle()
-		.take(rows)
-		.enumerate()
-	{
-		let origin = rect.min + egui::vec2(16.0, 12.0 + index as f32 * 68.0);
-		painter.circle_filled(origin + egui::vec2(20.0, 20.0), 20.0, fill);
-		for (y, width, height) in [
-			(0.0, text_width.min(96.0), 12.0),
-			(22.0, text_width * length, 10.0),
-			(40.0, text_width * length * 0.7, 10.0),
-		] {
-			painter.rect_filled(
-				egui::Rect::from_min_size(origin + egui::vec2(56.0, y), egui::vec2(width, height)),
-				4,
-				fill,
-			);
-		}
-	}
+}
+/// Height of one [`placeholder_messages`] row.
+fn placeholder_pitch(compact: bool) -> f32 {
+	if compact { 28.0 } else { 68.0 }
+}
+/// `count` placeholder conversation rows: cozy (40px avatar, name, two lines) or compact (one
+/// line, no avatar). `height` caps the region; rows beyond it are clipped.
+fn placeholder_messages(
+	ui: &mut egui::Ui,
+	label: &str,
+	compact: bool,
+	count: usize,
+	height: Option<f32>,
+) -> egui::Response {
+	use crate::skeleton::{bar, circle, width_factor};
+	use egui::{pos2, vec2};
+	let pitch = placeholder_pitch(compact);
+	let width = ui.available_width();
+	let rows = pitch * count as f32;
+	crate::skeleton::custom(
+		ui,
+		label,
+		vec2(width, height.map_or(rows, |height| height.min(rows))),
+		|painter, rect, fill| {
+			for index in 0..count {
+				let factor = width_factor(index);
+				if compact {
+					let origin = rect.min + vec2(16.0, 9.0 + index as f32 * pitch);
+					let body_left = 16.0 + 44.0 + compact_author_width(width) + 8.0;
+					bar(painter, fill, origin, vec2(36.0, 10.0));
+					bar(
+						painter,
+						fill,
+						origin + vec2(44.0, 0.0),
+						vec2(64.0 + 40.0 * factor, 10.0),
+					);
+					let body = (width - body_left - 16.0).clamp(0.0, 480.0) * factor;
+					bar(
+						painter,
+						fill,
+						pos2(rect.left() + body_left, origin.y),
+						vec2(body, 10.0),
+					);
+				} else {
+					let text_width = (width - 88.0).clamp(0.0, 480.0);
+					let origin = rect.min + vec2(16.0, 12.0 + index as f32 * pitch);
+					circle(painter, fill, origin + vec2(20.0, 20.0), 20.0);
+					for (y, line_width, height) in [
+						(0.0, text_width.min(96.0), 12.0),
+						(22.0, text_width * factor, 10.0),
+						(40.0, text_width * factor * 0.7, 10.0),
+					] {
+						bar(
+							painter,
+							fill,
+							origin + vec2(56.0, y),
+							vec2(line_width, height),
+						);
+					}
+				}
+			}
+		},
+	)
 }
 fn ease_out_cubic(t: f32) -> f32 {
 	let rest = 1.0 - t;
@@ -923,6 +965,10 @@ fn starter_row(
 }
 /// Row id of the direct-message introduction; no message uses snowflake 0.
 const INTRO: Id = Id(0);
+/// Row id of the pending older page's placeholder. It shares the introduction's slot (the
+/// introduction only leads a complete history, which has no older page left to load) and,
+/// like the introduction, is anchored as negative inset on the first message.
+const OLDER: Id = INTRO;
 const INTRO_ESTIMATE: f32 = 236.0;
 
 /// What leads a conversation once its whole history is loaded, as in the official client.
@@ -2628,6 +2674,12 @@ impl TimelineView {
 				.any(|p| Some(p.channel) == state.selected);
 		let intro = intro(state, intro_empty);
 		let intro_height_key = intro.as_ref().map(|intro| intro_key(intro, state));
+		// An older page on its way shows placeholder rows above the first loaded message. They
+		// join the rows like the introduction, so the reading anchor absorbs their height.
+		let older_row = intro.is_none()
+			&& state.history_pending
+			&& state.history_before.is_some()
+			&& state.timeline.display_iter().next().is_some();
 		let mut layout_changed = false;
 		if self.revision != state.revision {
 			// Member/presence and other unrelated updates must not restore the scroll
@@ -2652,10 +2704,12 @@ impl TimelineView {
 			|| dimensions_changed
 			|| self.starter_row != starter_id
 			|| self.intro_row != intro.is_some()
+			|| self.older_row != older_row
 			|| intro_height_key
 				.is_some_and(|key| self.heights.get(&INTRO).is_some_and(|(old, _)| *old != key));
 		self.starter_row = starter_id;
 		self.intro_row = intro.is_some();
+		self.older_row = older_row;
 		self.hidden_blocked = hide_blocked;
 		self.relationship_view = state.relationship_view();
 		if changed || self.revision != state.revision || self.width != width {
@@ -2753,6 +2807,11 @@ impl TimelineView {
 				self.rows.insert(0, (INTRO, height));
 				lead_basis += height;
 			}
+			if older_row {
+				let height = placeholder_pitch(self.compact_messages) * OLDER_ROWS as f32;
+				self.rows.insert(0, (OLDER, height));
+				lead_basis += height;
+			}
 			lead_rows = Some(lead_basis);
 			if !self.following
 				&& let Some((id, inset)) = self.anchor
@@ -2789,7 +2848,7 @@ impl TimelineView {
 		}
 		if history_available && state.freshness == model::Freshness::Loading && empty {
 			let area = ui.available_rect_before_wrap().intersect(ui.clip_rect());
-			loading_messages(ui);
+			loading_messages(ui, self.compact_messages);
 			session.bind(ui, ui.scope_id().with(("timeline", state.selected)), area);
 			let latest = state
 				.selected
@@ -3111,6 +3170,18 @@ impl TimelineView {
 				}
 				end = index + 1;
 				let id = self.rows[index].0;
+				if id == OLDER && older_row {
+					let response = placeholder_messages(
+						ui,
+						&crate::i18n::translate("timeline-loading-messages-loading-messages"),
+						self.compact_messages,
+						OLDER_ROWS,
+						None,
+					);
+					// Keep one result per row: visible height updates below zip by index.
+					measurements.push((id, 0, response.rect.height()));
+					continue;
+				}
 				if id == INTRO
 					&& let Some(intro) = intro.as_ref()
 				{
@@ -5014,8 +5085,8 @@ impl TimelineView {
 			(output.state.clamped_offset().y + output.inner_rect.height() - lead).max(0.0),
 		);
 		let inset = output.state.clamped_offset().y - lead - anchor_top;
-		// The introduction is not a message, so a saved reading cursor could not
-		// restore it; anchor on the first message with the introduction as negative inset.
+		// The introduction or older-page placeholder is not a message, so a saved reading
+		// cursor could not restore it; anchor on the first message with it as negative inset.
 		self.anchor = match self.rows.get(anchor) {
 			Some(&(INTRO, height)) => self
 				.rows
@@ -5119,6 +5190,10 @@ impl TimelineView {
 			self.user_action = Some(action);
 		}
 		for (id, key, height) in measurements {
+			if id == OLDER && older_row {
+				// The placeholder has a fixed height and nothing to settle.
+				continue;
+			}
 			self.measured_rows.insert(id);
 			if self
 				.heights
@@ -5765,6 +5840,143 @@ mod tests {
 		assert!(
 			view.following && !view.target_browsing,
 			"explicit latest navigation still resumes following"
+		);
+	}
+
+	#[test]
+	fn loading_history_never_paints_below_its_area() {
+		// The composer sits right below the history area and shares its clip rect, so a
+		// placeholder row taller than the area would paint over it.
+		let ctx = egui::Context::default();
+		for compact in [false, true] {
+			let mut area = egui::Rect::NOTHING;
+			let output = ctx.run_ui(Default::default(), |ui| {
+				area = egui::Rect::from_min_size(ui.max_rect().min, egui::vec2(400.0, 100.0));
+				let mut history = ui.new_child(egui::UiBuilder::new().max_rect(area));
+				loading_messages(&mut history, compact);
+			});
+			let clips: Vec<_> = output.shapes.iter().map(|shape| shape.clip_rect).collect();
+			output.drop_without_applying_deltas();
+			assert!(!clips.is_empty());
+			for clip in clips {
+				assert!(
+					clip.bottom() <= area.bottom(),
+					"compact {compact}: {clip:?} reaches below {area:?}"
+				);
+			}
+		}
+	}
+
+	#[test]
+	fn older_page_placeholder_keeps_the_reading_position() {
+		let mut state = loading_unread_channel(false);
+		state.freshness = model::Freshness::Fresh;
+		state.history_pending = false;
+		// Older rows land on an earlier day, so the first loaded row keeps its date divider
+		// and its height: any movement below comes from the placeholder alone. The history is
+		// long enough, and the older page short enough, that each restored offset stays within
+		// the previous frame's scroll range; egui springs back from a forced overscroll.
+		let day = 1_788_998_580_000u64 - 1_420_070_400_000;
+		let id = |day: u64, index: u64| ((day + index * 1_000) << 22) | 1;
+		let row = |id: u64, index: u64| {
+			let mut message = text_message(id);
+			message.content = format!("Synthetic row {index}");
+			message
+		};
+		for index in 0..60 {
+			state
+				.timeline
+				.insert(row(id(day, index), index), false, false)
+				.unwrap();
+		}
+		let latest = Id(id(day, 59));
+		state.channels[0].last_message = Some(latest);
+		state
+			.apply_read_state(client_core::read_state::Event::Snapshot {
+				entries: Some(vec![(Id(20), Some(latest), 0)]),
+				version: Some(2),
+				partial: false,
+			})
+			.unwrap();
+		let ctx = egui::Context::default();
+		let mut view = TimelineView {
+			instant_scrolling: true,
+			..Default::default()
+		};
+		let frame = |view: &mut TimelineView, state: &mut State, events| {
+			banner_frame(&ctx, view, state, events, false)
+		};
+		for _ in 0..3 {
+			frame(&mut view, &mut state, vec![]);
+		}
+		let wheel = |phase| {
+			vec![
+				egui::Event::PointerMoved(egui::pos2(400.0, 300.0)),
+				egui::Event::MouseWheel {
+					unit: egui::MouseWheelUnit::Point,
+					phase,
+					source: egui::MouseWheelSource::Unknown,
+					delta: egui::vec2(0.0, 120.0),
+					modifiers: egui::Modifiers::NONE,
+				},
+			]
+		};
+		for _ in 0..40 {
+			frame(&mut view, &mut state, wheel(egui::TouchPhase::Move));
+			if view.load_older {
+				break;
+			}
+		}
+		assert!(view.load_older, "reading upward reaches older history");
+		frame(&mut view, &mut state, wheel(egui::TouchPhase::End));
+		// Let smoothed wheel motion drain at the top, so it cannot scroll into new rows later.
+		for _ in 0..60 {
+			frame(&mut view, &mut state, vec![]);
+		}
+		let reading = |labels: Vec<(String, egui::Rect)>| {
+			labels
+				.into_iter()
+				.find(|(text, _)| text == "Synthetic row 3")
+				.map(|(_, rect)| rect.top())
+				.expect("the reading row stays painted")
+		};
+		let before = reading(frame(&mut view, &mut state, vec![]));
+		assert!(state.older_history().is_some());
+		for _ in 0..8 {
+			frame(&mut view, &mut state, vec![]);
+		}
+		assert_eq!(
+			view.rows.first().map(|(id, _)| *id),
+			Some(OLDER),
+			"a pending older page leads with its placeholder"
+		);
+		let pending = reading(frame(&mut view, &mut state, vec![]));
+		assert!(
+			(before - pending).abs() <= 1.0,
+			"the placeholder opens above the reader: {before} -> {pending}"
+		);
+		let older_day = day - 2 * 86_400_000;
+		state.apply(client_core::Envelope {
+			generation: state.generation,
+			event: client_core::Event::History {
+				channel: Id(20),
+				request: state.request,
+				older: true,
+				messages: (0..10)
+					.rev()
+					.map(|index| row(id(older_day, index), 100 + index))
+					.collect(),
+			},
+		});
+		for _ in 0..8 {
+			frame(&mut view, &mut state, vec![]);
+		}
+		assert_ne!(view.rows.first().map(|(id, _)| *id), Some(OLDER));
+
+		let loaded = reading(frame(&mut view, &mut state, vec![]));
+		assert!(
+			(before - loaded).abs() <= 1.0,
+			"the older page replaces the placeholder in place: {before} -> {loaded}"
 		);
 	}
 
