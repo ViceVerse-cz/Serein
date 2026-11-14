@@ -1,19 +1,19 @@
-//! Phosphor Icons (MIT), Simple Icons brand marks (CC0) and the Serein mark rasterized once
-//! into one bundled atlas and tinted at draw time.
+//! SVG-first Phosphor Icons (MIT), Simple Icons brand marks (CC0) and the Serein mark.
 //!
-//! `assets/icons/atlas.png` holds white glyphs on transparency in fixed 64px cells;
-//! `index.tsv` maps upstream icon names to cells. See `assets/icons/README.md` for provenance.
+//! Bundled SVGs replace their PNG fallback cells in fixed raster layers at startup.
+//! Layers are tinted at draw time. See `assets/icons/README.md` for provenance.
 use crate::design;
 use egui::emath::GuiRounding;
 use egui::{Color32, ColorImage, Rect, Response, Sense, TextureHandle, Vec2};
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 const ATLAS: &[u8] = include_bytes!("../../../assets/icons/atlas.png");
 const INDEX: &str = include_str!("../../../assets/icons/index.tsv");
 const COLUMNS: usize = 8;
 const CELL: f32 = 64.0;
 const GLYPH: f32 = 56.0;
-const LAYER_CELLS: [u32; 4] = [16, 24, 32, 64];
+const LAYER_CELLS: [u32; 5] = [16, 24, 32, 64, 128];
+include!(concat!(env!("OUT_DIR"), "/icon_sources.rs"));
 const TEXTURE_KEY: &str = "phosphor-icons";
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -388,8 +388,7 @@ impl Icon {
 	}
 }
 
-/// Decoded per upload rather than cached: the texture owns the pixels afterwards, and a
-/// retained copy would keep 1.7 MB alive for the whole session.
+/// The original pixels supply fallback cells at every raster size.
 fn decoded() -> egui::ColorImage {
 	let image = image::load_from_memory_with_format(ATLAS, image::ImageFormat::Png)
 		.expect("bundled icon atlas")
@@ -398,15 +397,54 @@ fn decoded() -> egui::ColorImage {
 	egui::ColorImage::from_rgba_unmultiplied(size, &image)
 }
 
-/// Upload the atlas for `ctx` during application creation, outside the render callback.
+/// Prepare every bounded raster layer during application creation, outside rendering.
 pub fn install(ctx: &egui::Context) {
-	let _ = layer(ctx, 64);
-	let _ = layer(ctx, 32);
+	if installed(ctx).is_some() {
+		return;
+	}
+	let trees = svg_trees(SVG_SOURCES);
+	let cells = LAYER_CELLS
+		.into_iter()
+		.map(|cell| {
+			let image = raster_layer(cell, &trees);
+			let texture = ctx.load_texture(
+				"SVG icons with PNG fallback",
+				image,
+				egui::TextureOptions::LINEAR,
+			);
+			(cell, texture)
+		})
+		.collect();
+	ctx.data_mut(|data| data.insert_temp(egui::Id::unique(TEXTURE_KEY), AtlasLayers { cells }));
 }
 
-#[derive(Clone, Default)]
+/// Cloning the shared list bumps one reference count; it never touches texture handles.
+fn installed(ctx: &egui::Context) -> Option<AtlasLayers> {
+	ctx.data(|data| data.get_temp::<AtlasLayers>(egui::Id::unique(TEXTURE_KEY)))
+}
+
+fn svg_trees(sources: &[(&str, &[u8])]) -> Vec<(usize, resvg::usvg::Tree)> {
+	let options = resvg::usvg::Options {
+		image_href_resolver: resvg::usvg::ImageHrefResolver {
+			resolve_data: Box::new(|_, _, _| None),
+			resolve_string: Box::new(|_, _| None),
+		},
+		..Default::default()
+	};
+	// Parse each trusted bundled SVG once, then release trees after creating all layers.
+	Icon::ALL
+		.into_iter()
+		.filter_map(|icon| {
+			let (_, bytes) = sources.iter().find(|(name, _)| *name == icon.asset())?;
+			let tree = resvg::usvg::Tree::from_data(bytes, &options).ok()?;
+			Some((icon.cell(), tree))
+		})
+		.collect()
+}
+
+#[derive(Clone)]
 struct AtlasLayers {
-	cells: Vec<(u32, TextureHandle)>,
+	cells: Arc<[(u32, TextureHandle)]>,
 }
 
 fn source_image() -> &'static ColorImage {
@@ -414,30 +452,154 @@ fn source_image() -> &'static ColorImage {
 	SOURCE.get_or_init(decoded)
 }
 
-fn layer(ctx: &egui::Context, cell: u32) -> TextureHandle {
-	let id = egui::Id::unique(TEXTURE_KEY);
-	if let Some(layers) = ctx.data(|data| data.get_temp::<AtlasLayers>(id))
-		&& let Some((_, texture)) = layers.cells.iter().find(|(stored, _)| *stored == cell)
-	{
-		return texture.clone();
-	}
+fn raster_layer(cell: u32, trees: &[(usize, resvg::usvg::Tree)]) -> ColorImage {
 	let source = source_image();
-	let longest = source.resolution()[0].max(source.resolution()[1]) as u32;
-	let edge = (longest / CELL as u32) * cell;
-	let image = crate::resample::downscale_filter(
-		source,
-		edge.max(1),
-		image::imageops::FilterType::Triangle,
-	);
-	let texture = ctx.load_texture("Phosphor Icons 2.1.1", image, egui::TextureOptions::LINEAR);
-	ctx.data_mut(|data| {
-		let mut layers = data.get_temp::<AtlasLayers>(id).unwrap_or_default();
-		if !layers.cells.iter().any(|(stored, _)| *stored == cell) {
-			layers.cells.push((cell, texture.clone()));
+	let rows = source.height() / CELL as usize;
+	let width = COLUMNS * cell as usize;
+	let height = rows * cell as usize;
+	let mut layer = if trees.len() == Icon::ALL.len() {
+		ColorImage::filled([width, height], Color32::TRANSPARENT)
+	} else {
+		// Filter premultiplied pixels so transparency cannot darken white glyph edges.
+		// Fallback can upscale at high DPI; downscale_filter deliberately never upscales.
+		let fallback = image::RgbaImage::from_raw(
+			source.width() as u32,
+			source.height() as u32,
+			source.as_raw().to_vec(),
+		)
+		.expect("bundled atlas dimensions");
+		let fallback = image::imageops::resize(
+			&fallback,
+			width as u32,
+			height as u32,
+			image::imageops::FilterType::Triangle,
+		);
+		ColorImage::from_rgba_premultiplied([width, height], &fallback)
+	};
+	for (index, tree) in trees {
+		let Some(mut pixels) = resvg::tiny_skia::Pixmap::new(cell, cell) else {
+			continue;
+		};
+		let transform = resvg::tiny_skia::Transform::from_scale(
+			cell as f32 / tree.size().width(),
+			cell as f32 / tree.size().height(),
+		);
+		resvg::render(tree, transform, &mut pixels.as_mut());
+		let side = cell as usize;
+		let x = (index % COLUMNS) * side;
+		let y = (index / COLUMNS) * side;
+		let target = layer.pixels_mut();
+		for (row, source) in pixels.pixels().chunks_exact(side).enumerate() {
+			let start = (y + row) * width + x;
+			for (out, pixel) in target[start..start + side].iter_mut().zip(source) {
+				*out = Color32::from_rgba_premultiplied(
+					pixel.red(),
+					pixel.green(),
+					pixel.blue(),
+					pixel.alpha(),
+				);
+			}
 		}
-		data.insert_temp(id, layers);
+	}
+	layer
+}
+
+fn layer(ctx: &egui::Context, cell: u32) -> TextureHandle {
+	// Normal desktop startup installs explicitly; headless consumers may initialize lazily.
+	let layers = installed(ctx).unwrap_or_else(|| {
+		install(ctx);
+		installed(ctx).expect("installed icon layers")
 	});
-	texture
+	layers
+		.cells
+		.iter()
+		.find(|(stored, _)| *stored == cell)
+		.expect("bounded icon raster size")
+		.1
+		.clone()
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn svg_replaces_whole_cell_while_missing_or_malformed_sources_keep_png() {
+		let trees = svg_trees(&[
+			("caret-down", br##"<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="32" height="64" fill="#f00" opacity="0.5"/></svg>"##),
+			("caret-right", b"not an SVG"),
+		]);
+		assert_eq!(trees.len(), 1);
+		for cell in [16, 128] {
+			let fallback = raster_layer(cell, &[]);
+			let mixed = raster_layer(cell, &trees);
+			assert!(
+				fallback
+					.pixels()
+					.iter()
+					.any(|pixel| pixel.a() > 0 && pixel.a() < 255)
+			);
+			for pixel in fallback.pixels() {
+				assert_eq!(
+					pixel.r(),
+					pixel.a(),
+					"fallback resizing must preserve white edges"
+				);
+				assert_eq!(pixel.g(), pixel.a());
+				assert_eq!(pixel.b(), pixel.a());
+			}
+			for icon in Icon::ALL {
+				let x = icon.cell() % COLUMNS * cell as usize;
+				let y = icon.cell() / COLUMNS * cell as usize;
+				for dy in 0..cell as usize {
+					for dx in 0..cell as usize {
+						let pixel = mixed[(x + dx, y + dy)];
+						if icon == Icon::ChevronDown {
+							if dx < cell as usize / 2 {
+								assert_eq!(pixel.a(), 128);
+								assert_eq!(pixel, Color32::from_rgba_premultiplied(128, 0, 0, 128));
+							} else {
+								assert_eq!(pixel, Color32::TRANSPARENT);
+							}
+						} else {
+							assert_eq!(
+								pixel,
+								fallback[(x + dx, y + dy)],
+								"{} fallback",
+								icon.asset()
+							);
+						}
+					}
+				}
+			}
+		}
+	}
+
+	#[test]
+	fn bundled_svg_sources_parse_and_have_visible_artwork() {
+		let trees = svg_trees(SVG_SOURCES);
+		assert_eq!(
+			trees.len(),
+			SVG_SOURCES.len(),
+			"every bundled source must parse"
+		);
+		let image = raster_layer(64, &trees);
+		for (index, _) in trees {
+			let x = index % COLUMNS * 64;
+			let y = index / COLUMNS * 64;
+			let mut visible = false;
+			for dy in 0..64 {
+				for dx in 0..64 {
+					let pixel = image[(x + dx, y + dy)];
+					visible |= pixel.a() != 0;
+				}
+			}
+			assert!(
+				visible,
+				"SVG cell {index} must not erase its PNG with blank artwork"
+			);
+		}
+	}
 }
 
 /// Paint `icon` centred in `rect` with `color`.
