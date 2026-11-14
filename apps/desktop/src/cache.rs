@@ -328,16 +328,26 @@ impl Cache {
 			.try_send((generation, account, epoch, operation, reservation))
 			.is_ok()
 	}
-	pub fn start(ctx: egui::Context) -> Self {
+	/// `store` is the connection the launch already opened, when it has one.
+	pub fn start(ctx: egui::Context, store: Option<LocalStore>) -> Self {
 		let (send, commands) = mpsc::sync_channel::<(u64, Id, u64, Operation, Reservation)>(16);
 		let (events, receive) = mpsc::sync_channel(16);
 		let budget = Arc::new(Budget::default());
 		let history = Arc::new(HistorySafety::default());
 		let worker_history = history.clone();
 		std::thread::spawn(move || {
-			let mut store = LocalStore::open_default();
+			let mut store = store.map_or_else(LocalStore::open_default, Ok);
+			let mut opened = std::time::Instant::now();
 			let results = Arc::new(Budget::default());
 			while let Ok((generation, account, epoch, operation, reservation)) = commands.recv() {
+				// A store that could not be opened is tried again, at most once a second, so a
+				// momentary refusal does not leave every later read and save failing until restart.
+				if matches!(store, Err(StoreError::Unavailable))
+					&& opened.elapsed() >= std::time::Duration::from_secs(1)
+				{
+					store = LocalStore::open_default();
+					opened = std::time::Instant::now();
+				}
 				let outcome = execute(&mut store, &worker_history, account, epoch, operation);
 				drop(reservation);
 				let bytes = match &outcome {

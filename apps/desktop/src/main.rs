@@ -512,11 +512,14 @@ fn main() -> eframe::Result {
 		return Ok(());
 	}
 	// Native GPU/window capabilities are selected before the first window exists.
-	let preferences = if demo {
-		Ok(local_store::AppPreferences::default())
-	} else {
-		local_store::LocalStore::open_default().and_then(|store| store.app_preferences())
+	// The storage worker takes over this connection, so a launch opens the store only once.
+	let store = (!demo).then(local_store::LocalStore::open_default);
+	let preferences = match &store {
+		Some(Ok(store)) => store.app_preferences(),
+		Some(Err(error)) => Err(*error),
+		None => Ok(local_store::AppPreferences::default()),
 	};
+	let store = store.and_then(Result::ok);
 	// The owner's saved log level takes effect before the window, so an early defect leaves a
 	// trace instead of a description that has to be reconstructed afterwards.
 	let log_directory = local_store::data_dir().ok().map(|root| root.join("logs"));
@@ -625,8 +628,14 @@ fn main() -> eframe::Result {
 		"Serein",
 		options,
 		Box::new(move |cc| {
-			let mut desktop =
-				Desktop::new(cc, demo, frame_sample, transparency_available, preferences)?;
+			let mut desktop = Desktop::new(
+				cc,
+				demo,
+				frame_sample,
+				transparency_available,
+				preferences,
+				store,
+			)?;
 			let wake = cc.egui_ctx.clone();
 			instance.listen(
 				desktop.window.clone(),
@@ -1538,6 +1547,7 @@ impl Desktop {
 		frame_sample: Option<(Duration, Duration)>,
 		transparency_available: bool,
 		preferences: Result<local_store::AppPreferences, local_store::StoreError>,
+		local_store: Option<local_store::LocalStore>,
 	) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
 		ui::fonts::install(&cc.egui_ctx);
 		ui::emoji::install(&cc.egui_ctx)?;
@@ -1569,7 +1579,7 @@ impl Desktop {
 			platform::plaintext_login::configure(plaintext_login_dir());
 		}
 		let mut store = (!demo).then(|| credentials::Store::start(cc.egui_ctx.clone()));
-		let cache = (!demo).then(|| cache::Cache::start(cc.egui_ctx.clone()));
+		let cache = (!demo).then(|| cache::Cache::start(cc.egui_ctx.clone(), local_store));
 		#[cfg(all(debug_assertions, feature = "demo"))]
 		if demo && std::env::args().any(|arg| arg == "--demo-voice-messages") {
 			audio::debug_voice_message_check();
