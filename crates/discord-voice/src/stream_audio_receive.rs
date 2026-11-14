@@ -303,6 +303,9 @@ impl Audio {
 	pub fn remove(&mut self, user: u64) {
 		self.sources.retain(|source| source.user != user);
 	}
+	pub fn retain(&mut self, mut keep: impl FnMut(u64) -> bool) {
+		self.sources.retain(|source| keep(source.user));
+	}
 	pub fn clear(&mut self) {
 		for source in &mut self.sources {
 			source.clear();

@@ -61,6 +61,7 @@ pub(crate) struct Encoder {
 	provides_samples: bool,
 	max_bytes: usize,
 	max_buffer_bytes: usize,
+	cached_parameters: Vec<u8>,
 }
 
 struct Activated(IMFActivate);
@@ -167,6 +168,7 @@ impl Encoder {
 				need_input: 0,
 				have_output: 0,
 				provides_samples,
+				cached_parameters: Vec::new(),
 			})
 		}
 	}
@@ -294,7 +296,7 @@ impl Encoder {
 		Ok(())
 	}
 
-	fn take_output(&self) -> Result<(Vec<u8>, bool), &'static str> {
+	fn take_output(&mut self) -> Result<(Vec<u8>, bool), &'static str> {
 		// SAFETY: The output struct is fully initialized. We take ownership of either the
 		// transform-provided sample or our cloned sample before releasing its native fields.
 		unsafe {
@@ -322,9 +324,14 @@ impl Encoder {
 			drop(std::mem::ManuallyDrop::into_inner(output.pEvents));
 			result.map_err(|_| FAILED)?;
 			let sample = sample.ok_or(FAILED)?;
-			let data = sample_bytes(&sample, self.max_bytes)?;
+			let mut data = sample_bytes(&sample, self.max_bytes)?;
 			crate::video::validate_source(&data).map_err(|_| FAILED)?;
 			let keyframe = crate::video_receive::is_keyframe(&data);
+			if crate::video_receive::has_parameter_sets(&data) {
+				self.cached_parameters = extract_parameter_sets(&data);
+			} else if keyframe && !self.cached_parameters.is_empty() {
+				data = [&self.cached_parameters[..], &data[..]].concat();
+			}
 			Ok((data, keyframe))
 		}
 	}
@@ -443,6 +450,34 @@ fn sample_bytes(sample: &IMFSample, max_bytes: usize) -> Result<Vec<u8>, &'stati
 		buffer.Unlock().map_err(|_| FAILED)?;
 		result
 	}
+}
+
+fn extract_parameter_sets(frame: &[u8]) -> Vec<u8> {
+	let mut out = Vec::new();
+	let mut at = 0;
+	let mut starts = Vec::new();
+	while at + 3 <= frame.len() {
+		let size = if frame[at..].starts_with(&[0, 0, 0, 1]) {
+			4
+		} else if frame[at..].starts_with(&[0, 0, 1]) {
+			3
+		} else {
+			at += 1;
+			continue;
+		};
+		starts.push((at, at + size));
+		at += size;
+	}
+	for (i, &(nal_start, payload_start)) in starts.iter().enumerate() {
+		let end = starts.get(i + 1).map_or(frame.len(), |&(start, _)| start);
+		if payload_start < frame.len() {
+			let nal_type = frame[payload_start] & 0x1f;
+			if nal_type == 7 || nal_type == 8 {
+				out.extend_from_slice(&frame[nal_start..end]);
+			}
+		}
+	}
+	out
 }
 
 #[cfg(test)]

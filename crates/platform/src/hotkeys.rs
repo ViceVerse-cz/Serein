@@ -16,8 +16,8 @@ const UNAVAILABLE: &str =
 const INVALID: &str = "One or more voice bindings cannot be registered globally; they still work while Serein is focused.";
 const MODIFIER_REQUIRED: &str = "Add Ctrl, Alt, Shift, or Command to use a voice binding globally; it still works while Serein is focused.";
 
-#[cfg(target_os = "windows")]
 /// Mouse poller identities, kept out of the range `global-hotkey` assigns to real hotkeys.
+#[cfg(target_os = "windows")]
 const MOUSE_ID: u32 = 1 << 31;
 
 static NATIVE_INPUTS: Mutex<Vec<Weak<NativeInput>>> = Mutex::new(Vec::new());

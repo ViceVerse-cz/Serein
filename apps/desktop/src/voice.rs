@@ -1215,7 +1215,7 @@ impl Voice {
 						state.apply_voice(voice::Event::Progress {
 							channel: live.channel,
 							request: live.request,
-							phase: if ui.voice_privacy_code.is_some() {
+							phase: if ui.voice_privacy_code.is_some() || live.media_ready {
 								Phase::OpeningAudio
 							} else {
 								Phase::Waiting
@@ -1227,11 +1227,14 @@ impl Voice {
 					Err(error) => failure = Some(error),
 				}
 			}
-			if failure.is_none() && devices_ready && ui.voice_privacy_code.is_some() {
+			if failure.is_none()
+				&& devices_ready
+				&& (ui.voice_privacy_code.is_some() || live.media_ready)
+			{
 				state.apply_voice(voice::Event::Progress {
 					channel: live.channel,
 					request: live.request,
-					phase: Phase::Connected,
+					phase: negotiated_phase(live.negotiation.is_none(), Phase::Connected),
 				});
 			}
 			if live.audio.is_stopped() && failure.is_none() {

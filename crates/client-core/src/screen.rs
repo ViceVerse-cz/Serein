@@ -235,3 +235,64 @@ impl Event {
 		}
 	}
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn settings_validity_and_bitrate() {
+		for (w, h) in [
+			(854, 480),
+			(1280, 720),
+			(1920, 1080),
+			(2560, 1440),
+			(3840, 2160),
+		] {
+			let settings = Settings {
+				source: SourceId::Display(1),
+				width: w,
+				height: h,
+				fps: 30,
+				cursor: true,
+				audio: false,
+			};
+			assert!(settings.valid());
+			assert!(settings.bit_rate() >= 2_000_000);
+			assert!(settings.bit_rate() <= 16_000_000);
+		}
+		assert!(
+			!Settings {
+				source: SourceId::Display(0),
+				width: 1920,
+				height: 1080,
+				fps: 30,
+				cursor: true,
+				audio: false,
+			}
+			.valid()
+		);
+		assert!(
+			!Settings {
+				source: SourceId::Display(1),
+				width: 3842,
+				height: 2160,
+				fps: 30,
+				cursor: true,
+				audio: false,
+			}
+			.valid()
+		);
+		assert!(
+			!Settings {
+				source: SourceId::Display(1),
+				width: 1921,
+				height: 1080,
+				fps: 30,
+				cursor: true,
+				audio: false,
+			}
+			.valid()
+		);
+	}
+}

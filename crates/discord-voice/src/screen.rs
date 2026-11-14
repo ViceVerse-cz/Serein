@@ -40,6 +40,9 @@ use std::sync::{
 #[cfg(not(target_os = "linux"))]
 use std::time::{Duration, Instant};
 
+#[cfg(target_os = "windows")]
+use std::sync::atomic::AtomicUsize;
+
 pub const MAX_RAW_BYTES: usize = 3840 * 2160 * 4;
 pub const MAX_ENCODED_BYTES: usize = 2 * 1024 * 1024;
 
@@ -302,10 +305,10 @@ fn encode_loop(
 		return Ok(());
 	}
 	let origin = Instant::now();
-	let (raw_send, raw) = mpsc::sync_channel(1);
+	let (raw_send, raw) = mpsc::sync_channel(2);
 	let capture_stop = Arc::new(AtomicBool::new(false));
 	#[cfg(target_os = "windows")]
-	let raw_pending = Arc::new(AtomicBool::new(false));
+	let raw_pending = Arc::new(AtomicUsize::new(0));
 	#[cfg(target_os = "windows")]
 	let _native = capture::Capture::start(
 		settings,
@@ -345,7 +348,7 @@ fn encode_loop(
 		let frame = match raw.recv_timeout(Duration::from_millis(100)) {
 			Ok(frame) => {
 				#[cfg(target_os = "windows")]
-				raw_pending.store(false, Ordering::Release);
+				raw_pending.fetch_sub(1, Ordering::Release);
 				Some(frame)
 			}
 			Err(_) if stop.load(Ordering::Acquire) || send.is_closed() => break,
@@ -410,7 +413,8 @@ fn encode_loop(
 		// Pace on an accumulating schedule with a little tolerance: capture timing jitter must
 		// not skip every other frame, and a stalled encoder resumes from now instead of bursting.
 		let interval = Duration::from_secs_f64(1.0 / f64::from(settings.fps));
-		if now + Duration::from_millis(2) < next_frame {
+		let lead = (interval / 4).max(Duration::from_millis(4));
+		if now + lead < next_frame {
 			continue;
 		}
 		next_frame = (next_frame + interval).max(now + interval / 2);
@@ -562,6 +566,9 @@ impl ScreenEncoder {
 		} else {
 			// Reopen native encoders that refuse a live rate change at the target rate.
 			// Release scarce hardware sessions before requesting their replacement.
+			if !software_rate_change(self.bitrate, bitrate) {
+				return Ok(false);
+			}
 			self.hardware = None;
 			*self = Self::new(self.settings, bitrate)?;
 		}

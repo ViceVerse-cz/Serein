@@ -1283,7 +1283,6 @@ mod native {
 				}),
 			},
 		});
-		// The native operation retains the agile completion handler and its immutable blob.
 		let operation = unsafe {
 			ActivateAudioInterfaceAsync(
 				VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK,
@@ -1303,7 +1302,6 @@ mod native {
 		}
 		let mut status = HRESULT(0);
 		let mut activated = None;
-		// Completion has fired; GetActivateResult returns an owned COM reference.
 		unsafe { operation.GetActivateResult(&mut status, &mut activated)? };
 		drop(operation);
 		status.ok()?;
@@ -1350,9 +1348,9 @@ mod native {
 				None,
 			)?;
 		}
-		if unsafe { client.GetBufferSize()? } as usize > MAX_AUDIO_SAMPLES / 2 {
-			return Err(E_FAIL.into());
-		}
+		// The engine buffer size is not trustworthy here: process loopback on Windows 10
+		// reports a value no buffer could hold, while still delivering normal packets. Each
+		// packet is bounded in `packets` instead, so nothing is read past the queue limit.
 		let capture: IAudioCaptureClient = unsafe { client.GetService()? };
 		unsafe { client.SetEventHandle(HANDLE(event.as_raw_handle()))? };
 		if sink.stopped() {

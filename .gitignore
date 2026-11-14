@@ -4,6 +4,7 @@
 /result-*
 /target/
 /dist/
+/dist-installer/
 .DS_Store
 node_modules/
 __pycache__/

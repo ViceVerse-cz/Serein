@@ -1,3 +1,6 @@
+[net]
+git-fetch-with-cli = true
+
 [alias]
 xtask = "run -p xtask --"
 replay = "run --release -p replay-bench --"
@@ -8,3 +11,4 @@ replay = "run --release -p replay-bench --"
 LIBSQLITE3_FLAGS = "-USQLITE_ENABLE_FTS3 -USQLITE_ENABLE_FTS3_PARENTHESIS -USQLITE_ENABLE_FTS5 -USQLITE_ENABLE_RTREE -USQLITE_ENABLE_DBSTAT_VTAB -USQLITE_ENABLE_STAT4 -USQLITE_SOUNDEX"
 # BoringSSL's ARM64 assembly cannot be assembled by MSBuild; see the toolchain file.
 CMAKE_TOOLCHAIN_FILE_aarch64_pc_windows_msvc = { value = "packaging/windows/boringssl-arm64-msvc.cmake", relative = true }
+CMAKE_TOOLCHAIN_FILE_x86_64_pc_windows_gnu = { value = "packaging/windows/boringssl-x86_64-gnu.cmake", relative = true }

@@ -6,7 +6,7 @@ use crate::screen::{AudioChunk, RawFrame, Settings as CaptureSettings, Source, S
 use std::borrow::Cow;
 use std::sync::{
 	Arc,
-	atomic::{AtomicBool, AtomicU64, Ordering},
+	atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
 	mpsc::SyncSender,
 };
 use std::time::{Duration, Instant};
@@ -97,7 +97,7 @@ pub(crate) fn sources() -> Result<Vec<Source>, &'static str> {
 struct Flags {
 	frames: SyncSender<RawFrame>,
 	stop: Arc<AtomicBool>,
-	pending: Arc<AtomicBool>,
+	pending: Arc<AtomicUsize>,
 	next_frame: Instant,
 	interval: Duration,
 }
@@ -121,10 +121,12 @@ impl GraphicsCaptureApiHandler for Handler {
 			control.stop();
 			return Ok(());
 		}
+		if self.0.pending.load(Ordering::Acquire) >= 2 {
+			return Ok(());
+		}
 		let now = Instant::now();
-		if now + Duration::from_millis(2) < self.0.next_frame
-			|| self.0.pending.swap(true, Ordering::AcqRel)
-		{
+		let lead = (self.0.interval / 4).max(Duration::from_millis(4));
+		if now + lead < self.0.next_frame {
 			return Ok(());
 		}
 		self.0.next_frame = (self.0.next_frame + self.0.interval).max(now + self.0.interval / 2);
@@ -180,9 +182,9 @@ impl GraphicsCaptureApiHandler for Handler {
 				stride: row_bytes,
 				data,
 			})
-			.is_err()
+			.is_ok()
 		{
-			self.0.pending.store(false, Ordering::Release);
+			self.0.pending.fetch_add(1, Ordering::Release);
 		}
 		Ok(())
 	}
@@ -209,7 +211,7 @@ impl Capture {
 		stop: Arc<AtomicBool>,
 		ready: Arc<AtomicBool>,
 		audio_epoch: Arc<AtomicU64>,
-		pending: Arc<AtomicBool>,
+		pending: Arc<AtomicUsize>,
 		// The worker's cancellation: a stopped share gives up a pending consent wait.
 		cancel: Arc<AtomicBool>,
 	) -> Result<Self, Cow<'static, str>> {
@@ -315,7 +317,7 @@ fn start_item<T>(
 	item: T,
 	frames: SyncSender<RawFrame>,
 	stop: Arc<AtomicBool>,
-	pending: Arc<AtomicBool>,
+	pending: Arc<AtomicUsize>,
 	cancel: Arc<AtomicBool>,
 ) -> Result<Capture, &'static str>
 where
