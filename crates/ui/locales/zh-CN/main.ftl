@@ -409,6 +409,15 @@ message-request-title = 消息请求
 ## crates/ui/src/channel_menu.rs
 # Context: context
 channel-menu-context-add-to-favorites = 加入收藏
+channel-menu-context-remove-from-channel-list = 从频道列表中移除
+channel-menu-context-add-to-channel-list = 添加到频道列表
+channel-browser-title = 浏览频道
+channel-browser-subtitle = 选择要在频道列表中显示的频道。
+channel-browser-show-all-channels = 显示所有频道
+channel-browser-search = 搜索频道
+channel-browser-follow-category = 关注类别
+channel-browser-saving = 正在保存…
+channel-browser-unavailable = 频道列表设置暂时不可用。
 # Context: context
 channel-menu-context-copy-channel-id = 复制频道 ID
 # Context: context

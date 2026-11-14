@@ -271,7 +271,10 @@ fn rows_at<'a>(
 	let category_ids: BTreeSet<_> = categories.iter().map(|c| c.id).collect();
 	let mut groups: BTreeMap<Option<Id>, Vec<&Channel>> = BTreeMap::new();
 	let admitted = |c: &Channel| {
-		scope.admits(c, state) && (show_hidden || state.can_view(c.id)) && !roster.lifted(c.id)
+		scope.admits(c, state)
+			&& (show_hidden || state.can_view(c.id))
+			&& !roster.lifted(c.id)
+			&& state.channel_listed(c)
 	};
 	// Threads appear only beneath their parents, following Discord's relevance rules.
 	let mut threads = guild.map_or_else(BTreeMap::new, |guild| {
@@ -343,7 +346,8 @@ fn rows_at<'a>(
 	}
 	for category in categories {
 		let children = groups.remove(&Some(category.id)).unwrap_or_default();
-		if !show_hidden && children.is_empty() {
+		// Opt-in mode drops a category with nothing listed even while showing hidden ones.
+		if children.is_empty() && (!show_hidden || !state.channel_listed(category)) {
 			continue;
 		}
 		tree.push(Row::Category(category, count(&children)));
@@ -720,6 +724,41 @@ impl MessagingUi {
 		}
 		let colors = design::palette(ui);
 		let mut selected = None;
+		if let Some(guild) = self.guild
+			&& state.channel_list_opt_in(guild) == Some(true)
+		{
+			let response = ui
+				.scope(|ui| {
+					ui.spacing_mut().button_padding = egui::vec2(36.0, 8.0);
+					ui.add(
+						egui::Button::new(())
+							.left_text(
+								design::medium(
+									ui,
+									crate::i18n::translate("channel-browser-title"),
+									15.0,
+								)
+								.color(colors.muted),
+							)
+							.min_size(egui::vec2(ui.available_width(), 34.0))
+							.frame_when_inactive(false)
+							.corner_radius(4),
+					)
+				})
+				.inner;
+			crate::icons::paint(
+				ui.painter(),
+				crate::icons::Icon::Search,
+				egui::Rect::from_center_size(
+					egui::pos2(response.rect.left() + 18.0, response.rect.center().y),
+					egui::Vec2::splat(18.0),
+				),
+				colors.muted,
+			);
+			if response.clicked() {
+				self.channel_browser.open(state, guild);
+			}
+		}
 		if self.guild.is_some() && self.channel_cache.rows.is_empty() {
 			ui.label(RichText::new(language.text("no-conversations")).color(colors.muted));
 		}

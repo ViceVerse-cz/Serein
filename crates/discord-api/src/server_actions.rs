@@ -27,6 +27,63 @@ impl DiscordApi {
 		}
 		Ok((channel, message))
 	}
+	/// Unofficial normal-user route (discord-userdoccers, Modify User Guild Settings). The
+	/// acknowledgement must echo every flag written, or the outcome is ambiguous.
+	pub(super) async fn channel_list_write(
+		&self,
+		write: &client_core::channel_list::Write,
+	) -> Result<(), Failure> {
+		if !write.valid() {
+			return Err(Failure::Protocol);
+		}
+		let mut body = serde_json::Map::new();
+		if let Some(flags) = write.flags {
+			body.insert("flags".into(), flags.into());
+		}
+		if !write.channels.is_empty() {
+			body.insert(
+				"channel_overrides".into(),
+				write
+					.channels
+					.iter()
+					.map(|(id, flags)| (id.to_string(), serde_json::json!({ "flags": flags })))
+					.collect::<serde_json::Map<_, _>>()
+					.into(),
+			);
+		}
+		let bytes = self
+			.request_limited(
+				Method::PATCH,
+				&format!("/users/@me/guilds/{}/settings", write.guild),
+				Some(body.into()),
+				512 * 1024,
+			)
+			.await
+			.map_err(write_failure)?;
+		let setting: discord_protocol::notifications::Setting =
+			discord_protocol::decode(&bytes).map_err(|_| Failure::Ambiguous)?;
+		if setting.guild_id != Some(write.guild)
+			|| write
+				.flags
+				.is_some_and(|flags| setting.flags != Some(flags))
+		{
+			return Err(Failure::Ambiguous);
+		}
+		let overrides = setting.channel_overrides.map_or_else(Vec::new, |o| o.0);
+		for (channel, flags) in &write.channels {
+			let mut rows = overrides.iter().filter(|o| o.channel_id == *channel);
+			// A cleared override may be dropped from the echo entirely; that reads as 0.
+			let echoed = match (rows.next(), rows.next()) {
+				(Some(row), None) => row.flags.unwrap_or(0),
+				(None, _) => 0,
+				_ => return Err(Failure::Ambiguous),
+			};
+			if echoed != *flags {
+				return Err(Failure::Ambiguous);
+			}
+		}
+		Ok(())
+	}
 	// Documented developer API routes; normal-user interoperability remains unverified.
 	pub(super) async fn server_action(&self, action: Action) -> Result<Option<String>, Failure> {
 		if action.guild().0 == 0 {
@@ -264,6 +321,91 @@ mod tests {
 			tokio::time::timeout(std::time::Duration::from_millis(10), listener.accept())
 				.await
 				.is_err()
+		);
+	}
+	#[tokio::test]
+	async fn channel_list_writes_flags_and_requires_a_matching_echo() {
+		use client_core::channel_list::{OPT_IN_CHANNELS_ON, OPT_IN_ENABLED, Write};
+		let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+		let mut api = DiscordApi::new(Arc::new(
+			SessionSecret::from_owner_input("SYNTHETIC_SERVER_TOKEN".into()).unwrap(),
+		))
+		.unwrap();
+		api.base = format!("http://{}", listener.local_addr().unwrap());
+		let write = Write {
+			guild: Id(2),
+			flags: Some(OPT_IN_CHANNELS_ON),
+			channels: vec![(Id(3), OPT_IN_ENABLED), (Id(4), 0)],
+		};
+		for (body, expected) in [
+			(
+				r#"{"guild_id":"2","flags":16384,"channel_overrides":[{"channel_id":"3","flags":4096}]}"#,
+				Ok(()),
+			),
+			(
+				r#"{"guild_id":"2","flags":16384,"channel_overrides":[{"channel_id":"3","flags":4096},{"channel_id":"4","flags":4096}]}"#,
+				Err(Failure::Ambiguous),
+			),
+			(
+				r#"{"guild_id":"2","flags":0,"channel_overrides":[{"channel_id":"3","flags":4096}]}"#,
+				Err(Failure::Ambiguous),
+			),
+			(
+				r#"{"guild_id":"2","flags":16384,"channel_overrides":[{"channel_id":"3","flags":4096},{"channel_id":"3","flags":4096}]}"#,
+				Err(Failure::Ambiguous),
+			),
+		] {
+			let server = async {
+				let (mut socket, _) = listener.accept().await.unwrap();
+				let mut bytes = Vec::new();
+				loop {
+					let mut chunk = [0; 1024];
+					let n = socket.read(&mut chunk).await.unwrap();
+					assert!(n > 0);
+					bytes.extend_from_slice(&chunk[..n]);
+					let Some(end) = bytes.windows(4).position(|b| b == b"\r\n\r\n") else {
+						continue;
+					};
+					let headers = std::str::from_utf8(&bytes[..end]).unwrap();
+					let length: usize = headers
+						.lines()
+						.find_map(|h| {
+							h.to_ascii_lowercase()
+								.strip_prefix("content-length: ")
+								.map(str::to_owned)
+						})
+						.map_or(0, |n| n.parse().unwrap());
+					if bytes.len() < end + 4 + length {
+						continue;
+					}
+					assert!(headers.starts_with("PATCH /users/@me/guilds/2/settings HTTP/1.1"));
+					assert_eq!(
+						serde_json::from_slice::<serde_json::Value>(&bytes[end + 4..]).unwrap(),
+						serde_json::json!({"flags":16384,"channel_overrides":{"3":{"flags":4096},"4":{"flags":0}}})
+					);
+					break;
+				}
+				socket
+					.write_all(
+						format!(
+							"HTTP/1.1 200 Test\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+							body.len()
+						)
+						.as_bytes(),
+					)
+					.await
+					.unwrap();
+			};
+			let (result, ()) = tokio::join!(api.channel_list_write(&write), server);
+			assert_eq!(result, expected);
+		}
+		let invalid = Write {
+			channels: vec![(Id(3), 0), (Id(3), OPT_IN_ENABLED)],
+			..write
+		};
+		assert_eq!(
+			api.channel_list_write(&invalid).await,
+			Err(Failure::Protocol)
 		);
 	}
 	#[tokio::test]

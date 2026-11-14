@@ -608,6 +608,22 @@ not clear these mutes. Create Channel, Create Category and Invite to Server reus
 permission checks, confirmation UI and request lanes as the existing channel and
 server menus.
 
+Browse Channels, Show All Channels and Remove from / Add to Channel List use Discord's
+opt-in channel list, unofficial and documented by discord-userdoccers: the user guild
+settings `flags` bit `OPT_IN_CHANNELS_ON` (1 << 14) hides channels without the channel
+override flag `OPT_IN_ENABLED` (1 << 12), and `OPT_IN_CHANNELS_OFF` (1 << 13) shows all
+channels. READY and User Guild Settings Update restore the flags; unknown flags list every
+channel and disable the controls. A followed category lists its channels. Leaving show-all
+mode by removing a channel first follows every category and uncategorized channel, and
+removing a channel from a followed category follows its siblings instead, so only the
+removed item leaves the list. Each change is one bounded
+`PATCH /users/@me/guilds/{guild}/settings` that preserves the other flag bits and must be
+echoed before the sidebar changes. The open channel and the active call stay listed, and
+removed channels do not light the server's unread marker. Discord's client offers these
+controls in Community servers; Serein shows them wherever the settings row is known, and
+the official client may ignore the flags outside Community servers. Onboarding default
+channels are not read separately (unverified).
+
 Text/announcement editing (name, topic, slowmode and age restriction), channel
 duplication, text/voice/announcement/forum channel and category creation, and confirmed deletion use the documented
 [channel routes](https://docs.discord.com/developers/resources/channel#modify-channel)

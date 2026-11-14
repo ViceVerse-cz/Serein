@@ -21,6 +21,8 @@ pub struct Override {
 	pub mute_config: Option<MuteConfig>,
 	pub muted: Option<bool>,
 	pub message_notifications: Option<u8>,
+	/// Channel override flags; `OPT_IN_ENABLED` (1 << 12) lists the channel in opt-in mode.
+	pub flags: Option<u32>,
 	absent: u8,
 }
 #[derive(Deserialize)]
@@ -32,6 +34,8 @@ struct OverrideWire {
 	muted: model::Patch<bool>,
 	#[serde(default)]
 	message_notifications: model::Patch<u8>,
+	#[serde(default)]
+	flags: model::Patch<u32>,
 }
 impl From<OverrideWire> for Override {
 	fn from(wire: OverrideWire) -> Self {
@@ -52,11 +56,20 @@ impl From<OverrideWire> for Override {
 				None
 			}
 		};
+		let flags = match wire.flags {
+			model::Patch::Value(value) => Some(value),
+			model::Patch::Null => None,
+			model::Patch::Absent => {
+				absent |= 4;
+				None
+			}
+		};
 		Self {
 			channel_id: wire.channel_id,
 			mute_config: wire.mute_config,
 			muted,
 			message_notifications,
+			flags,
 			absent,
 		}
 	}
@@ -78,6 +91,8 @@ pub struct Setting {
 	pub suppress_roles: Option<bool>,
 	pub hide_muted_channels: Option<bool>,
 	pub message_notifications: Option<u8>,
+	/// Guild settings flags; `OPT_IN_CHANNELS_ON` (1 << 14) hides channels not opted in to.
+	pub flags: Option<u32>,
 	pub channel_overrides: Option<Overrides>,
 	absent: u8,
 }
@@ -99,6 +114,8 @@ impl<'de> Deserialize<'de> for Setting {
 			hide_muted_channels: model::Patch<bool>,
 			#[serde(default)]
 			message_notifications: model::Patch<u8>,
+			#[serde(default)]
+			flags: model::Patch<u32>,
 			#[serde(default, deserialize_with = "present_overrides")]
 			channel_overrides: Option<Overrides>,
 		}
@@ -122,6 +139,7 @@ impl<'de> Deserialize<'de> for Setting {
 			suppress_roles: value(wire.suppress_roles, 4, &mut absent),
 			hide_muted_channels: value(wire.hide_muted_channels, 8, &mut absent),
 			message_notifications: value(wire.message_notifications, 16, &mut absent),
+			flags: value(wire.flags, 32, &mut absent),
 			channel_overrides: wire.channel_overrides,
 			absent,
 		})
@@ -146,6 +164,9 @@ impl Setting {
 		if self.absent & 16 != 0 {
 			self.message_notifications = Some(3);
 		}
+		if self.absent & 32 != 0 {
+			self.flags = Some(0);
+		}
 		if let Some(overrides) = &mut self.channel_overrides {
 			for row in &mut overrides.0 {
 				if row.absent & 1 != 0 {
@@ -153,6 +174,9 @@ impl Setting {
 				}
 				if row.absent & 2 != 0 {
 					row.message_notifications = Some(3);
+				}
+				if row.absent & 4 != 0 {
+					row.flags = Some(0);
 				}
 			}
 		}
@@ -211,6 +235,23 @@ mod tests {
 		assert_eq!(defaults.muted, Some(false));
 		assert_eq!(defaults.message_notifications, Some(3));
 		assert_eq!(defaults.suppress_everyone, Some(false));
+		assert_eq!(defaults.flags, Some(0));
+		let listed: Setting = crate::decode(
+			br#"{"guild_id":"1","flags":16384,"channel_overrides":[{"channel_id":"2","flags":4096},{"channel_id":"3"},{"channel_id":"4","flags":null}]}"#,
+		)
+		.unwrap();
+		let listed = listed.with_defaults();
+		assert_eq!(listed.flags, Some(1 << 14));
+		assert_eq!(
+			listed
+				.channel_overrides
+				.unwrap()
+				.0
+				.iter()
+				.map(|row| row.flags)
+				.collect::<Vec<_>>(),
+			[Some(1 << 12), Some(0), None]
+		);
 		let unknown: Setting =
 			crate::decode(br#"{"guild_id":"1","muted":null,"message_notifications":null}"#)
 				.unwrap();

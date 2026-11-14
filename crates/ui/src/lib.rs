@@ -24,6 +24,7 @@ mod categories;
 pub use categories::debug_thread_navigation_check;
 #[cfg(feature = "demo")]
 pub use timeline::debug_unread_navigation_check;
+mod channel_browser;
 mod channel_marks;
 mod channel_menu;
 mod channel_permissions;
@@ -293,6 +294,7 @@ pub struct MessagingUi {
 	group_menu: group_menu::GroupMenu,
 	server_menu: server_menu::ServerMenu,
 	channel_menu: channel_menu::ChannelMenu,
+	channel_browser: channel_browser::ChannelBrowser,
 	pub channel_preferences: model::ChannelPreferences,
 	pub channel_preferences_changed: bool,
 	pub channel_preferences_loaded: bool,
@@ -5059,6 +5061,22 @@ impl MessagingUi {
 		}
 		self.server_menu
 			.show(&ctx, state, self.guild, &mut commands, &mut self.avatars);
+		if let Some(guild) = self
+			.channel_menu
+			.browse_requested
+			.take()
+			.or(self.server_menu.browse_requested.take())
+		{
+			self.channel_browser.open(state, guild);
+		}
+		if let Some((guild, change)) = self.server_menu.channel_list_requested.take()
+			&& Some(guild) == self.guild
+			&& let Some(command) = state.change_channel_list(guild, change)
+		{
+			commands.push(command);
+		}
+		self.channel_browser
+			.show(&ctx, state, self.guild, &mut commands);
 		if let Some(guild) = self.server_menu.settings_requested.take()
 			&& let Some(command) = self.preview_server_settings(state, guild)
 		{
