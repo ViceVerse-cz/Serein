@@ -111,7 +111,17 @@ pub struct ChannelList {
 	status: Option<(Id, &'static str)>,
 }
 impl ChannelList {
+	/// Drops the pending write. A request still waiting for admission finds an empty base and
+	/// sends nothing.
+	fn take(&mut self) -> Option<Write> {
+		let (write, _, _, latest) = self.pending.take()?;
+		if let Ok(mut latest) = latest.lock() {
+			*latest = None;
+		}
+		Some(write)
+	}
 	pub(crate) fn reset(&mut self) {
+		self.take();
 		*self = Self {
 			sequence: self.sequence,
 			..Self::default()
@@ -360,7 +370,8 @@ impl State {
 					})
 					.collect(),
 			});
-			*observed |= base.as_ref().is_some_and(|base| {
+			// The newest row decides; an earlier match no longer holds once a row differs.
+			*observed = base.as_ref().is_some_and(|base| {
 				write
 					.flags
 					.is_none_or(|flags| base.flags & MODE_BITS == flags & MODE_BITS)
@@ -374,7 +385,7 @@ impl State {
 		}
 	}
 	pub(crate) fn cancel_channel_list(&mut self) {
-		if let Some((write, ..)) = self.channel_list.pending.take() {
+		if let Some(write) = self.channel_list.take() {
 			self.channel_list.status = Some((
 				write.guild,
 				"Outcome unknown; check Discord before retrying",
@@ -765,5 +776,43 @@ mod tests {
 				.and_then(|s| s.flags),
 			Some(OPT_IN_CHANNELS_ON | 1 << 11)
 		);
+		// A matching row followed by a differing one: the write still confirms what it sent.
+		let Some(Command::ChannelList { request, write, .. }) =
+			state.change_channel_list(Id(100), Change::ShowAll(true))
+		else {
+			panic!()
+		};
+		let row = |flags| notifications::Event::Settings {
+			entries: vec![notifications::Setting {
+				overrides_known: true,
+				guild: Some(Id(100)),
+				flags: Some(flags),
+				..Default::default()
+			}],
+			replace: false,
+		};
+		state
+			.apply_notification_preferences(row(OPT_IN_CHANNELS_OFF))
+			.unwrap();
+		state
+			.apply_notification_preferences(row(OPT_IN_CHANNELS_ON))
+			.unwrap();
+		state.apply(Envelope {
+			generation: state.generation,
+			event: CoreEvent::ChannelList(Event::Written {
+				guild: Id(100),
+				request,
+				result: Ok(write),
+			}),
+		});
+		assert_eq!(state.channel_list_opt_in(Id(100)), Some(false));
+		// A cancelled write leaves nothing for a queued request to send.
+		let Some(Command::ChannelList { latest, .. }) =
+			state.change_channel_list(Id(100), Change::ShowAll(false))
+		else {
+			panic!()
+		};
+		state.cancel_channel_list();
+		assert_eq!(*latest.lock().unwrap(), None);
 	}
 }
