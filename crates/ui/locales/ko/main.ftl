@@ -5152,4 +5152,24 @@ reading-chat-reading-settings-hide-blocked-messages-description = 이 기기의 
 reading-chat-reading-settings-hide-ignored-messages = 무시한 사용자의 메시지도 숨기기
 # Context: reading_chat
 reading-chat-reading-settings-hide-ignored-messages-description = 무시한 작성자도 로컬 필터에 포함합니다. 관계 상태를 알 수 없으면 메시지를 숨기지 않습니다.
+# Context: chat_settings
+settings-silent-typing = 조용한 입력 중 표시
+# Context: chat_settings
+settings-silent-typing-enabled = 내 입력 중 표시 숨기기
+# Context: chat_settings
+settings-silent-typing-enabled-description = 이 기기는 아래에서 설정한 곳에서 입력 중 표시를 보내지 않습니다. 다른 사람의 입력 중 표시는 그대로이며 메시지 내용이나 계정 설정은 전송되지 않습니다.
+# Context: chat_settings
+settings-silent-typing-default-hidden = 목록에 없는 곳에서는 숨기기
+# Context: chat_settings
+settings-silent-typing-default-hidden-description = 켜면 나열된 채널과 서버를 제외한 모든 곳에서 입력 중 표시를 숨깁니다. 끄면 나열된 채널과 서버를 제외한 모든 곳에서 표시합니다.
+# Context: chat_settings
+settings-silent-typing-locations-description = 쉼표로 구분한 채널 또는 서버 ID이며, 서로 다른 ID를 최대 64개까지 지정할 수 있습니다. 잘못되었거나 중복되었거나 너무 긴 편집은 이전 목록을 유지합니다.
+# Context: chat_settings
+settings-silent-typing-locations-hint = 123456789012345678, 987654321098765432
+# Context: chat_settings
+settings-name-display = 이름 표시
+# Context: chat_settings
+settings-prefer-friend-nickname = 친구 별명 우선
+# Context: chat_settings
+settings-prefer-friend-nickname-description = 확인된 친구에게 비공개 별명을 지정한 경우 서버 별명 대신 해당 별명을 표시합니다. 다른 이름 표시는 그대로 유지됩니다.
 
