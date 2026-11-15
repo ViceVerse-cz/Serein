@@ -128,6 +128,13 @@ fn verify_appimage(path: &Path) -> Result<(), String> {
 	Ok(())
 }
 
+fn is_appdir_executable(appdir: &Path, canonical_exe: &Path) -> bool {
+	["bin/serein", "usr/bin/serein"]
+		.into_iter()
+		.filter_map(|relative| fs::canonicalize(appdir.join(relative)).ok())
+		.any(|candidate| candidate == canonical_exe)
+}
+
 fn installation() -> Result<PathBuf, String> {
 	let exe = std::env::current_exe()
 		.and_then(fs::canonicalize)
@@ -148,10 +155,7 @@ fn installation() -> Result<PathBuf, String> {
 			);
 		}
 		let appdir = PathBuf::from(std::env::var_os("APPDIR").ok_or("Missing AppImage mount.")?);
-		if fs::canonicalize(appdir.join("usr/bin/serein"))
-			.ok()
-			.as_ref() != Some(&exe)
-		{
+		if !is_appdir_executable(&appdir, &exe) {
 			return Err("Run Serein from its AppImage to install updates.".into());
 		}
 		let image = PathBuf::from(std::env::var_os("APPIMAGE").ok_or("Missing AppImage path.")?);
@@ -1134,6 +1138,59 @@ pub(super) fn debug_check() -> Result<(), String> {
 		if directory.exists() {
 			return Err("Unlocked update storage was not cleaned.".into());
 		}
+	}
+	#[cfg(unix)]
+	{
+		let mut nonce = [0_u8; 8];
+		getrandom::fill(&mut nonce).map_err(|_| "Cannot create AppDir check storage.")?;
+		let root = std::env::temp_dir().join(format!(
+			"serein-appdir-check-{:016x}",
+			u64::from_ne_bytes(nonce)
+		));
+		fs::create_dir(&root).map_err(|_| "Cannot create AppDir check storage.")?;
+		let result = (|| -> Result<(), String> {
+			let sharun_appdir = root.join("sharun-appdir");
+			fs::create_dir_all(sharun_appdir.join("bin"))
+				.map_err(|_| "Cannot create sharun AppDir fixture.")?;
+			fs::write(sharun_appdir.join("sharun"), b"sharun")
+				.map_err(|_| "Cannot write sharun fixture.")?;
+			let sharun_exe = sharun_appdir.join("bin/serein");
+			fs::hard_link(sharun_appdir.join("sharun"), &sharun_exe)
+				.map_err(|_| "Cannot hard-link sharun fixture binary.")?;
+			let canonical_sharun_exe =
+				fs::canonicalize(&sharun_exe).map_err(|_| "Cannot canonicalize sharun binary.")?;
+			if !is_appdir_executable(&sharun_appdir, &canonical_sharun_exe) {
+				return Err("sharun AppDir bin/serein executable was rejected.".into());
+			}
+
+			let legacy_appdir = root.join("legacy-appdir");
+			fs::create_dir_all(legacy_appdir.join("usr/bin"))
+				.map_err(|_| "Cannot create legacy AppDir fixture.")?;
+			let legacy_exe = legacy_appdir.join("usr/bin/serein");
+			fs::write(&legacy_exe, b"legacy").map_err(|_| "Cannot write legacy fixture.")?;
+			let canonical_legacy_exe =
+				fs::canonicalize(&legacy_exe).map_err(|_| "Cannot canonicalize legacy binary.")?;
+			if !is_appdir_executable(&legacy_appdir, &canonical_legacy_exe) {
+				return Err("Legacy AppDir usr/bin/serein executable was rejected.".into());
+			}
+
+			let outside = root.join("outside-serein");
+			fs::write(&outside, b"outside").map_err(|_| "Cannot write outside fixture.")?;
+			let canonical_outside =
+				fs::canonicalize(&outside).map_err(|_| "Cannot canonicalize outside binary.")?;
+			if is_appdir_executable(&sharun_appdir, &canonical_outside) {
+				return Err("Executable outside AppDir was accepted.".into());
+			}
+
+			let empty_appdir = root.join("empty-appdir");
+			fs::create_dir(&empty_appdir).map_err(|_| "Cannot create empty AppDir fixture.")?;
+			if is_appdir_executable(&empty_appdir, &canonical_sharun_exe) {
+				return Err("Empty AppDir was accepted.".into());
+			}
+			Ok(())
+		})();
+		let _ = fs::remove_dir_all(&root);
+		result?;
 	}
 	Ok(())
 }

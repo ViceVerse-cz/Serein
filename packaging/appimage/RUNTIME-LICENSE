@@ -1,6 +1,21 @@
+Anylinux AppImage Runtime and Loader Notices
+=============================================
+
+This AppImage embeds the pinned runtime and loader components below.
+Build-host-only packaging tools (`quick-sharun.sh` @ `5c1f0f9ebb88a2aa2229a4ddea26027edae0f238`,
+`appimagetool` 0.7.0, and `mkdwarfs` 0.15.6) run only during image creation and are
+not included in the distributed AppImage. Shared libraries staged into the
+AppDir from the Arch Linux build container are recorded in
+`AppImage-bundled-packages.txt` and retain their respective upstream licenses.
+
+
+1. uruntime v0.8.3 (`uruntime-appimage-dwarfs-lite-x86_64`)
+-----------------------------------------------------------
+Source: https://github.com/VHSgunzo/uruntime/tree/v0.8.3
+
 MIT License
 
-Copyright (c) 2004-23 probonopd
+Copyright (c) 2026 VHSgunzo
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -20,17 +35,128 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-The AppImage runtime executable contains statically linked code from
-the following third party libraries, which are licensed under
-the following terms:
+Embedded DwarFS reader/extractor (`dwarfs-fuse-extract` v0.15.8):
+Source: https://github.com/mhx/dwarfs/tree/v0.15.8
+Per upstream `mhx/dwarfs` `LICENSE`, the DwarFS reader/extractor components
+(`dwarfs_common`, `dwarfs_compressor`, `dwarfs_decompressor`, `dwarfs_extractor`,
+`dwarfs_reader`) are licensed under the MIT License (unlike `dwarfs_rewrite`,
+`dwarfs_writer`, and tests/benchmarks, which are GPL-3.0 and omitted from the
+`dwarfs-lite` runtime). Statically linked upstream dependencies inside `uruntime`
+and `dwarfs-fuse-extract` retain their original upstream licenses.
 
-* musl libc, licensed under the terms of
-  https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
-* libfuse, licensed under the terms of
-  https://github.com/libfuse/libfuse/blob/master/LGPL2.txt
-* squashfuse, licensed under the terms of
-  https://github.com/vasi/squashfuse/blob/master/LICENSE
-* libzstd, licensed under the terms of
-  https://github.com/facebook/zstd/blob/dev/LICENSE
-* zlib, licensed under the terms of
-  https://zlib.net/zlib_license.html
+
+2. Anylinux-sharun 3.9.0 (`sharun` and helper libraries)
+--------------------------------------------------------
+Source: https://github.com/pkgforge-dev/Anylinux-sharun/tree/3.9.0
+
+MIT License
+
+Copyright (c) 2025 VHSgunzo
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+3. Bundled `dash` shell (`share/licenses/dash-COPYING`)
+-------------------------------------------------------
+Reproduced verbatim from `dash-COPYING` bundled in `sharun+helper-libs-x86_64.tar`:
+
+Copyright (c) 1989-1994
+	The Regents of the University of California.  All rights reserved.
+Copyright (c) 1997 Christos Zoulas.  All rights reserved.
+Copyright (c) 1997-2005
+	Herbert Xu <herbert@gondor.apana.org.au>.  All rights reserved.
+
+This code is derived from software contributed to Berkeley by Kenneth Almquist.
+
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions
+are met:
+1. Redistributions of source code must retain the above copyright
+   notice, this list of conditions and the following disclaimer.
+2. Redistributions in binary form must reproduce the above copyright
+   notice, this list of conditions and the following disclaimer in the
+   documentation and/or other materials provided with the distribution.
+3. Neither the name of the University nor the names of its contributors
+   may be used to endorse or promote products derived from this software
+   without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+SUCH DAMAGE.
+
+mksignames.c:
+
+This file is not directly linked with dash.  However, its output is.
+
+Copyright (C) 1992 Free Software Foundation, Inc.
+
+This file is part of GNU Bash, the Bourne Again SHell.
+
+Bash is free software; you can redistribute it and/or modify it under
+the terms of the GNU General Public License as published by the Free
+Software Foundation; either version 2, or (at your option) any later
+version.
+
+Bash is distributed in the hope that it will be useful, but WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+for more details.
+
+You should have received a copy of the GNU General Public License with
+your Debian GNU/Linux system, in /usr/share/common-licenses/GPL, or with the
+Debian GNU/Linux hello source package as the file COPYING.  If not,
+write to the Free Software Foundation, Inc., 59 Temple Place, Suite 330,
+Boston, MA 02111 USA.
+
+
+4. cross-libc-dlopen v0.2.11 (`cross-libc-dlopen-x86_64.tar`)
+--------------------------------------------------------------
+Source: https://github.com/pkgforge-dev/cross-libc-dlopen/tree/v0.2.11
+(Also bundled separately in `licenses/cross-libc-dlopen-LICENSE.txt`.)
+
+MIT License
+
+Copyright (c) 2026 Package Forge (Dev) 
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

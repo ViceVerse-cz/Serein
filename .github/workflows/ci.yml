@@ -55,6 +55,9 @@ jobs:
           - name: Linux package regression
             if: runner.os == 'Linux'
             run: PYTHONDONTWRITEBYTECODE=1 python3 packaging/linux/test_package.py
+          - name: AppImage packaging regression
+            if: runner.os == 'Linux'
+            run: PYTHONDONTWRITEBYTECODE=1 python3 packaging/appimage/test_build.py
       # Release builds run on main and on manual dispatch; pull requests stop at the checks above.
       - if: github.event_name != 'pull_request'
         run: cargo replay

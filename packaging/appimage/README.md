@@ -9,50 +9,50 @@ chmod +x ./serein-<version>-Linux-X64.AppImage
 ./serein-<version>-Linux-X64.AppImage
 ```
 
-The x86_64 image contains Serein including voice, its desktop entry, icon and
-application licenses. It uses **host runtime libraries**, including GTK4 and
-WebKitGTK 6.0; it is not a self-contained distribution of those libraries. Release
-builds use Ubuntu 24.04 (glibc 2.39), so systems with an older glibc or incompatible
-native library versions are not supported by this artifact. Use the distribution
-packages or Flatpak where their supported runtime is a better match.
+The `x86_64` image is built as a portable **Anylinux AppImage** using a compressed
+DwarFS payload (`uruntime`) and `sharun`. It includes Serein with voice, its
+desktop entry, icons, bundled runtime libraries (glibc, GTK4, WebKitGTK 6.0 and
+wrapped `WebKit*Process` helpers, `glib-networking`, `p11-kit`, `bubblewrap`,
+`xdg-dbus-proxy`, and core GStreamer/PipeWire plugins), application notices, and
+an inventory of staged Arch Linux packages (`AppImage-bundled-packages.txt`).
 
-On Ubuntu 24.04, install the runtime dependencies once:
+Graphics and desktop integration intentionally stay with the host system:
 
-```sh
-sudo apt update
-sudo apt install libgtk-4-1 libwebkitgtk-6.0-4 libasound2t64 libfontconfig1 \
-  libgstreamer1.0-0 libgstreamer-plugins-base1.0-0 \
-  libvulkan1 libegl1 libxkbcommon0 libxkbcommon-x11-0 \
-  libwayland-client0 libx11-6 libx11-xcb1 libxcursor1 libxi6 libxrandr2 \
-  dbus-user-session xdg-desktop-portal \
-  gstreamer1.0-plugins-base gstreamer1.0-plugins-good libpulse0 gstreamer1.0-libav \
-  gstreamer1.0-pipewire gstreamer1.0-plugins-bad gstreamer1.0-gl
-```
+- **Host GPU drivers:** Packaged with `USE_HOST_DRIVERS=1` and `cross-libc-dlopen`
+  so OpenGL/EGL/GLES/Vulkan/VA-API drivers load from the host rather than bundling
+  host-specific `libLLVM`, `libgallium`, or Vulkan ICDs.
+- **Desktop environment prerequisites:** A working graphical session, compatible host
+  GPU driver, session D-Bus / `xdg-desktop-portal` backend, and unlocked Secret Service
+  keyring provider are still supplied by the host desktop.
+- **Unmodified security/rendering settings:** Serein does not disable WebKit's
+  sandbox or force software rendering (`GSK_RENDERER`/`GDK_GL`) in the AppImage
+  `.env`. Users on older systems without working WebKit bubblewrap namespaces or on
+  untested distributions may still encounter distro-specific sandbox/driver issues;
+  Flatpak or native distro packages remain alternatives.
 
-The WebKitGTK package supplies its matching browser subprocesses, data files and
-GTK dependencies. Serein does not relocate or patch WebKit, disable its sandbox,
-or override the host library search path. A graphical session, graphics driver,
-portal backend and unlocked Secret Service provider are still required. A KDE
-portal/keyring provider can replace the GNOME choices above. No library or desktop
-service is installed by launching the AppImage.
-
-The embedded runtime includes FUSE support without requiring the old `libfuse2`
-package. Systems that cannot mount AppImages can run:
+The embedded DwarFS runtime (`uruntime` `v0.8.3` `appimage-dwarfs-lite`) mounts the
+image via FUSE (no legacy `libfuse2` dependency) and supports `--appimage-extract-and-run`
+for containers or systems where FUSE mounting is unavailable:
 
 ```sh
 ./serein-<version>-Linux-X64.AppImage --appimage-extract-and-run
 ```
 
-Settings → Updates uses the same Production/Nightly channels and automatic-download
-preference as Windows/macOS. Restart applies a checked download to the original
-AppImage filename. Both the file and its directory must be writable, and the
-filesystem must support hard links for the rollback copy (for example ext4 or
-Btrfs; FAT/exFAT require manual replacement). An extracted
-`squashfs-root/AppRun` and native/Flatpak installations use manual or package-manager
-updates. Keep the outer AppImage file in place while Serein is running.
+`sharun` redirects `XDG_CACHE_HOME` inside the running AppImage to an
+`AppImage-Cache` directory while exporting `HOST_*`/`REAL_*` variables; Serein's
+update helper clears and restores those host variables before relaunching after an
+update. Settings → Updates uses the same Production/Nightly channels and
+automatic-download preference as Windows/macOS. Restart applies a checked download
+to the original AppImage filename. Both the file and its directory must be writable,
+and the filesystem must support hard links for the rollback copy (for example ext4 or
+Btrfs; FAT/exFAT require manual replacement). An extracted `AppDir/AppRun` (or
+legacy `squashfs-root/AppRun`) and native/Flatpak installations use manual or
+package-manager updates. Keep the outer AppImage file in place while Serein is
+running.
 
 New AppImages embed the standard `gh-releases-zsync` update information and ship
-with a matching `.AppImage.zsync` release asset. Compatible tools such as
+with a matching `.AppImage.zsync` release asset generated by `appimagetool` (`zsync`
+0.6.2). Compatible tools such as
 [AppImageUpdate](https://github.com/AppImageCommunity/AppImageUpdate) can reuse
 unchanged blocks from your existing image, reducing update downloads. Production
 images track `latest`; prerelease images track `latest-pre`. This follows the
@@ -68,38 +68,47 @@ update support.
 
 ## Build and pipeline
 
-On the Ubuntu 24.04 x86_64 build host, first install the existing
-[native build dependencies](../linux/README.md), then:
+Release AppImages are built in an `archlinux:base` `x86_64` container. First install
+the Arch [native build dependencies](../linux/README.md) and the additional Arch
+runtime/bundling packages (`gst-plugins-base`, `gst-plugins-good`,
+`gst-plugins-bad-libs`, `gst-plugin-pipewire`, `glib-networking`, `p11-kit`,
+`bubblewrap`, `xdg-dbus-proxy`, `patchelf`, `shared-mime-info`), then:
 
 ```sh
-sudo apt install zsync
 bash packaging/appimage/install-tools.sh
+PYTHONDONTWRITEBYTECODE=1 python3 packaging/appimage/test_build.py --with-tools
 cargo xtask package --format appimage
 ```
 
-The installer downloads [appimagetool 1.9.1](https://github.com/AppImage/appimagetool/releases/tag/1.9.1)
-and [Type 2 runtime 20251108](https://github.com/AppImage/type2-runtime/releases/tag/20251108),
-verifying each against its pinned SHA-256 before use. The packager reuses the native
-payload allowlist, rejects unresolved host libraries, verifies the output's Type 2
-x86_64 header, and extracts it to compare packaged file contents and executable
-permissions. It never starts Serein or opens a session. Packages over the updater's
-512 MiB limit fail the build. Runtime sources and build instructions are available
-at the pinned runtime release; its license and third-party notices are included.
-The runtime statically links third-party components including LGPL libfuse; its
-[exact source revision](https://github.com/AppImage/type2-runtime/tree/dd6cebedcbddde9c82f89b011e8e1d40b6e43868)
-and [build/relink instructions](https://github.com/AppImage/type2-runtime/blob/dd6cebedcbddde9c82f89b011e8e1d40b6e43868/BUILD.md)
-identify the build recipes and dependency sources. A replacement runtime can be
-supplied to appimagetool with `--runtime-file`. These references preserve upstream
-source/relink information; this fast pass does not certify redistribution license
-coverage. License review remains in the dedicated license CI workflow.
+The installer downloads six artifacts pinned by commit/tag and SHA-256 into
+`target/appimage-tools`:
 
-The Ubuntu 24.04 job in `linux-packages.yml` builds the AppImage separately from
-the Ubuntu 26.04 `.deb`, then uploads the image and its `.zsync` sidecar. Both are
-included in release checksums. The packager verifies the embedded update information
-and requires a nonempty sidecar. Local artifacts use the workspace version; CI sets
-`SEREIN_RELEASE_TAG=v<version>` so both artifacts use their final published names
-before zsync generation. The sidecar points to the absolute, versioned GitHub asset
-URL. Release publication is not performed by local packaging.
+- [quick-sharun.sh](https://github.com/pkgforge-dev/Anylinux-AppImages/blob/5c1f0f9ebb88a2aa2229a4ddea26027edae0f238/useful-tools/quick-sharun.sh) (`5c1f0f9ebb88a2aa2229a4ddea26027edae0f238`)
+- [Anylinux-sharun 3.9.0](https://github.com/pkgforge-dev/Anylinux-sharun/releases/tag/3.9.0) (`sharun+helper-libs-x86_64.tar`, including `sharun` and `dash`)
+- [cross-libc-dlopen v0.2.11](https://github.com/pkgforge-dev/cross-libc-dlopen/releases/tag/v0.2.11) (`cross-libc-dlopen-x86_64.tar`)
+- [pkgforge-dev/appimagetool 0.7.0](https://github.com/pkgforge-dev/appimagetool/releases/tag/0.7.0) (`appimagetool-x86_64-linux`, build host only)
+- [VHSgunzo uruntime v0.8.3](https://github.com/VHSgunzo/uruntime/releases/tag/v0.8.3) (`uruntime-appimage-dwarfs-lite-x86_64`, MIT runtime embedding MIT-licensed DwarFS reader components from [mhx/dwarfs v0.15.8](https://github.com/mhx/dwarfs/tree/v0.15.8))
+- [DwarFS v0.15.6](https://github.com/mhx/dwarfs/releases/tag/v0.15.6) (`mkdwarfs`, build host only; never embedded inside the distributed AppImage)
 
-AppImage packaging, Linux desktop startup, live authentication/audio and an actual
-release-to-release AppImage upgrade remain unverified by the initial fast local pass.
+The packager stages Serein offline without launching it (`STRACE_MODE=0`), wraps
+`serein` and discovered `WebKit*Process` helpers via `quick-sharun` and `sharun`,
+prunes broken optional GStreamer plugins while asserting core plugins (and
+`libgstpipewire.so` when linked), validates full ELF `DT_NEEDED` closure and absence
+of leaked GPU drivers/forbidden `.env` overrides, packages with fixed DwarFS settings
+(`zstd:level=22 -S25 -B2`) for deterministic zsync blocks, validates the ELF/AI\x02
+header and `.zsync` control file, checks the 512 MiB size ceiling, and verifies exact
+byte/symlink/permission parity via `--appimage-extract` and `desktop-file-validate`.
+
+Bundled runtime and loader notices ship inside `usr/share/doc/serein/licenses/AppImage-runtime.txt`
+and `cross-libc-dlopen-LICENSE.txt`, alongside `share/licenses/dash-COPYING` and
+`AppImage-bundled-packages.txt`. Complete transitive per-artifact legal clearance for
+staged distribution libraries remains separate under the release/license review gate;
+`cargo xtask licenses` checks the Cargo dependency graph.
+
+The `appimage` job in `.github/workflows/linux-packages.yml` runs in `archlinux:base`
+and uploads both the AppImage and `.zsync` sidecar. Release builds set
+`SEREIN_RELEASE_TAG=v<version>` so filenames and `.zsync` asset URLs match the tagged
+GitHub release. Full Arch Linux `cargo xtask package --format appimage` packaging of
+Serein, live multi-distro GUI/WebKitGTK/PipeWire startup, and an end-to-end
+release-to-release AppImage upgrade remain unverified until CI execution and live
+desktop testing.
