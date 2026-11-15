@@ -3811,11 +3811,11 @@ impl Desktop {
 					server_settings_demo::execute_action(&mut self.state, action, request)
 				}
 				// Synthetic settings writes are confirmed as sent.
-				Command::ChannelList { request, write } => {
+				Command::ChannelList { request, write, .. } => {
 					Event::ChannelList(client_core::channel_list::Event::Written {
 						guild: write.guild,
 						request,
-						result: Ok(()),
+						result: Ok(write),
 					})
 				}
 				Command::UserAction {

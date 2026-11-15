@@ -138,6 +138,7 @@ pub enum Command {
 	ChannelList {
 		request: u64,
 		write: Box<channel_list::Write>,
+		latest: channel_list::Latest,
 	},
 	UserAction {
 		action: user_actions::Action,
@@ -2295,7 +2296,7 @@ impl State {
 			});
 			return;
 		}
-		if let Command::ChannelList { request, write } = command {
+		if let Command::ChannelList { request, write, .. } = command {
 			let _ = self.apply_channel_list(channel_list::Event::Written {
 				guild: write.guild,
 				request,

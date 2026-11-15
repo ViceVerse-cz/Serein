@@ -4,17 +4,24 @@
 //! `OPT_IN_CHANNELS_ON` hides channels the account has not opted in to, `OPT_IN_CHANNELS_OFF`
 //! shows all of them, and a channel override's `OPT_IN_ENABLED` opts that channel (or a whole
 //! category) in. One bounded settings write is pending at a time and is confirmed before the
-//! sidebar changes.
+//! sidebar changes. Discord takes complete flag values, so the transport rebases the planned
+//! opt-in bits onto the newest settings row right before sending; other bits, such as
+//! favorites changed by another session meanwhile, are kept.
 use crate::{
 	Command, State,
 	auth::{AuthState, Failure},
 };
 use model::{Channel, Id};
-use std::collections::BTreeMap;
+use std::{
+	collections::BTreeMap,
+	sync::{Arc, Mutex},
+};
 
 pub const OPT_IN_CHANNELS_OFF: u32 = 1 << 13;
 pub const OPT_IN_CHANNELS_ON: u32 = 1 << 14;
 pub const OPT_IN_ENABLED: u32 = 1 << 12;
+/// The guild flag bits a channel list write owns; every other bit comes from the newest row.
+pub const MODE_BITS: u32 = OPT_IN_CHANNELS_ON | OPT_IN_CHANNELS_OFF;
 /// Discord caps a server at 500 channels; one write never names more.
 pub const MAX_CHANNELS: usize = 500;
 
@@ -47,21 +54,60 @@ impl Write {
 	pub fn bytes(&self) -> usize {
 		size_of::<Self>() + self.channels.capacity() * size_of::<(Id, u32)>()
 	}
+	/// This write's opt-in bits on top of `base`, the newest known values.
+	pub fn rebase(&self, base: &Base) -> Self {
+		Self {
+			guild: self.guild,
+			flags: self
+				.flags
+				.map(|flags| (base.flags & !MODE_BITS) | (flags & MODE_BITS)),
+			channels: self
+				.channels
+				.iter()
+				.map(|(id, flags)| {
+					(
+						*id,
+						(base.channel(*id) & !OPT_IN_ENABLED) | (flags & OPT_IN_ENABLED),
+					)
+				})
+				.collect(),
+		}
+	}
 }
 
+/// The newest known guild flags and the pending write's channel overrides.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Base {
+	pub flags: u32,
+	pub channels: Vec<(Id, u32)>,
+}
+impl Base {
+	fn channel(&self, id: Id) -> u32 {
+		self.channels
+			.iter()
+			.find(|(channel, _)| *channel == id)
+			.map_or(0, |(_, flags)| *flags)
+	}
+}
+/// Shared with the transport while a write is pending. `None` once a settings row with unknown
+/// flags arrived; the transport then refuses to send.
+pub type Latest = Arc<Mutex<Option<Base>>>;
+
 pub enum Event {
+	/// On success, the values actually sent.
 	Written {
 		guild: Id,
 		request: u64,
-		result: Result<(), Failure>,
+		result: Result<Box<Write>, Failure>,
 	},
 }
 
 #[derive(Default)]
 pub struct ChannelList {
 	sequence: u64,
-	/// The write, its request number and whether a newer settings row arrived meanwhile.
-	pending: Option<(Write, u64, bool)>,
+	/// The write, its request number, whether a settings row already carried it, and the
+	/// newest values shared with the transport.
+	pending: Option<(Write, u64, bool, Latest)>,
 	status: Option<(Id, &'static str)>,
 }
 impl ChannelList {
@@ -271,39 +317,64 @@ impl State {
 			self.channel_list.status = Some((guild, "Channel list unchanged"));
 			return None;
 		};
+		let setting = self.notification_preferences.setting(Some(guild))?;
+		let base = Base {
+			flags: setting.flags?,
+			channels: write
+				.channels
+				.iter()
+				.map(|(id, _)| (*id, setting.channel_flags(*id).unwrap_or(0)))
+				.collect(),
+		};
+		let latest = Arc::new(Mutex::new(Some(base)));
 		self.channel_list.sequence = self.channel_list.sequence.wrapping_add(1);
 		let request = self.channel_list.sequence;
 		self.channel_list.status = None;
-		self.channel_list.pending = Some((write.clone(), request, false));
+		self.channel_list.pending = Some((write.clone(), request, false, latest.clone()));
 		Some(Command::ChannelList {
 			request,
 			write: Box::new(write),
+			latest,
 		})
 	}
-	/// A settings row that already carries the pending write supersedes the local
-	/// confirmation; an older row for the guild leaves it to run on success.
+	/// Each settings row for the pending guild becomes the base the transport sends from. A
+	/// row whose opt-in bits already match the write supersedes the local confirmation; an
+	/// older row leaves it to run on success.
 	pub(crate) fn observe_channel_list_settings(
 		&mut self,
 		entries: &[crate::notifications::Setting],
 	) {
-		if let Some((write, _, observed)) = &mut self.channel_list.pending {
-			*observed |= entries.iter().any(|s| {
-				// Unknown flags (an override with null flags) never stand in for the write.
-				s.guild == Some(write.guild)
-					&& s.flags.is_some()
-					&& write.flags.is_none_or(|flags| s.flags == Some(flags))
-					&& write.channels.iter().all(|(channel, flags)| {
-						s.channel_flags
-							.iter()
-							.find(|(id, _)| id == channel)
-							.map_or(0, |(_, value)| *value)
-							== *flags
+		let Some((write, _, observed, latest)) = &mut self.channel_list.pending else {
+			return;
+		};
+		for s in entries.iter().filter(|s| s.guild == Some(write.guild)) {
+			// Unknown flags (an override with null flags) never stand in for the write.
+			let base = s.flags.map(|flags| Base {
+				flags,
+				channels: write
+					.channels
+					.iter()
+					.map(|(id, _)| {
+						let row = s.channel_flags.iter().find(|(channel, _)| channel == id);
+						(*id, row.map_or(0, |(_, value)| *value))
+					})
+					.collect(),
+			});
+			*observed |= base.as_ref().is_some_and(|base| {
+				write
+					.flags
+					.is_none_or(|flags| base.flags & MODE_BITS == flags & MODE_BITS)
+					&& write.channels.iter().all(|(id, flags)| {
+						base.channel(*id) & OPT_IN_ENABLED == flags & OPT_IN_ENABLED
 					})
 			});
+			if let Ok(mut latest) = latest.lock() {
+				*latest = base;
+			}
 		}
 	}
 	pub(crate) fn cancel_channel_list(&mut self) {
-		if let Some((write, _, _)) = self.channel_list.pending.take() {
+		if let Some((write, ..)) = self.channel_list.pending.take() {
 			self.channel_list.status = Some((
 				write.guild,
 				"Outcome unknown; check Discord before retrying",
@@ -316,13 +387,15 @@ impl State {
 			request,
 			result,
 		} = event;
-		let Some((write, sequence, _)) = &self.channel_list.pending else {
+		let Some((write, sequence, ..)) = &self.channel_list.pending else {
 			return Ok(());
 		};
 		if write.guild != guild || *sequence != request {
 			return Ok(());
 		}
-		let (write, _, observed) = self.channel_list.pending.take().unwrap();
+		let Some((_, _, observed, _)) = self.channel_list.pending.take() else {
+			return Ok(());
+		};
 		let status = match result {
 			Err(failure) => {
 				if failure.ends_session() {
@@ -330,9 +403,9 @@ impl State {
 				}
 				failure.label()
 			}
-			Ok(()) => {
+			Ok(sent) => {
 				if !observed {
-					self.confirm_channel_list(&write)?;
+					self.confirm_channel_list(&sent)?;
 				}
 				"Channel list updated"
 			}
@@ -446,7 +519,7 @@ mod tests {
 			.collect()
 	}
 	fn write(state: &mut State, change: Change) -> Write {
-		let Some(Command::ChannelList { request, write }) =
+		let Some(Command::ChannelList { request, write, .. }) =
 			state.change_channel_list(Id(100), change)
 		else {
 			panic!("no write planned");
@@ -457,7 +530,7 @@ mod tests {
 			event: CoreEvent::ChannelList(Event::Written {
 				guild: Id(100),
 				request,
-				result: Ok(()),
+				result: Ok(write),
 			}),
 		});
 		planned
@@ -545,13 +618,18 @@ mod tests {
 			OPT_IN_CHANNELS_ON,
 			vec![(Id(2), OPT_IN_ENABLED), (Id(5), OPT_IN_ENABLED)],
 		);
-		let Some(Command::ChannelList { request, write }) = state.change_channel_list(
+		let Some(Command::ChannelList {
+			request,
+			write,
+			latest,
+		}) = state.change_channel_list(
 			Id(100),
 			Change::List {
 				channel: Id(2),
 				listed: false,
 			},
-		) else {
+		)
+		else {
 			panic!()
 		};
 		assert_eq!(
@@ -573,12 +651,14 @@ mod tests {
 				replace: false,
 			})
 			.unwrap();
+		// The transport refuses to send from unknown values.
+		assert_eq!(*latest.lock().unwrap(), None);
 		state.apply(Envelope {
 			generation: state.generation,
 			event: CoreEvent::ChannelList(Event::Written {
 				guild: Id(100),
 				request,
-				result: Ok(()),
+				result: Ok(write),
 			}),
 		});
 		let setting = state
@@ -646,31 +726,44 @@ mod tests {
 			}),
 		});
 		assert_eq!(state.channel_list_opt_in(Id(100)), Some(false));
-		let Some(Command::ChannelList { request, .. }) =
-			state.change_channel_list(Id(100), Change::ShowAll(false))
+		let Some(Command::ChannelList {
+			request,
+			write,
+			latest,
+		}) = state.change_channel_list(Id(100), Change::ShowAll(false))
 		else {
 			panic!()
 		};
-		// A row from before the write doesn't stand in for its confirmation.
+		// A row from another session (here setting bit 11) doesn't stand in for the
+		// confirmation, and the write is rebased on it instead of restoring the planned value.
 		state
 			.apply_notification_preferences(notifications::Event::Settings {
 				entries: vec![notifications::Setting {
 					overrides_known: true,
 					guild: Some(Id(100)),
-					flags: Some(OPT_IN_CHANNELS_OFF),
+					flags: Some(OPT_IN_CHANNELS_OFF | 1 << 11),
 					..Default::default()
 				}],
 				replace: false,
 			})
 			.unwrap();
+		let sent = write.rebase(latest.lock().unwrap().as_ref().unwrap());
+		assert_eq!(sent.flags, Some(OPT_IN_CHANNELS_ON | 1 << 11));
 		state.apply(Envelope {
 			generation: state.generation,
 			event: CoreEvent::ChannelList(Event::Written {
 				guild: Id(100),
 				request,
-				result: Ok(()),
+				result: Ok(Box::new(sent)),
 			}),
 		});
 		assert_eq!(state.channel_list_opt_in(Id(100)), Some(true));
+		assert_eq!(
+			state
+				.notification_preferences
+				.setting(Some(Id(100)))
+				.and_then(|s| s.flags),
+			Some(OPT_IN_CHANNELS_ON | 1 << 11)
+		);
 	}
 }

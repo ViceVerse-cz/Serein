@@ -27,39 +27,56 @@ impl DiscordApi {
 		}
 		Ok((channel, message))
 	}
-	/// Unofficial normal-user route (discord-userdoccers, Modify User Guild Settings). The
-	/// acknowledgement must echo every flag written, or the outcome is ambiguous.
+	/// Unofficial normal-user route (discord-userdoccers, Modify User Guild Settings). The body
+	/// is built after admission from the newest known settings, so only the planned opt-in bits
+	/// change, and the acknowledgement must echo every flag sent, or the outcome is ambiguous.
 	pub(super) async fn channel_list_write(
 		&self,
-		write: &client_core::channel_list::Write,
-	) -> Result<(), Failure> {
-		if !write.valid() {
+		planned: &client_core::channel_list::Write,
+		latest: &client_core::channel_list::Latest,
+	) -> Result<client_core::channel_list::Write, Failure> {
+		if !planned.valid() {
 			return Err(Failure::Protocol);
 		}
-		let mut body = serde_json::Map::new();
-		if let Some(flags) = write.flags {
-			body.insert("flags".into(), flags.into());
-		}
-		if !write.channels.is_empty() {
-			body.insert(
-				"channel_overrides".into(),
-				write
-					.channels
-					.iter()
-					.map(|(id, flags)| (id.to_string(), serde_json::json!({ "flags": flags })))
-					.collect::<serde_json::Map<_, _>>()
-					.into(),
+		let mut sent = None;
+		let mut prepare = || {
+			let write = planned.rebase(
+				latest
+					.lock()
+					.map_err(|_| Failure::Protocol)?
+					.as_ref()
+					.ok_or(Failure::ProtocolAt(
+						"Channel list settings changed; try again",
+					))?,
 			);
-		}
+			let mut body = serde_json::Map::new();
+			if let Some(flags) = write.flags {
+				body.insert("flags".into(), flags.into());
+			}
+			if !write.channels.is_empty() {
+				body.insert(
+					"channel_overrides".into(),
+					write
+						.channels
+						.iter()
+						.map(|(id, flags)| (id.to_string(), serde_json::json!({ "flags": flags })))
+						.collect::<serde_json::Map<_, _>>()
+						.into(),
+				);
+			}
+			sent = Some(write);
+			Ok(body.into())
+		};
 		let bytes = self
-			.request_limited(
+			.request_prepared(
 				Method::PATCH,
-				&format!("/users/@me/guilds/{}/settings", write.guild),
-				Some(body.into()),
+				&format!("/users/@me/guilds/{}/settings", planned.guild),
+				&mut prepare,
 				512 * 1024,
 			)
 			.await
 			.map_err(write_failure)?;
+		let write = sent.ok_or(Failure::Ambiguous)?;
 		// Like other REST acknowledgements, omitted or null values are not read as defaults:
 		// every written override must be echoed with its flags.
 		let setting: discord_protocol::notifications::Setting =
@@ -82,7 +99,7 @@ impl DiscordApi {
 				return Err(Failure::Ambiguous);
 			}
 		}
-		Ok(())
+		Ok(write)
 	}
 	// Documented developer API routes; normal-user interoperability remains unverified.
 	pub(super) async fn server_action(&self, action: Action) -> Result<Option<String>, Failure> {
@@ -325,7 +342,7 @@ mod tests {
 	}
 	#[tokio::test]
 	async fn channel_list_writes_flags_and_requires_a_matching_echo() {
-		use client_core::channel_list::{OPT_IN_CHANNELS_ON, OPT_IN_ENABLED, Write};
+		use client_core::channel_list::{Base, OPT_IN_CHANNELS_ON, OPT_IN_ENABLED, Write};
 		let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
 		let mut api = DiscordApi::new(Arc::new(
 			SessionSecret::from_owner_input("SYNTHETIC_SERVER_TOKEN".into()).unwrap(),
@@ -337,18 +354,23 @@ mod tests {
 			flags: Some(OPT_IN_CHANNELS_ON),
 			channels: vec![(Id(3), OPT_IN_ENABLED), (Id(4), 0)],
 		};
+		// Another session set guild bit 11 after planning; the body keeps it.
+		let latest = Arc::new(std::sync::Mutex::new(Some(Base {
+			flags: 1 << 11,
+			channels: vec![(Id(3), 0), (Id(4), OPT_IN_ENABLED)],
+		})));
 		for (body, expected) in [
 			(
-				r#"{"guild_id":"2","flags":16384,"channel_overrides":[{"channel_id":"3","flags":4096},{"channel_id":"4","flags":0}]}"#,
+				r#"{"guild_id":"2","flags":18432,"channel_overrides":[{"channel_id":"3","flags":4096},{"channel_id":"4","flags":0}]}"#,
 				Ok(()),
 			),
 			// A missing row or unknown (null or omitted) flags are not an echo.
 			(
-				r#"{"guild_id":"2","flags":16384,"channel_overrides":[{"channel_id":"3","flags":4096}]}"#,
+				r#"{"guild_id":"2","flags":18432,"channel_overrides":[{"channel_id":"3","flags":4096}]}"#,
 				Err(Failure::Ambiguous),
 			),
 			(
-				r#"{"guild_id":"2","flags":16384,"channel_overrides":[{"channel_id":"3","flags":4096},{"channel_id":"4","flags":4096}]}"#,
+				r#"{"guild_id":"2","flags":18432,"channel_overrides":[{"channel_id":"3","flags":4096},{"channel_id":"4","flags":4096}]}"#,
 				Err(Failure::Ambiguous),
 			),
 			(
@@ -356,11 +378,11 @@ mod tests {
 				Err(Failure::Ambiguous),
 			),
 			(
-				r#"{"guild_id":"2","flags":16384,"channel_overrides":[{"channel_id":"3","flags":4096},{"channel_id":"3","flags":4096}]}"#,
+				r#"{"guild_id":"2","flags":18432,"channel_overrides":[{"channel_id":"3","flags":4096},{"channel_id":"3","flags":4096}]}"#,
 				Err(Failure::Ambiguous),
 			),
 			(
-				r#"{"guild_id":"2","flags":16384,"channel_overrides":[{"channel_id":"3","flags":4096},{"channel_id":"4","flags":null}]}"#,
+				r#"{"guild_id":"2","flags":18432,"channel_overrides":[{"channel_id":"3","flags":4096},{"channel_id":"4","flags":null}]}"#,
 				Err(Failure::Ambiguous),
 			),
 		] {
@@ -390,7 +412,7 @@ mod tests {
 					assert!(headers.starts_with("PATCH /users/@me/guilds/2/settings HTTP/1.1"));
 					assert_eq!(
 						serde_json::from_slice::<serde_json::Value>(&bytes[end + 4..]).unwrap(),
-						serde_json::json!({"flags":16384,"channel_overrides":{"3":{"flags":4096},"4":{"flags":0}}})
+						serde_json::json!({"flags":18432,"channel_overrides":{"3":{"flags":4096},"4":{"flags":0}}})
 					);
 					break;
 				}
@@ -405,16 +427,27 @@ mod tests {
 					.await
 					.unwrap();
 			};
-			let (result, ()) = tokio::join!(api.channel_list_write(&write), server);
-			assert_eq!(result, expected);
+			let (result, ()) = tokio::join!(api.channel_list_write(&write, &latest), server);
+			assert_eq!(
+				result.map(|sent| sent.flags),
+				expected.map(|()| Some(OPT_IN_CHANNELS_ON | 1 << 11))
+			);
 		}
 		let invalid = Write {
 			channels: vec![(Id(3), 0), (Id(3), OPT_IN_ENABLED)],
 			..write
 		};
 		assert_eq!(
-			api.channel_list_write(&invalid).await,
+			api.channel_list_write(&invalid, &latest).await,
 			Err(Failure::Protocol)
+		);
+		// Unknown settings arrived while waiting: nothing is sent.
+		*latest.lock().unwrap() = None;
+		assert_eq!(
+			api.channel_list_write(&write, &latest).await,
+			Err(Failure::ProtocolAt(
+				"Channel list settings changed; try again"
+			))
 		);
 	}
 	#[tokio::test]
