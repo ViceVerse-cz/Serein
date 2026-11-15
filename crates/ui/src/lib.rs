@@ -1276,6 +1276,9 @@ impl MessagingUi {
 			minimize_to_tray: self.minimize_to_tray,
 			tray_available: self.tray_available,
 			tray_status: self.tray_status,
+			// Device-level chat filters belong to the device, not to the account being cleared.
+			hide_blocked_messages: self.hide_blocked_messages,
+			hide_ignored_messages: self.hide_ignored_messages,
 			startup_enabled: self.startup_enabled,
 			startup_minimized: self.startup_minimized,
 			startup_available: self.startup_available,
@@ -6192,15 +6195,19 @@ mod composer_tests {
 	use client_core::MAX_CONTENT;
 
 	#[test]
-	fn clearing_an_account_preserves_the_device_log_preference() {
+	fn clearing_an_account_preserves_device_level_preferences() {
 		let mut ui = MessagingUi {
 			diagnostics_log: diagnostics::Level::Info,
 			diagnostics_log_path: Some("local-log".into()),
+			hide_blocked_messages: true,
+			hide_ignored_messages: true,
 			..Default::default()
 		};
 		ui.clear();
 		assert_eq!(ui.diagnostics_log, diagnostics::Level::Info);
 		assert_eq!(ui.diagnostics_log_path.as_deref(), Some("local-log"));
+		// Account filters are device preferences; clearing one account must not turn them off.
+		assert!(ui.hide_blocked_messages && ui.hide_ignored_messages);
 		assert!(!ui.open_log_folder_requested);
 	}
 
