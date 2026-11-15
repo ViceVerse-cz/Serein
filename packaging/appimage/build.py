@@ -19,7 +19,7 @@ from package import native_elf, stage_payload
 
 PINNED_TOOLS = {
     "quick-sharun.sh": (
-        "0aea2f589658e5db1659a6ccb8d29546c4e03028f1e29b37c6450cece917249a",
+        "b3c561d35b08afc8694414f710c2074f76e2c1e19db3cefa43e06604acc55834",
         True,
     ),
     "sharun+helper-libs-x86_64.tar": (
@@ -65,6 +65,11 @@ CORE_GSTREAMER_PLUGINS = (
     "libgstautodetect.so",
     "libgstapp.so",
     "libgstpulseaudio.so",
+)
+
+CORE_GLYCIN_LOADERS = (
+    "glycin-image-rs",
+    "glycin-svg",
 )
 
 FORBIDDEN_ENV_TOKENS = (
@@ -250,8 +255,66 @@ def prune_broken_gstreamer_plugins(appdir, require_gstreamer, require_pipewire):
         )
 
 
+def prune_broken_glycin_loaders(appdir):
+    glycin_conf_root = appdir / "share/glycin-loaders"
+    if not glycin_conf_root.is_dir():
+        return
+    conf_files = sorted(
+        p for p in glycin_conf_root.rglob("*.conf") if p.parent.name == "conf.d"
+    )
+    available = bundled_library_names(appdir)
+    glycin_lib_root = appdir / "lib/glycin-loaders"
+    for conf in conf_files:
+        stem = conf.stem
+        if not stem.startswith("glycin-"):
+            continue
+        candidate = appdir / "shared/bin" / stem
+        broken = False
+        if not candidate.exists() and not candidate.is_symlink():
+            broken = True
+        elif candidate.is_symlink() and not candidate.exists():
+            broken = True
+        else:
+            resolved = candidate.resolve() if candidate.is_symlink() else candidate
+            if is_elf_file(resolved) and any(dep not in available for dep in elf_needed(resolved)):
+                broken = True
+        if not broken:
+            continue
+        if candidate.exists() or candidate.is_symlink():
+            candidate.unlink()
+        bin_wrapper = appdir / "bin" / stem
+        if bin_wrapper.exists() or bin_wrapper.is_symlink():
+            bin_wrapper.unlink()
+        if glycin_lib_root.is_dir():
+            for nested in sorted(glycin_lib_root.rglob(stem)):
+                if nested.is_file() or nested.is_symlink():
+                    nested.unlink()
+        conf.unlink()
+
+    present_confs = {
+        p.stem for p in glycin_conf_root.rglob("*.conf") if p.parent.name == "conf.d"
+    }
+    missing = [
+        name
+        for name in CORE_GLYCIN_LOADERS
+        if name not in present_confs
+        or not (appdir / "shared/bin" / name).is_file()
+        or not (appdir / "bin" / name).is_file()
+    ]
+    if missing:
+        raise ValueError(
+            "Required Glycin loaders are missing or had unresolved dependencies: "
+            + ", ".join(missing)
+        )
+
+
 def verify_elf_closure(appdir):
     available = bundled_library_names(appdir)
+    sharun_path = appdir / "sharun"
+    if sharun_path.is_symlink() or not sharun_path.is_file():
+        raise ValueError("Expected regular 'sharun' binary inside AppDir")
+    sharun_stat = sharun_path.stat()
+    sharun_identity = (sharun_stat.st_dev, sharun_stat.st_ino)
     failures = []
     for sub in ("shared/bin", "lib"):
         base = appdir / sub
@@ -261,6 +324,13 @@ def verify_elf_closure(appdir):
             for filename in sorted(filenames):
                 candidate = Path(root_dir) / filename
                 if not is_elf_file(candidate):
+                    continue
+                candidate_stat = candidate.stat()
+                if (candidate_stat.st_dev, candidate_stat.st_ino) == sharun_identity:
+                    if sub != "lib" or not (appdir / "shared/bin" / candidate.name).is_file():
+                        failures.append(
+                            f"{candidate.relative_to(appdir)}: broken or misplaced sharun hardlink"
+                        )
                     continue
                 needed = elf_needed(candidate)
                 missing = [dep for dep in needed if dep not in available]
@@ -277,6 +347,9 @@ def verify_appdir_invariants(appdir):
             raise ValueError(f"Expected executable '{required}' inside AppDir")
     if (appdir / "usr/bin/serein").exists() or (appdir / "usr/bin/serein").is_symlink():
         raise ValueError("Unexpected redundant usr/bin/serein inside Anylinux AppDir")
+    stubs_dir = appdir / "lib/sharun-preload/stubs"
+    if stubs_dir.exists() or stubs_dir.is_symlink():
+        raise ValueError("Unexpected unconsumed quick-sharun stubs directory inside AppDir")
     env_file = appdir / ".env"
     if env_file.is_file():
         env_text = env_file.read_text(encoding="utf-8", errors="replace")
@@ -536,9 +609,10 @@ def build(root, version):
         top_desktop.chmod(0o644)
 
         ensure_multiarch_loader_symlink(appdir)
-        stage_docs_and_icons(appdir, payload_stage, tools, libraries)
         prune_broken_gstreamer_plugins(appdir, require_gstreamer, deploy_pipewire)
+        prune_broken_glycin_loaders(appdir)
         subprocess.run([str(appdir / "sharun"), "-g"], check=True, cwd=temporary)
+        stage_docs_and_icons(appdir, payload_stage, tools, libraries)
         verify_appdir_invariants(appdir)
         verify_elf_closure(appdir)
         subprocess.run(["desktop-file-validate", str(top_desktop)], check=True)

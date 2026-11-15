@@ -22,8 +22,8 @@ fetch() {
 }
 
 fetch \
-  https://raw.githubusercontent.com/pkgforge-dev/Anylinux-AppImages/5c1f0f9ebb88a2aa2229a4ddea26027edae0f238/useful-tools/quick-sharun.sh \
-  0aea2f589658e5db1659a6ccb8d29546c4e03028f1e29b37c6450cece917249a \
+  https://raw.githubusercontent.com/pkgforge-dev/Anylinux-AppImages/9ed54a2c6213cf7f72993bd25635a655be78516e/useful-tools/quick-sharun.sh \
+  b3c561d35b08afc8694414f710c2074f76e2c1e19db3cefa43e06604acc55834 \
   quick-sharun.sh \
   755
 

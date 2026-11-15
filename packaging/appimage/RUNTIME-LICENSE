@@ -2,7 +2,7 @@ Anylinux AppImage Runtime and Loader Notices
 =============================================
 
 This AppImage embeds the pinned runtime and loader components below.
-Build-host-only packaging tools (`quick-sharun.sh` @ `5c1f0f9ebb88a2aa2229a4ddea26027edae0f238`,
+Build-host-only packaging tools (`quick-sharun.sh` @ `9ed54a2c6213cf7f72993bd25635a655be78516e`,
 `appimagetool` 0.7.0, and `mkdwarfs` 0.15.6) run only during image creation and are
 not included in the distributed AppImage. Shared libraries staged into the
 AppDir from the Arch Linux build container are recorded in

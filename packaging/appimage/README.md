@@ -83,7 +83,7 @@ cargo xtask package --format appimage
 The installer downloads six artifacts pinned by commit/tag and SHA-256 into
 `target/appimage-tools`:
 
-- [quick-sharun.sh](https://github.com/pkgforge-dev/Anylinux-AppImages/blob/5c1f0f9ebb88a2aa2229a4ddea26027edae0f238/useful-tools/quick-sharun.sh) (`5c1f0f9ebb88a2aa2229a4ddea26027edae0f238`)
+- [quick-sharun.sh](https://github.com/pkgforge-dev/Anylinux-AppImages/blob/9ed54a2c6213cf7f72993bd25635a655be78516e/useful-tools/quick-sharun.sh) (`9ed54a2c6213cf7f72993bd25635a655be78516e`)
 - [Anylinux-sharun 3.9.0](https://github.com/pkgforge-dev/Anylinux-sharun/releases/tag/3.9.0) (`sharun+helper-libs-x86_64.tar`, including `sharun` and `dash`)
 - [cross-libc-dlopen v0.2.11](https://github.com/pkgforge-dev/cross-libc-dlopen/releases/tag/v0.2.11) (`cross-libc-dlopen-x86_64.tar`)
 - [pkgforge-dev/appimagetool 0.7.0](https://github.com/pkgforge-dev/appimagetool/releases/tag/0.7.0) (`appimagetool-x86_64-linux`, build host only)

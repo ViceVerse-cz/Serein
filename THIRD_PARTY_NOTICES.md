@@ -21,7 +21,7 @@ BSD-3-Clause plus the `mksignames.c` GPL-2.0 generator notice), and **cross-libc
 v0.2.11** (MIT). Verbatim runtime/loader notices ship in the AppImage under
 `licenses/AppImage-runtime.txt` (`packaging/appimage/RUNTIME-LICENSE`) and
 `licenses/cross-libc-dlopen-LICENSE.txt`. Build-host-only tools (`quick-sharun.sh` at
-`5c1f0f9ebb88a2aa2229a4ddea26027edae0f238` MIT, `appimagetool 0.7.0` MIT, and `mkdwarfs
+`9ed54a2c6213cf7f72993bd25635a655be78516e` MIT, `appimagetool 0.7.0` MIT, and `mkdwarfs
 v0.15.6`) run only on the build host and are not shipped inside the AppImage. Shared
 libraries staged from the Arch Linux container by `quick-sharun` are inventoried in
 `AppImage-bundled-packages.txt` and retain their upstream licenses; packaging records

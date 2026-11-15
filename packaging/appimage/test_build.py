@@ -77,6 +77,16 @@ class AppImagePackagingTest(unittest.TestCase):
                 shutil.copyfile("/bin/true", gst_dir / core)
                 (gst_dir / core).chmod(0o755)
 
+            shutil.copyfile("/bin/true", appdir / "shared/bin/gst-plugin-scanner")
+            (appdir / "shared/bin/gst-plugin-scanner").chmod(0o755)
+            os.link(appdir / "sharun", gst_dir / "gst-plugin-scanner")
+
+            webkit_dir = appdir / "lib/webkitgtk-6.0"
+            webkit_dir.mkdir(parents=True)
+            shutil.copyfile("/bin/true", appdir / "shared/bin/WebKitWebProcess")
+            (appdir / "shared/bin/WebKitWebProcess").chmod(0o755)
+            os.link(appdir / "sharun", webkit_dir / "WebKitWebProcess")
+
             broken_plugin = gst_dir / "libgstbrokenoptional.so"
             shutil.copyfile("/bin/true", broken_plugin)
             broken_plugin.chmod(0o755)
@@ -92,6 +102,16 @@ class AppImagePackagingTest(unittest.TestCase):
             self.assertFalse(broken_plugin.exists())
             self.assertFalse((gst_dir / "libdangling.so").is_symlink())
             appimage_build.verify_elf_closure(appdir)
+
+            os.link(appdir / "sharun", appdir / "shared/bin/misplaced-hardlink")
+            with self.assertRaisesRegex(ValueError, "broken or misplaced sharun hardlink"):
+                appimage_build.verify_elf_closure(appdir)
+            (appdir / "shared/bin/misplaced-hardlink").unlink()
+
+            (appdir / "shared/bin/WebKitWebProcess").unlink()
+            with self.assertRaisesRegex(ValueError, "WebKitWebProcess.*sharun hardlink"):
+                appimage_build.verify_elf_closure(appdir)
+            (webkit_dir / "WebKitWebProcess").unlink()
 
             with self.assertRaisesRegex(ValueError, "libgstpipewire.so"):
                 appimage_build.prune_broken_gstreamer_plugins(
@@ -113,6 +133,73 @@ class AppImagePackagingTest(unittest.TestCase):
             )
             with self.assertRaisesRegex(ValueError, "libmissingcritical.so.0"):
                 appimage_build.verify_elf_closure(appdir)
+
+    def test_glycin_pruning_and_required_loader_guard(self):
+        if not shutil.which("patchelf") or not Path("/bin/true").is_file():
+            self.skipTest("Requires patchelf and /bin/true")
+        with tempfile.TemporaryDirectory(prefix="serein-appimage-glycin-") as directory:
+            root = Path(directory)
+            appdir = make_minimal_appdir(root)
+            shutil.copyfile("/bin/true", appdir / "shared/bin/serein")
+            (appdir / "shared/bin/serein").chmod(0o755)
+            for soname in appimage_build.elf_needed(appdir / "shared/bin/serein"):
+                (appdir / "lib" / soname).write_bytes(b"placeholder")
+
+            conf_dir = appdir / "share/glycin-loaders/2+/conf.d"
+            conf_dir.mkdir(parents=True)
+            nested_lib = appdir / "lib/glycin-loaders/2+"
+            nested_lib.mkdir(parents=True)
+
+            for name in (*appimage_build.CORE_GLYCIN_LOADERS, "glycin-heif"):
+                shared_bin = appdir / "shared/bin" / name
+                shutil.copyfile("/bin/true", shared_bin)
+                shared_bin.chmod(0o755)
+                os.link(appdir / "sharun", appdir / "bin" / name)
+                (conf_dir / f"{name}.conf").write_text(f"[loader]\nExec={name}\n", encoding="utf-8")
+            os.link(appdir / "sharun", nested_lib / "glycin-heif")
+
+            subprocess.run(
+                ["patchelf", "--add-needed", "libheif.so.1", str(appdir / "shared/bin/glycin-heif")],
+                check=True,
+            )
+            shutil.copyfile("/bin/true", appdir / "shared/bin/bwrap")
+            (appdir / "shared/bin/bwrap").chmod(0o755)
+            os.link(appdir / "sharun", appdir / "bin/bwrap")
+
+            appimage_build.prune_broken_glycin_loaders(appdir)
+            for gone in (
+                appdir / "shared/bin/glycin-heif",
+                appdir / "bin/glycin-heif",
+                nested_lib / "glycin-heif",
+                conf_dir / "glycin-heif.conf",
+            ):
+                self.assertFalse(gone.exists())
+            for kept in appimage_build.CORE_GLYCIN_LOADERS:
+                self.assertTrue((appdir / "shared/bin" / kept).is_file())
+                self.assertTrue((appdir / "bin" / kept).is_file())
+                self.assertTrue((conf_dir / f"{kept}.conf").is_file())
+            appimage_build.verify_elf_closure(appdir)
+
+            # Unrelated helpers must never be pruned; missing deps still fail closure checks.
+            subprocess.run(
+                ["patchelf", "--add-needed", "libseccomp.so.2", str(appdir / "shared/bin/bwrap")],
+                check=True,
+            )
+            appimage_build.prune_broken_glycin_loaders(appdir)
+            self.assertTrue((appdir / "shared/bin/bwrap").is_file())
+            with self.assertRaisesRegex(ValueError, "bwrap.*libseccomp.so.2"):
+                appimage_build.verify_elf_closure(appdir)
+            subprocess.run(
+                ["patchelf", "--remove-needed", "libseccomp.so.2", str(appdir / "shared/bin/bwrap")],
+                check=True,
+            )
+
+            subprocess.run(
+                ["patchelf", "--add-needed", "librsvg-2.so.2", str(appdir / "shared/bin/glycin-svg")],
+                check=True,
+            )
+            with self.assertRaisesRegex(ValueError, "glycin-svg"):
+                appimage_build.prune_broken_glycin_loaders(appdir)
 
     def test_appdir_invariants_and_extracted_tree_guards(self):
         with tempfile.TemporaryDirectory(prefix="serein-appimage-guards-") as directory:
@@ -141,6 +228,12 @@ class AppImagePackagingTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "usr/bin/serein"):
                 appimage_build.verify_appdir_invariants(appdir)
             (appdir / "usr/bin/serein").unlink()
+
+            stubs = appdir / "lib/sharun-preload/stubs"
+            stubs.mkdir(parents=True)
+            with self.assertRaisesRegex(ValueError, "stubs"):
+                appimage_build.verify_appdir_invariants(appdir)
+            stubs.rmdir()
 
             extracted = root / "extracted"
             shutil.copytree(appdir, extracted, symlinks=True)
@@ -221,11 +314,19 @@ class AppImagePackagingTest(unittest.TestCase):
                 "HOST_XDG_CACHE_HOME": "/home/user/.cache",
                 "XDG_DATA_DIRS": f"{old_appdir}/share:/home/user/.local/share:/usr/share",
                 "GCONV_PATH": f"{old_appdir}/lib/gconv",
+                "ALSA_CONFIG_PATH": f"{old_appdir}/etc/alsa/alsa.conf",
+                "GIO_LAUNCH_DESKTOP": f"{old_appdir}/bin/gio-launch-desktop",
+                "TEXTDOMAINDIR": f"{old_appdir}/share/locale",
+                "FONTCONFIG_FILE": f"{old_appdir}/etc/fonts/fonts.conf",
+                "__EGL_VENDOR_LIBRARY_DIRS": f"{old_appdir}/share/glvnd/egl_vendor.d:/usr/share/glvnd/egl_vendor.d",
+                "GIO_LAUNCHED_DESKTOP_FILE_PID": "12345",
                 "SSL_CERT_FILE": "/etc/ssl/certs/ca-certificates.crt",
                 "OPENSSL_CONF": f"{old_appdir}/etc/ssl/openssl.cnf",
                 "CROSS_LIBC_DLOPEN_ROOT": old_appdir,
                 "SHARUN_DIR": old_appdir,
                 "SHARUN_BIN_NAME": "serein",
+                "SHARUN_MESA_PATH": f"{old_appdir}/lib/mesa",
+                "SHARUN_FALLBACK_LIBRARY_PATH": f"{old_appdir}/lib",
                 "URUNTIME": "/home/user/Serein.AppImage",
                 "APPIMAGE_EXTRACT_AND_RUN": "1",
             }
@@ -238,6 +339,7 @@ class AppImagePackagingTest(unittest.TestCase):
             self.assertEqual(parsed.get("PATH"), "/usr/bin:/my host tools")
             self.assertEqual(parsed.get("XDG_CACHE_HOME"), "/home/user/.cache")
             self.assertEqual(parsed.get("XDG_DATA_DIRS"), "/home/user/.local/share:/usr/share")
+            self.assertEqual(parsed.get("__EGL_VENDOR_LIBRARY_DIRS"), "/usr/share/glvnd/egl_vendor.d")
             self.assertEqual(parsed.get("SSL_CERT_FILE"), "/etc/ssl/certs/ca-certificates.crt")
             self.assertEqual(parsed.get("APPIMAGE_EXTRACT_AND_RUN"), "1")
             for removed in (
@@ -249,9 +351,16 @@ class AppImagePackagingTest(unittest.TestCase):
                 "LD_LIBRARY_PATH",
                 "LD_PRELOAD",
                 "GCONV_PATH",
+                "ALSA_CONFIG_PATH",
+                "GIO_LAUNCH_DESKTOP",
+                "TEXTDOMAINDIR",
+                "FONTCONFIG_FILE",
+                "GIO_LAUNCHED_DESKTOP_FILE_PID",
                 "OPENSSL_CONF",
                 "CROSS_LIBC_DLOPEN_ROOT",
                 "SHARUN_DIR",
+                "SHARUN_MESA_PATH",
+                "SHARUN_FALLBACK_LIBRARY_PATH",
                 "URUNTIME",
                 "HOSTPATH",
                 "HOST_XDG_CACHE_HOME",
@@ -359,8 +468,18 @@ class AppImagePackagingTest(unittest.TestCase):
             ):
                 self.assertTrue((extracted / required).exists(), f"Missing {required}")
             listing = "\n".join(p.relative_to(extracted).as_posix() for p in extracted.rglob("*"))
-            for excluded in ("debug.log", "stale-nested.log", "previous.AppImage", "source/hpke-rs", "usr/bin/serein"):
+            for excluded in (
+                "debug.log",
+                "stale-nested.log",
+                "previous.AppImage",
+                "source/hpke-rs",
+                "usr/bin/serein",
+                "lib/sharun-preload/stubs",
+            ):
                 self.assertNotIn(excluded, listing)
+            lib_path_file = extracted / "lib/lib.path"
+            if lib_path_file.is_file():
+                self.assertNotIn("stubs", lib_path_file.read_text(encoding="utf-8", errors="replace"))
 
             printed_appdir = subprocess.check_output(
                 [str(artifact), "APPDIR"],
