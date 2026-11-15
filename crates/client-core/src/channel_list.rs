@@ -679,6 +679,37 @@ mod tests {
 		assert_eq!(setting.channel_flags(Id(2)), Some(0));
 		assert_eq!(state.channel_list_opt_in(Id(100)), None);
 		assert!(!state.can_change_channel_list(Id(100)));
+		// A write that sets guild flags doesn't make the unknown row known again either.
+		let mut state = self::state(OPT_IN_CHANNELS_ON, vec![(Id(5), OPT_IN_ENABLED)]);
+		let Some(Command::ChannelList { request, write, .. }) =
+			state.change_channel_list(Id(100), Change::ShowAll(true))
+		else {
+			panic!()
+		};
+		assert_eq!(write.flags, Some(OPT_IN_CHANNELS_OFF));
+		state
+			.apply_notification_preferences(notifications::Event::Settings {
+				entries: vec![notifications::Setting {
+					overrides_known: true,
+					guild: Some(Id(100)),
+					channels: vec![(Id(5), None, None)],
+					flags: None,
+					..Default::default()
+				}],
+				replace: false,
+			})
+			.unwrap();
+		state.apply(Envelope {
+			generation: state.generation,
+			event: CoreEvent::ChannelList(Event::Written {
+				guild: Id(100),
+				request,
+				result: Ok(write),
+			}),
+		});
+		assert!(!state.channel_list_pending());
+		assert_eq!(state.channel_list_opt_in(Id(100)), None);
+		assert!(!state.can_change_channel_list(Id(100)));
 	}
 
 	#[test]
