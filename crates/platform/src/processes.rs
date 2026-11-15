@@ -39,14 +39,16 @@ fn accept_cmdline(reader: impl std::io::Read, into: &mut Vec<String>) -> std::io
 	Ok(())
 }
 
-/// `"image.exe","1234","Console","1","12,345 K"`: the image name, unless it runs in the
-/// non-interactive services session. The session name is localized; its number is not.
+/// `"image.exe","1234","Console","1","12,345 K"`: the image name and process id, unless
+/// it runs in the non-interactive services session. The session name is localized; its
+/// number is not.
 #[cfg(any(target_os = "windows", test))]
-fn interactive_image(line: &str) -> Option<&str> {
+fn interactive_image(line: &str) -> Option<(&str, u32)> {
 	let mut fields = line.strip_prefix('"')?.split("\",\"");
 	let name = fields.next()?;
-	let session = fields.nth(2)?;
-	(session.trim() != "0").then_some(name)
+	let pid = fields.next()?.parse().ok()?;
+	let session = fields.nth(1)?;
+	(session.trim() != "0").then_some((name, pid))
 }
 
 #[cfg(target_os = "linux")]
@@ -108,14 +110,48 @@ mod native {
 
 #[cfg(target_os = "windows")]
 mod native {
-	use super::{MAX_PROCESSES, accept, interactive_image};
+	use super::{MAX_PATH, MAX_PROCESSES, accept, interactive_image};
 	use std::os::windows::process::CommandExt;
 	use std::process::Command;
 
 	const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
-	/// `tasklist` lists image names without opening another process' handle. Paths are
-	/// unavailable this way, which is fine: detectable entries are image names on Windows.
+	/// The full image path, read through a handle that grants nothing but limited queries.
+	/// `None` for a process this user may not query, such as one guarded by anti-cheat.
+	#[allow(unsafe_code)]
+	fn image_path(pid: u32) -> Option<String> {
+		use windows::{
+			Win32::{
+				Foundation::CloseHandle,
+				System::Threading::{
+					OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
+					QueryFullProcessImageNameW,
+				},
+			},
+			core::PWSTR,
+		};
+		// SAFETY: no pointers are passed; a failed open returns an error, not a handle.
+		let process = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) }.ok()?;
+		let mut buffer = [0u16; MAX_PATH + 1];
+		let mut length = buffer.len() as u32;
+		// SAFETY: the buffer is writable for `length` UTF-16 units and outlives the call.
+		let read = unsafe {
+			QueryFullProcessImageNameW(
+				process,
+				PROCESS_NAME_WIN32,
+				PWSTR(buffer.as_mut_ptr()),
+				&mut length,
+			)
+		};
+		// SAFETY: this function owns the successful OpenProcess result.
+		let _ = unsafe { CloseHandle(process) };
+		read.ok()?;
+		String::from_utf16(buffer.get(..length as usize)?).ok()
+	}
+
+	/// `tasklist` lists image names and ids; the path is then read per process, because a
+	/// bare name such as `gh.exe` or `cl.exe` is shared by unrelated programs and games.
+	/// A process that cannot be queried keeps its bare image name.
 	/// Session 0 holds only services, never a game the user is playing; Intel's `LMS.exe`
 	/// service there otherwise matches "Last Man Standing".
 	pub fn running() -> std::io::Result<Vec<String>> {
@@ -131,8 +167,15 @@ mod native {
 			if paths.len() >= MAX_PROCESSES {
 				break;
 			}
-			if let Some(name) = interactive_image(line) {
-				accept(name, &mut paths);
+			if let Some((name, pid)) = interactive_image(line) {
+				// The id may have been reused since `tasklist` ran; trust only a path that
+				// still names the listed image.
+				let path = image_path(pid).filter(|path| {
+					path.rsplit('\\')
+						.next()
+						.is_some_and(|file| file.eq_ignore_ascii_case(name))
+				});
+				accept(path.as_deref().unwrap_or(name), &mut paths);
 			}
 		}
 		Ok(paths)
@@ -151,10 +194,24 @@ mod tests {
 		);
 		assert_eq!(
 			interactive_image(r#""lms.exe","1234","Console","1","12,345 K""#),
-			Some("lms.exe")
+			Some(("lms.exe", 1234))
 		);
 		assert_eq!(interactive_image("INFO: No tasks are running"), None);
 		assert_eq!(interactive_image(r#""short","1""#), None);
+	}
+
+	/// Detection tells `GitHub CLI\gh.exe` from `green hell\gh.exe` only by the directory.
+	#[cfg(target_os = "windows")]
+	#[test]
+	fn windows_processes_are_listed_by_full_path() {
+		let own = std::env::current_exe().unwrap();
+		let own = own.to_str().unwrap();
+		assert!(
+			running()
+				.unwrap()
+				.iter()
+				.any(|path| path.eq_ignore_ascii_case(own))
+		);
 	}
 
 	#[test]

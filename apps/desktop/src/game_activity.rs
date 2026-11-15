@@ -853,14 +853,25 @@ fn choose(
 		let Some(executable) = discord_api::detectable::normalize(path) else {
 			continue;
 		};
-		let own = registered.iter().find(|game| game.executable == executable);
+		let own = registered.iter().find(|game| {
+			game.executable == executable
+				// Records from before Windows scans reported paths hold a bare image name. A
+				// detection among them stands only while Discord's list still agrees, so an
+				// old `gh.exe` match does not keep reporting a game.
+				|| (!game.executable.contains('/')
+					&& executable.rsplit('/').next() == Some(game.executable.as_str())
+					&& game
+						.application
+						.is_none_or(|id| games.find(path).is_some_and(|(found, _)| found == id)))
+		});
 		let found = match own {
 			Some(game) if game.hidden => continue,
 			// Recorded detections are registered too; only a changed name counts as renamed.
 			Some(game) => RunningGame {
 				renamed: game.application.is_none()
 					|| games.find(path).is_none_or(|(_, name)| name != game.name),
-				executable,
+				// The record's own spelling, so a bare-name record is updated, not duplicated.
+				executable: game.executable.clone(),
 				name: game.name.clone(),
 				// A manually added game borrows Discord's application when the process or its
 				// exact title names one, so both clients show the game's artwork.
@@ -1448,6 +1459,28 @@ mod tests {
 				.is_none()
 		);
 		assert_eq!(display_activity(&activity).image, None);
+
+		// Bare-name records written before Windows scans reported paths: a real detection
+		// and a manual game still match, a same-named program in another directory does not.
+		let nested = Index::new(
+			&discord_api::detectable::decode(
+				br#"[{"id":"9","name":"Green Hell","executables":[{"name":"green hell/gh.exe"}]}]"#,
+			)
+			.unwrap(),
+		);
+		let legacy = [
+			own("gh.exe", "Green Hell", Some(model::Id(9)), false),
+			own("mine.exe", "My game", None, false),
+		];
+		let run = |path: &str| choose(&nested, &legacy, &[path.to_owned()], None);
+		assert!(run(r"C:\Program Files\GitHub CLI\gh.exe").is_none());
+		assert_eq!(
+			run(r"D:\Steam\steamapps\common\Green Hell\GH.exe")
+				.unwrap()
+				.executable,
+			"gh.exe"
+		);
+		assert_eq!(run(r"D:\Games\Mine.exe").unwrap().name, "My game");
 
 		let (activity, _) = watch::channel(None);
 		let (report, _) = watch::channel(Ok(None));
