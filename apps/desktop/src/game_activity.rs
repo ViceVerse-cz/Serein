@@ -853,17 +853,22 @@ fn choose(
 		let Some(executable) = discord_api::detectable::normalize(path) else {
 			continue;
 		};
-		let own = registered.iter().find(|game| {
-			game.executable == executable
-				// Records from before Windows scans reported paths hold a bare image name. A
-				// detection among them stands only while Discord's list still agrees, so an
-				// old `gh.exe` match does not keep reporting a game.
-				|| (!game.executable.contains('/')
-					&& executable.rsplit('/').next() == Some(game.executable.as_str())
-					&& game
-						.application
-						.is_none_or(|id| games.find(path).is_some_and(|(found, _)| found == id)))
-		});
+		let own = registered
+			.iter()
+			.find(|game| game.executable == executable)
+			// Records from before Windows scans reported paths hold a bare image name. They
+			// rank below an exact record, so a game added again by path is not overridden by
+			// its older row. A detection among them stands only while Discord's list still
+			// agrees, so an old `gh.exe` match does not keep reporting a game.
+			.or_else(|| {
+				registered.iter().find(|game| {
+					!game.executable.contains('/')
+						&& executable.rsplit('/').next() == Some(game.executable.as_str())
+						&& game
+							.application
+							.is_none_or(|id| games.find(path).is_some_and(|(found, _)| found == id))
+				})
+			});
 		let found = match own {
 			Some(game) if game.hidden => continue,
 			// Recorded detections are registered too; only a changed name counts as renamed.
@@ -1481,6 +1486,13 @@ mod tests {
 			"gh.exe"
 		);
 		assert_eq!(run(r"D:\Games\Mine.exe").unwrap().name, "My game");
+		// A game hidden under its old bare name and added again by path is shared again.
+		let readded = [
+			own("mine.exe", "My game", None, true),
+			own("d:/games/mine.exe", "Mine again", None, false),
+		];
+		let found = choose(&nested, &readded, &[r"D:\Games\Mine.exe".to_owned()], None);
+		assert_eq!(found.unwrap().name, "Mine again");
 
 		let (activity, _) = watch::channel(None);
 		let (report, _) = watch::channel(Ok(None));

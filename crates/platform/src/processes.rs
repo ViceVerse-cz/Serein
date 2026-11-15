@@ -51,6 +51,21 @@ fn interactive_image(line: &str) -> Option<(&str, u32)> {
 	(session.trim() != "0").then_some((name, pid))
 }
 
+/// The queried path when it is usable, otherwise the listed image name. The process id may
+/// have been reused since `tasklist` ran, so the path must still name the listed image; a
+/// path too long to be a saved executable would be dropped by matching and the picker,
+/// where the short image name is not.
+#[cfg(any(target_os = "windows", test))]
+fn path_or_image(name: &str, path: Option<String>) -> String {
+	path.filter(|path| {
+		path.rsplit('\\')
+			.next()
+			.is_some_and(|file| file.eq_ignore_ascii_case(name))
+			&& model::registered_games::normalize(path).is_some()
+	})
+	.unwrap_or_else(|| name.to_owned())
+}
+
 #[cfg(target_os = "linux")]
 mod native {
 	use super::{MAX_PROCESSES, accept, accept_cmdline};
@@ -110,7 +125,7 @@ mod native {
 
 #[cfg(target_os = "windows")]
 mod native {
-	use super::{MAX_PATH, MAX_PROCESSES, accept, interactive_image};
+	use super::{MAX_PATH, MAX_PROCESSES, accept, interactive_image, path_or_image};
 	use std::os::windows::process::CommandExt;
 	use std::process::Command;
 
@@ -168,14 +183,7 @@ mod native {
 				break;
 			}
 			if let Some((name, pid)) = interactive_image(line) {
-				// The id may have been reused since `tasklist` ran; trust only a path that
-				// still names the listed image.
-				let path = image_path(pid).filter(|path| {
-					path.rsplit('\\')
-						.next()
-						.is_some_and(|file| file.eq_ignore_ascii_case(name))
-				});
-				accept(path.as_deref().unwrap_or(name), &mut paths);
+				accept(&path_or_image(name, image_path(pid)), &mut paths);
 			}
 		}
 		Ok(paths)
@@ -212,6 +220,28 @@ mod tests {
 				.iter()
 				.any(|path| path.eq_ignore_ascii_case(own))
 		);
+	}
+
+	#[test]
+	fn unusable_windows_paths_fall_back_to_the_image_name() {
+		let path = |path: &str| path_or_image("game.exe", Some(path.to_owned()));
+		assert_eq!(path(r"D:\Games\Game.EXE"), r"D:\Games\Game.EXE");
+		// A reused process id names some other image.
+		assert_eq!(path(r"C:\Windows\notepad.exe"), "game.exe");
+		// 256 bytes is the longest executable a saved game may hold; non-ASCII directories
+		// reach it well inside the Windows path limit.
+		let at_limit = format!(r"C:\{}\game.exe", "x".repeat(244));
+		assert_eq!(at_limit.len(), model::registered_games::MAX_EXECUTABLE);
+		assert_eq!(path(&at_limit), at_limit);
+		assert_eq!(
+			path(&format!(r"C:\{}\game.exe", "x".repeat(245))),
+			"game.exe"
+		);
+		assert_eq!(
+			path(&format!(r"C:\{}\game.exe", "界".repeat(90))),
+			"game.exe"
+		);
+		assert_eq!(path_or_image("game.exe", None), "game.exe");
 	}
 
 	#[test]
