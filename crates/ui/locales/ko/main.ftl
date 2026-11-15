@@ -5103,3 +5103,13 @@ moderation-delete-week = 지난 7일
 moderation-confirm-timeout = 타임아웃
 # Context: moderation
 moderation-confirm-ban = 차단
+
+# Context: reading_chat
+reading-chat-reading-settings-hide-blocked-messages = 차단한 사용자의 메시지 숨기기
+# Context: reading_chat
+reading-chat-reading-settings-hide-blocked-messages-description = 이 기기의 채팅 행에서 차단한 작성자의 메시지를 숨깁니다. 메시지는 Discord에 그대로 남으며 읽음 상태는 바뀌지 않습니다.
+# Context: reading_chat
+reading-chat-reading-settings-hide-ignored-messages = 무시한 사용자의 메시지도 숨기기
+# Context: reading_chat
+reading-chat-reading-settings-hide-ignored-messages-description = 무시한 작성자도 로컬 필터에 포함합니다. 관계 상태를 알 수 없으면 메시지를 숨기지 않습니다.
+
