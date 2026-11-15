@@ -1854,6 +1854,23 @@ mod tests {
 				!matches!(row, Row::Channel(c, Slot::Tree, _) if matches!(c.id, Id(7) | Id(9)))
 			}));
 		}
+		// Favorites follow the opt-in channel list like the rest of the sidebar.
+		state
+			.apply_notification_preferences(client_core::notifications::Event::Settings {
+				entries: vec![client_core::notifications::Setting {
+					overrides_known: true,
+					guild: Some(Id(100)),
+					channels: vec![(Id(7), None, None)],
+					flags: Some(client_core::channel_list::OPT_IN_CHANNELS_ON),
+					channel_flags: vec![(Id(7), client_core::channel_list::OPT_IN_ENABLED)],
+					..Default::default()
+				}],
+				replace: true,
+			})
+			.unwrap();
+		let roster = Roster::build(&state, &preferences, scope, false);
+		assert_eq!(roster.sections()[0].channels.len(), 1);
+		assert!(!roster.lifted(Id(9)));
 		state.permissions = Default::default();
 		assert!(
 			Roster::build(&state, &preferences, scope, false)

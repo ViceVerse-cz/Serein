@@ -2198,7 +2198,13 @@ fn notification_preferences(
 						})
 						.collect()
 				}),
-				flags: s.flags,
+				// An override with unknown flags makes the whole row read-only: every channel
+				// stays listed and no complete-value write can clear its unknown bits.
+				flags: s.flags.filter(|_| {
+					s.channel_overrides
+						.as_ref()
+						.is_none_or(|c| c.0.iter().all(|c| c.flags.is_some()))
+				}),
 				channel_flags: s.channel_overrides.as_ref().map_or_else(Vec::new, |c| {
 					c.0.iter()
 						.filter_map(|c| c.flags.map(|flags| (c.channel_id, flags)))
@@ -2274,6 +2280,15 @@ mod tests {
 				(model::Id(4), None, Some(0))
 			]
 		);
+		assert_eq!(entries[0].flags, Some(0));
+		// Unknown override flags make the channel list read-only rather than reading as 0.
+		let setting = decode::<discord_protocol::notifications::Setting>(br#"{"guild_id":"1","flags":16384,"channel_overrides":[{"channel_id":"3","flags":4096},{"channel_id":"4","flags":null}]}"#).unwrap();
+		let client_core::notifications::Event::Settings { entries, .. } =
+			notification_preferences(vec![setting], false)
+		else {
+			panic!()
+		};
+		assert_eq!(entries[0].flags, None);
 	}
 
 	use serde_json::{Value, json};

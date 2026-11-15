@@ -180,6 +180,12 @@ impl State {
 			changed.insert(id, after);
 		};
 		let opt_in = current & OPT_IN_CHANNELS_ON != 0;
+		// Seed only a fresh selection; one saved earlier survives Show All Channels.
+		let selected = self
+			.channels
+			.iter()
+			.filter(listable)
+			.any(|c| flags_of(c.id) & OPT_IN_ENABLED != 0);
 		let seed = |changed: &mut BTreeMap<Id, u32>| {
 			let categories: Vec<Id> = self
 				.channels
@@ -201,19 +207,14 @@ impl State {
 		let flags = match change {
 			Change::ShowAll(true) => (current & !OPT_IN_CHANNELS_ON) | OPT_IN_CHANNELS_OFF,
 			Change::ShowAll(false) => {
-				let any = self
-					.channels
-					.iter()
-					.filter(listable)
-					.any(|c| flags_of(c.id) & OPT_IN_ENABLED != 0);
-				if !any {
+				if !selected {
 					seed(&mut changed);
 				}
 				(current & !OPT_IN_CHANNELS_OFF) | OPT_IN_CHANNELS_ON
 			}
 			Change::List { channel, listed } => {
 				let target = self.channel(channel).filter(|c| listable(c))?;
-				if !opt_in {
+				if !opt_in && !selected {
 					seed(&mut changed);
 				}
 				if target.kind == 4 {
@@ -277,13 +278,24 @@ impl State {
 			write: Box::new(write),
 		})
 	}
-	/// A newer settings row for the pending guild supersedes the local confirmation.
+	/// A settings row that already carries the pending write supersedes the local
+	/// confirmation; an older row for the guild leaves it to run on success.
 	pub(crate) fn observe_channel_list_settings(
 		&mut self,
 		entries: &[crate::notifications::Setting],
 	) {
 		if let Some((write, _, observed)) = &mut self.channel_list.pending {
-			*observed |= entries.iter().any(|s| s.guild == Some(write.guild));
+			*observed |= entries.iter().any(|s| {
+				s.guild == Some(write.guild)
+					&& write.flags.is_none_or(|flags| s.flags == Some(flags))
+					&& write.channels.iter().all(|(channel, flags)| {
+						s.channel_flags
+							.iter()
+							.find(|(id, _)| id == channel)
+							.map_or(0, |(_, value)| *value)
+							== *flags
+					})
+			});
 		}
 	}
 	pub(crate) fn cancel_channel_list(&mut self) {
@@ -503,6 +515,16 @@ mod tests {
 		assert_eq!(listed(&state), [2, 3, 6, 5]);
 		write(&mut state, Change::ShowAll(false));
 		assert_eq!(listed(&state), [2, 5]);
+		// Removing a channel while showing all keeps the saved selection instead of reseeding.
+		write(&mut state, Change::ShowAll(true));
+		write(
+			&mut state,
+			Change::List {
+				channel: Id(2),
+				listed: false,
+			},
+		);
+		assert_eq!(listed(&state), [5]);
 	}
 
 	#[test]
@@ -536,7 +558,7 @@ mod tests {
 	}
 
 	#[test]
-	fn failed_or_superseded_writes_leave_the_service_state() {
+	fn failed_writes_and_stale_rows_leave_the_planned_state() {
 		let mut state = state(0, vec![]);
 		let Some(Command::ChannelList { request, .. }) = state.change_channel_list(
 			Id(100),
@@ -566,7 +588,7 @@ mod tests {
 		else {
 			panic!()
 		};
-		// Another client's settings row arrives first; it wins over the local confirmation.
+		// A row from before the write doesn't stand in for its confirmation.
 		state
 			.apply_notification_preferences(notifications::Event::Settings {
 				entries: vec![notifications::Setting {
@@ -586,6 +608,6 @@ mod tests {
 				result: Ok(()),
 			}),
 		});
-		assert_eq!(state.channel_list_opt_in(Id(100)), Some(false));
+		assert_eq!(state.channel_list_opt_in(Id(100)), Some(true));
 	}
 }
