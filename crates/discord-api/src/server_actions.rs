@@ -77,10 +77,11 @@ impl DiscordApi {
 			.await
 			.map_err(write_failure)?;
 		let write = sent.ok_or(Failure::Ambiguous)?;
-		// Like other REST acknowledgements, omitted or null values are not read as defaults:
-		// every written override must be echoed with its flags.
-		let setting: discord_protocol::notifications::Setting =
-			discord_protocol::decode(&bytes).map_err(|_| Failure::Ambiguous)?;
+		// Captured live: Discord omits `flags` when it is 0 and drops an override row left with
+		// only defaults, so both read as 0. An explicit null stays unknown and is ambiguous.
+		let setting = discord_protocol::decode::<discord_protocol::notifications::Setting>(&bytes)
+			.map_err(|_| Failure::Ambiguous)?
+			.with_defaults();
 		if setting.guild_id != Some(write.guild)
 			|| write
 				.flags
@@ -93,6 +94,7 @@ impl DiscordApi {
 			let mut rows = overrides.iter().filter(|o| o.channel_id == *channel);
 			let echoed = match (rows.next(), rows.next()) {
 				(Some(row), None) => row.flags.ok_or(Failure::Ambiguous)?,
+				(None, _) => 0,
 				_ => return Err(Failure::Ambiguous),
 			};
 			if echoed != *flags {
@@ -364,10 +366,14 @@ mod tests {
 				r#"{"guild_id":"2","flags":18432,"channel_overrides":[{"channel_id":"3","flags":4096},{"channel_id":"4","flags":0}]}"#,
 				Ok(()),
 			),
-			// A missing row or unknown (null or omitted) flags are not an echo.
+			// The live shape for a cleared override: the row is dropped, or `flags` is omitted.
 			(
 				r#"{"guild_id":"2","flags":18432,"channel_overrides":[{"channel_id":"3","flags":4096}]}"#,
-				Err(Failure::Ambiguous),
+				Ok(()),
+			),
+			(
+				r#"{"guild_id":"2","flags":18432,"channel_overrides":[{"channel_id":"3","flags":4096},{"channel_id":"4","muted":false}]}"#,
+				Ok(()),
 			),
 			(
 				r#"{"guild_id":"2","flags":18432,"channel_overrides":[{"channel_id":"3","flags":4096},{"channel_id":"4","flags":4096}]}"#,

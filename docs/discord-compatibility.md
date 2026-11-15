@@ -619,8 +619,10 @@ nothing followed), the first removal follows every category and uncategorized ch
 saved selection, even an empty one, is kept across Show All Channels. Removing a channel
 from a followed category follows its siblings instead, so only the removed item leaves the
 list. Each change is one bounded `PATCH /users/@me/guilds/{guild}/settings` that preserves
-the other flag bits and must be echoed, with every written override present and its flags
-set, before the sidebar changes. The open channel and the active call stay listed, and
+the other flag bits, is built from the newest known settings right before it is sent, and
+must be echoed before the sidebar changes. A live capture showed Discord omits `flags` when it
+is 0 and drops an override left with only defaults, so both read as 0; explicit null is
+ambiguous. The open channel and the active call stay listed, and
 removed channels do not light the server's unread marker. Discord's client offers these
 controls in Community servers; Serein shows them wherever the settings row is known, and
 the official client may ignore the flags outside Community servers. Onboarding default

@@ -147,7 +147,8 @@ impl<'de> Deserialize<'de> for Setting {
 }
 impl Setting {
 	/// Gateway objects are full settings records. Only omitted fields use service defaults;
-	/// explicit null stays unknown. REST acknowledgements deliberately skip this conversion.
+	/// explicit null stays unknown. REST acknowledgements skip this conversion, except the
+	/// channel list write, whose live echo omits zero `flags`.
 	pub fn with_defaults(mut self) -> Self {
 		if self.absent & 1 != 0 {
 			self.muted = Some(false);
