@@ -54,42 +54,63 @@ pub struct Deleted {
 	pub reason: Option<String>,
 }
 
-/// Viewer roster refresh for a stream; only the bounded viewer count is retained.
+/// Viewer IDs kept from one roster refresh; the count still includes every listed viewer.
+pub const MAX_VIEWER_IDS: usize = 64;
+
+/// Viewer roster refresh for a stream.
 #[derive(Deserialize)]
 pub struct Update {
 	pub stream_key: String,
-	/// Number of `viewer_ids`, saturating at `u16::MAX`; the IDs themselves are skipped.
-	#[serde(default, rename = "viewer_ids", deserialize_with = "count")]
-	pub viewers: u16,
+	#[serde(default, rename = "viewer_ids", deserialize_with = "viewers")]
+	pub viewers: Viewers,
 }
 
-fn count<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<u16, D::Error> {
-	struct Count;
-	impl<'de> serde::de::Visitor<'de> for Count {
-		type Value = u16;
+/// `viewer_ids`: how many are listed, saturating at `u16::MAX`, and the first
+/// `MAX_VIEWER_IDS` distinct IDs in Discord's order. Later IDs are skipped unread.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Viewers {
+	pub count: u16,
+	pub ids: Vec<Id>,
+}
+
+fn viewers<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Viewers, D::Error> {
+	struct Roster;
+	impl<'de> serde::de::Visitor<'de> for Roster {
+		type Value = Viewers;
 		fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
 			f.write_str("a viewer ID list or null")
 		}
-		fn visit_unit<E>(self) -> Result<u16, E> {
-			Ok(0)
+		fn visit_unit<E>(self) -> Result<Viewers, E> {
+			Ok(Viewers::default())
 		}
-		fn visit_none<E>(self) -> Result<u16, E> {
-			Ok(0)
+		fn visit_none<E>(self) -> Result<Viewers, E> {
+			Ok(Viewers::default())
 		}
-		fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut seq: A) -> Result<u16, A::Error> {
-			let mut count = 0u16;
-			while seq.next_element::<serde::de::IgnoredAny>()?.is_some() {
-				count = count.saturating_add(1);
+		fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut seq: A) -> Result<Viewers, A::Error> {
+			let mut viewers = Viewers::default();
+			loop {
+				let more = if viewers.ids.len() < MAX_VIEWER_IDS {
+					seq.next_element::<Id>()?.map(|id| {
+						if !viewers.ids.contains(&id) {
+							viewers.ids.push(id);
+						}
+					})
+				} else {
+					seq.next_element::<serde::de::IgnoredAny>()?.map(drop)
+				};
+				if more.is_none() {
+					return Ok(viewers);
+				}
+				viewers.count = viewers.count.saturating_add(1);
 			}
-			Ok(count)
 		}
 	}
-	deserializer.deserialize_any(Count)
+	deserializer.deserialize_any(Roster)
 }
 
 #[cfg(test)]
 mod tests {
-	use super::{Key, Update};
+	use super::{Key, MAX_VIEWER_IDS, Update};
 	use model::Id;
 
 	#[test]
@@ -121,20 +142,37 @@ mod tests {
 	}
 
 	#[test]
-	fn viewer_count_skips_ids_and_tolerates_null() {
+	fn viewer_roster_is_bounded_deduplicated_and_tolerates_null() {
 		let update: Update = serde_json::from_str(
-			r#"{"stream_key":"guild:1:2:3","viewer_ids":["4","5"],"paused":false}"#,
+			r#"{"stream_key":"guild:1:2:3","viewer_ids":["4","5","4"],"paused":false}"#,
 		)
 		.unwrap();
+		assert_eq!(update.stream_key, "guild:1:2:3");
+		// Every listed entry counts, as Discord's count does; only distinct IDs are kept.
 		assert_eq!(
-			(update.stream_key.as_str(), update.viewers),
-			("guild:1:2:3", 2)
+			(update.viewers.count, update.viewers.ids),
+			(3, vec![Id(4), Id(5)])
 		);
 		for data in [
 			r#"{"stream_key":"k","viewer_ids":null}"#,
 			r#"{"stream_key":"k"}"#,
 		] {
-			assert_eq!(serde_json::from_str::<Update>(data).unwrap().viewers, 0);
+			let viewers = serde_json::from_str::<Update>(data).unwrap().viewers;
+			assert_eq!((viewers.count, viewers.ids.len()), (0, 0));
 		}
+		// Past the cap the rest is counted but not parsed, so it may even be malformed.
+		let ids: Vec<String> = (1..=MAX_VIEWER_IDS as u64)
+			.map(|id| format!("\"{id}\""))
+			.chain(["\"999\"".into(), "{}".into()])
+			.collect();
+		let data = format!(r#"{{"stream_key":"k","viewer_ids":[{}]}}"#, ids.join(","));
+		let viewers = serde_json::from_str::<Update>(&data).unwrap().viewers;
+		assert_eq!(viewers.count as usize, MAX_VIEWER_IDS + 2);
+		assert_eq!(viewers.ids.len(), MAX_VIEWER_IDS);
+		assert_eq!(viewers.ids.last(), Some(&Id(MAX_VIEWER_IDS as u64)));
+		// A malformed ID within the kept range rejects the refresh instead of dropping a viewer.
+		assert!(
+			serde_json::from_str::<Update>(r#"{"stream_key":"k","viewer_ids":["4","x"]}"#).is_err()
+		);
 	}
 }
