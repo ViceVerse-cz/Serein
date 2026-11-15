@@ -181,13 +181,13 @@ impl State {
 		};
 		let opt_in = current & OPT_IN_CHANNELS_ON != 0;
 		// Seed only a server that never used the opt-in list (neither mode bit set and nothing
-		// opted in). A saved selection, even an empty one, survives Show All Channels.
+		// opted in, including channels this account cannot see now). A saved selection, even an
+		// empty one, survives Show All Channels.
 		let fresh = current & (OPT_IN_CHANNELS_ON | OPT_IN_CHANNELS_OFF) == 0
-			&& !self
-				.channels
+			&& !setting
+				.channel_flags
 				.iter()
-				.filter(listable)
-				.any(|c| flags_of(c.id) & OPT_IN_ENABLED != 0);
+				.any(|(_, flags)| flags & OPT_IN_ENABLED != 0);
 		let seed = |changed: &mut BTreeMap<Id, u32>| {
 			let categories: Vec<Id> = self
 				.channels
@@ -533,6 +533,61 @@ mod tests {
 		let mut empty = self::state(OPT_IN_CHANNELS_OFF, vec![]);
 		write(&mut empty, Change::ShowAll(false));
 		assert!(listed(&empty).is_empty());
+		// So does one that only follows a channel this account can't see (99).
+		let mut hidden = self::state(0, vec![(Id(99), OPT_IN_ENABLED)]);
+		write(&mut hidden, Change::ShowAll(false));
+		assert!(listed(&hidden).is_empty());
+	}
+
+	#[test]
+	fn a_row_with_unknown_flags_stays_read_only_after_a_pending_write() {
+		let mut state = state(
+			OPT_IN_CHANNELS_ON,
+			vec![(Id(2), OPT_IN_ENABLED), (Id(5), OPT_IN_ENABLED)],
+		);
+		let Some(Command::ChannelList { request, write }) = state.change_channel_list(
+			Id(100),
+			Change::List {
+				channel: Id(2),
+				listed: false,
+			},
+		) else {
+			panic!()
+		};
+		assert_eq!(
+			(write.flags, &write.channels[..]),
+			(None, &[(Id(2), 0)][..])
+		);
+		// The gateway maps a row with a null override flag to unknown guild flags and leaves
+		// that override out; it must neither echo the write nor become writable.
+		state
+			.apply_notification_preferences(notifications::Event::Settings {
+				entries: vec![notifications::Setting {
+					overrides_known: true,
+					guild: Some(Id(100)),
+					channels: vec![(Id(2), None, None), (Id(5), None, None)],
+					flags: None,
+					channel_flags: vec![(Id(5), OPT_IN_ENABLED)],
+					..Default::default()
+				}],
+				replace: false,
+			})
+			.unwrap();
+		state.apply(Envelope {
+			generation: state.generation,
+			event: CoreEvent::ChannelList(Event::Written {
+				guild: Id(100),
+				request,
+				result: Ok(()),
+			}),
+		});
+		let setting = state
+			.notification_preferences
+			.setting(Some(Id(100)))
+			.unwrap();
+		assert_eq!(setting.channel_flags(Id(2)), Some(0));
+		assert_eq!(state.channel_list_opt_in(Id(100)), None);
+		assert!(!state.can_change_channel_list(Id(100)));
 	}
 
 	#[test]
