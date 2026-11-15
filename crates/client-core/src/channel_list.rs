@@ -180,12 +180,14 @@ impl State {
 			changed.insert(id, after);
 		};
 		let opt_in = current & OPT_IN_CHANNELS_ON != 0;
-		// Seed only a fresh selection; one saved earlier survives Show All Channels.
-		let selected = self
-			.channels
-			.iter()
-			.filter(listable)
-			.any(|c| flags_of(c.id) & OPT_IN_ENABLED != 0);
+		// Seed only a server that never used the opt-in list (neither mode bit set and nothing
+		// opted in). A saved selection, even an empty one, survives Show All Channels.
+		let fresh = current & (OPT_IN_CHANNELS_ON | OPT_IN_CHANNELS_OFF) == 0
+			&& !self
+				.channels
+				.iter()
+				.filter(listable)
+				.any(|c| flags_of(c.id) & OPT_IN_ENABLED != 0);
 		let seed = |changed: &mut BTreeMap<Id, u32>| {
 			let categories: Vec<Id> = self
 				.channels
@@ -207,14 +209,14 @@ impl State {
 		let flags = match change {
 			Change::ShowAll(true) => (current & !OPT_IN_CHANNELS_ON) | OPT_IN_CHANNELS_OFF,
 			Change::ShowAll(false) => {
-				if !selected {
+				if fresh {
 					seed(&mut changed);
 				}
 				(current & !OPT_IN_CHANNELS_OFF) | OPT_IN_CHANNELS_ON
 			}
 			Change::List { channel, listed } => {
 				let target = self.channel(channel).filter(|c| listable(c))?;
-				if !opt_in && !selected {
+				if !opt_in && fresh {
 					seed(&mut changed);
 				}
 				if target.kind == 4 {
@@ -286,7 +288,9 @@ impl State {
 	) {
 		if let Some((write, _, observed)) = &mut self.channel_list.pending {
 			*observed |= entries.iter().any(|s| {
+				// Unknown flags (an override with null flags) never stand in for the write.
 				s.guild == Some(write.guild)
+					&& s.flags.is_some()
 					&& write.flags.is_none_or(|flags| s.flags == Some(flags))
 					&& write.channels.iter().all(|(channel, flags)| {
 						s.channel_flags
@@ -525,6 +529,10 @@ mod tests {
 			},
 		);
 		assert_eq!(listed(&state), [5]);
+		// An empty selection saved before Show All Channels stays empty.
+		let mut empty = self::state(OPT_IN_CHANNELS_OFF, vec![]);
+		write(&mut empty, Change::ShowAll(false));
+		assert!(listed(&empty).is_empty());
 	}
 
 	#[test]

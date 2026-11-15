@@ -60,10 +60,10 @@ impl DiscordApi {
 			)
 			.await
 			.map_err(write_failure)?;
-		// Defaults turn omitted fields into 0; an explicit null stays unknown.
-		let setting = discord_protocol::decode::<discord_protocol::notifications::Setting>(&bytes)
-			.map_err(|_| Failure::Ambiguous)?
-			.with_defaults();
+		// Like other REST acknowledgements, omitted or null values are not read as defaults:
+		// every written override must be echoed with its flags.
+		let setting: discord_protocol::notifications::Setting =
+			discord_protocol::decode(&bytes).map_err(|_| Failure::Ambiguous)?;
 		if setting.guild_id != Some(write.guild)
 			|| write
 				.flags
@@ -74,10 +74,8 @@ impl DiscordApi {
 		let overrides = setting.channel_overrides.map_or_else(Vec::new, |o| o.0);
 		for (channel, flags) in &write.channels {
 			let mut rows = overrides.iter().filter(|o| o.channel_id == *channel);
-			// A cleared override may be dropped from the echo entirely; that reads as 0.
 			let echoed = match (rows.next(), rows.next()) {
 				(Some(row), None) => row.flags.ok_or(Failure::Ambiguous)?,
-				(None, _) => 0,
 				_ => return Err(Failure::Ambiguous),
 			};
 			if echoed != *flags {
@@ -341,8 +339,13 @@ mod tests {
 		};
 		for (body, expected) in [
 			(
-				r#"{"guild_id":"2","flags":16384,"channel_overrides":[{"channel_id":"3","flags":4096}]}"#,
+				r#"{"guild_id":"2","flags":16384,"channel_overrides":[{"channel_id":"3","flags":4096},{"channel_id":"4","flags":0}]}"#,
 				Ok(()),
+			),
+			// A missing row or unknown (null or omitted) flags are not an echo.
+			(
+				r#"{"guild_id":"2","flags":16384,"channel_overrides":[{"channel_id":"3","flags":4096}]}"#,
+				Err(Failure::Ambiguous),
 			),
 			(
 				r#"{"guild_id":"2","flags":16384,"channel_overrides":[{"channel_id":"3","flags":4096},{"channel_id":"4","flags":4096}]}"#,
@@ -355,10 +358,6 @@ mod tests {
 			(
 				r#"{"guild_id":"2","flags":16384,"channel_overrides":[{"channel_id":"3","flags":4096},{"channel_id":"3","flags":4096}]}"#,
 				Err(Failure::Ambiguous),
-			),
-			(
-				r#"{"guild_id":"2","flags":16384,"channel_overrides":[{"channel_id":"3","flags":4096},{"channel_id":"4"}]}"#,
-				Ok(()),
 			),
 			(
 				r#"{"guild_id":"2","flags":16384,"channel_overrides":[{"channel_id":"3","flags":4096},{"channel_id":"4","flags":null}]}"#,

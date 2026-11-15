@@ -612,13 +612,15 @@ Browse Channels, Show All Channels and Remove from / Add to Channel List use Dis
 opt-in channel list, unofficial and documented by discord-userdoccers: the user guild
 settings `flags` bit `OPT_IN_CHANNELS_ON` (1 << 14) hides channels without the channel
 override flag `OPT_IN_ENABLED` (1 << 12), and `OPT_IN_CHANNELS_OFF` (1 << 13) shows all
-channels. READY and User Guild Settings Update restore the flags; unknown flags list every
-channel and disable the controls. A followed category lists its channels. Leaving show-all
-mode by removing a channel first follows every category and uncategorized channel, and
-removing a channel from a followed category follows its siblings instead, so only the
-removed item leaves the list. Each change is one bounded
-`PATCH /users/@me/guilds/{guild}/settings` that preserves the other flag bits and must be
-echoed before the sidebar changes. The open channel and the active call stay listed, and
+channels. READY and User Guild Settings Update restore the flags; unknown flags (including
+any override with null flags) list every channel and disable the controls. A followed
+category lists its channels. On a server that never used the list (neither mode bit set and
+nothing followed), the first removal follows every category and uncategorized channel; a
+saved selection, even an empty one, is kept across Show All Channels. Removing a channel
+from a followed category follows its siblings instead, so only the removed item leaves the
+list. Each change is one bounded `PATCH /users/@me/guilds/{guild}/settings` that preserves
+the other flag bits and must be echoed, with every written override present and its flags
+set, before the sidebar changes. The open channel and the active call stay listed, and
 removed channels do not light the server's unread marker. Discord's client offers these
 controls in Community servers; Serein shows them wherever the settings row is known, and
 the official client may ignore the flags outside Community servers. Onboarding default

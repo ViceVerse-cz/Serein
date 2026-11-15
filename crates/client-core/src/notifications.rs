@@ -533,7 +533,10 @@ impl State {
 				guild: Some(guild),
 				..initial
 			});
-		if let Some(flags) = write.flags {
+		// A row whose flags became unknown meanwhile stays read-only.
+		if let Some(flags) = write.flags
+			&& setting.flags.is_some()
+		{
 			setting.flags = Some(flags);
 		}
 		let known = setting.overrides_known;
