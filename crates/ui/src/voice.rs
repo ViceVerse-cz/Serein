@@ -5182,23 +5182,33 @@ pub(super) fn viewer_row(
 /// Who is watching, by name: the first few in Discord's order, then how many more.
 pub(super) fn viewer_names(state: &State, channel: Id, viewers: &Viewers) -> String {
 	const LISTED: usize = 8;
+	let unknown = crate::i18n::translate("voice-viewer-names-unknown-viewer");
 	let names: Vec<&str> = viewers
 		.ids
 		.iter()
 		.take(LISTED)
 		.map(|id| {
 			participant_user(state, channel, *id)
-				.map_or("Unknown viewer", |user| user.name.as_str())
+				.map_or(unknown.as_str(), |user| user.name.as_str())
 		})
 		.collect();
 	if names.is_empty() {
-		return format!("Viewers: {}", viewers.count);
+		return crate::i18n::translate_count(
+			"voice-viewer-names-count",
+			usize::from(viewers.count),
+			&[],
+		);
 	}
 	let rest = usize::from(viewers.count).saturating_sub(names.len());
+	let names = names.join(", ");
 	if rest == 0 {
-		format!("Watching: {}", names.join(", "))
+		crate::i18n::translate_args("voice-viewer-names-watching", &[("names", &names)])
 	} else {
-		format!("Watching: {} and {rest} more", names.join(", "))
+		crate::i18n::translate_count(
+			"voice-viewer-names-watching-more",
+			rest,
+			&[("names", &names)],
+		)
 	}
 }
 

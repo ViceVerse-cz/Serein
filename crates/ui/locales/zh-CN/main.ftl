@@ -4184,6 +4184,14 @@ voice-call-bar-join-call = 加入通话
 voice-call-bar-reconnect-to-refresh-call = 重新连接以更新通话
 # Context: call_controls
 voice-call-controls-disconnect = 断开连接
+# Context: viewer_names
+voice-viewer-names-watching = 正在观看：{ $names }
+# Context: viewer_names
+voice-viewer-names-watching-more = 正在观看：{ $names } 及另外 { $count } 人
+# Context: viewer_names
+voice-viewer-names-count = { $count } 位观众
+# Context: viewer_names
+voice-viewer-names-unknown-viewer = 未知观众
 # Context: call_controls
 voice-call-controls-dismiss-call = 关闭通话
 # Context: call_controls
