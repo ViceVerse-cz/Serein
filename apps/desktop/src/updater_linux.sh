@@ -61,7 +61,7 @@ if [ -n "${HOST_XDG_CACHE_HOME:-}" ]; then
   export XDG_CACHE_HOME="$HOST_XDG_CACHE_HOME"
 elif [ -n "${REAL_XDG_CACHE_HOME:-}" ]; then
   export XDG_CACHE_HOME="$REAL_XDG_CACHE_HOME"
-elif [ "${XDG_CACHE_HOME:-}" != "${XDG_CACHE_HOME%/AppImage-Cache}" ]; then
+elif [ -n "${XDG_CACHE_HOME:-}" ] && [ "$XDG_CACHE_HOME" != "${XDG_CACHE_HOME%/AppImage-Cache}" ]; then
   unset XDG_CACHE_HOME
 fi
 

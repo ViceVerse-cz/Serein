@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
 import build as appimage_build
 
@@ -384,115 +385,145 @@ class AppImagePackagingTest(unittest.TestCase):
             self.assertEqual(fallback_parsed.get("PATH"), "/opt/custom bin:/bin")
             self.assertNotIn("XDG_CACHE_HOME", fallback_parsed)
 
+            # Leaving all cache variables unset must succeed under `set -eu` and keep XDG_CACHE_HOME unset.
+            unset_cache_env = {
+                "APPDIR": old_appdir,
+                "PATH": f"{old_appdir}/bin:/bin",
+            }
+            unset_cache_out = subprocess.check_output(
+                ["/bin/sh", str(fallback_runner), directory, "/home/user/Serein.AppImage", "1", f"{directory}/commit"],
+                env=unset_cache_env,
+                text=True,
+            )
+            unset_cache_parsed = dict(line.split("=", 1) for line in unset_cache_out.splitlines() if "=" in line)
+            self.assertEqual(unset_cache_parsed.get("PATH"), "/bin")
+            self.assertNotIn("XDG_CACHE_HOME", unset_cache_parsed)
+
+            # A host-configured XDG_CACHE_HOME without HOST_/REAL_ overrides must be preserved.
+            custom_cache_env = {
+                "APPDIR": old_appdir,
+                "PATH": f"{old_appdir}/bin:/bin",
+                "XDG_CACHE_HOME": "/home/user/.custom-cache",
+            }
+            custom_cache_out = subprocess.check_output(
+                ["/bin/sh", str(fallback_runner), directory, "/home/user/Serein.AppImage", "1", f"{directory}/commit"],
+                env=custom_cache_env,
+                text=True,
+            )
+            custom_cache_parsed = dict(line.split("=", 1) for line in custom_cache_out.splitlines() if "=" in line)
+            self.assertEqual(custom_cache_parsed.get("XDG_CACHE_HOME"), "/home/user/.custom-cache")
+
     def test_end_to_end_appimage_build_with_pinned_tools(self):
         if not WITH_TOOLS:
             self.skipTest("Pass --with-tools to exercise quick-sharun, appimagetool and uruntime end-to-end")
         probe_exe = shutil.which("printenv")
         self.assertIsNotNone(probe_exe, "printenv is required for synthetic AppImage runtime verification")
-        with tempfile.TemporaryDirectory(prefix="serein-appimage-e2e-") as directory:
-            root = Path(directory)
-            staged = root / "staged"
-            staged.mkdir()
-            shutil.copyfile(probe_exe, staged / "serein")
-            (staged / "serein").chmod(0o755)
-            for name in ("README.md", "LICENSE-MIT", "LICENSE-APACHE", "THIRD_PARTY_NOTICES.md"):
-                (staged / name).write_text("synthetic package fixture\n", encoding="utf-8")
-            (staged / "licenses").mkdir()
-            for name in (
-                "NotoSansCJK-LICENSE.txt",
-                "NotoSansArabic-OFL.txt",
-                "NotoSansMath-OFL.txt",
-                "NotoSansSymbols2-OFL.txt",
-                "Inter-OFL.txt",
-                "Bangers-OFL.txt",
-                "BioRhyme-OFL.txt",
-                "CherryBombOne-OFL.txt",
-                "Chicle-OFL.txt",
-                "Compagnon-OFL.txt",
-                "MuseoModerno-OFL.txt",
-                "PixelifySans-OFL.txt",
-                "Ribes-OFL.txt",
-                "Sinistre-OFL.txt",
-                "ZillaSlab-OFL.txt",
-                "PlaypenSans-OFL.txt",
-                "Orbitron-OFL.txt",
-                "NewRocker-OFL.txt",
-                "Kalam-OFL.txt",
-                "Twemoji-CC-BY-4.0.txt",
-                "Unicode-LICENSE.txt",
-                "Phosphor-Icons-MIT.txt",
-                "Simple-Icons-CC0.txt",
-            ):
-                (staged / "licenses" / name).write_text("synthetic license\n", encoding="utf-8")
-            for name in (
-                "licenses/files",
-                "licenses/notifications",
-                "licenses/login",
-                "licenses/voice",
-                "licenses/audio",
-                "licenses/dependencies",
-                "source/hpke-rs",
-            ):
-                source = Path("vendor/hpke-rs") if name.startswith("source/") else Path("assets") / name
-                shutil.copytree(source, staged / name)
-                (staged / name / "stale-nested.log").write_text("synthetic private marker\n", encoding="utf-8")
+        with mock.patch.dict(os.environ):
+            os.environ.pop("SEREIN_RELEASE_TAG", None)
+            with tempfile.TemporaryDirectory(prefix="serein-appimage-e2e-") as directory:
+                root = Path(directory)
+                staged = root / "staged"
+                staged.mkdir()
+                shutil.copyfile(probe_exe, staged / "serein")
+                (staged / "serein").chmod(0o755)
+                for name in ("README.md", "LICENSE-MIT", "LICENSE-APACHE", "THIRD_PARTY_NOTICES.md"):
+                    (staged / name).write_text("synthetic package fixture\n", encoding="utf-8")
+                (staged / "licenses").mkdir()
+                for name in (
+                    "NotoSansCJK-LICENSE.txt",
+                    "NotoSansArabic-OFL.txt",
+                    "NotoSansMath-OFL.txt",
+                    "NotoSansSymbols2-OFL.txt",
+                    "Inter-OFL.txt",
+                    "Bangers-OFL.txt",
+                    "BioRhyme-OFL.txt",
+                    "CherryBombOne-OFL.txt",
+                    "Chicle-OFL.txt",
+                    "Compagnon-OFL.txt",
+                    "MuseoModerno-OFL.txt",
+                    "PixelifySans-OFL.txt",
+                    "Ribes-OFL.txt",
+                    "Sinistre-OFL.txt",
+                    "ZillaSlab-OFL.txt",
+                    "PlaypenSans-OFL.txt",
+                    "Orbitron-OFL.txt",
+                    "NewRocker-OFL.txt",
+                    "Kalam-OFL.txt",
+                    "Twemoji-CC-BY-4.0.txt",
+                    "Unicode-LICENSE.txt",
+                    "Phosphor-Icons-MIT.txt",
+                    "Simple-Icons-CC0.txt",
+                ):
+                    (staged / "licenses" / name).write_text("synthetic license\n", encoding="utf-8")
+                for name in (
+                    "licenses/files",
+                    "licenses/notifications",
+                    "licenses/login",
+                    "licenses/voice",
+                    "licenses/audio",
+                    "licenses/dependencies",
+                    "source/hpke-rs",
+                ):
+                    source = Path("vendor/hpke-rs") if name.startswith("source/") else Path("assets") / name
+                    shutil.copytree(source, staged / name)
+                    (staged / name / "stale-nested.log").write_text("synthetic private marker\n", encoding="utf-8")
 
-            # Simulate a dirty dist tree: none of these should enter the AppImage.
-            (staged / "debug.log").write_text("synthetic private marker\n", encoding="utf-8")
-            (staged / "previous.AppImage").write_text("stale\n", encoding="utf-8")
+                # Simulate a dirty dist tree: none of these should enter the AppImage.
+                (staged / "debug.log").write_text("synthetic private marker\n", encoding="utf-8")
+                (staged / "previous.AppImage").write_text("stale\n", encoding="utf-8")
 
-            appimage_build.build(staged, "0.1.0-test")
-            artifact = staged / "serein-0.1.0-test-Linux-X64.AppImage"
-            zsync = staged / "serein-0.1.0-test-Linux-X64.AppImage.zsync"
-            self.assertTrue(artifact.is_file())
-            self.assertTrue(zsync.is_file())
+                appimage_build.build(staged, "0.1.0-test")
+                artifact = staged / "serein-0.1.0-test-Linux-X64.AppImage"
+                zsync = staged / "serein-0.1.0-test-Linux-X64.AppImage.zsync"
+                self.assertTrue(artifact.is_file())
+                self.assertTrue(zsync.is_file())
 
-            extract_dir = root / "verify-extract"
-            extract_dir.mkdir()
-            subprocess.run([str(artifact), "--appimage-extract"], cwd=extract_dir, check=True)
-            extracted = extract_dir / "AppDir"
-            for required in (
-                "AppRun",
-                "AppRun.sh",
-                "sharun",
-                "dash",
-                "bin/serein",
-                "shared/bin/serein",
-                "share/licenses/dash-COPYING",
-                "lib/sharun-preload/cross-libc-dlopen.so",
-                "usr/share/doc/serein/AppImage-README.md",
-                "usr/share/doc/serein/licenses/AppImage-runtime.txt",
-                "usr/share/doc/serein/licenses/cross-libc-dlopen-LICENSE.txt",
-                "usr/share/doc/serein/licenses/dependencies/PROVENANCE.md",
-                "usr/share/doc/serein/AppImage-bundled-packages.txt",
-            ):
-                self.assertTrue((extracted / required).exists(), f"Missing {required}")
-            listing = "\n".join(p.relative_to(extracted).as_posix() for p in extracted.rglob("*"))
-            for excluded in (
-                "debug.log",
-                "stale-nested.log",
-                "previous.AppImage",
-                "source/hpke-rs",
-                "usr/bin/serein",
-                "lib/sharun-preload/stubs",
-            ):
-                self.assertNotIn(excluded, listing)
-            lib_path_file = extracted / "lib/lib.path"
-            if lib_path_file.is_file():
-                self.assertNotIn("stubs", lib_path_file.read_text(encoding="utf-8", errors="replace"))
+                extract_dir = root / "verify-extract"
+                extract_dir.mkdir()
+                subprocess.run([str(artifact), "--appimage-extract"], cwd=extract_dir, check=True)
+                extracted = extract_dir / "AppDir"
+                for required in (
+                    "AppRun",
+                    "AppRun.sh",
+                    "sharun",
+                    "dash",
+                    "bin/serein",
+                    "shared/bin/serein",
+                    "share/licenses/dash-COPYING",
+                    "lib/sharun-preload/cross-libc-dlopen.so",
+                    "usr/share/doc/serein/AppImage-README.md",
+                    "usr/share/doc/serein/licenses/AppImage-runtime.txt",
+                    "usr/share/doc/serein/licenses/cross-libc-dlopen-LICENSE.txt",
+                    "usr/share/doc/serein/licenses/dependencies/PROVENANCE.md",
+                    "usr/share/doc/serein/AppImage-bundled-packages.txt",
+                ):
+                    self.assertTrue((extracted / required).exists(), f"Missing {required}")
+                listing = "\n".join(p.relative_to(extracted).as_posix() for p in extracted.rglob("*"))
+                for excluded in (
+                    "debug.log",
+                    "stale-nested.log",
+                    "previous.AppImage",
+                    "source/hpke-rs",
+                    "usr/bin/serein",
+                    "lib/sharun-preload/stubs",
+                ):
+                    self.assertNotIn(excluded, listing)
+                lib_path_file = extracted / "lib/lib.path"
+                if lib_path_file.is_file():
+                    self.assertNotIn("stubs", lib_path_file.read_text(encoding="utf-8", errors="replace"))
 
-            printed_appdir = subprocess.check_output(
-                [str(artifact), "APPDIR"],
-                env={**os.environ, "APPIMAGE_EXTRACT_AND_RUN": "1"},
-                text=True,
-            ).strip()
-            self.assertTrue(Path(printed_appdir).is_absolute())
+                printed_appdir = subprocess.check_output(
+                    [str(artifact), "APPDIR"],
+                    env={**os.environ, "APPIMAGE_EXTRACT_AND_RUN": "1"},
+                    text=True,
+                ).strip()
+                self.assertTrue(Path(printed_appdir).is_absolute())
 
-            with self.assertRaisesRegex(ValueError, "semantic application version"):
-                appimage_build.build(staged, "0.1.0\nbad")
-            (staged / "serein").write_bytes(b"MZ synthetic wrong architecture")
-            with self.assertRaisesRegex(ValueError, "ELF executable"):
-                appimage_build.build(staged, "0.1.0")
+                with self.assertRaisesRegex(ValueError, "semantic application version"):
+                    appimage_build.build(staged, "0.1.0\nbad")
+                (staged / "serein").write_bytes(b"MZ synthetic wrong architecture")
+                with self.assertRaisesRegex(ValueError, "ELF executable"):
+                    appimage_build.build(staged, "0.1.0")
 
 
 if __name__ == "__main__":

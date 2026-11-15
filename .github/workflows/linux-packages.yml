@@ -141,7 +141,7 @@ jobs:
             export PATH="$HOME/.cargo/bin:$PATH"
             rustup show active-toolchain
             bash packaging/appimage/install-tools.sh
-            PYTHONDONTWRITEBYTECODE=1 python3 packaging/appimage/test_build.py --with-tools
+            SEREIN_RELEASE_TAG= PYTHONDONTWRITEBYTECODE=1 python3 packaging/appimage/test_build.py --with-tools
             cargo xtask package --format appimage
           BUILD
       - name: Collect AppImage
