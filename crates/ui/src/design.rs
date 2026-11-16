@@ -1892,21 +1892,85 @@ pub fn presence_dot(ui: &egui::Ui, rect: egui::Rect, status: &str, ring: Color32
 	crate::profiles::paint_status(ui.painter(), center, radius, status, false, (ring, 2.0));
 }
 
-/// Preserve role hue where readable, otherwise move toward the theme's text color.
+/// Role mentions paint the role color at this alpha. The text sits on that tint
+/// composited over the panel, not on the panel alone.
+const ROLE_MENTION_ALPHA: u8 = 38;
+
+/// Translucent role-mention fill, and the opaque color that fill paints over `panel`.
+pub(crate) fn role_mention_fill(rgb: u32, panel: Color32) -> (Color32, Color32) {
+	let tint = Color32::from_rgba_unmultiplied(
+		(rgb >> 16) as u8,
+		(rgb >> 8) as u8,
+		rgb as u8,
+		ROLE_MENTION_ALPHA,
+	);
+	(tint, panel.blend(tint))
+}
+
+/// Keep the role hue. Lighten or darken along that hue until the name clears WCAG AA
+/// on `background`. Desaturate only when the extreme value still fails.
 pub fn role_name_color(rgb: u32, background: Color32, fallback: Color32) -> Color32 {
 	let role = Color32::from_rgb((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8);
-	for step in 0..=16 {
-		let mix = |a: u8, b: u8| ((u32::from(a) * (16 - step) + u32::from(b) * step) / 16) as u8;
-		let color = Color32::from_rgb(
-			mix(role.r(), fallback.r()),
-			mix(role.g(), fallback.g()),
-			mix(role.b(), fallback.b()),
-		);
-		if contrast(color, background) >= 4.5 {
-			return color;
+	if contrast(role, background) >= 4.5 {
+		return role;
+	}
+	let hsva = egui::ecolor::Hsva::from_srgb([role.r(), role.g(), role.b()]);
+	let lighten = luminance(fallback) >= luminance(background);
+	let paint = |value: f32, saturation: f32| {
+		let [r, g, b] = egui::ecolor::Hsva {
+			h: hsva.h,
+			s: saturation,
+			v: value,
+			a: 1.0,
+		}
+		.to_srgb();
+		Color32::from_rgb(r, g, b)
+	};
+	let found = if lighten {
+		closest_readable(hsva.v, 1.0, false, background, |value| paint(value, hsva.s))
+			.or_else(|| closest_readable(0.0, hsva.s, true, background, |sat| paint(1.0, sat)))
+	} else {
+		// Value 0 is black at every saturation, so a light background only moves value.
+		closest_readable(0.0, hsva.v, true, background, |value| paint(value, hsva.s))
+	};
+	found.unwrap_or(fallback)
+}
+
+/// Binary search for the sample closest to the original that still clears contrast.
+/// `keep_high` keeps the largest passing input (darken, or desaturate as little as possible).
+/// Otherwise the search keeps the smallest passing input (lighten as little as possible).
+fn closest_readable(
+	mut low: f32,
+	mut high: f32,
+	keep_high: bool,
+	background: Color32,
+	mut sample: impl FnMut(f32) -> Color32,
+) -> Option<Color32> {
+	let passes = |color: Color32| contrast(color, background) >= 4.5;
+	let extreme = sample(if keep_high { low } else { high });
+	if !passes(extreme) {
+		return None;
+	}
+	for _ in 0..12 {
+		let mid = (low + high) * 0.5;
+		if keep_high {
+			if passes(sample(mid)) {
+				low = mid;
+			} else {
+				high = mid;
+			}
+		} else if passes(sample(mid)) {
+			high = mid;
+		} else {
+			low = mid;
 		}
 	}
-	fallback
+	let chosen = sample(if keep_high { low } else { high });
+	if passes(chosen) {
+		Some(chosen)
+	} else {
+		Some(extreme)
+	}
 }
 pub(crate) fn luminance(c: Color32) -> f32 {
 	let channel = |v: u8| {
@@ -1927,6 +1991,69 @@ fn contrast(a: Color32, b: Color32) -> f32 {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn role_name_color_keeps_hue_while_meeting_contrast() {
+		let chat = Color32::from_rgb(0x16, 0x16, 0x17);
+		let text = Color32::from_rgb(0xED, 0xED, 0xEF);
+		let hsv = |color: Color32| egui::ecolor::Hsva::from_srgb([color.r(), color.g(), color.b()]);
+		let hue_delta = |left: f32, right: f32| {
+			let delta = (left - right).abs();
+			delta.min(1.0 - delta)
+		};
+
+		// A dark red that fails on the chat surface stays red instead of mixing toward white.
+		let raw_red = Color32::from_rgb(0xBD, 0x20, 0x2A);
+		let red = role_name_color(0x00BD_202A, chat, text);
+		assert!(super::contrast(red, chat) >= 4.5);
+		let (raw, lifted) = (hsv(raw_red), hsv(red));
+		assert!(
+			lifted.s + 0.05 >= raw.s,
+			"saturation {:.3} fell away from {:.3}",
+			lifted.s,
+			raw.s
+		);
+		assert!(hue_delta(lifted.h, raw.h) < 0.03);
+
+		// An already readable pink is left alone, so it does not collapse into the red.
+		assert_eq!(
+			role_name_color(0x00FF_7C7C, chat, text),
+			Color32::from_rgb(0xFF, 0x7C, 0x7C)
+		);
+
+		// Full-value blue cannot clear a dark surface. Desaturate, but stay blue.
+		let blue = role_name_color(0x0000_00FF, chat, text);
+		assert!(super::contrast(blue, chat) >= 4.5);
+		let blue_hsv = hsv(blue);
+		assert!(hue_delta(blue_hsv.h, hsv(Color32::BLUE).h) < 0.03);
+		assert!(blue_hsv.s > 0.2, "blue saturation {:.3}", blue_hsv.s);
+		assert!(blue.b() > blue.r() && blue.b() > blue.g());
+
+		// Light surfaces darken along the same hue.
+		let pale = role_name_color(0x00FF_7C7C, Color32::WHITE, Color32::BLACK);
+		assert!(super::contrast(pale, Color32::WHITE) >= 4.5);
+		let (pink, darkened) = (hsv(Color32::from_rgb(0xFF, 0x7C, 0x7C)), hsv(pale));
+		assert!(darkened.v < pink.v);
+		assert!(darkened.s + 0.08 >= pink.s);
+		assert!(hue_delta(darkened.h, pink.h) < 0.03);
+	}
+
+	#[test]
+	fn role_mention_text_needs_the_composited_pill() {
+		let panel = Color32::from_rgb(0x18, 0x18, 0x1b);
+		let fallback = Color32::from_rgb(0xBC, 0xD9, 0xFF);
+		let rgb = 0x00BD_202A;
+		let (tint, surface) = role_mention_fill(rgb, panel);
+		assert!(tint.a() < 255);
+		assert_ne!(surface, panel);
+		let on_pill = role_name_color(rgb, surface, fallback);
+		let on_panel = role_name_color(rgb, panel, fallback);
+		assert!(super::contrast(on_pill, surface) >= 4.5);
+		assert!(
+			super::contrast(on_panel, surface) < 4.5,
+			"checking the bare panel already cleared the pill"
+		);
+	}
 
 	#[test]
 	fn solid_badges_use_discord_red_unless_the_theme_changed_danger() {

@@ -785,15 +785,15 @@ fn invisible(chr: char) -> bool {
 		|| matches!(chr, '\u{200b}'..='\u{200f}' | '\u{2060}'..='\u{2064}' | '\u{feff}')
 }
 
-/// Text and background of a role or mass mention: the role's own color, like Discord,
-/// with the text adjusted for contrast. Uncolored roles use the mention palette.
+/// Text and background of a role or mass mention: the role's own color, like Discord.
+/// Colored text is adjusted for contrast against the tinted pill, not the bare panel.
+/// Uncolored roles use the mention palette.
 fn mention_colors(ui: &egui::Ui, role_color: Option<u32>) -> (egui::Color32, egui::Color32) {
 	let colors = crate::design::palette(ui);
 	match role_color.filter(|rgb| *rgb != 0) {
 		Some(rgb) => {
-			let [r, g, b] = [(rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8];
-			let background = egui::Color32::from_rgba_unmultiplied(r, g, b, 38);
-			let behind = ui.visuals().panel_fill;
+			let (background, behind) =
+				crate::design::role_mention_fill(rgb, ui.visuals().panel_fill);
 			(
 				crate::design::role_name_color(rgb, behind, colors.mention_text),
 				background,
