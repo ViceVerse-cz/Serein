@@ -4691,3 +4691,76 @@ network transfer. No full application build, installed closure, compressed
 package size or application performance was measured in this environment.
 The official Rust archive hashes matched Rust's 1.98.1 channel manifest; a
 Nix-built release smoke program and development Clippy/rustfmt checks passed.
+
+## Bug-hunt verification — November 16, 2026
+
+The frozen fork baseline is `76d038ad`; implementation is `f6e5f4d1`.
+Both core executables used Rust 1.98.1 and the repository's unchanged release
+profile (optimization level 3, fat LTO, one codegen unit). Measurements ran on
+Linux x86-64, Xeon Platinum 8573C, pinned to logical CPU 0, with no compilation
+running. Each workload had one warmup and five alternating baseline/changed
+invocations. Values below are milliseconds, median and range.
+
+| Synthetic workload | Baseline | Changed | Median delta |
+| --- | ---: | ---: | ---: |
+| 100,000 reducer events | 83.834 (80.681–86.038) | 80.887 (79.499–86.391) | −3.5% |
+| 1,000 channel switches / 100 sidebar cycles | 36.767 (35.414–37.575) | 36.307 (35.204–37.192) | −1.3% |
+| 10,000 events across 20,001 channels | 9.020 (8.507–10.658) | 8.920 (8.618–9.137) | −1.1% |
+| 10,000 member-watch rebuilds | 44.265 (43.398–45.059) | 43.880 (43.042–44.955) | −0.9% |
+| 100,000 cached-member checks | 9.451 (9.350–9.481) | 8.214 (7.952–8.496) | −13.1% |
+
+The loading harness performs its own warmup and five samples; that row compares
+five invocation medians. Other ranges overlap, so their small median differences
+do not establish improvements. The cached-member difference has no isolated
+causal attribution. No measured workload regressed, but these are core timings,
+not SQLite, network, UI callbacks, presented frames, input latency or process RSS.
+The reducer retained the same 500 records / 417,492–417,977 estimated bytes.
+Replay executables were 2,474,176 and 2,476,592 bytes (+2,416).
+
+The 120-second synthetic lifecycle soak completed 2,489 passes, 79,648 channel
+visits and ten logout cycles with its row/byte bounds intact. It exercises no
+network, storage, renderer or audio devices. Native UI idle CPU, peak/settled
+process memory, hardware-camera behavior and Windows/macOS performance remain
+unmeasured in this pass.
+
+Pinned `cargo xtask check` passed: formatting, strict Clippy, workspace tests
+(2,766 passing test executions; 36 ignored), the no-default-features build and
+repository policy checks. The isolated Linux `discord-voice` library check,
+login-handoff/workspace scripts, license checks, native FFmpeg capability and
+encoding fixtures, catalog tests, repository-publication fixtures and FFmpeg
+bundle tests also passed. The updated tests reproduce failures on the frozen
+baseline for identity clearing, frozen-history admission, early heartbeat ACKs,
+channel suggestions, selected search channels and unknown mute settings.
+The pinned 30-second decode and state-transition fuzz smoke runs also passed
+without changing either lockfile.
+
+Matched native screenshots were not captured. The verified baseline GitHub
+package rejects `--demo` because it excludes demo support; paired native demo
+builds were not produced. Menu input and search behavior were checked with
+synthetic egui fixtures, including narrow/light variants. These checks do not
+establish live Discord synchronization or physical-device compatibility.
+
+Baseline [CI run 42485703034](https://github.com/MCShotty/NuSerein/actions/runs/42485703034)
+passed Linux, Windows x64 and macOS native jobs. Its Windows ARM64 job failed
+`replayed_presence_bursts_wait_for_resumed_before_delivery`: the second handshake
+was Identify rather than Resume. That inherited failure remains unexplained;
+this pass does not claim to fix it. Baseline dependency audit also failed on
+crypto-bigint, ctutils, pulldown-cmark and tokio advisories, plus two yanked
+packages. Dependency versions are unchanged. The UI does not enable the
+wikilink option involved in the two pulldown-cmark advisories; that does not
+make the dependency audit pass. Current-head native CI is tracked in the PR.
+
+The first bug-hunt CI run exposed a separate Windows ARM64 build failure with
+MSVC 14.52: dav1d 1.5.1's compiler guard parsed Clang's unsupported
+`__has_include_next` operator. The follow-up nests that guard without changing
+the decoder version or atomic implementations, and packages the corresponding
+source patch. Compiler-preprocessor and package-provenance regressions pass;
+native rebuild and CI results are recorded in the PR. Core runtime measurements
+above remain applicable because this follow-up changes no Rust application code.
+
+The baseline Linux package was recovered from GitHub artifact `13620342254`
+(run above, source `76d038ad`), not from an unverified local executable. Its
+executable is 100,095,064 bytes and its installed DEB payload is 229,958,269
+bytes. The release excludes demo support. Current package sizes and the normal
+packaging outcome are recorded in the PR; comparing this CI artifact with a
+local build is a footprint comparison, not a matched native performance test.

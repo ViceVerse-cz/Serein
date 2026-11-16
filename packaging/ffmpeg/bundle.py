@@ -45,6 +45,9 @@ def bundle(root, prefix=None):
             or recipe.get("license") != "GPL-2.0-or-later"
             or recipe.get("filters") != ["atadenoise", "hqdn3d", "unsharp"]):
         raise ValueError("Expected Serein's pinned FFmpeg build with the webcam filters")
+    dav1d_patch = provenance / "serein-dav1d.patch"
+    if not dav1d_patch.is_file() or dav1d_patch.stat().st_size == 0:
+        raise ValueError("Expected dav1d source patch from scripts/build-ffmpeg.py")
     if system == "Darwin":
         libraries = root / "Serein.app/Contents/Frameworks"
         source = root / "Serein.app/Contents/Resources/ffmpeg-source"
@@ -61,7 +64,7 @@ def bundle(root, prefix=None):
             replace_darwin_library(origin, libraries / name)
         else:
             shutil.copyfile(origin, libraries / name)
-    for name in ("build.json", "configure.json", "build-ffmpeg.py", "serein-ffmpeg.patch", "COPYING.LGPLv2.1", "COPYING.GPLv2", "OpenH264-LICENSE", "dav1d-COPYING"):
+    for name in ("build.json", "configure.json", "build-ffmpeg.py", "serein-ffmpeg.patch", "serein-dav1d.patch", "COPYING.LGPLv2.1", "COPYING.GPLv2", "OpenH264-LICENSE", "dav1d-COPYING"):
         shutil.copyfile(provenance / name, source / name)
     camera_source = source / "camera-filter"
     camera_source.mkdir(exist_ok=True)

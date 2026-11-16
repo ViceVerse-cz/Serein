@@ -13,9 +13,8 @@ on:
         type: choice
         options: [nightly, production]
       base_url:
-        description: Public HTTPS root where the generated repository tree will be hosted
+        description: Public HTTPS root (leave blank to use this repository's configured Pages site)
         required: false
-        default: https://viceverse-cz.github.io/Serein
         type: string
       deploy:
         description: Deploy the signed tree to the configured GitHub Pages site
@@ -33,8 +32,8 @@ on:
         required: true
         type: string
       base_url:
-        description: Public HTTPS root where the generated repository tree will be hosted
-        required: true
+        description: Public HTTPS root (defaults to this repository's configured Pages site)
+        required: false
         type: string
       deploy:
         description: Deploy the signed tree to the configured GitHub Pages site
@@ -51,10 +50,28 @@ permissions:
 jobs:
   download:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: read
+    outputs:
+      base_url: ${{ steps.hosting.outputs.base_url }}
     steps:
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
+      - name: Resolve repository URL
+        id: hosting
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          INPUT_BASE_URL: ${{ inputs.base_url }}
+        run: |
+          set -euo pipefail
+          base_url="$INPUT_BASE_URL"
+          if [ -z "$base_url" ]; then
+            base_url="$(gh api "repos/$GH_REPO/pages" --jq '.html_url')"
+          fi
+          printf 'base_url=%s\n' "${base_url%/}" >> "$GITHUB_OUTPUT"
       - name: Download existing Linux release packages
         env:
           GH_TOKEN: ${{ github.token }}
@@ -129,7 +146,7 @@ jobs:
           FORMAT: ${{ matrix.format }}
           ARCHITECTURE: ${{ matrix.architecture }}
           CHANNEL: ${{ inputs.channel }}
-          BASE_URL: ${{ inputs.base_url }}
+          BASE_URL: ${{ needs.download.outputs.base_url }}
         run: |
           set -eu
           export GNUPGHOME="$RUNNER_TEMP/serein-signing"
@@ -165,7 +182,7 @@ jobs:
           path: packages
       - name: Assemble hosting tree
         env:
-          BASE_URL: ${{ inputs.base_url }}
+          BASE_URL: ${{ needs.download.outputs.base_url }}
         run: |
           set -euo pipefail
           mkdir -p site

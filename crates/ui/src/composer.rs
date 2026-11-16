@@ -1233,7 +1233,7 @@ impl MessagingUi {
                             mention_changed = true;
                         }
                         if let Some(pick) = mention_pick
-                            && let Some(cursor) = mentions::insert(draft, pick, editing_here)
+                            && let Some(cursor) = mentions::insert_checked(state, channel, draft, pick, editing_here)
                         {
                             let mut edit_state =
                                 egui::text_edit::TextEditState::load(ctx, composer_id).unwrap_or_default();
@@ -1366,7 +1366,7 @@ impl MessagingUi {
                         self.mention_menu
                             .refresh(state, channel, draft, mention_cursor, &mention_users);
                         if let Some(pick) = self.mention_menu.show(ui, composer_anchor, &mut self.avatars, demo)
-                            && let Some(cursor) = mentions::insert(draft, pick, editing_here)
+                            && let Some(cursor) = mentions::insert_checked(state, channel, draft, pick, editing_here)
                         {
                             output
                                 .state

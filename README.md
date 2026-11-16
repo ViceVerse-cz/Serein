@@ -220,7 +220,7 @@ Keep the AppImage in a writable directory to receive in-app updates via **Settin
 </details>
 
 <details>
-<summary><h3>🪟 Windows (Installer, PowerShell, Portable)</h3></summary>
+<summary><h3>🪟 Windows (Installer, Portable)</h3></summary>
 
 #### 1. Setup Installer (Recommended)
 Download the `Windows-X64-Setup.exe` or `Windows-ARM64-Setup.exe` asset for your system from [Releases](https://github.com/ViceVerse-cz/Serein/releases) and run it:
@@ -236,22 +236,14 @@ the complete new archive into a new folder and launch it there. Settings and
 credentials remain in their existing per-user storage. See the
 [Windows migration guide](packaging/windows/README.md) for details.
 
-#### 2. Standalone PowerShell Setup
-Extract the `Windows-X64-media-v3.zip` or `Windows-ARM64-media-v3.zip` asset for your system and run:
-```powershell
-powershell -ExecutionPolicy Bypass -File .\setup.ps1
-```
-To uninstall later:
-```powershell
-powershell -ExecutionPolicy Bypass -File .\setup.ps1 -Uninstall
-```
-
-#### 3. Portable Archive
-Extract the `Windows-X64-media-v3.zip` or `Windows-ARM64-media-v3.zip` asset for your system anywhere and launch `serein.exe`. To enable native desktop notifications:
+#### 2. Portable Archive
+Extract the complete `Windows-X64-media-v5.zip` or `Windows-ARM64-media-v5.zip` asset for your system into its final folder and launch `serein.exe`. To enable native desktop notifications:
 ```powershell
 powershell -File .\install-notifications.ps1
 ```
 Run the script from the extracted folder beside `serein.exe`. If PowerShell's `RemoteSigned` policy blocks the downloaded script, review it and run `Unblock-File -LiteralPath .\install-notifications.ps1` in that folder before retrying. The Windows installer registers the shortcut automatically, so installed builds do not need this script.
+
+Before moving or deleting the portable folder, remove its notification shortcut with `powershell -File .\install-notifications.ps1 -Remove`. The portable archive does not include `setup.ps1`; use the matching `-Setup.exe` asset for an installed build.
 
 </details>
 

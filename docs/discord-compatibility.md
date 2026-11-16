@@ -3621,3 +3621,30 @@ video-only with a visible explanation, without changing microphone processing or
 quality. Retired audio and queued samples remain fenced by the existing share/security
 generation. Native cross-application isolation and live Gateway recovery remain subject
 to owner-controlled acceptance.
+
+## Bug-hunt coverage: November 16, 2026
+
+These changes are relative to `76d038ad`. Complete member snapshots clear removed
+nicknames and roles on cached messages and prevent delayed history from restoring old
+identities. A frozen Force Sync request tolerates newer live traffic while preserving
+overlapping edits and deletes. Gateway heartbeat tracking accepts the matching ACK that
+arrives while its write is still completing; acknowledgement timeouts are unchanged.
+
+Type 2 favorite-GIF settings updates invalidate the bounded picker projection while
+preserving pending local writes. Channel suggestions filter inaccessible channels and
+revalidate access when clicked. Search retains its selected channel within the 500-channel
+option cap. Quick server mute requires an explicit Refresh when its settings baseline is
+unknown.
+
+Local camera preview skips video encoding. Linux platform dependencies explicitly enable
+the existing X11 and Wayland window backends so isolated crate builds have the required
+features. Extension catalog publication uses the publishing repository for commit-pinned
+package and preview URLs. Package publication resolves that repository's configured Pages
+root, including custom domains, while retaining an explicit URL override. Windows installer
+guidance now names media-v5 archives and the bundled portable notification script.
+
+Regression scenarios use synthetic fixtures and temporary local repositories. No live
+Discord session, account mutation, message, call, microphone or native device acceptance was
+performed for this coverage. The review also examined administration, extension runtime
+and storage paths without demonstrating another fix there. Coverage is limited to the
+examined paths and scenarios. AMF/Nix work tracked in PR #43 is separate.

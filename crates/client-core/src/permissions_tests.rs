@@ -15,6 +15,117 @@ const BITS: u128 = p::VIEW_CHANNEL
 	| p::USE_VAD;
 
 #[test]
+fn complete_member_snapshot_clears_loaded_message_nickname_and_roles() {
+	let mut state = state();
+	let mut old = message(101, Id(20));
+	old.author = cached_person(7, "Old nickname").user;
+	old.author_nick = Some("Old nickname".into());
+	old.author_roles = vec![Id(11)];
+	apply(&mut state, Event::Message(old.clone()));
+	let mut webhook = old.clone();
+	webhook.id = Id(102);
+	webhook.author.webhook = true;
+	apply(&mut state, Event::Message(webhook));
+	state.request_members().unwrap();
+	let mut list = state.members.clone().unwrap();
+	let mut member = cached_person(7, "unused");
+	member.nick = None;
+	member.roles.clear();
+	list.slots = vec![Some(model::MemberSlot::Person(member))];
+	list.freshness = Freshness::Fresh;
+	list.total = 1;
+	apply(&mut state, Event::Members(list));
+	let loaded = state.timeline.get(Id(101)).unwrap();
+	assert!(loaded.author_nick.is_none());
+	assert!(loaded.author_roles.is_empty());
+	assert_eq!(loaded.content, old.content);
+	let webhook = state.timeline.get(Id(102)).unwrap();
+	assert_eq!(webhook.author_nick.as_deref(), Some("Old nickname"));
+	assert_eq!(webhook.author_roles, vec![Id(11)]);
+}
+
+#[test]
+fn complete_member_snapshot_fences_unchanged_clears_against_delayed_history() {
+	let mut state = state();
+	let mut old = message(101, Id(20));
+	old.author = cached_person(7, "unused").user;
+	apply(&mut state, Event::Message(old.clone()));
+	let Command::History { request, .. } = state.history(None) else {
+		panic!("history request");
+	};
+	state.request_members().unwrap();
+	let mut list = state.members.clone().unwrap();
+	let mut member = cached_person(7, "unused");
+	member.nick = None;
+	member.roles.clear();
+	list.slots = vec![Some(model::MemberSlot::Person(member))];
+	list.freshness = Freshness::Fresh;
+	list.total = 1;
+	apply(&mut state, Event::Members(list));
+	old.author_nick = Some("Stale nickname".into());
+	old.author_roles = vec![Id(11)];
+	old.content = "Updated message body".into();
+	apply(
+		&mut state,
+		Event::History {
+			channel: Id(20),
+			request,
+			older: false,
+			messages: vec![old],
+		},
+	);
+	let loaded = state.timeline.get(Id(101)).unwrap();
+	assert!(loaded.author_nick.is_none());
+	assert!(loaded.author_roles.is_empty());
+	assert_eq!(loaded.content, "Updated message body");
+}
+
+#[test]
+fn complete_member_snapshot_clears_survive_member_cache_eviction() {
+	let mut state = state();
+	let mut colored = state.guild_roles(Id(10)).unwrap()[1].clone();
+	colored.color = 0x112233;
+	permission(
+		&mut state,
+		PermissionEvent::Role {
+			guild: Id(10),
+			role: colored,
+		},
+	);
+	let mut old = message(101, Id(20));
+	old.author = cached_person(7, "Old nickname").user;
+	old.author_nick = Some("Old nickname".into());
+	old.author_roles = vec![Id(11)];
+	apply(&mut state, Event::Message(old));
+	state.request_members().unwrap();
+	let mut list = state.members.clone().unwrap();
+	let mut member = cached_person(7, "unused");
+	member.nick = None;
+	member.roles.clear();
+	list.slots = vec![Some(model::MemberSlot::Person(member))];
+	list.freshness = Freshness::Fresh;
+	list.total = 600;
+	apply(&mut state, Event::Members(list.clone()));
+	for start in [1000, 1200, 1400] {
+		list.slots = (start..start + 200)
+			.map(|id| {
+				Some(model::MemberSlot::Person(cached_person(
+					id,
+					"Other nickname",
+				)))
+			})
+			.collect();
+		apply(&mut state, Event::Members(list.clone()));
+	}
+	assert!(state.member_identity(Id(20), Id(7)).is_none());
+	assert!(state.member_labels.verified_member(Id(10), Id(7)).is_none());
+	assert!(state.presentation_member_roles(Id(20), Id(7)).is_none());
+	let loaded = state.timeline.get(Id(101)).unwrap();
+	assert_eq!(state.message_author_name(loaded), "Account 7");
+	assert_eq!(state.message_author_color(loaded), None);
+}
+
+#[test]
 fn member_list_update_survives_a_delayed_history_response() {
 	let mut state = state();
 	let mut old = message(101, Id(20));
@@ -3023,6 +3134,9 @@ fn partial_member_snapshot_across_subscriptions_preserves_labels_but_explicit_cl
 	);
 	assert_eq!(state.message_author_name(&chat), "Earlier nickname");
 	assert_eq!(state.message_author_color(&chat), Some(0x112233));
+	let loaded = state.timeline.get(Id(102)).unwrap();
+	assert_eq!(loaded.author_nick.as_deref(), Some("Earlier nickname"));
+	assert_eq!(loaded.author_roles, vec![Id(11)]);
 	let Some(model::MemberSlot::Person(sidebar)) = state.member_slot(0) else {
 		panic!("member")
 	};
@@ -3044,6 +3158,9 @@ fn partial_member_snapshot_across_subscriptions_preserves_labels_but_explicit_cl
 	apply(&mut state, Event::Members(partial));
 	assert_eq!(state.member_nickname(Id(21), Id(7)), Some(None));
 	assert_eq!(state.message_author_color(&chat), None);
+	let loaded = state.timeline.get(Id(102)).unwrap();
+	assert!(loaded.author_nick.is_none());
+	assert!(loaded.author_roles.is_empty());
 	let Some(model::MemberSlot::Person(sidebar)) = state.member_slot(0) else {
 		panic!("member")
 	};

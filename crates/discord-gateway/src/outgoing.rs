@@ -4,6 +4,7 @@ use futures_util::{Sink, SinkExt};
 use model::Id;
 use std::{
 	collections::{BTreeMap, VecDeque},
+	future::poll_fn,
 	sync::{Arc, Mutex},
 	time::Duration,
 };
@@ -122,7 +123,13 @@ struct State {
 	serial: u64,
 	subscription_serial: u64,
 	heartbeat_serial: u64,
-	heartbeats: VecDeque<(u64, Instant)>,
+	heartbeat_in_flight: Option<(u64, bool)>,
+	heartbeats: VecDeque<HeartbeatReceipt>,
+}
+pub(super) struct HeartbeatReceipt {
+	pub ticket: u64,
+	pub sent: Instant,
+	pub acknowledged: bool,
 }
 impl Default for State {
 	fn default() -> Self {
@@ -133,6 +140,7 @@ impl Default for State {
 			serial: 0,
 			subscription_serial: 0,
 			heartbeat_serial: 0,
+			heartbeat_in_flight: None,
 			heartbeats: VecDeque::with_capacity(PACKETS),
 		}
 	}
@@ -300,10 +308,23 @@ impl Outgoing {
 						continue;
 					}
 				};
-				if !matches!(
-					timeout(Duration::from_secs(5), sink.send(packet.frame)).await,
-					Ok(Ok(()))
-				) {
+				let transmit = async {
+					if poll_fn(|cx| sink.poll_ready_unpin(cx)).await.is_err() {
+						return false;
+					}
+					let started = {
+						let Ok(mut state) = worker_state.lock() else {
+							return false;
+						};
+						// start_send can expose bytes before returning; ACK handling shares this lock.
+						if packet.meta.heartbeat {
+							state.heartbeat_in_flight = Some((packet.serial, false));
+						}
+						sink.start_send_unpin(packet.frame).is_ok()
+					};
+					started && sink.flush().await.is_ok()
+				};
+				if !matches!(timeout(Duration::from_secs(5), transmit).await, Ok(true)) {
 					report.send_modify(|p| p.failed = true);
 					return;
 				}
@@ -322,7 +343,14 @@ impl Outgoing {
 							});
 							return;
 						}
-						state.heartbeats.push_back((packet.serial, sent));
+						let acknowledged = state.heartbeat_in_flight.take().is_some_and(
+							|(ticket, acknowledged)| ticket == packet.serial && acknowledged,
+						);
+						state.heartbeats.push_back(HeartbeatReceipt {
+							ticket: packet.serial,
+							sent,
+							acknowledged,
+						});
 					}
 				}
 				if let Ok(mut limits) = worker_limits.lock()
@@ -377,8 +405,24 @@ impl Outgoing {
 	pub fn is_finished(&self) -> bool {
 		self.task.is_finished()
 	}
-	pub fn take_heartbeat(&self) -> Option<(u64, Instant)> {
+	pub fn take_heartbeat(&self) -> Option<HeartbeatReceipt> {
 		self.state.lock().ok()?.heartbeats.pop_front()
+	}
+	pub fn acknowledge_heartbeat(&self) -> Option<u64> {
+		let mut state = self.state.lock().ok()?;
+		if let Some(receipt) = state
+			.heartbeats
+			.iter_mut()
+			.find(|receipt| !receipt.acknowledged)
+		{
+			receipt.acknowledged = true;
+			return Some(receipt.ticket);
+		}
+		// An early ACK belongs only to this started send, never a queued heartbeat.
+		if let Some((_, acknowledged)) = &mut state.heartbeat_in_flight {
+			*acknowledged = true;
+		}
+		None
 	}
 	pub fn heartbeat_ticket(&self) -> u64 {
 		self.state.lock().map(|s| s.heartbeat_serial).unwrap_or(0)
@@ -599,6 +643,214 @@ mod tests {
 	}
 	fn frame(value: serde_json::Value) -> Frame {
 		Frame::Text(value.to_string().into())
+	}
+	struct AckBeforeFlush {
+		complete: Arc<AtomicBool>,
+		wake: Wake,
+		ack: tokio::sync::mpsc::Sender<Frame>,
+		pending_ack: bool,
+	}
+	impl Sink<Frame> for AckBeforeFlush {
+		type Error = ();
+		fn poll_ready(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Result<(), ()>> {
+			Poll::Ready(Ok(()))
+		}
+		fn start_send(mut self: Pin<&mut Self>, frame: Frame) -> Result<(), ()> {
+			self.pending_ack = Meta::of(&frame).heartbeat;
+			Ok(())
+		}
+		fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), ()>> {
+			if self.pending_ack {
+				self.pending_ack = false;
+				self.ack
+					.try_send(frame(serde_json::json!({"op":11,"d":null})))
+					.unwrap();
+			}
+			if self.complete.load(Ordering::Acquire) {
+				Poll::Ready(Ok(()))
+			} else {
+				*self.wake.lock().unwrap() = Some(cx.waker().clone());
+				Poll::Pending
+			}
+		}
+		fn poll_close(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Result<(), ()>> {
+			Poll::Ready(Ok(()))
+		}
+	}
+	struct FlushControl {
+		complete: Arc<AtomicBool>,
+		wake: Wake,
+		incoming: tokio::sync::mpsc::Receiver<Frame>,
+	}
+	impl FlushControl {
+		async fn ack(&mut self) {
+			let ack = timeout(Duration::from_secs(1), self.incoming.recv())
+				.await
+				.unwrap()
+				.unwrap();
+			assert_eq!(
+				serde_json::from_str::<serde_json::Value>(ack.to_text().unwrap()).unwrap()["op"],
+				11
+			);
+		}
+		fn finish(&self) {
+			self.complete.store(true, Ordering::Release);
+			if let Some(wake) = self.wake.lock().unwrap().take() {
+				wake.wake();
+			}
+		}
+	}
+	fn flush_fixture() -> (AckBeforeFlush, FlushControl) {
+		let (ack, incoming) = tokio::sync::mpsc::channel(PACKETS);
+		let complete = Arc::new(AtomicBool::new(false));
+		let wake = Arc::new(Mutex::new(None));
+		(
+			AckBeforeFlush {
+				complete: complete.clone(),
+				wake: wake.clone(),
+				ack,
+				pending_ack: false,
+			},
+			FlushControl {
+				complete,
+				wake,
+				incoming,
+			},
+		)
+	}
+	async fn heartbeat_sent(writer: &mut Outgoing) -> (u64, Instant) {
+		let ticket = writer.heartbeat_ticket();
+		timeout(Duration::from_secs(1), async {
+			loop {
+				if let Some(receipt) = writer.progress.borrow_and_update().heartbeat
+					&& receipt.0 == ticket
+				{
+					return receipt;
+				}
+				writer.progress.changed().await.unwrap();
+			}
+		})
+		.await
+		.unwrap()
+	}
+	#[tokio::test]
+	async fn heartbeat_ack_before_flush_completion_does_not_leave_a_phantom_timeout() {
+		let (sink, mut control) = flush_fixture();
+		let interval = Duration::from_secs(45);
+		let mut writer = Outgoing::start(sink, interval);
+		let mut heartbeat = crate::Heartbeat::default();
+		writer
+			.send(frame(serde_json::json!({"op":1,"d":42})))
+			.await
+			.unwrap();
+		let mut probe_requested = Some(writer.heartbeat_ticket());
+		control.ack().await;
+		assert!(writer.progress.borrow().heartbeat.is_none());
+		assert!(heartbeat.collect(&writer, &mut probe_requested));
+		assert!(heartbeat.probe_deadline(probe_requested).is_none());
+		assert_eq!(heartbeat.acknowledge(&writer), None);
+		assert!(probe_requested.is_some());
+		control.finish();
+		heartbeat_sent(&mut writer).await;
+		assert!(heartbeat.collect(&writer, &mut probe_requested));
+		assert_eq!(probe_requested, None);
+		assert!(
+			!heartbeat.expired(Instant::now() + interval, interval),
+			"the ACK received during flush must retire that heartbeat"
+		);
+	}
+	#[tokio::test]
+	async fn delayed_ack_for_an_uncollected_receipt_keeps_the_in_flight_probe_outstanding() {
+		let (sink, mut control) = flush_fixture();
+		let interval = Duration::from_secs(45);
+		let mut writer = Outgoing::start(sink, interval);
+		let mut heartbeat = crate::Heartbeat::default();
+		control.finish();
+		writer
+			.send(frame(serde_json::json!({"op":1,"d":41})))
+			.await
+			.unwrap();
+		control.ack().await;
+		let (older, _) = heartbeat_sent(&mut writer).await;
+		control.complete.store(false, Ordering::Release);
+		writer
+			.send(frame(serde_json::json!({"op":1,"d":42})))
+			.await
+			.unwrap();
+		let probe = writer.heartbeat_ticket();
+		let mut probe_requested = Some(probe);
+		control.ack().await;
+		assert_eq!(heartbeat.acknowledge(&writer), Some(older));
+		assert!(heartbeat.collect(&writer, &mut probe_requested));
+		assert_eq!(probe_requested, Some(probe));
+		assert!(heartbeat.probe_deadline(probe_requested).is_none());
+		control.finish();
+		let (_, sent) = heartbeat_sent(&mut writer).await;
+		assert!(heartbeat.collect(&writer, &mut probe_requested));
+		assert_eq!(
+			heartbeat.probe_deadline(probe_requested),
+			Some(sent + crate::PROBE_TIMEOUT)
+		);
+		assert_eq!(heartbeat.acknowledge(&writer), Some(probe));
+	}
+	#[tokio::test]
+	async fn repeated_early_acks_do_not_credit_a_queued_heartbeat() {
+		let (sink, mut control) = flush_fixture();
+		let interval = Duration::from_secs(45);
+		let mut writer = Outgoing::start(sink, interval);
+		let mut heartbeat = crate::Heartbeat::default();
+		writer
+			.send(frame(serde_json::json!({"op":1,"d":41})))
+			.await
+			.unwrap();
+		control.ack().await;
+		writer
+			.send(frame(serde_json::json!({"op":1,"d":42})))
+			.await
+			.unwrap();
+		let probe = writer.heartbeat_ticket();
+		let mut probe_requested = Some(probe);
+		for _ in 0..3 {
+			assert_eq!(heartbeat.acknowledge(&writer), None);
+		}
+		control.finish();
+		control.ack().await;
+		let (_, sent) = heartbeat_sent(&mut writer).await;
+		assert!(heartbeat.collect(&writer, &mut probe_requested));
+		assert_eq!(probe_requested, Some(probe));
+		assert_eq!(heartbeat.pending.front().unwrap().0, probe);
+		assert_eq!(heartbeat.pending.len(), 1);
+		assert!(heartbeat.expired(sent + interval, interval));
+	}
+	#[tokio::test]
+	async fn unsolicited_acks_cannot_credit_a_heartbeat_waiting_for_sink_readiness() {
+		let (sink, ready, wake, _) = fixture();
+		let interval = Duration::from_secs(45);
+		let mut writer = Outgoing::start(sink, interval);
+		let mut heartbeat = crate::Heartbeat::default();
+		assert_eq!(heartbeat.acknowledge(&writer), None);
+		writer
+			.send(frame(serde_json::json!({"op":1,"d":42})))
+			.await
+			.unwrap();
+		let probe = writer.heartbeat_ticket();
+		let mut probe_requested = Some(probe);
+		tokio::task::yield_now().await;
+		assert!(wake.lock().unwrap().is_some());
+		assert_eq!(heartbeat.acknowledge(&writer), None);
+		assert!(heartbeat.collect(&writer, &mut probe_requested));
+		assert!(heartbeat.probe_deadline(probe_requested).is_none());
+		ready.store(true, Ordering::Release);
+		wake.lock().unwrap().take().unwrap().wake();
+		let (_, sent) = heartbeat_sent(&mut writer).await;
+		assert!(heartbeat.collect(&writer, &mut probe_requested));
+		assert_eq!(probe_requested, Some(probe));
+		assert_eq!(
+			heartbeat.probe_deadline(probe_requested),
+			Some(sent + crate::PROBE_TIMEOUT)
+		);
+		assert!(!heartbeat.expired(sent + interval - Duration::from_millis(1), interval));
+		assert!(heartbeat.expired(sent + interval, interval));
 	}
 	#[tokio::test]
 	async fn roster_reads_yield_to_foreground_and_have_independent_send_receipts() {
@@ -1064,8 +1316,8 @@ mod tests {
 		.await
 		.unwrap();
 		assert_eq!(frames.lock().unwrap().len(), 2);
-		assert_eq!(writer.take_heartbeat().unwrap().0, first);
-		assert_eq!(writer.take_heartbeat().unwrap().0, second);
+		assert_eq!(writer.take_heartbeat().unwrap().ticket, first);
+		assert_eq!(writer.take_heartbeat().unwrap().ticket, second);
 		assert!(writer.take_heartbeat().is_none());
 	}
 	#[tokio::test]

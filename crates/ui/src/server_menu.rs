@@ -31,6 +31,7 @@ pub(super) struct ServerMenu {
 	pub mark_read_folder_requested: Option<Vec<Id>>,
 
 	mute_requested: Option<(u64, Id, client_core::channel_actions::Mute)>,
+	preference_refresh_requested: Option<(u64, Id)>,
 	dialog: Option<Dialog>,
 	generation: u64,
 	invite: InviteDialog,
@@ -131,8 +132,12 @@ impl ServerMenu {
 		}
 	}
 	pub fn mute_item(&mut self, ui: &mut egui::Ui, state: &State, guild: Id) {
-		ui.add_enabled_ui(state.can_update_server_notifications(guild), |ui| {
-			if state.server_notification_settings(guild).muted == Some(true)
+		use client_core::preferences_sync::Status;
+		let muted = state.server_notification_settings(guild).muted;
+		let available = state.can_update_server_notifications(guild);
+		let status = state.channel_preference_status(guild, None);
+		ui.add_enabled_ui(available && muted.is_some(), |ui| {
+			if muted == Some(true)
 				&& menu_row(
 					ui,
 					icons::Icon::Bell,
@@ -153,6 +158,44 @@ impl ServerMenu {
 				ui.close();
 			}
 		});
+		if muted.is_none() && status != Some(Status::Saving) {
+			dialog::hint(ui, "server-notifications-unknown");
+		}
+		if !available {
+			dialog::hint(ui, "server-notifications-offline");
+		}
+		if let Some(status) = status {
+			let label = match status {
+				Status::Saving if muted.is_none() => "invites-show-loading",
+				Status::Saving => "contact-editor-show-saving",
+				Status::Failed(_) => "browse-channels-not-saved",
+				Status::Unconfirmed => "browse-channels-not-confirmed",
+				Status::Conflict => "browse-channels-changed-discord",
+			};
+			let response = ui.small(crate::i18n::translate(label));
+			if let Status::Failed(error) = status {
+				response.on_hover_text(error);
+			}
+		}
+		if (muted.is_none()
+			|| matches!(
+				status,
+				Some(Status::Failed(_) | Status::Unconfirmed | Status::Conflict)
+			)) && ui
+			.add_enabled_ui(available && status != Some(Status::Saving), |ui| {
+				menu_row(
+					ui,
+					icons::Icon::Reload,
+					"screen-body-refresh",
+					design::palette(ui).text,
+				)
+			})
+			.inner
+			.clicked()
+		{
+			self.preference_refresh_requested = Some((state.generation, guild));
+			ui.close();
+		}
 	}
 	/// Every server and direct message, from the home tile.
 	pub fn all_read_item(&mut self, ui: &mut egui::Ui, state: &State) {
@@ -387,9 +430,14 @@ impl ServerMenu {
 	) {
 		if let Some((generation, guild, mute)) = self.mute_requested.take()
 			&& generation == state.generation
-			&& let Some(command) = state.set_server_mute(guild, mute)
+			&& state.server_notification_settings(guild).muted.is_some()
 		{
-			commands.push(command);
+			commands.extend(state.set_server_mute(guild, mute));
+		}
+		if let Some((generation, guild)) = self.preference_refresh_requested.take()
+			&& generation == state.generation
+		{
+			commands.extend(state.refresh_channel_preferences(guild));
 		}
 		let Some(mut dialog) = self.dialog else {
 			return;

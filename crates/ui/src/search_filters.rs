@@ -194,14 +194,24 @@ pub fn channels(state: &State) -> Vec<&Channel> {
 	let Some(guild) = guild(state) else {
 		return Vec::new();
 	};
-	let mut channels: Vec<_> = state
-		.channels
-		.iter()
-		.filter(|channel| {
-			channel.guild == Some(guild)
-				&& channel.supports_text()
-				&& state.can_read_history(channel.id)
-		})
+	let readable = |channel: &&Channel| {
+		channel.guild == Some(guild)
+			&& channel.supports_text()
+			&& state.can_read_history(channel.id)
+	};
+	let current = state
+		.selected
+		.and_then(|id| state.channel(id))
+		.filter(readable);
+	let mut channels: Vec<_> = current
+		.into_iter()
+		.chain(
+			state
+				.channels
+				.iter()
+				.filter(|channel| Some(channel.id) != state.selected)
+				.filter(readable),
+		)
 		.take(500)
 		.collect();
 	channels.sort_by_key(|channel| (Some(channel.id) != state.selected, channel.position));
@@ -1014,6 +1024,156 @@ impl Draft {
 
 #[cfg(test)]
 mod tests {
+	fn many_channel_state() -> client_core::State {
+		let mut state = test_support::demo_state();
+		let template = state.channel(model::Id(20)).unwrap().clone();
+		state.channels = (1000..1600)
+			.map(|id| {
+				let mut channel = template.clone();
+				channel.id = model::Id(id);
+				channel.name = format!("search-{id}");
+				channel.position = (1600 - id) as i32;
+				channel
+			})
+			.collect();
+		state.selected = Some(model::Id(1599));
+		state
+			.permissions
+			.replace(test_support::permission_snapshot(&state))
+			.unwrap();
+		state
+	}
+
+	#[test]
+	fn current_search_channel_beyond_the_first_five_hundred_stays_first() {
+		let state = many_channel_state();
+		let channels = super::channels(&state);
+		assert_eq!(channels.len(), 500);
+		assert_eq!(channels[0].id, model::Id(1599));
+		assert_eq!(
+			channels
+				.iter()
+				.filter(|channel| channel.id == model::Id(1599))
+				.count(),
+			1
+		);
+		assert!(
+			channels[1..]
+				.windows(2)
+				.all(|pair| pair[0].position <= pair[1].position)
+		);
+		assert_eq!(
+			super::wire("in:search-1599", &state, &super::Labels::default()),
+			Ok("in:1599".into())
+		);
+	}
+
+	#[test]
+	fn current_search_channel_suggestions_match_the_query_and_server_scope() {
+		let mut state = many_channel_state();
+		let mut foreign = state.channels[0].clone();
+		foreign.id = model::Id(2000);
+		foreign.guild = Some(model::Id(11));
+		foreign.name = "foreign-only".into();
+		state.channels.push(foreign);
+		let mut guild = state.guilds[0].clone();
+		guild.id = model::Id(11);
+		state.guilds.push(guild);
+		state
+			.permissions
+			.replace(test_support::permission_snapshot(&state))
+			.unwrap();
+		for (query, expected, absent) in [
+			("in:search-1599", Some("search-1599"), "search-1000"),
+			("in:search-1000", Some("search-1000"), "search-1599"),
+			("in:foreign-only", None, "foreign-only"),
+		] {
+			let ctx = egui::Context::default();
+			let mut view = super::super::SearchUi {
+				channel: state.selected,
+				open: true,
+				filters_open: true,
+				query: query.into(),
+				..Default::default()
+			};
+			let mut painted = Vec::new();
+			for _ in 0..3 {
+				let output = ctx.run_ui(
+					egui::RawInput {
+						screen_rect: Some(egui::Rect::from_min_size(
+							egui::Pos2::ZERO,
+							egui::vec2(900.0, 700.0),
+						)),
+						..Default::default()
+					},
+					|ui| {
+						let mut commands = Vec::new();
+						view.header_input(ui, &mut state, &mut commands);
+						view.overlays(
+							ui.ctx(),
+							&mut state,
+							&mut crate::avatars::Avatars::default(),
+							&mut commands,
+						);
+					},
+				);
+				painted = output
+					.shapes
+					.iter()
+					.filter_map(|shape| match &shape.shape {
+						egui::Shape::Text(text) => Some(text.galley.text().to_owned()),
+						_ => None,
+					})
+					.collect::<Vec<_>>();
+				output.drop_without_applying_deltas();
+			}
+			if let Some(expected) = expected {
+				assert!(
+					painted.iter().any(|text| text == expected),
+					"{query}: {painted:?}"
+				);
+			}
+			assert!(
+				painted.iter().all(|text| text != absent),
+				"{query}: {painted:?}"
+			);
+		}
+	}
+
+	#[test]
+	fn current_search_channel_still_requires_history_and_a_server_scope() {
+		for denied in [
+			model::permissions::VIEW_CHANNEL,
+			model::permissions::READ_MESSAGE_HISTORY,
+		] {
+			let mut state = test_support::demo_state();
+			state.selected = Some(model::Id(20));
+			let mut permissions = test_support::permission_snapshot(&state);
+			permissions
+				.channels
+				.iter_mut()
+				.find(|channel| channel.id == model::Id(20))
+				.unwrap()
+				.overwrites = Some(vec![model::permissions::Overwrite {
+				id: model::Id(10),
+				kind: 0,
+				allow: 0,
+				deny: denied,
+			}]);
+			state.permissions.replace(permissions).unwrap();
+			assert!(
+				super::channels(&state)
+					.iter()
+					.all(|channel| channel.id != model::Id(20))
+			);
+		}
+		let mut state = test_support::demo_state();
+		state.selected = Some(model::Id(22));
+		assert!(super::channels(&state).is_empty());
+		state.selected = None;
+		assert!(super::channels(&state).is_empty());
+	}
+
 	#[test]
 	fn users_beyond_the_first_hundred_can_be_found_by_account_name() {
 		let mut state = test_support::demo_state();

@@ -413,9 +413,7 @@ fn preload_gifs(
 	avatars: &mut Avatars,
 	commands: &mut Vec<Command>,
 ) {
-	if !state.gifs.sync_attempted
-		&& let Some(command) = state.request_gif_favorites()
-	{
+	if let Some(command) = state.request_gif_favorites_if_needed() {
 		commands.push(command);
 	}
 	// Only from a closed picker's empty view: a failed home waits for the picker's own retry.
@@ -1134,10 +1132,7 @@ impl Picker {
 		}
 		// Remote requests happen before the popout borrows navigation state immutably.
 		let gif_mode = self.gif_mode(ui);
-		if gifs_tab
-			&& !state.gifs.sync_attempted
-			&& let Some(command) = state.request_gif_favorites()
-		{
+		if gifs_tab && let Some(command) = state.request_gif_favorites_if_needed() {
 			commands.push(command);
 		}
 		// A failed request stays failed until the user retries; never re-request every frame.
@@ -2941,21 +2936,27 @@ mod tests {
 		};
 		let mut avatars = Avatars::default();
 		let mut commands = Vec::new();
-		for _ in 0..3 {
-			ctx.run_ui(
-				egui::RawInput {
-					screen_rect: Some(egui::Rect::from_min_size(
-						egui::Pos2::ZERO,
-						egui::vec2(800.0, 800.0),
-					)),
-					..Default::default()
-				},
-				|ui| {
-					picker.show(ui, &mut state, channel, &mut avatars, &mut commands);
-				},
-			)
-			.drop_without_applying_deltas();
-		}
+		let render = |picker: &mut Picker,
+		              state: &mut State,
+		              avatars: &mut Avatars,
+		              commands: &mut Vec<Command>| {
+			for _ in 0..3 {
+				ctx.run_ui(
+					egui::RawInput {
+						screen_rect: Some(egui::Rect::from_min_size(
+							egui::Pos2::ZERO,
+							egui::vec2(800.0, 800.0),
+						)),
+						..Default::default()
+					},
+					|ui| {
+						picker.show(ui, state, channel, avatars, commands);
+					},
+				)
+				.drop_without_applying_deltas();
+			}
+		};
+		render(&mut picker, &mut state, &mut avatars, &mut commands);
 		assert!(matches!(
 			&commands[..],
 			[Command::GifFavorites { change: None, .. }]
@@ -2965,6 +2966,32 @@ mod tests {
 		assert!(state.is_gif_favorite(&video));
 		assert!(avatars.gif_texture(&ctx, &video, false).is_none());
 		assert!(avatars.take_requests().is_empty());
+
+		let Command::GifFavorites { request, .. } = &commands[0] else {
+			panic!("initial read");
+		};
+		state.apply_gif_favorites(*request, Ok(vec![video.clone()]));
+		commands.clear();
+		state.apply(client_core::Envelope {
+			generation: state.generation,
+			event: client_core::Event::GifFavoritesChanged,
+		});
+		render(&mut picker, &mut state, &mut avatars, &mut commands);
+		assert!(matches!(
+			&commands[..],
+			[Command::GifFavorites { change: None, .. }]
+		));
+		let Command::GifFavorites { request, .. } = &commands[0] else {
+			panic!("refresh read");
+		};
+		state.apply_gif_favorites(*request, Err(client_core::auth::Failure::Network));
+		commands.clear();
+		render(&mut picker, &mut state, &mut avatars, &mut commands);
+		assert!(
+			commands.is_empty(),
+			"a failed refresh waits for an explicit retry"
+		);
+		assert!(state.is_gif_favorite(&video));
 	}
 
 	#[test]
