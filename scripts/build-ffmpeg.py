@@ -771,6 +771,29 @@ def patch_ffmpeg(tree):
     return "".join(patches)
 
 
+def patch_dav1d(tree):
+    """Keep MSVC from parsing Clang's function-like header probe."""
+    relative = "include/compat/msvc/stdatomic.h"
+    path = tree / relative
+    original = path.read_bytes()
+    if hashlib.sha256(original).hexdigest() != "ea432d173d85546b732867f4ae40a34b71087fbc0d354970c3beadd9a3d5993c":
+        raise ValueError(f"Expected unpatched dav1d 1.5.1 source: {relative}")
+    before = original.decode("utf-8")
+    after = before.replace(
+        "#if defined(__clang__) && __has_include_next(<stdatomic.h>)\n",
+        "#if defined(__clang__)\n"
+        "# if __has_include_next(<stdatomic.h>)\n"
+        "#  define SEREIN_DAV1D_CLANG_STDATOMIC\n"
+        "# endif\n"
+        "#endif\n"
+        "\n"
+        "#ifdef SEREIN_DAV1D_CLANG_STDATOMIC\n"
+        "# undef SEREIN_DAV1D_CLANG_STDATOMIC\n")
+    path.write_bytes(after.encode("utf-8"))
+    return "".join(difflib.unified_diff(before.splitlines(keepends=True), after.splitlines(keepends=True),
+                                      fromfile="a/" + relative, tofile="b/" + relative))
+
+
 def patch_openh264(tree):
     """Isolate the Linux encoder from host GStreamer's incompatible OpenH264 ABI."""
     patches = []
@@ -828,7 +851,7 @@ def validate_completed_build(prefix, system, backends):
             required += [f"lib/lib{name}-serein.dylib", f"lib/lib{name}-serein.{version}.dylib"]
         else:
             required += [f"bin/{name}-serein-{version}.dll", f"lib/{name}-serein.lib"]
-    provenance = ["build-ffmpeg.py", "configure.json", "serein-ffmpeg.patch", "COPYING.LGPLv2.1", "COPYING.GPLv2", "OpenH264-LICENSE",
+    provenance = ["build-ffmpeg.py", "configure.json", "serein-ffmpeg.patch", "serein-dav1d.patch", "COPYING.LGPLv2.1", "COPYING.GPLv2", "OpenH264-LICENSE",
                   "source/ffmpeg-7.1.5.tar.xz", "source/openh264-2.6.0-source.tar.bz2", "source/dav1d-1.5.1.tar.xz", "dav1d-COPYING"]
     if system == "Linux":
         provenance.append("serein-openh264.patch")
@@ -900,6 +923,7 @@ def build(args):
     # Keep host GStreamer's FFmpeg in its own ELF symbol namespace. A distinct
     # SONAME alone cannot prevent LIBAVCODEC_61/LIBAVUTIL_59 interposition.
     source_patch = patch_ffmpeg(trees["ffmpeg"])
+    dav1d_patch = patch_dav1d(trees["dav1d"])
     openh264_patch = patch_openh264(trees["openh264-source"]) if system == "Linux" else None
     env = dict(os.environ)
     shell = configure_shell(system, env)
@@ -1066,6 +1090,7 @@ def build(args):
     shutil.copyfile(Path(__file__), notices / "build-ffmpeg.py")
     (notices / "configure.json").write_text(json.dumps(configure, indent=2) + "\n")
     (notices / "serein-ffmpeg.patch").write_text(source_patch)
+    (notices / "serein-dav1d.patch").write_text(dav1d_patch)
     if openh264_patch is not None:
         (notices / "serein-openh264.patch").write_text(openh264_patch)
     shutil.copyfile(trees["ffmpeg"] / "COPYING.LGPLv2.1", notices / "COPYING.LGPLv2.1")

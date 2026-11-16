@@ -106,7 +106,7 @@ class NativePackageTest(unittest.TestCase):
             (staged / "ffmpeg-source/camera-filter").mkdir()
             for name in ("denoise.rs", "gpu.rs", "camera_filter.wgsl"):
                 (staged / "ffmpeg-source/camera-filter" / name).write_text("synthetic camera filter source\n")
-            for name in ("build.json", "configure.json", "build-ffmpeg.py", "serein-ffmpeg.patch", "serein-openh264.patch", "COPYING.LGPLv2.1", "COPYING.GPLv2", "OpenH264-LICENSE", "dav1d-COPYING", "source/dav1d-1.5.1.tar.xz",
+            for name in ("build.json", "configure.json", "build-ffmpeg.py", "serein-ffmpeg.patch", "serein-dav1d.patch", "serein-openh264.patch", "COPYING.LGPLv2.1", "COPYING.GPLv2", "OpenH264-LICENSE", "dav1d-COPYING", "source/dav1d-1.5.1.tar.xz",
                          "nv-codec-headers-README", "source/ffmpeg-7.1.5.tar.xz", "source/openh264-2.6.0-source.tar.bz2",
                          "source/nv-codec-headers-12.2.72.0.tar.gz", "AMF-LICENSE", "source/AMF-1.4.36-headers.tar",
                          "oneVPL-LICENSE", "oneVPL-third-party-programs.txt", "source/libvpl-2.14.0.tar.gz"):
@@ -167,6 +167,7 @@ class NativePackageTest(unittest.TestCase):
                         shutil.copyfile(artifact, ARTIFACTS / artifact.name)
                 if FORMAT == "dir":
                     listing = "\n".join(packaging.payload_files(staged / "linux-root"))
+                    self.assertIn("ffmpeg-source/serein-dav1d.patch", listing)
                     self.assertEqual(
                         (staged / "linux-root/usr/share/doc/serein/licenses/notification-sounds.md").read_bytes(),
                         (staged / "licenses/notification-sounds.md").read_bytes())

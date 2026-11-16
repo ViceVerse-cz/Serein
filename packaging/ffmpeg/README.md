@@ -118,7 +118,11 @@ Packages contain replaceable shared libraries and the complete corresponding
 FFmpeg source archive, GPL and LGPL texts, build recipe, source hashes, source patch and configure
 arguments in `ffmpeg-source` (Linux: `share/doc/serein/ffmpeg-source`). The
 FFmpeg-derived GPU camera filter source is included in `ffmpeg-source/camera-filter`.
-dav1d 1.5.1 is statically linked with its unmodified BSD-2-Clause notice and full source archive.
+dav1d 1.5.1 is statically linked with its unmodified BSD-2-Clause notice, full source archive
+and `serein-dav1d.patch`. The recipe patches its MSVC atomic header on every platform:
+only Clang probes for a following `stdatomic.h`, preserving clang-cl's header and MSVC's
+existing fallback. This avoids MSVC's undefined function-like macro error without changing
+the atomic implementations or dependency version.
 OpenH264
 and NVENC headers retain their BSD/MIT notices. AMF 1.4.36 public headers retain
 AMD's MIT license and standards/patent notice. Intel oneVPL 2.14.0's MIT license,

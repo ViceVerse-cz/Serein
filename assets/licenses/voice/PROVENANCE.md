@@ -38,7 +38,10 @@ That notice applies to that header; the complete NVENC headers archive is also
 bundled on NVENC builds to retain every header's own notice and copyright.
 `dav1d-LICENSE.txt` is copied unmodified from the archive's `COPYING`; SHA-256
 `b327887de263238deaa80c34cdd2ff3e0ba1d35db585ce14a37ce3e74ee389e9`.
-Packages also retain that notice and the complete dav1d source archive.
+Packages also retain that notice, the complete dav1d source archive and
+`ffmpeg-source/serein-dav1d.patch`. The build recipe applies the patch on every
+platform to guard Clang's `stdatomic.h` probe from MSVC's preprocessor;
+the existing atomic implementations and dependency version remain unchanged.
 All five FFmpeg version scripts use Serein's private ELF symbol namespaces;
 the library names have a `-serein` suffix. The source changes are preserved in
 `ffmpeg-source/serein-ffmpeg.patch` beside the pristine source archive and are

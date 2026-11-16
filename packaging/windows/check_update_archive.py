@@ -26,6 +26,7 @@ REQUIRED_FILES = (
     "ffmpeg-source/configure.json",
     "ffmpeg-source/build-ffmpeg.py",
     "ffmpeg-source/serein-ffmpeg.patch",
+    "ffmpeg-source/serein-dav1d.patch",
     "ffmpeg-source/COPYING.LGPLv2.1",
     "ffmpeg-source/COPYING.GPLv2",
     "ffmpeg-source/camera-filter/denoise.rs",

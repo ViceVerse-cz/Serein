@@ -8,6 +8,7 @@ import io
 import mmap
 import os
 import re
+import shutil
 from pathlib import Path
 import tempfile
 import subprocess
@@ -36,6 +37,13 @@ def native_codec(prefix, system, mode=ctypes.DEFAULT_MODE):
 
 class BundleTest(unittest.TestCase):
     @staticmethod
+    def dav1d_header(root):
+        path = root / "include/compat/msvc/stdatomic.h"
+        path.parent.mkdir(parents=True)
+        path.write_bytes((Path(__file__).parent / "fixtures/dav1d-1.5.1-stdatomic.h").read_bytes())
+        return path
+
+    @staticmethod
     def darwin_prefix(root):
         prefix = root / "prefix"
         libraries = prefix / "lib"
@@ -49,7 +57,7 @@ class BundleTest(unittest.TestCase):
             "license": "GPL-2.0-or-later", "filters": ["atadenoise", "hqdn3d", "unsharp"],
             "sources": {"ffmpeg": builder.SOURCES["ffmpeg"]},
         }))
-        for name in ("configure.json", "build-ffmpeg.py", "serein-ffmpeg.patch", "COPYING.LGPLv2.1", "COPYING.GPLv2",
+        for name in ("configure.json", "build-ffmpeg.py", "serein-ffmpeg.patch", "serein-dav1d.patch", "COPYING.LGPLv2.1", "COPYING.GPLv2",
                      "OpenH264-LICENSE", "dav1d-COPYING", "source/dav1d-1.5.1.tar.xz", "source/ffmpeg-7.1.5.tar.xz", "source/openh264-2.6.0-source.tar.bz2"):
             (provenance / name).write_bytes(b"synthetic source/notice")
         return prefix
@@ -66,6 +74,22 @@ class BundleTest(unittest.TestCase):
                 stage = root / "dist"
                 with patch.object(bundle.platform, "system", return_value="Darwin"):
                     with self.assertRaisesRegex(ValueError, "webcam filters"):
+                        bundle.bundle(stage, prefix)
+                self.assertFalse(stage.exists())
+
+    def test_bundle_rejects_missing_or_empty_dav1d_patch_before_staging(self):
+        for empty in (False, True):
+            with self.subTest(empty=empty), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                prefix = self.darwin_prefix(root)
+                source_patch = prefix / "share/serein-ffmpeg/serein-dav1d.patch"
+                if empty:
+                    source_patch.write_bytes(b"")
+                else:
+                    source_patch.unlink()
+                stage = root / "dist"
+                with patch.object(bundle.platform, "system", return_value="Darwin"):
+                    with self.assertRaisesRegex(ValueError, "dav1d source patch"):
                         bundle.bundle(stage, prefix)
                 self.assertFalse(stage.exists())
 
@@ -146,7 +170,7 @@ class BundleTest(unittest.TestCase):
     def test_cached_build_requires_platform_artifacts_and_source_payload(self):
         headers = ("libavcodec/avcodec.h", "libavutil/avutil.h", "libavutil/error.h", "libavutil/frame.h",
                    "libavutil/hwcontext.h", "libavutil/mem.h", "libavutil/opt.h", "libavformat/avformat.h", "libavfilter/avfilter.h", "libavfilter/buffersrc.h", "libavfilter/buffersink.h", "libswscale/swscale.h", "libswresample/swresample.h")
-        provenance = ("build-ffmpeg.py", "configure.json", "serein-ffmpeg.patch", "COPYING.LGPLv2.1", "COPYING.GPLv2", "OpenH264-LICENSE", "dav1d-COPYING", "source/dav1d-1.5.1.tar.xz",
+        provenance = ("build-ffmpeg.py", "configure.json", "serein-ffmpeg.patch", "serein-dav1d.patch", "COPYING.LGPLv2.1", "COPYING.GPLv2", "OpenH264-LICENSE", "dav1d-COPYING", "source/dav1d-1.5.1.tar.xz",
                       "source/ffmpeg-7.1.5.tar.xz", "source/openh264-2.6.0-source.tar.bz2", "source/dav1d-1.5.1.tar.xz", "dav1d-COPYING",
                       "nv-codec-headers-README", "source/nv-codec-headers-12.2.72.0.tar.gz", "AMF-LICENSE",
                       "source/AMF-1.4.36-headers.tar", "oneVPL-LICENSE", "oneVPL-third-party-programs.txt",
@@ -210,6 +234,7 @@ class BundleTest(unittest.TestCase):
                                     builder.build(args)
                     for name in ["include/libavcodec/avcodec.h", libraries[0], aliases[0],
                                  "share/serein-ffmpeg/COPYING.GPLv2",
+                                 "share/serein-ffmpeg/serein-dav1d.patch",
                                  "share/serein-ffmpeg/source/ffmpeg-7.1.5.tar.xz", *query_files, *vulkan_provenance]:
                         target = prefix / name
                         original = target.read_bytes()
@@ -230,6 +255,83 @@ class BundleTest(unittest.TestCase):
                             builder.build(args)
                     fetch.assert_not_called()
                     run.assert_not_called()
+
+    def test_dav1d_patch_is_deterministic_and_rejects_source_drift(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            header = self.dav1d_header(root / "first")
+            original = header.read_bytes()
+            source_patch = builder.patch_dav1d(root / "first")
+            self.dav1d_header(root / "second")
+            self.assertEqual(builder.patch_dav1d(root / "second"), source_patch)
+            self.assertIn("--- a/include/compat/msvc/stdatomic.h\n", source_patch)
+            self.assertIn("+++ b/include/compat/msvc/stdatomic.h\n", source_patch)
+            for contents in (header.read_bytes(), original + b"\n", original.replace(b"4067", b"4068")):
+                with self.subTest(contents=hashlib.sha256(contents).hexdigest()):
+                    header.write_bytes(contents)
+                    with self.assertRaisesRegex(ValueError, "unpatched dav1d 1.5.1"):
+                        builder.patch_dav1d(root / "first")
+                    self.assertEqual(header.read_bytes(), contents)
+
+    def test_dav1d_msvc_fallback_preprocesses_without_clang_header_probe(self):
+        compiler = shutil.which("cl" if os.name == "nt" else "cc")
+        if not compiler:
+            self.skipTest("Requires a C preprocessor")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            header = self.dav1d_header(root / "dav1d")
+            stubs = root / "stubs"
+            (stubs / "common").mkdir(parents=True)
+            (stubs / "windows.h").write_text("#define SEREIN_TEST_MSVC_FALLBACK 1\n")
+            (stubs / "common/attributes.h").write_text("")
+            probe = root / "probe.c"
+            probe.write_text(
+                "#undef __clang__\n#undef __has_include_next\n#define _MSC_VER 1944\n"
+                "#include <stdatomic.h>\n"
+                "#if !defined(SEREIN_TEST_MSVC_FALLBACK) || !defined(atomic_init)\n"
+                "#error MSVC atomic fallback was not selected\n#endif\n"
+                "#ifdef SEREIN_DAV1D_CLANG_STDATOMIC\n#error Private probe macro leaked\n#endif\n")
+            command = ([compiler, "/nologo", "/EP", "/TC", "/I" + str(header.parent), "/I" + str(stubs)]
+                       if os.name == "nt" else
+                       [compiler, "-E", "-x", "c", "-I" + str(header.parent), "-I" + str(stubs)]) + [str(probe)]
+            unpatched = subprocess.run(command, capture_output=True, text=True)
+            if os.name != "nt":
+                self.assertNotEqual(unpatched.returncode, 0, "Unpatched guard must reproduce the undefined probe failure")
+            builder.patch_dav1d(root / "dav1d")
+            patched = subprocess.run(command, capture_output=True, text=True)
+            self.assertEqual(patched.returncode, 0, patched.stdout + patched.stderr)
+
+    @unittest.skipUnless(os.name == "posix", "Requires include_next support from a Unix C preprocessor")
+    def test_dav1d_clang_header_branch_keeps_include_next_and_missing_header_fallback(self):
+        compiler = shutil.which("cc")
+        if not compiler:
+            self.skipTest("Requires a C preprocessor")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            header = self.dav1d_header(root / "dav1d")
+            builder.patch_dav1d(root / "dav1d")
+            following = root / "following"
+            (following / "common").mkdir(parents=True)
+            (following / "common/attributes.h").write_text("")
+            (following / "windows.h").write_text("#define SEREIN_TEST_MSVC_FALLBACK 1\n")
+            for available in (True, False):
+                with self.subTest(available=available):
+                    next_header = following / "stdatomic.h"
+                    if available:
+                        next_header.write_text("#define SEREIN_TEST_CLANG_HEADER 1\n")
+                    else:
+                        next_header.unlink()
+                    probe = root / "probe.c"
+                    probe.write_text(
+                        "#define __clang__ 1\n#define _MSC_VER 1944\n#include <stdatomic.h>\n"
+                        f"#if defined(SEREIN_TEST_CLANG_HEADER) != {int(available)}\n"
+                        "#error Wrong clang header branch\n#endif\n"
+                        f"#if defined(SEREIN_TEST_MSVC_FALLBACK) != {int(not available)}\n"
+                        "#error Wrong MSVC fallback branch\n#endif\n"
+                        "#ifdef SEREIN_DAV1D_CLANG_STDATOMIC\n#error Private probe macro leaked\n#endif\n")
+                    result = subprocess.run([compiler, "-E", "-x", "c", "-nostdinc", "-I" + str(header.parent),
+                                             "-I" + str(following), str(probe)], capture_output=True, text=True)
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_openh264_subset_preserves_build_scripts_and_android_resources(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -457,6 +559,8 @@ class BundleTest(unittest.TestCase):
                 def unpack(archive, destination):
                     destination.mkdir(parents=True)
                     (destination / "AMF").mkdir()
+                    if destination.name == "dav1d":
+                        self.dav1d_header(destination)
                     if destination.name == "vulkan-headers":
                         (destination / "include/vulkan").mkdir(parents=True)
                         (destination / "include/vulkan/vulkan.h").write_text("synthetic Vulkan header")
@@ -523,6 +627,8 @@ class BundleTest(unittest.TestCase):
                 def unpack(archive, destination):
                     destination.mkdir(parents=True)
                     (destination / "AMF").mkdir()
+                    if destination.name == "dav1d":
+                        self.dav1d_header(destination)
                     return destination
 
                 def run(*arguments, **kwargs):
@@ -685,7 +791,7 @@ class BundleTest(unittest.TestCase):
                 (notices / "build.json").write_text(json.dumps({"system": system, "nvenc": nvenc, "amf": nvenc, "qsv": nvenc,
                     "license": "GPL-2.0-or-later", "filters": ["atadenoise", "hqdn3d", "unsharp"],
                     "sources": {"ffmpeg": builder.SOURCES["ffmpeg"]}}))
-                for name in ("configure.json", "build-ffmpeg.py", "serein-ffmpeg.patch", "COPYING.LGPLv2.1", "COPYING.GPLv2", "OpenH264-LICENSE", "dav1d-COPYING", "source/dav1d-1.5.1.tar.xz",
+                for name in ("configure.json", "build-ffmpeg.py", "serein-ffmpeg.patch", "serein-dav1d.patch", "COPYING.LGPLv2.1", "COPYING.GPLv2", "OpenH264-LICENSE", "dav1d-COPYING", "source/dav1d-1.5.1.tar.xz",
                              "source/ffmpeg-7.1.5.tar.xz", "source/openh264-2.6.0-source.tar.bz2", "source/dav1d-1.5.1.tar.xz", "dav1d-COPYING", "nv-codec-headers-README",
                              "source/nv-codec-headers-12.2.72.0.tar.gz", "AMF-LICENSE", "source/AMF-1.4.36-headers.tar",
                              "oneVPL-LICENSE", "oneVPL-third-party-programs.txt", "source/libvpl-2.14.0.tar.gz"):
@@ -706,6 +812,7 @@ class BundleTest(unittest.TestCase):
                 self.assertTrue(set(bundle.LIBRARIES[system]).issubset(names))
                 self.assertIn("ffmpeg-7.1.5.tar.xz", names)
                 self.assertIn("COPYING.GPLv2", names)
+                self.assertIn("serein-dav1d.patch", names)
                 camera_source = next(path for path in stage.rglob("camera-filter") if path.is_dir())
                 self.assertEqual((camera_source / "camera_filter.wgsl").read_bytes(),
                                  (Path(__file__).resolve().parents[2] / "crates/platform/src/video/denoise/camera_filter.wgsl").read_bytes())

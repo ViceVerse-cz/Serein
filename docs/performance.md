@@ -4721,6 +4721,14 @@ packages. Dependency versions are unchanged. The UI does not enable the
 wikilink option involved in the two pulldown-cmark advisories; that does not
 make the dependency audit pass. Current-head native CI is tracked in the PR.
 
+The first bug-hunt CI run exposed a separate Windows ARM64 build failure with
+MSVC 14.52: dav1d 1.5.1's compiler guard parsed Clang's unsupported
+`__has_include_next` operator. The follow-up nests that guard without changing
+the decoder version or atomic implementations, and packages the corresponding
+source patch. Compiler-preprocessor and package-provenance regressions pass;
+native rebuild and CI results are recorded in the PR. Core runtime measurements
+above remain applicable because this follow-up changes no Rust application code.
+
 The baseline Linux package was recovered from GitHub artifact `13620342254`
 (run above, source `76d038ad`), not from an unverified local executable. Its
 executable is 100,095,064 bytes and its installed DEB payload is 229,958,269

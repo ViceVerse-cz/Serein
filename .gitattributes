@@ -1,2 +1,4 @@
 # Release packages are hash-addressed artifacts; never rewrite their line endings.
 *.serein-extension -text
+# The dav1d patch regression verifies the pristine upstream header's exact bytes.
+packaging/ffmpeg/fixtures/dav1d-1.5.1-stdatomic.h -text

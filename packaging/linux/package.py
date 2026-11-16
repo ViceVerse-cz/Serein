@@ -65,7 +65,7 @@ def stage_payload(root, stage, prefix="usr"):
                  "build.json", "ONNXRuntime-LICENSE", "ONNXRuntime-ThirdPartyNotices.txt",
                  "eigen-1d8b82b0740839c0de7f1242a3585e3390ff5f33.zip"):
         copy(root / "voice-enhancement" / name, stage / prefix / "lib/serein/voice-enhancement" / name)
-    for name in ("build.json", "configure.json", "build-ffmpeg.py", "serein-ffmpeg.patch", "serein-openh264.patch", "COPYING.LGPLv2.1", "COPYING.GPLv2", "OpenH264-LICENSE", "dav1d-COPYING"):
+    for name in ("build.json", "configure.json", "build-ffmpeg.py", "serein-ffmpeg.patch", "serein-dav1d.patch", "serein-openh264.patch", "COPYING.LGPLv2.1", "COPYING.GPLv2", "OpenH264-LICENSE", "dav1d-COPYING"):
         copy(root / "ffmpeg-source" / name, doc / "ffmpeg-source" / name)
     copy(root / "ffmpeg-source/camera-filter", doc / "ffmpeg-source/camera-filter")
     copy(root / "ffmpeg-source/source/ffmpeg-7.1.5.tar.xz", doc / "ffmpeg-source/source/ffmpeg-7.1.5.tar.xz")
