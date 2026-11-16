@@ -262,6 +262,9 @@ impl State {
 				}
 			}
 		};
+		// Entries the user asked to change are sent even when their value is unchanged, so a
+		// rebase onto another session's newer row can't drop the request.
+		let mut requested = Vec::new();
 		let flags = match change {
 			Change::ShowAll(true) => (current & !OPT_IN_CHANNELS_ON) | OPT_IN_CHANNELS_OFF,
 			Change::ShowAll(false) => {
@@ -272,6 +275,7 @@ impl State {
 			}
 			Change::List { channel, listed } => {
 				let target = self.channel(channel).filter(|c| listable(c))?;
+				requested.push(target.id);
 				if !opt_in && fresh {
 					seed(&mut changed);
 				}
@@ -284,6 +288,7 @@ impl State {
 							.filter(listable)
 							.filter(|c| c.parent_id == Some(target.id))
 						{
+							requested.push(child.id);
 							set(&mut changed, child.id, false);
 						}
 					}
@@ -309,7 +314,7 @@ impl State {
 		};
 		let channels: Vec<_> = changed
 			.into_iter()
-			.filter(|(id, value)| *value != flags_of(*id))
+			.filter(|(id, value)| *value != flags_of(*id) || requested.contains(id))
 			.collect();
 		// Adding or removing a channel only means something in opt-in mode, so it always carries
 		// that mode; another session turning Show All Channels on before dispatch can't leave the
@@ -562,11 +567,13 @@ mod tests {
 			},
 		);
 		assert_eq!(sent.flags, Some(OPT_IN_CHANNELS_ON));
-		// Category 1 is split into its remaining channel; category 4 stays followed.
+		// Category 1 is split into its remaining channel; category 4 stays followed. The removed
+		// channel's own zero is sent too.
 		assert_eq!(
 			sent.channels,
 			[
 				(Id(2), OPT_IN_ENABLED),
+				(Id(3), 0),
 				(Id(4), OPT_IN_ENABLED),
 				(Id(5), OPT_IN_ENABLED)
 			]
@@ -762,6 +769,37 @@ mod tests {
 		);
 		assert_eq!(listed(&state), [3]);
 		assert!(!state.channel_followed(state.channel(Id(3)).unwrap()));
+		// Removing a channel listed through its followed category still sends its own zero,
+		// so another session following it before dispatch can't keep it listed.
+		let mut state = self::state(OPT_IN_CHANNELS_ON, vec![(Id(1), OPT_IN_ENABLED)]);
+		let Some(Command::ChannelList { write, latest, .. }) = state.change_channel_list(
+			Id(100),
+			Change::List {
+				channel: Id(2),
+				listed: false,
+			},
+		) else {
+			panic!()
+		};
+		assert_eq!(
+			write.channels,
+			[(Id(1), 0), (Id(2), 0), (Id(3), OPT_IN_ENABLED)]
+		);
+		state
+			.apply_notification_preferences(notifications::Event::Settings {
+				entries: vec![notifications::Setting {
+					overrides_known: true,
+					guild: Some(Id(100)),
+					channels: vec![(Id(1), None, None), (Id(2), None, None)],
+					flags: Some(OPT_IN_CHANNELS_ON),
+					channel_flags: vec![(Id(1), OPT_IN_ENABLED), (Id(2), OPT_IN_ENABLED)],
+					..Default::default()
+				}],
+				replace: false,
+			})
+			.unwrap();
+		let sent = write.rebase(latest.lock().unwrap().as_ref().unwrap());
+		assert!(sent.channels.contains(&(Id(2), 0)));
 	}
 
 	#[test]
