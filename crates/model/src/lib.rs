@@ -94,11 +94,13 @@ impl SilentTyping {
 	}
 
 	pub fn locations_text(&self) -> String {
+		// Join without spaces: the formatter must produce text the same parser accepts, so a
+		// list that fits the byte limit cannot grow past it and get rejected on the next edit.
 		self.locations
 			.iter()
 			.map(Id::to_string)
 			.collect::<Vec<_>>()
-			.join(", ")
+			.join(",")
 	}
 }
 #[cfg(test)]
@@ -115,7 +117,7 @@ mod silent_typing_tests {
 		assert!(quiet.set_locations_text("10, 20\n30"));
 		assert!(quiet.allows(Id(10), Some(Id(20))) && quiet.allows(Id(30), None));
 		assert!(!quiet.allows(Id(11), Some(Id(22))));
-		assert_eq!(quiet.locations_text(), "10, 20, 30");
+		assert_eq!(quiet.locations_text(), "10,20,30");
 		// Invalid, duplicate or oversized edits keep the previous list.
 		let oversized = "1,".repeat(SilentTyping::MAX_LOCATIONS);
 		for text in ["10, nope", "10, 10", "0", oversized.as_str()] {
@@ -127,6 +129,34 @@ mod silent_typing_tests {
 		assert!(!quiet.allows(Id(11), Some(Id(20))));
 		quiet.enabled = false;
 		assert!(quiet.allows(Id(10), Some(Id(20))));
+	}
+
+	/// The editor shows `locations_text`, so formatting the largest accepted edit must still
+	/// parse back or every later keystroke is silently rejected.
+	#[test]
+	fn formatted_locations_stay_within_the_accepted_limit() {
+		let mut quiet = SilentTyping::default();
+		// 18-digit IDs are the longest realistic values; fill to the byte ceiling.
+		let mut text = String::new();
+		let mut next = 100_000_000_000_000_000u64;
+		while text.len() + 19 <= SilentTyping::MAX_LOCATIONS_TEXT {
+			if !text.is_empty() {
+				text.push(',');
+			}
+			text.push_str(&next.to_string());
+			next += 1;
+		}
+		assert!(quiet.set_locations_text(&text));
+		assert!(quiet.locations.len() > 40, "a wide list is exercised");
+		let formatted = quiet.locations_text();
+		assert!(
+			formatted.len() <= SilentTyping::MAX_LOCATIONS_TEXT,
+			"formatted {} bytes exceed the parser limit",
+			formatted.len()
+		);
+		let mut restored = SilentTyping::default();
+		assert!(restored.set_locations_text(&formatted));
+		assert_eq!(restored.locations, quiet.locations);
 	}
 }
 pub use cache_preferences::*;

@@ -1743,6 +1743,15 @@ fn a_friend_nickname_can_precede_a_server_nickname_without_rewriting_webhooks() 
 	assert_eq!(state.message_author_name(&message), "Private name");
 	message.author.webhook = true;
 	assert_eq!(state.message_author_name(&message), "Synthetic friend");
+	message.author.webhook = false;
+
+	// A later friend snapshot that omits this user ends the friendship, so the private
+	// nickname must stop applying instead of outliving it.
+	state
+		.apply_user_action(crate::user_actions::Event::Friends(Some(Vec::new())))
+		.unwrap();
+	assert_eq!(state.friend_nickname(message.author.id), None);
+	assert_eq!(state.message_author_name(&message), "Server nick");
 }
 
 #[test]

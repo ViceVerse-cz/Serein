@@ -718,6 +718,17 @@ impl State {
 				}
 			}
 			self.user_actions.friends_known = true;
+			// A snapshot is authoritative for who is a friend, so a private nickname or a
+			// friendship start only survives while the friendship does: drop entries for
+			// users it no longer lists.
+			let Actions {
+				friends,
+				nicknames,
+				friends_since,
+				..
+			} = &mut self.user_actions;
+			nicknames.retain(|user, _| friends.contains_key(user));
+			friends_since.retain(|user, _| friends.contains_key(user));
 		}
 		Ok(())
 	}
