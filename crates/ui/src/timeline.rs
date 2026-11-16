@@ -5222,6 +5222,8 @@ impl TimelineView {
 				.is_some_and(|response| response.is_pointer_button_down_on());
 		let dragged_up = dragged && timeline_scrolled_up;
 		let dragged_down = dragged && output.state.clamped_offset().y > before_offset + 0.001;
+		// A drag that stops short of the bottom picks a place, whichever way it went.
+		let dragged_away = dragged_up || (dragged_down && !at_bottom);
 		// Layout corrections also move the offset up while a jump settles. Only a wheel
 		// the timeline received, autoscroll, a scrollbar or content drag, or a selection
 		// scroll that actually moved up counts as leaving it.
@@ -5240,21 +5242,21 @@ impl TimelineView {
 			&& user_scroll == 0.0
 			&& !dragged
 			&& crate::select::has_selection(ui.ctx());
-		if user_scrolled_up || dragged_up || selection_scrolled_up {
+		if user_scrolled_up || dragged_away || selection_scrolled_up {
 			self.left_live_edge = true;
 		}
-		if dragged_up {
+		if dragged_away {
 			// A glide in flight would pull the reader back down from the dragged place. A
 			// wheel cancels it above. Layout corrections during a glide can look like a
 			// selection scroll, so that does not cancel it.
 			self.present_scroll = None;
 		}
-		if scrolled_toward_bottom || dragged_down {
+		if (scrolled_toward_bottom && !dragged_away) || (dragged_down && at_bottom) {
 			self.left_live_edge = false;
 		}
 		self.following = !self.target_browsing
 			&& (whole_conversation_visible
-				|| (was_following && !user_scrolled_up && !dragged_up && !selection_scrolled_up)
+				|| (was_following && !user_scrolled_up && !dragged_away && !selection_scrolled_up)
 				|| self.present_scroll.is_some()
 				|| (at_bottom && !self.left_live_edge));
 		// A Present glide follows before it arrives. Messages below it are not seen until it
@@ -10033,6 +10035,49 @@ mod tests {
 		assert!(
 			(idle - pressed).abs() < 1.0,
 			"the glide pulled the reader back: {idle} vs {pressed}"
+		);
+		// Pressing the track below the thumb but short of the bottom picks a place too.
+		let release = |pos| {
+			vec![egui::Event::PointerButton {
+				pos,
+				button: egui::PointerButton::Primary,
+				pressed: false,
+				modifiers: egui::Modifiers::NONE,
+			}]
+		};
+		frame(&mut view, &mut state, release(track));
+		view.left_live_edge = false;
+		view.present_scroll = Some((view.scroll_offset, 0.0));
+		let glide_top = frame(&mut view, &mut state, vec![]);
+		assert!(view.present_scroll.is_some() && view.following);
+		let below_thumb = egui::pos2(895.0, 380.0);
+		let dropped = frame(
+			&mut view,
+			&mut state,
+			vec![
+				egui::Event::PointerMoved(below_thumb),
+				egui::Event::PointerButton {
+					pos: below_thumb,
+					button: egui::PointerButton::Primary,
+					pressed: true,
+					modifiers: egui::Modifiers::NONE,
+				},
+			],
+		);
+		let released = frame(&mut view, &mut state, release(below_thumb));
+		assert!(
+			dropped > glide_top && released < live_edge - 200.0,
+			"the press should land between {glide_top} and {live_edge}, at {released}"
+		);
+		assert!(!view.following && view.present_scroll.is_none());
+		// egui may finish its own track-click motion; the glide must not carry the view on.
+		let mut settled = released;
+		for _ in 0..30 {
+			settled = frame(&mut view, &mut state, vec![]);
+		}
+		assert!(
+			!view.following && (settled - released).abs() < 50.0,
+			"the glide pulled the reader on: {settled} vs {released}"
 		);
 		// An uninterrupted glide crosses rows it has not measured yet. Measuring them must not
 		// turn the rest of the glide into a jump, and it reads the latest message on arrival.
