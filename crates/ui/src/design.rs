@@ -1892,6 +1892,21 @@ pub fn presence_dot(ui: &egui::Ui, rect: egui::Rect, status: &str, ring: Color32
 	crate::profiles::paint_status(ui.painter(), center, radius, status, false, (ring, 2.0));
 }
 
+/// Role mentions paint the role color at this alpha. The text sits on that tint
+/// composited over the panel, not on the panel alone.
+const ROLE_MENTION_ALPHA: u8 = 38;
+
+/// Translucent role-mention fill, and the opaque color that fill paints over `panel`.
+pub(crate) fn role_mention_fill(rgb: u32, panel: Color32) -> (Color32, Color32) {
+	let tint = Color32::from_rgba_unmultiplied(
+		(rgb >> 16) as u8,
+		(rgb >> 8) as u8,
+		rgb as u8,
+		ROLE_MENTION_ALPHA,
+	);
+	(tint, panel.blend(tint))
+}
+
 /// Keep the role hue. Lighten or darken along that hue until the name clears WCAG AA
 /// on `background`. Desaturate only when the extreme value still fails.
 pub fn role_name_color(rgb: u32, background: Color32, fallback: Color32) -> Color32 {
@@ -2021,6 +2036,23 @@ mod tests {
 		assert!(darkened.v < pink.v);
 		assert!(darkened.s + 0.08 >= pink.s);
 		assert!(hue_delta(darkened.h, pink.h) < 0.03);
+	}
+
+	#[test]
+	fn role_mention_text_needs_the_composited_pill() {
+		let panel = Color32::from_rgb(0x18, 0x18, 0x1b);
+		let fallback = Color32::from_rgb(0xBC, 0xD9, 0xFF);
+		let rgb = 0x00BD_202A;
+		let (tint, surface) = role_mention_fill(rgb, panel);
+		assert!(tint.a() < 255);
+		assert_ne!(surface, panel);
+		let on_pill = role_name_color(rgb, surface, fallback);
+		let on_panel = role_name_color(rgb, panel, fallback);
+		assert!(super::contrast(on_pill, surface) >= 4.5);
+		assert!(
+			super::contrast(on_panel, surface) < 4.5,
+			"checking the bare panel already cleared the pill"
+		);
 	}
 
 	#[test]

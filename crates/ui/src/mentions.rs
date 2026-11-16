@@ -2560,8 +2560,8 @@ pub fn debug_role_mentions_check(state: &mut State) {
 		let mut role_color = egui::Color32::TRANSPARENT;
 		let output = ctx.run_ui(Default::default(), |ui| {
 			let colors = crate::design::palette(ui);
-			role_color =
-				crate::design::role_name_color(0xe67e22, colors.mention_bg, colors.mention_text);
+			let (_, surface) = crate::design::role_mention_fill(0xe67e22, ui.visuals().panel_fill);
+			role_color = crate::design::role_name_color(0xe67e22, surface, colors.mention_text);
 			assert_ne!(role_color, colors.mention_text);
 			let roles = known_roles(state, channel);
 			let mut preview = egui::text::LayoutJob::default();
