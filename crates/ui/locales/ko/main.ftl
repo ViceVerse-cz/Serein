@@ -425,6 +425,15 @@ message-request-title = 메시지 요청
 ## crates/ui/src/channel_menu.rs
 # Context: context
 channel-menu-context-add-to-favorites = 즐겨찾기에 추가
+channel-menu-context-remove-from-channel-list = 채널 목록에서 제거
+channel-menu-context-add-to-channel-list = 채널 목록에 추가
+channel-browser-title = 채널 둘러보기
+channel-browser-subtitle = 채널 목록에 표시할 채널을 선택하세요.
+channel-browser-show-all-channels = 모든 채널 보기
+channel-browser-search = 채널 검색
+channel-browser-follow-category = 카테고리 팔로우
+channel-browser-saving = 저장 중…
+channel-browser-unavailable = 지금은 채널 목록 설정을 사용할 수 없어요.
 # Context: context
 channel-menu-context-copy-channel-id = 채널 ID 복사
 # Context: context

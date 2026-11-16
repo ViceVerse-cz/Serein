@@ -20,6 +20,8 @@ enum Intent {
 	Read,
 	Dialog(Kind),
 	Write(Action),
+	/// Add the channel or category to the opt-in channel list, or remove it.
+	List(bool),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -50,6 +52,9 @@ struct Dialog {
 pub(super) struct ChannelMenu {
 	posts: crate::post_menu::PostMenu,
 	pub invite_requested: Option<(Id, Id)>,
+	/// Browse Channels was chosen for this server.
+	pub browse_requested: Option<Id>,
+	list_requested: Option<(Id, client_core::channel_list::Change)>,
 	pub shortcut_requested: Option<crate::shortcuts::Intent>,
 	requested: Option<(Id, Intent)>,
 	dialog: Option<Dialog>,
@@ -159,6 +164,23 @@ impl ChannelMenu {
 				self.shortcut_requested = Some(view.toggle(Shortcut::Favorite, channel.id));
 				self.generation = state.generation;
 				ui.close();
+			}
+			if state.channel_list_opt_in(guild).is_some() {
+				let followed = state.channel_followed(channel);
+				if row(
+					ui,
+					if followed {
+						"channel-menu-context-remove-from-channel-list"
+					} else {
+						"channel-menu-context-add-to-channel-list"
+					},
+					state.can_change_channel_list(guild) && state.can_view(channel.id),
+					false,
+				)
+				.clicked()
+				{
+					intent = Some(Intent::List(!followed));
+				}
 			}
 			ui.separator();
 			if state.can_create_server_invite(guild, channel.id)
@@ -330,6 +352,23 @@ impl ChannelMenu {
 			{
 				ui.close();
 			}
+			if let Some(opt_in) = state.channel_list_opt_in(guild) {
+				let mut show_all = !opt_in;
+				ui.add_enabled_ui(state.can_change_channel_list(guild), |ui| {
+					if toggle_row(ui, "channel-browser-show-all-channels", &mut show_all).changed()
+					{
+						self.list_requested =
+							Some((guild, client_core::channel_list::Change::ShowAll(show_all)));
+						self.generation = state.generation;
+						ui.close();
+					}
+				});
+				if row(ui, "channel-browser-title", true, false).clicked() {
+					self.browse_requested = Some(guild);
+					self.generation = state.generation;
+					ui.close();
+				}
+			}
 			ui.separator();
 			let available =
 				(state.demo || state.gateway_connected) && !state.channel_action_pending();
@@ -380,6 +419,12 @@ impl ChannelMenu {
 			return;
 		}
 		self.posts.show(ctx, state, active, commands);
+		if let Some((guild, change)) = self.list_requested.take()
+			&& Some(guild) == active
+			&& let Some(command) = state.change_channel_list(guild, change)
+		{
+			commands.push(command);
+		}
 		if let Some((id, intent)) = self.requested.take()
 			&& let Some(channel) = state.channel(id)
 			&& let Some(guild) = channel.guild.filter(|g| Some(*g) == active)
@@ -387,6 +432,17 @@ impl ChannelMenu {
 			match intent {
 				Intent::Read => {
 					if let Some(command) = state.prepare_mark_channel_read(id) {
+						commands.push(command);
+					}
+				}
+				Intent::List(listed) => {
+					if let Some(command) = state.change_channel_list(
+						guild,
+						client_core::channel_list::Change::List {
+							channel: id,
+							listed,
+						},
+					) {
 						commands.push(command);
 					}
 				}
@@ -1187,7 +1243,7 @@ impl Dialog {
 	}
 }
 
-fn toggle_row(ui: &mut egui::Ui, label: &str, value: &mut bool) -> egui::Response {
+pub(super) fn toggle_row(ui: &mut egui::Ui, label: &str, value: &mut bool) -> egui::Response {
 	let mut response = row(ui, label, true, false);
 	if response.clicked() {
 		*value = !*value;

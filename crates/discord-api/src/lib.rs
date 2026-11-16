@@ -1314,6 +1314,15 @@ impl DiscordApi {
 					result: self.server_action(action).await,
 				})
 			}
+			Command::ChannelList {
+				request,
+				write,
+				latest,
+			} => Event::ChannelList(client_core::channel_list::Event::Written {
+				guild: write.guild,
+				request,
+				result: self.channel_list_write(&write, &latest).await.map(Box::new),
+			}),
 			Command::UserAction {
 				action,
 				request,

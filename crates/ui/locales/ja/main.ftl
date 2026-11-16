@@ -408,6 +408,15 @@ message-request-title = メッセージリクエスト
 ## crates/ui/src/channel_menu.rs
 # Context: context
 channel-menu-context-add-to-favorites = お気に入りに追加
+channel-menu-context-remove-from-channel-list = チャンネルリストから削除
+channel-menu-context-add-to-channel-list = チャンネルリストに追加
+channel-browser-title = チャンネルを閲覧
+channel-browser-subtitle = チャンネルリストに表示するチャンネルを選択します。
+channel-browser-show-all-channels = すべてのチャンネルを表示
+channel-browser-search = チャンネルを検索
+channel-browser-follow-category = カテゴリーをフォロー
+channel-browser-saving = 保存中…
+channel-browser-unavailable = 現在、チャンネルリストの設定は利用できません。
 # Context: context
 channel-menu-context-copy-channel-id = チャンネルIDをコピー
 # Context: context

@@ -424,6 +424,15 @@ message-request-title = Žádost o zprávu
 ## crates/ui/src/channel_menu.rs
 # Context: context
 channel-menu-context-add-to-favorites = Přidat do oblíbených
+channel-menu-context-remove-from-channel-list = Odebrat ze seznamu kanálů
+channel-menu-context-add-to-channel-list = Přidat do seznamu kanálů
+channel-browser-title = Procházet kanály
+channel-browser-subtitle = Vyber, které kanály se zobrazí v seznamu kanálů.
+channel-browser-show-all-channels = Zobrazit všechny kanály
+channel-browser-search = Hledat kanály
+channel-browser-follow-category = Sledovat kategorii
+channel-browser-saving = Ukládání…
+channel-browser-unavailable = Nastavení seznamu kanálů teď není k dispozici.
 # Context: context
 channel-menu-context-copy-channel-id = Kopírovat ID kanálu
 # Context: context
