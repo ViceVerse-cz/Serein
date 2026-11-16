@@ -451,6 +451,17 @@ impl Job {
 			self.begin_dms();
 		}
 	}
+	fn history_read(&self) -> Option<Read> {
+		if self.step != 9 {
+			return None;
+		}
+		Some(Read::History {
+			channel: self.targets.get(self.channel_index)?.id,
+			before: self.before,
+			cutoff_ms: self.cutoff_ms,
+			end_ms: self.end_ms,
+		})
+	}
 	fn next_channel(&mut self) {
 		self.channels_done += 1;
 		self.channel_index += 1;
@@ -617,6 +628,12 @@ pub(super) struct Sync {
 }
 
 impl Sync {
+	fn history_change(&self, event: &Event) -> Option<(Id, Id)> {
+		self.job
+			.as_ref()?
+			.history_read()
+			.and_then(|read| history_event_change(&read, event))
+	}
 	fn prepare_read(&mut self, read: &Read) {
 		if self.retry_read.as_ref() != Some(read) {
 			self.retry_read = Some(read.clone());
@@ -1030,12 +1047,7 @@ impl Desktop {
 					}
 					return;
 				}
-				Some(Read::History {
-					channel: target.id,
-					before: job.before,
-					cutoff_ms: job.cutoff_ms,
-					end_ms: job.end_ms,
-				})
+				job.history_read()
 			}
 			10 => {
 				if self.force_sync.roster_write.is_some() {
@@ -1690,9 +1702,7 @@ impl Desktop {
 			return;
 		};
 		let account = job.account;
-		let history_target = (job.step == 9)
-			.then(|| job.targets.get(job.channel_index).map(|t| t.id))
-			.flatten();
+		let changed = self.force_sync.history_change(event);
 		if let Some(active) = &self.force_sync.active
 			&& sync_event_affects_read(&active.read, event, &self.state, account, job.guild())
 		{
@@ -1704,21 +1714,7 @@ impl Desktop {
 			}
 		}
 		self.observe_force_sync_roster_event(event);
-		let changed = match event {
-			Event::Message(message) => Some((message.channel, message.id)),
-			Event::Edited {
-				channel,
-				message,
-				result: Ok(_),
-				..
-			} => Some((*channel, *message)),
-			Event::Patch(patch) => Some((patch.channel, patch.id)),
-			Event::Delete { channel, id } => Some((*channel, *id)),
-			Event::DeleteBulk { channel, ids } => ids.first().map(|id| (*channel, *id)),
-			_ => None,
-		};
 		if let Some((channel, message)) = changed
-			&& history_target == Some(channel)
 			&& !self.queue_cache(cache::Operation::ObserveHistoryChange { channel, message })
 		{
 			// A missing disk fence cannot permit an old page to overwrite a live edit.
@@ -2310,6 +2306,47 @@ fn active_read_is_current(
 		} if *requested_guild == guild && *requested_parent == parent && *before == job.active_before)
 }
 
+fn history_event_change(read: &Read, event: &Event) -> Option<(Id, Id)> {
+	let Read::History {
+		channel,
+		before,
+		cutoff_ms,
+		end_ms,
+	} = read
+	else {
+		return None;
+	};
+	let upper = last_before(*end_ms)?;
+	let overlaps = |changed: Id, message: Id| {
+		changed == *channel
+			&& client_core::force_sync_read::timestamp_ms(message) >= *cutoff_ms
+			&& message < upper
+			&& before.is_none_or(|cursor| message < cursor)
+	};
+	match event {
+		Event::Message(message) if overlaps(message.channel, message.id) => {
+			Some((message.channel, message.id))
+		}
+		Event::Edited {
+			channel,
+			message,
+			result: Ok(_),
+			..
+		}
+		| Event::Delete {
+			channel,
+			id: message,
+		} if overlaps(*channel, *message) => Some((*channel, *message)),
+		Event::Patch(patch) if overlaps(patch.channel, patch.id) => Some((patch.channel, patch.id)),
+		Event::DeleteBulk { channel, ids } => ids
+			.iter()
+			.copied()
+			.find(|id| overlaps(*channel, *id))
+			.map(|id| (*channel, id)),
+		_ => None,
+	}
+}
+
 /// Only changes to the resource being read can invalidate its response. Continuous
 /// traffic in another channel must not prevent background history from making progress.
 fn sync_event_affects_read(
@@ -2319,6 +2356,9 @@ fn sync_event_affects_read(
 	account: Id,
 	guild_hint: Option<Id>,
 ) -> bool {
+	if history_event_change(read, event).is_some() {
+		return true;
+	}
 	let channel = match read {
 		Read::History { channel, .. } => Some(*channel),
 		_ => None,
@@ -2340,19 +2380,6 @@ fn sync_event_affects_read(
 				.flatten()
 		});
 	match event {
-		Event::Message(message) => channel == Some(message.channel),
-		Event::Edited {
-			channel: changed,
-			result: Ok(_),
-			..
-		}
-		| Event::Delete {
-			channel: changed, ..
-		}
-		| Event::DeleteBulk {
-			channel: changed, ..
-		} => channel == Some(*changed),
-		Event::Patch(patch) => channel == Some(patch.channel),
 		Event::GuildRemoved(changed) => guild == Some(*changed),
 		Event::GuildChanged(patch) => matches!(read, Read::Guild { .. }) && guild == Some(patch.id),
 		Event::GuildEmojis { guild: changed, .. } => {
@@ -2524,6 +2551,393 @@ fn sync_event_affects_read(
 #[cfg(test)]
 mod tests {
 	use super::*;
+	fn frozen_history() -> (client_core::State, Job, Read) {
+		let mut state = test_support::demo_state();
+		state.demo = false;
+		state
+			.permissions
+			.replace(test_support::permission_snapshot(&state))
+			.unwrap();
+		let channel = state.channel(state.selected.unwrap()).unwrap();
+		assert!(state.can_read_history(channel.id));
+		let mut job = Job::new(&state, Scope::Server(channel.guild.unwrap())).unwrap();
+		job.cutoff_ms = client_core::force_sync_read::DISCORD_EPOCH_MS + 1_000;
+		job.end_ms = job.cutoff_ms + HISTORY_MILLIS;
+		job.targets = vec![Target {
+			id: channel.id,
+			kind: channel.kind,
+			parent: channel.parent_id,
+		}];
+		job.step = 9;
+		job.request = 1;
+		job.channels_total = 1;
+		job.before = last_before(job.end_ms);
+		let read = Read::History {
+			channel: channel.id,
+			before: job.before,
+			cutoff_ms: job.cutoff_ms,
+			end_ms: job.end_ms,
+		};
+		assert!(job.valid());
+		(state, job, read)
+	}
+
+	fn history_events(channel: Id, id: Id) -> [Event; 5] {
+		[
+			Event::Message(test_support::message(id.0, channel)),
+			Event::Patch(model::MessagePatch {
+				poll: model::Patch::Absent,
+				sticker_items: model::Patch::Absent,
+				flags: model::Patch::Absent,
+				components: model::Patch::Absent,
+				application_id: model::Patch::Absent,
+				extra_content: Default::default(),
+				reactions: model::Patch::Absent,
+				id,
+				channel,
+				content: model::Patch::Value("Current content".into()),
+				mentions: model::Patch::Absent,
+				edited: model::Patch::Absent,
+				embeds: model::Patch::Absent,
+				embeds_suppressed: model::Patch::Absent,
+				attachments: model::Patch::Absent,
+			}),
+			Event::Edited {
+				request: 1,
+				channel,
+				message: id,
+				result: Ok(test_support::message(id.0, channel)),
+			},
+			Event::Delete { channel, id },
+			Event::DeleteBulk {
+				channel,
+				ids: vec![id],
+			},
+		]
+	}
+
+	#[test]
+	fn frozen_history_read_ignores_post_freeze_traffic_in_its_channel() {
+		let (state, mut job, read) = frozen_history();
+		let channel = job.targets[0].id;
+		let upper = last_before(job.end_ms).unwrap();
+		let mut sync = Sync::default();
+		sync.prepare_read(&read);
+		for _ in 0..MAX_STALE_RETRIES + 1 {
+			for event in history_events(channel, upper) {
+				if sync_event_affects_read(&read, &event, &state, job.account, job.guild()) {
+					sync.reject_stale(&mut job, &read);
+				}
+			}
+		}
+		assert_eq!(job.channel_index, 0);
+		assert_eq!(job.channels_done, 0);
+		assert_eq!(sync.stale_retries, 0);
+	}
+
+	#[test]
+	fn frozen_history_read_fences_exact_cutoff_end_and_before_boundaries() {
+		let (state, job, read) = frozen_history();
+		let channel = job.targets[0].id;
+		let cutoff = Id(1_000 << 22);
+		let upper = last_before(job.end_ms).unwrap();
+		let before = Id(upper.0 - 100);
+		for (cursor, id, affects) in [
+			(None, Id(cutoff.0 - 1), false),
+			(None, cutoff, true),
+			(None, Id(upper.0 - 1), true),
+			(None, upper, false),
+			(None, Id(upper.0 + 1), false),
+			(Some(before), Id(before.0 - 1), true),
+			(Some(before), before, false),
+			(Some(before), Id(before.0 + 1), false),
+		] {
+			let mut read = read.clone();
+			let Read::History { before, .. } = &mut read else {
+				unreachable!();
+			};
+			*before = cursor;
+			for event in history_events(channel, id) {
+				assert_eq!(
+					sync_event_affects_read(&read, &event, &state, job.account, job.guild()),
+					affects,
+					"id={id:?}, before={cursor:?}"
+				);
+			}
+		}
+	}
+
+	#[test]
+	fn frozen_history_read_checks_every_bulk_delete_id() {
+		let (state, job, read) = frozen_history();
+		let channel = job.targets[0].id;
+		let upper = last_before(job.end_ms).unwrap();
+		for (ids, affects) in [
+			(vec![], false),
+			(vec![upper, Id(upper.0 + 1)], false),
+			(vec![upper, Id(upper.0 - 1)], true),
+			(vec![Id(upper.0 - 1), upper], true),
+		] {
+			assert_eq!(
+				sync_event_affects_read(
+					&read,
+					&Event::DeleteBulk { channel, ids },
+					&state,
+					job.account,
+					job.guild()
+				),
+				affects
+			);
+		}
+	}
+
+	fn frozen_history_store(job: &Job) -> local_store::LocalStore {
+		let mut store = local_store::LocalStore::open(std::path::Path::new(":memory:")).unwrap();
+		store
+			.save_sync_checkpoint(
+				job.account,
+				&local_store::SyncCheckpoint {
+					job: job.id,
+					scope: job.scope,
+					started_ms: job.end_ms,
+					cutoff_ms: job.cutoff_ms,
+					payload: serde_json::to_vec(job).unwrap(),
+				},
+			)
+			.unwrap();
+		store
+	}
+
+	fn frozen_history_coverage(job: &Job, revision: u64) -> local_store::HistoryCoverage {
+		local_store::HistoryCoverage {
+			job: job.id,
+			request: job.request,
+			cutoff: Id(
+				((job.cutoff_ms - client_core::force_sync_read::DISCORD_EPOCH_MS) as u64) << 22,
+			),
+			upper: last_before(job.end_ms).unwrap(),
+			before: job.before,
+			next_before: None,
+			complete: true,
+			revision,
+		}
+	}
+
+	#[test]
+	fn post_freeze_messages_preserve_disk_revision_and_allow_history_commit() {
+		let (_, job, _) = frozen_history();
+		let channel = job.targets[0].id;
+		let upper = last_before(job.end_ms).unwrap();
+		let mut store = frozen_history_store(&job);
+		let revision = store.history_revision(job.account, channel).unwrap();
+		let coverage = frozen_history_coverage(&job, revision);
+		let sync = Sync {
+			job: Some(job.clone()),
+			pending_page: Some(PageCommit {
+				channel,
+				request: job.request,
+				next: Some(Id(upper.0 - 1)),
+				done: true,
+			}),
+			..Default::default()
+		};
+		for _ in 0..MAX_STALE_RETRIES + 1 {
+			let [created, patched, edited, ..] = history_events(channel, upper);
+			for event in [created, patched, edited] {
+				let changed = sync.history_change(&event);
+				if let Some((channel, message)) = changed {
+					store
+						.observe_history_change(job.account, channel, message, false)
+						.unwrap();
+				}
+				assert!(changed.is_none());
+			}
+		}
+		assert_eq!(
+			store.history_revision(job.account, channel).unwrap(),
+			revision
+		);
+		let row = test_support::message(upper.0 - 1, channel);
+		let saved = store
+			.save_sync_page(job.account, channel, &[row], &coverage)
+			.unwrap();
+		assert!(!saved.stale);
+		assert_eq!(saved.saved, 1);
+		assert!(
+			store
+				.history_coverage(job.account, channel)
+				.unwrap()
+				.unwrap()
+				.complete
+		);
+	}
+
+	#[test]
+	fn overlapping_live_updates_preserve_fences_before_history_commit() {
+		let (_, job, _) = frozen_history();
+		let channel = job.targets[0].id;
+		let upper = last_before(job.end_ms).unwrap();
+		let id = Id(upper.0 - 1);
+		let sync = Sync {
+			job: Some(job.clone()),
+			pending_page: Some(PageCommit {
+				channel,
+				request: job.request,
+				next: Some(id),
+				done: true,
+			}),
+			..Default::default()
+		};
+		let mut events = Vec::from(history_events(channel, id));
+		events.push(Event::DeleteBulk {
+			channel,
+			ids: vec![upper, id],
+		});
+		for event in events {
+			let mut store = frozen_history_store(&job);
+			let row = test_support::message(id.0, channel);
+			store
+				.save_channel(job.account, channel, std::slice::from_ref(&row), false)
+				.unwrap();
+			let coverage = frozen_history_coverage(
+				&job,
+				store.history_revision(job.account, channel).unwrap(),
+			);
+			let changed = sync.history_change(&event);
+			assert_eq!(changed, Some((channel, id)));
+			store
+				.observe_history_change(job.account, channel, changed.unwrap().1, false)
+				.unwrap();
+			let deleted = match &event {
+				Event::Delete { id, .. } => {
+					store.delete_messages(job.account, channel, &[*id]).unwrap();
+					true
+				}
+				Event::DeleteBulk { ids, .. } => {
+					store.delete_messages(job.account, channel, ids).unwrap();
+					true
+				}
+				_ => {
+					let mut current = row.clone();
+					current.content = "Live edit".into();
+					store
+						.save_changes(job.account, channel, &[current], &[id], false)
+						.unwrap();
+					false
+				}
+			};
+			assert!(
+				store
+					.save_sync_page(job.account, channel, &[row], &coverage)
+					.unwrap()
+					.stale
+			);
+			let cached = store.load_channel(job.account, channel).unwrap();
+			if deleted {
+				assert!(cached.is_empty());
+			} else {
+				assert_eq!(cached[0].content, "Live edit");
+			}
+		}
+	}
+
+	#[test]
+	fn older_history_pages_ignore_newer_edits_and_keep_continuation_fences() {
+		let (_, mut job, _) = frozen_history();
+		let channel = job.targets[0].id;
+		let upper = last_before(job.end_ms).unwrap();
+		let mut store = frozen_history_store(&job);
+		let rows: Vec<_> = (1..=50)
+			.map(|offset| test_support::message(upper.0 - offset, channel))
+			.collect();
+		let before = rows.last().unwrap().id;
+		let first = local_store::HistoryCoverage {
+			next_before: Some(before),
+			complete: false,
+			..frozen_history_coverage(&job, 0)
+		};
+		assert!(
+			!store
+				.save_sync_page(job.account, channel, &rows, &first)
+				.unwrap()
+				.stale
+		);
+		job.before = Some(before);
+		job.request += 1;
+		let coverage = frozen_history_coverage(&job, 0);
+		let mut edited = rows[0].clone();
+		edited.content = "Newer live edit".into();
+		let event = Event::Edited {
+			request: 1,
+			channel,
+			message: edited.id,
+			result: Ok(edited.clone()),
+		};
+		let sync = Sync {
+			job: Some(job.clone()),
+			..Default::default()
+		};
+		assert!(sync.history_change(&event).is_none());
+		store
+			.save_changes(
+				job.account,
+				channel,
+				std::slice::from_ref(&edited),
+				&[edited.id],
+				false,
+			)
+			.unwrap();
+		assert_eq!(
+			store
+				.load_channel(job.account, channel)
+				.unwrap()
+				.iter()
+				.find(|message| message.id == edited.id)
+				.unwrap()
+				.content,
+			"Newer live edit"
+		);
+		let row = test_support::message(before.0 - 2, channel);
+		let older_id = row.id;
+		let wrong_cursor = local_store::HistoryCoverage {
+			before: Some(Id(before.0 - 1)),
+			..coverage
+		};
+		assert!(
+			store
+				.save_sync_page(
+					job.account,
+					channel,
+					std::slice::from_ref(&row),
+					&wrong_cursor
+				)
+				.unwrap()
+				.stale
+		);
+		assert!(
+			!store
+				.save_sync_page(job.account, channel, &[row], &coverage)
+				.unwrap()
+				.stale
+		);
+		let cached = store.load_channel(job.account, channel).unwrap();
+		assert!(cached.iter().any(|message| message.id == older_id));
+		assert_eq!(
+			cached
+				.iter()
+				.find(|message| message.id == edited.id)
+				.unwrap()
+				.content,
+			"Newer live edit"
+		);
+		assert!(
+			store
+				.save_sync_page(job.account, channel, &rows, &first)
+				.unwrap()
+				.stale
+		);
+	}
+
 	#[test]
 	fn incomplete_names_leave_existing_sqlite_display_intact() {
 		let mut store = local_store::LocalStore::open(std::path::Path::new(":memory:")).unwrap();
