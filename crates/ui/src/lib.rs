@@ -5815,12 +5815,14 @@ impl MessagingUi {
 						{
 							commands.push(command);
 						}
-						crate::reactions::show_users(
+						if let Some(user) = crate::reactions::show_users(
 							ui.ctx(),
 							state,
 							&mut self.avatars,
 							&mut commands,
-						);
+						) {
+							self.profile.open_full(user);
+						}
 						if let Some((channel, message)) = self.timeline.quick_delete.take()
 							&& let Some(command) = state.prepare_delete(channel, message)
 						{
