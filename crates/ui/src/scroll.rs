@@ -40,11 +40,20 @@ pub fn apply_preferences(ctx: &egui::Context, preferences: model::ReadingPrefere
 	let latch_key = egui::Id::unique(WHEEL_LATCH_KEY);
 	let before: WheelLatch = ctx.data(|d| d.get_temp(latch_key)).unwrap_or_default();
 	let mut latch = before;
-	let (incoming, zooming) = ctx.input(|input| {
+	let (incoming, zooming, cancelled) = ctx.input(|input| {
 		let incoming =
 			instant_wheel_delta(&input.raw.events, options, page_height, time, &mut latch);
 		let zooming = zoom_gesture(&latch, options, &input.raw.events);
-		(incoming, zooming)
+		let cancelled = input.raw.events.iter().any(|event| {
+			matches!(
+				event,
+				egui::Event::MouseWheel {
+					phase: egui::TouchPhase::Cancel,
+					..
+				}
+			)
+		});
+		(incoming, zooming, cancelled)
 	});
 	if latch != before {
 		ctx.data_mut(|d| d.insert_temp(latch_key, latch));
@@ -86,8 +95,9 @@ pub fn apply_preferences(ctx: &egui::Context, preferences: model::ReadingPrefere
 	}
 
 	let is_scrolling = ctx.input(|i| i.is_scrolling());
-	// A zoom that starts while a swipe is still queued must not keep scrolling.
-	if zooming {
+	// A zoom that starts while a swipe is still queued must not keep scrolling, and neither may
+	// a cancelled gesture: egui drops its own pending wheel movement on `Cancel`.
+	if zooming || cancelled {
 		state.accumulator = egui::Vec2::ZERO;
 	}
 	let touchpad_active = state.last_active.is_some_and(|last| time - last < 0.35)
@@ -934,7 +944,37 @@ mod tests {
 	}
 
 	#[test]
-	fn queued_touchpad_swipe_does_not_scroll_during_zoom() {
+	fn queued_touchpad_swipe_stops_on_zoom_or_cancel() {
+		let zoom = egui::InputOptions::default().zoom_modifier;
+		let zoom_start = vec![
+			egui::Event::MouseWheel {
+				unit: egui::MouseWheelUnit::Point,
+				delta: egui::vec2(0.0, 40.0),
+				modifiers: zoom,
+				phase: egui::TouchPhase::Start,
+				source: egui::MouseWheelSource::Trackpad,
+			},
+			egui::Event::MouseWheel {
+				unit: egui::MouseWheelUnit::Point,
+				delta: egui::vec2(0.0, 40.0),
+				modifiers: zoom,
+				phase: egui::TouchPhase::Move,
+				source: egui::MouseWheelSource::Trackpad,
+			},
+		];
+		let cancel = vec![egui::Event::MouseWheel {
+			unit: egui::MouseWheelUnit::Point,
+			delta: egui::Vec2::ZERO,
+			modifiers: egui::Modifiers::NONE,
+			phase: egui::TouchPhase::Cancel,
+			source: egui::MouseWheelSource::Unknown,
+		}];
+		for interrupt in [zoom_start, cancel] {
+			queued_swipe_stops_after(interrupt);
+		}
+	}
+
+	fn queued_swipe_stops_after(interrupt: Vec<egui::Event>) {
 		let ctx = egui::Context::default();
 		crate::design::apply(&ctx);
 		let frame = |time: f64, events: Vec<egui::Event>| {
@@ -970,27 +1010,7 @@ mod tests {
 			"the swipe must leave a queue, moved {}",
 			swipe.y
 		);
-		let zoom = egui::InputOptions::default().zoom_modifier;
-		let zoomed = frame(
-			0.12,
-			vec![
-				egui::Event::MouseWheel {
-					unit: egui::MouseWheelUnit::Point,
-					delta: egui::vec2(0.0, 40.0),
-					modifiers: zoom,
-					phase: egui::TouchPhase::Start,
-					source: egui::MouseWheelSource::Trackpad,
-				},
-				egui::Event::MouseWheel {
-					unit: egui::MouseWheelUnit::Point,
-					delta: egui::vec2(0.0, 40.0),
-					modifiers: zoom,
-					phase: egui::TouchPhase::Move,
-					source: egui::MouseWheelSource::Trackpad,
-				},
-			],
-		);
-		assert_eq!(zoomed, egui::Vec2::ZERO);
+		assert_eq!(frame(0.12, interrupt), egui::Vec2::ZERO);
 		let idle = frame(0.14, vec![]);
 		assert_eq!(idle, egui::Vec2::ZERO);
 	}
