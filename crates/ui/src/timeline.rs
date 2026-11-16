@@ -5289,9 +5289,12 @@ impl TimelineView {
 			crate::design::ImageSection::MessageList,
 		);
 		let see_through = surface.a() < 255;
+		let slowmode = state
+			.selected
+			.filter(|channel| state.slowmode(*channel).is_some() && state.can_compose(*channel));
 		let fade_height = if see_through && self.following {
 			0.0
-		} else if typing.is_some() {
+		} else if typing.is_some() || slowmode.is_some() {
 			crate::typing::OVERLAY_HEIGHT + 8.0
 		} else {
 			20.0
@@ -5326,20 +5329,20 @@ impl TimelineView {
 		ui.painter()
 			.with_clip_rect(area)
 			.add(egui::Shape::mesh(fade));
+		let mut strip = egui::Rect::from_min_max(
+			egui::pos2(
+				area.left() + 16.0,
+				(area.bottom() - crate::typing::OVERLAY_HEIGHT).max(area.top()),
+			),
+			egui::pos2(area.right() - 16.0, area.bottom()),
+		);
+		if let Some(channel) = slowmode {
+			// The typing line stops short of the slowmode notice at the strip's end.
+			let taken = crate::slowmode::overlay(ui, strip, state, channel, now);
+			strip.max.x = (strip.max.x - taken - 12.0).max(strip.min.x);
+		}
 		if let Some(channel) = typing {
-			crate::typing::overlay(
-				ui,
-				egui::Rect::from_min_max(
-					egui::pos2(
-						area.left() + 16.0,
-						(area.bottom() - crate::typing::OVERLAY_HEIGHT).max(area.top()),
-					),
-					egui::pos2(area.right() - 16.0, area.bottom()),
-				),
-				state,
-				channel,
-				now,
-			);
+			crate::typing::overlay(ui, strip, state, channel, now);
 		}
 		let browsing_history = state.history_targeted
 			|| state.history_before.is_some()

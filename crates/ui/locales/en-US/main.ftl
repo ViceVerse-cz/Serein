@@ -5058,6 +5058,7 @@ profiles-status-clear = Clear status
 send-throttled-title = Woah there. Way too spicy
 send-throttled-body = You're sending messages too quickly!
 send-throttled-dismiss = Enter the chill zone
+slowmode-enabled = Slowmode is enabled
 search-overlays-message-contains = Message Contains
 search-overlays-no-matching-content-types = No matching content types
 search-overlays-history = History

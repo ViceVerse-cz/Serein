@@ -4992,6 +4992,7 @@ profiles-status-clear = 清除狀態
 send-throttled-title = 哇，太辣了
 send-throttled-body = 你傳送訊息太快了！
 send-throttled-dismiss = 關閉提示
+slowmode-enabled = 慢速模式已啟用
 profiles-private-profile = 私人個人資料
 profiles-private-notice = { $name } 的個人資料為私人，部分資訊已隱藏。加為好友即可查看更多。
 settings-cosmetics-name-styles = 名稱樣式

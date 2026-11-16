@@ -4898,6 +4898,7 @@ profiles-status-clear = Borrar estado
 send-throttled-title = Tranquilo, demasiado picante
 send-throttled-body = ¡Estás enviando mensajes demasiado rápido!
 send-throttled-dismiss = Entrar en la zona chill
+slowmode-enabled = El modo lento está activado
 profiles-private-profile = Perfil privado
 profiles-private-notice = El perfil de { $name } es privado, así que parte de la información está oculta. Envía una solicitud de amistad para ver más.
 settings-cosmetics-name-styles = Estilos de nombre

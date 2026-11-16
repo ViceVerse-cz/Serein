@@ -4994,6 +4994,7 @@ profiles-status-clear = 상태 지우기
 send-throttled-title = 잠깐만요, 너무 빠른걸요
 send-throttled-body = 메시지를 너무 빠르게 보내고 있어요!
 send-throttled-dismiss = 잠시 쉬어가기
+slowmode-enabled = 슬로우 모드가 켜져 있습니다
 search-overlays-message-contains = 메시지에 포함
 search-overlays-no-matching-content-types = 일치하는 콘텐츠 유형 없음
 search-overlays-history = 기록

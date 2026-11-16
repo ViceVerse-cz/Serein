@@ -125,6 +125,7 @@ mod settings;
 mod setup;
 mod shortcuts;
 mod skeleton;
+mod slowmode;
 mod switcher;
 mod text_menu;
 mod thumbhash;

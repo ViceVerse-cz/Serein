@@ -4905,6 +4905,7 @@ profiles-status-clear = Очистить статус
 send-throttled-title = Полегче, слишком остро
 send-throttled-body = Вы отправляете сообщения слишком быстро!
 send-throttled-dismiss = В зону спокойствия
+slowmode-enabled = Медленный режим включён
 profiles-private-profile = Закрытый профиль
 profiles-private-notice = Профиль { $name } закрыт, поэтому часть сведений скрыта. Добавьте пользователя в друзья, чтобы увидеть больше.
 settings-cosmetics-name-styles = Стили имён
