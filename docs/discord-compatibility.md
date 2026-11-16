@@ -2499,7 +2499,8 @@ applications resolves to none. Discord itself detects some of these games by unk
 (unverified); Serein still cannot detect them from a process alone. Matching compares path suffixes longest-first, plus `.app` bundle
 components for macOS entries; an executable-name index keeps a full sweep at roughly 6 ms for
 900 processes instead of ~920 ms for a linear scan. Processes are enumerated read-only through
-`/proc` on Linux, `ps` on macOS and `tasklist` on Windows: executable paths only, never
+`/proc` on Linux, `ps` on macOS and `tasklist` plus a limited-query image-path read on Windows
+(a bare image name such as `gh.exe` otherwise matches an unrelated game): executable paths only, never
 arguments, environment, memory or another user's processes. Detection is polled every ten
 seconds while sharing is on, keeps a running match stable rather than flapping between two
 matches, and always loses to a connected client, which knows more than a process name.
