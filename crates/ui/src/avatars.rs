@@ -191,6 +191,12 @@ fn paint_texture(
 	}
 }
 
+/// The centred part of a `source`-sized image that covers `size` without distortion.
+pub(crate) fn cover_uv(source: egui::Vec2, size: egui::Vec2) -> egui::Rect {
+	let scale = (size.x / source.x).max(size.y / source.y);
+	egui::Rect::from_center_size(egui::pos2(0.5, 0.5), size / (source * scale))
+}
+
 /// Playback key for an animated custom emoji, or `None` when it should show its still.
 fn animated_emoji_key(id: model::Id, play: bool) -> Option<String> {
 	(play && id.0 != 0).then(|| format!("anim:emoji-{id}"))
@@ -1091,46 +1097,73 @@ impl Avatars {
 		ui.painter().rect_filled(rect, corner, backdrop);
 		if ui.is_rect_visible(rect)
 			&& let Some(key) = key
+			&& let Some(texture) = self.banner_texture(ui.ctx(), key, true, color, demo)
 		{
-			let is_animated = is_animated_profile_or_avatar_key(&key);
-			if self.animate_gifs
-				&& is_animated
-				&& !self.animations.contains_key(&key)
-				&& !self.no_animations.contains(&key)
-				&& !self.released.contains(&key)
-				&& !demo
-			{
-				self.request(key.clone());
-			}
-			let animated_texture = self.advance_animation(ui.ctx(), &key, true);
-			#[cfg(any(test, feature = "demo"))]
-			if demo && !self.hold_demo_images && !self.textures.contains_key(&key) {
-				let mut image = ColorImage::filled([128, 48], color);
-				let stripe = color.lerp_to_gamma(egui::Color32::WHITE, 0.16);
-				for y in 0..48 {
-					for x in 0..128 {
-						if (x + y) % 48 < 12 {
-							image.pixels_mut()[y * 128 + x] = stripe;
-						}
+			egui::Image::new(&texture)
+				.uv(cover_uv(texture.resolution_vec2(), rect.size()))
+				.corner_radius(corner)
+				.paint_at(ui, rect);
+		}
+	}
+	/// The server banner under `key`, requested when missing; an animated one plays only while
+	/// `hovered`. `Err` says whether it is still loading, so its space can wait for it.
+	pub fn guild_banner(
+		&mut self,
+		ctx: &egui::Context,
+		key: String,
+		hovered: bool,
+		color: egui::Color32,
+		demo: bool,
+	) -> Result<TextureHandle, bool> {
+		let loading = (!demo || self.holding_demo_images()) && self.awaiting_image(&key);
+		self.banner_texture(ctx, key, hovered, color, demo)
+			.ok_or(loading)
+	}
+	/// The banner image under `key`, or its playing frame while `play`; requests it when
+	/// missing. `color` tints the synthetic demo image.
+	fn banner_texture(
+		&mut self,
+		ctx: &egui::Context,
+		key: String,
+		play: bool,
+		color: egui::Color32,
+		demo: bool,
+	) -> Option<TextureHandle> {
+		#[cfg(not(any(test, feature = "demo")))]
+		let _ = color;
+		let is_animated = is_animated_profile_or_avatar_key(&key);
+		if self.animate_gifs
+			&& is_animated
+			&& !self.animations.contains_key(&key)
+			&& !self.no_animations.contains(&key)
+			&& !self.released.contains(&key)
+			&& !demo
+		{
+			self.request(key.clone());
+		}
+		let animated_texture = self.advance_animation(ctx, &key, play);
+		#[cfg(any(test, feature = "demo"))]
+		if demo && !self.hold_demo_images && !self.textures.contains_key(&key) {
+			let mut image = ColorImage::filled([128, 48], color);
+			let stripe = color.lerp_to_gamma(egui::Color32::WHITE, 0.16);
+			for y in 0..48 {
+				for x in 0..128 {
+					if (x + y) % 48 < 12 {
+						image.pixels_mut()[y * 128 + x] = stripe;
 					}
 				}
-				self.attempts.insert(key.clone(), (Instant::now(), false));
-				self.accept(ui.ctx(), key.clone(), Some(image));
 			}
-			if let Some(entry) = self.textures.get_mut(&key) {
-				entry.0 = Instant::now();
-				let texture = animated_texture.as_ref().unwrap_or(&entry.1);
-				let source = texture.resolution_vec2();
-				let scale = (rect.width() / source.x).max(rect.height() / source.y);
-				let uv_size = rect.size() / (source * scale);
-				let uv = egui::Rect::from_center_size(egui::pos2(0.5, 0.5), uv_size);
-				egui::Image::new(texture)
-					.uv(uv)
-					.corner_radius(corner)
-					.paint_at(ui, rect);
-			} else if !demo {
+			self.attempts.insert(key.clone(), (Instant::now(), false));
+			self.accept(ctx, key.clone(), Some(image));
+		}
+		if let Some(entry) = self.textures.get_mut(&key) {
+			entry.0 = Instant::now();
+			Some(animated_texture.unwrap_or_else(|| entry.1.clone()))
+		} else {
+			if !demo {
 				self.request(key);
 			}
+			None
 		}
 	}
 	/// Small square artwork (badge or server tag). Paints a loading disc while the image is in
