@@ -24,6 +24,7 @@ mod categories;
 pub use categories::debug_thread_navigation_check;
 #[cfg(feature = "demo")]
 pub use timeline::debug_unread_navigation_check;
+mod channel_browser;
 mod channel_marks;
 mod channel_menu;
 mod channel_permissions;
@@ -305,6 +306,7 @@ pub struct MessagingUi {
 	group_menu: group_menu::GroupMenu,
 	server_menu: server_menu::ServerMenu,
 	channel_menu: channel_menu::ChannelMenu,
+	channel_browser: channel_browser::ChannelBrowser,
 	pub channel_preferences: model::ChannelPreferences,
 	pub channel_preferences_changed: bool,
 	pub channel_preferences_loaded: bool,
@@ -359,6 +361,9 @@ pub struct MessagingUi {
 	dm_profile_link: Option<String>,
 	profile_formatted: markdown::FormatCache,
 	pub reading_preferences: model::ReadingPreferences,
+	/// Local render filters only; neither changes relationships nor service-side read state.
+	pub hide_blocked_messages: bool,
+	pub hide_ignored_messages: bool,
 	pub show_hidden_channels: bool,
 	/// Folds the home list's message requests away; the device preference restores it.
 	pub message_requests_collapsed: bool,
@@ -1298,6 +1303,9 @@ impl MessagingUi {
 			minimize_to_tray: self.minimize_to_tray,
 			tray_available: self.tray_available,
 			tray_status: self.tray_status,
+			// Device-level chat filters belong to the device, not to the account being cleared.
+			hide_blocked_messages: self.hide_blocked_messages,
+			hide_ignored_messages: self.hide_ignored_messages,
 			startup_enabled: self.startup_enabled,
 			startup_minimized: self.startup_minimized,
 			startup_available: self.startup_available,
@@ -5133,6 +5141,22 @@ impl MessagingUi {
 		}
 		self.server_menu
 			.show(&ctx, state, self.guild, &mut commands, &mut self.avatars);
+		if let Some(guild) = self
+			.channel_menu
+			.browse_requested
+			.take()
+			.or(self.server_menu.browse_requested.take())
+		{
+			self.channel_browser.open(state, guild);
+		}
+		if let Some((guild, change)) = self.server_menu.channel_list_requested.take()
+			&& Some(guild) == self.guild
+			&& let Some(command) = state.change_channel_list(guild, change)
+		{
+			commands.push(command);
+		}
+		self.channel_browser
+			.show(&ctx, state, self.guild, &mut commands);
 		if let Some(guild) = self.server_menu.settings_requested.take()
 			&& let Some(command) = self.preview_server_settings(state, guild)
 		{
@@ -5572,6 +5596,8 @@ impl MessagingUi {
 					.show(ui, |ui| {
 						design::paint_chat_background(ui, ui.available_rect_before_wrap());
 						self.timeline.hide_media_links = self.reading_preferences.hide_media_links;
+						self.timeline.hide_blocked_messages = self.hide_blocked_messages;
+						self.timeline.hide_ignored_messages = self.hide_ignored_messages;
 						self.timeline.compact_messages = self.reading_preferences.compact_messages;
 						self.timeline.double_click_reaction = self
 							.reading_preferences
@@ -6261,15 +6287,19 @@ mod composer_tests {
 	use client_core::MAX_CONTENT;
 
 	#[test]
-	fn clearing_an_account_preserves_the_device_log_preference() {
+	fn clearing_an_account_preserves_device_level_preferences() {
 		let mut ui = MessagingUi {
 			diagnostics_log: diagnostics::Level::Info,
 			diagnostics_log_path: Some("local-log".into()),
+			hide_blocked_messages: true,
+			hide_ignored_messages: true,
 			..Default::default()
 		};
 		ui.clear();
 		assert_eq!(ui.diagnostics_log, diagnostics::Level::Info);
 		assert_eq!(ui.diagnostics_log_path.as_deref(), Some("local-log"));
+		// Account filters are device preferences; clearing one account must not turn them off.
+		assert!(ui.hide_blocked_messages && ui.hide_ignored_messages);
 		assert!(!ui.open_log_folder_requested);
 	}
 

@@ -608,6 +608,26 @@ not clear these mutes. Create Channel, Create Category and Invite to Server reus
 permission checks, confirmation UI and request lanes as the existing channel and
 server menus.
 
+Browse Channels, Show All Channels and Remove from / Add to Channel List use Discord's
+opt-in channel list, unofficial and documented by discord-userdoccers: the user guild
+settings `flags` bit `OPT_IN_CHANNELS_ON` (1 << 14) hides channels without the channel
+override flag `OPT_IN_ENABLED` (1 << 12), and `OPT_IN_CHANNELS_OFF` (1 << 13) shows all
+channels. READY and User Guild Settings Update restore the flags; unknown flags (including
+any override with null flags) list every channel and disable the controls. A followed
+category lists its channels. On a server that never used the list (neither mode bit set and
+nothing followed), the first removal follows every category and uncategorized channel; a
+saved selection, even an empty one, is kept across Show All Channels. Removing a channel
+from a followed category follows its siblings instead, so only the removed item leaves the
+list. Each change is one bounded `PATCH /users/@me/guilds/{guild}/settings` that preserves
+the other flag bits, is built from the newest known settings right before it is sent, and
+must be echoed before the sidebar changes. A live capture showed Discord omits `flags` when it
+is 0 and drops an override left with only defaults, so both read as 0; explicit null is
+ambiguous. The open channel and the active call stay listed, and
+removed channels do not light the server's unread marker. Discord's client offers these
+controls in Community servers; Serein shows them wherever the settings row is known, and
+the official client may ignore the flags outside Community servers. Onboarding default
+channels are not read separately (unverified).
+
 Text/announcement editing (name, topic, slowmode and age restriction), channel
 duplication, text/voice/announcement/forum channel and category creation, and confirmed deletion use the documented
 [channel routes](https://docs.discord.com/developers/resources/channel#modify-channel)
@@ -1136,7 +1156,11 @@ Unknown relationship/settings state is distinguished from false. One write is pe
 rejections, disconnects and ambiguous outcomes remain visible without automatic retries.
 Gateway updates take precedence over late HTTP confirmations. Notification suppression reuses
 the existing account settings and rejects alerts from known blocked authors. Existing timeline
-content is retained; this does not implement Discord's collapsed blocked-message presentation.
+content is retained. By default the native blocked-message presentation is unchanged; an explicit
+device-local Chat preference can omit known blocked authors from visible main/thread-starter rows,
+with a second option for known ignored authors. Unknown relationship state does not hide a row,
+and filtering does not mark messages read or mutate relationships. This local presentation filter
+is not Discord's collapsed blocked-group implementation or a service-side moderation change.
 Offline reducer, decoder and local HTTP tests cover these actions; normal-user acceptance,
 cross-device behavior and native interaction remain live-unverified. No accounts were accessed.
 
@@ -2499,7 +2523,8 @@ applications resolves to none. Discord itself detects some of these games by unk
 (unverified); Serein still cannot detect them from a process alone. Matching compares path suffixes longest-first, plus `.app` bundle
 components for macOS entries; an executable-name index keeps a full sweep at roughly 6 ms for
 900 processes instead of ~920 ms for a linear scan. Processes are enumerated read-only through
-`/proc` on Linux, `ps` on macOS and `tasklist` on Windows: executable paths only, never
+`/proc` on Linux, `ps` on macOS and `tasklist` plus a limited-query image-path read on Windows
+(a bare image name such as `gh.exe` otherwise matches an unrelated game): executable paths only, never
 arguments, environment, memory or another user's processes. Detection is polled every ten
 seconds while sharing is on, keeps a running match stable rather than flapping between two
 matches, and always loses to a connected client, which knows more than a process name.
