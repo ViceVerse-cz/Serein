@@ -30,7 +30,6 @@ import sys
 import tempfile
 from pathlib import Path
 
-UPSTREAM_REMOTE = "upstream"
 UPSTREAM_REF = "upstream/main"
 README = "README.md"
 README_UPSTREAM = "README.upstream.md"
@@ -106,6 +105,7 @@ def merge_insertions(ours: bytes, base: bytes, theirs: bytes) -> bytes | None:
 
     lines = merged.stdout.splitlines(keepends=True)
     result: list[bytes] = []
+    resolved_any = False
     index = 0
     while index < len(lines):
         line = lines[index]
@@ -133,9 +133,11 @@ def merge_insertions(ours: bytes, base: bytes, theirs: bytes) -> bytes | None:
 
         result.extend(lines[index + 1 : base_start])
         result.extend(lines[separator + 1 : end])
+        resolved_any = True
         index = end + 1
 
-    return b"".join(result)
+    # A failed merge-file run without markers must not pass for a clean merge.
+    return b"".join(result) if resolved_any else None
 
 
 def resolve(path: str, stages: dict[int, str]) -> bool:
@@ -185,7 +187,7 @@ def regenerate_lockfile() -> None:
         return
     if git("status", "--porcelain", "--", LOCKFILE).stdout.strip():
         git("add", "--", LOCKFILE)
-        note("  Cargo.lock: took upstream and regenerated")
+        print("  Cargo.lock: regenerated with cargo metadata", flush=True)
 
 
 def commit_message() -> str:
@@ -204,10 +206,15 @@ def self_test() -> None:
 
 
 def main() -> int:
+    before = git("rev-parse", "HEAD").stdout.strip()
     merge = run(["git", "merge", "--no-edit", UPSTREAM_REF], check=False, capture=False)
     if merge.returncode == 0:
-        print("upstream is already merged; nothing to do", flush=True)
-        set_output(False)
+        changed = git("rev-parse", "HEAD").stdout.strip() != before
+        if changed:
+            print("merged upstream cleanly; no conflicts to resolve", flush=True)
+        else:
+            print("upstream is already merged; nothing to do", flush=True)
+        set_output(changed)
         return 0
 
     conflicts = unmerged_paths()
