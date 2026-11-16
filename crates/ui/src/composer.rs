@@ -1248,17 +1248,19 @@ impl MessagingUi {
 		} else {
 			None
 		};
-		let mention_users = if mention_enabled || composer_content.contains("<@") {
+		let cursor = egui::text_edit::TextEditState::load(ctx, composer_id)
+			.and_then(|s| s.cursor.char_range())
+			.filter(|r| r.is_empty())
+			.map(|r| r.primary.index.0);
+		let mut mention_users = if composer_content.contains("<@")
+			|| (mention_enabled && mentions::needs_users(composer_content, cursor))
+		{
 			mentions::known_users(state, channel)
 		} else {
 			Vec::new()
 		};
 		let mass_mentions =
 			state.permission(channel, model::permissions::MENTION_EVERYONE) == Some(true);
-		let cursor = egui::text_edit::TextEditState::load(ctx, composer_id)
-			.and_then(|s| s.cursor.char_range())
-			.filter(|r| r.is_empty())
-			.map(|r| r.primary.index.0);
 		self.mention_menu.hide_nitro_emojis = self.hide_nitro_emojis;
 		if std::mem::take(&mut self.mention_menu.retry_games) {
 			state.game_mentions.status = client_core::game_mentions::Status::Idle;
@@ -1714,6 +1716,9 @@ impl MessagingUi {
                             .map(|r| r.primary.index.0)
                             .or(cursor.filter(|_| suggestion_pointer))
                             .filter(|_| mention_enabled);
+                        if mention_users.is_empty() && mentions::needs_users(draft, mention_cursor) {
+                            mention_users = mentions::known_users(state, channel);
+                        }
                         self.mention_menu
                             .refresh(state, channel, draft, mention_cursor, &mention_users);
                         if let Some(pick) = self.mention_menu.show(ui, composer_anchor, &mut self.avatars, demo)
@@ -2014,6 +2019,239 @@ pub(crate) mod tests {
 		}
 		output.drop_without_applying_deltas();
 		labels
+	}
+
+	pub(crate) fn composer_pressure_state() -> State {
+		let mut state = test_support::demo_state();
+		let channel = state.selected.unwrap();
+		let guild = state.channel(channel).unwrap().guild.unwrap();
+		let user = state.user.as_ref().unwrap().clone();
+		state.members = Some(model::MemberList {
+			guild: Some(guild),
+			channel,
+			request: 0,
+			start: 0,
+			total: 200,
+			lazy: true,
+			freshness: Freshness::Fresh,
+			missing_identity: vec![],
+			groups: vec![],
+			ranges: vec![],
+			slots: (0..200)
+				.map(|index| {
+					let mut user = user.clone();
+					user.id = Id(100_000 + index);
+					user.name = format!("Synthetic member {index}");
+					user.avatar = None;
+					Some(model::MemberSlot::Person(model::Member {
+						user,
+						nick: Some(format!("Synthetic nickname {index}")),
+						roles: vec![],
+						status: None,
+						custom_status: None,
+						activities: vec![],
+						clients: Default::default(),
+					}))
+				})
+				.collect(),
+		});
+		for index in 0..600 {
+			let mut message = test_support::message(1_000_000 + index, channel);
+			message.author = user.clone();
+			message.author.id = Id(300_000 + index);
+			message.author.name = format!("Synthetic author {index}");
+			message.author.avatar = None;
+			state.timeline.insert(message, false, false).unwrap();
+		}
+		let roles = state
+			.permissions
+			.guilds
+			.get_mut(&guild)
+			.unwrap()
+			.roles
+			.as_mut()
+			.unwrap();
+		let role = roles[0].clone();
+		roles.extend(
+			(0..model::permissions::MAX_ROLES - roles.len()).map(|index| {
+				let mut role = role.clone();
+				role.id = Id(200_000 + index as u64);
+				role.name = format!("Synthetic role {index}");
+				role
+			}),
+		);
+		assert_eq!(mentions::known_users(&state, channel).len(), 256);
+		assert_eq!(state.timeline.len(), 500);
+		assert!(state.can_compose(channel));
+		state
+	}
+
+	pub(crate) fn composer_input_frame(
+		ctx: &egui::Context,
+		view: &mut MessagingUi,
+		state: &mut State,
+		events: Vec<egui::Event>,
+	) -> Vec<String> {
+		let channel = state.selected.unwrap();
+		let output = ctx.run_ui(
+			egui::RawInput {
+				screen_rect: Some(egui::Rect::from_min_size(
+					egui::Pos2::ZERO,
+					egui::vec2(900.0, 700.0),
+				)),
+				events,
+				focused: true,
+				..Default::default()
+			},
+			|ui| view.composer(ui, state, channel, ctx, &mut Vec::new()),
+		);
+		let mut labels = Vec::new();
+		for shape in &output.shapes {
+			collect_text(&shape.shape, &mut labels);
+		}
+		output.drop_without_applying_deltas();
+		ctx.input_mut(|input| input.keys_down.clear());
+		labels
+	}
+
+	#[test]
+	fn pasted_wire_mentions_resolve_cached_names_and_refresh_after_async_updates() {
+		for cached_before_paste in [false, true] {
+			let mut state = composer_pressure_state();
+			state.demo = false;
+			state.auth = client_core::auth::AuthState::Authenticated;
+			state.gateway_connected = true;
+			let channel = state.selected.unwrap();
+			let guild = state.channel(channel).unwrap().guild.unwrap();
+			let target = Id(900_007);
+			let hydrate = |state: &mut State| {
+				state.hydrate_member_displays(
+					guild,
+					state.member_display_revision(),
+					vec![model::MemberDisplay {
+						guild,
+						user: target,
+						name: "Global display".into(),
+						username: Some("account_name".into()),
+						nick: Some("Cached nickname".into()),
+					}],
+				);
+			};
+			if cached_before_paste {
+				hydrate(&mut state);
+			}
+			state.drafts.insert(channel, "Plain ".into());
+			let ctx = egui::Context::default();
+			let mut view = MessagingUi {
+				focus_switched_composer: true,
+				..Default::default()
+			};
+			composer_input_frame(&ctx, &mut view, &mut state, vec![]);
+			let mut labels = composer_input_frame(
+				&ctx,
+				&mut view,
+				&mut state,
+				vec![egui::Event::Paste("<@900007> ".into())],
+			);
+			if !cached_before_paste {
+				assert!(labels.iter().any(|label| label == "@900007"));
+				hydrate(&mut state);
+				labels = composer_input_frame(&ctx, &mut view, &mut state, vec![]);
+			}
+			assert!(labels.iter().any(|label| label == "@Cached nickname"));
+			state.apply(client_core::Envelope {
+				generation: state.generation,
+				event: client_core::Event::MemberIdentity(Box::new(model::MemberIdentity {
+					guild,
+					user: target,
+					profile: None,
+					global_name: model::GlobalNameUpdate::Unchanged,
+					avatar: model::Patch::Absent,
+					nick: model::Patch::Value("Updated nickname".into()),
+					roles: model::Patch::Absent,
+					departed: false,
+				})),
+			});
+			let labels = composer_input_frame(&ctx, &mut view, &mut state, vec![]);
+			assert!(labels.iter().any(|label| label == "@Updated nickname"));
+			assert_eq!(state.drafts[&channel], "Plain <@900007> ");
+		}
+	}
+
+	#[test]
+	#[ignore = "Synthetic production composer frame timing; run explicitly with --nocapture"]
+	fn focused_composer_frame_benchmark() {
+		const FRAMES: usize = 200;
+		for (label, draft, typing) in [
+			("plain-focused", "A short synthetic draft", false),
+			("plain-typing", "A short synthetic draft", true),
+			(
+				"wire-mentions",
+				"<@100000> <@&200000> synthetic draft",
+				true,
+			),
+			("mention-query", "@Synthetic", false),
+		] {
+			let mut state = composer_pressure_state();
+			let channel = state.selected.unwrap();
+			state.drafts.insert(channel, draft.into());
+			let ctx = egui::Context::default();
+			let mut view = MessagingUi {
+				focus_switched_composer: true,
+				..Default::default()
+			};
+			let mut commands = Vec::new();
+			let mut frame_number = 0;
+			let mut frame = || {
+				frame_number += 1;
+				let events = if !typing {
+					vec![]
+				} else if frame_number % 2 == 1 {
+					vec![egui::Event::Text("x".into())]
+				} else {
+					vec![egui::Event::Key {
+						key: egui::Key::Backspace,
+						physical_key: None,
+						pressed: true,
+						repeat: false,
+						modifiers: egui::Modifiers::NONE,
+					}]
+				};
+				let output = ctx.run_ui(
+					egui::RawInput {
+						screen_rect: Some(egui::Rect::from_min_size(
+							egui::Pos2::ZERO,
+							egui::vec2(900.0, 700.0),
+						)),
+						time: Some(frame_number as f64 / 60.0),
+						events,
+						focused: true,
+						..Default::default()
+					},
+					|ui| view.composer(ui, &mut state, channel, &ctx, &mut commands),
+				);
+				std::hint::black_box(output.shapes.len());
+				output.drop_without_applying_deltas();
+				ctx.input_mut(|input| input.keys_down.clear());
+				commands.clear();
+			};
+			for _ in 0..20 {
+				frame();
+			}
+			let mut samples = Vec::with_capacity(5);
+			for _ in 0..5 {
+				let start = std::time::Instant::now();
+				for _ in 0..FRAMES {
+					frame();
+				}
+				samples.push(start.elapsed().as_secs_f64() * 1_000.0);
+			}
+			assert_eq!(state.drafts[&channel], draft);
+			println!(
+				"focused_composer {label}: member_slots=200, seeded_authors=600, retained_messages=500, roles=512, frames={FRAMES}, debug_assertions={}, samples_ms={samples:?}",
+				cfg!(debug_assertions)
+			);
+		}
 	}
 
 	#[test]

@@ -526,6 +526,12 @@ pub fn presentation_fingerprint(state: &State, message: &model::Message) -> u64 
 	hasher.finish()
 }
 
+pub(crate) fn needs_users(draft: &str, cursor: Option<usize>) -> bool {
+	cursor
+		.and_then(|cursor| query(draft, cursor))
+		.is_some_and(|(_, _, kind)| kind == Kind::User)
+}
+
 fn query(draft: &str, cursor: usize) -> Option<(Range<usize>, &str, Kind)> {
 	let end = draft
 		.char_indices()
@@ -1470,6 +1476,64 @@ fn row(
 
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn focused_plain_composer_opens_user_suggestions_on_the_first_at_input_frame() {
+		use crate::composer::tests::{composer_input_frame, composer_pressure_state};
+		for pasted in [false, true] {
+			let mut state = composer_pressure_state();
+			let channel = state.selected.unwrap();
+			state.drafts.insert(channel, "Plain ".into());
+			let ctx = egui::Context::default();
+			let mut view = crate::MessagingUi {
+				focus_switched_composer: true,
+				..Default::default()
+			};
+			composer_input_frame(&ctx, &mut view, &mut state, vec![]);
+			let event = if pasted {
+				egui::Event::Paste("@Synthetic nickname 0".into())
+			} else {
+				composer_input_frame(
+					&ctx,
+					&mut view,
+					&mut state,
+					vec![egui::Event::Text("@".into())],
+				);
+				// egui paints a new popup only after its first sizing pass. The actual
+				// candidate model must already be ready before another editor frame.
+				assert!(
+					view.mention_menu
+						.candidates
+						.iter()
+						.any(|candidate| matches!(candidate, Candidate::User { .. })),
+					"The first @ character has member suggestions"
+				);
+				egui::Event::Text("Synthetic nickname 0".into())
+			};
+			composer_input_frame(&ctx, &mut view, &mut state, vec![event]);
+			assert!(
+				view.mention_menu
+					.candidates
+					.iter()
+					.any(|candidate| matches!(candidate,
+				Candidate::User { user, name } if user.id == Id(100_000) && name == "Synthetic nickname 0")),
+				"Typed and pasted queries both have the matching user in their first frame"
+			);
+			composer_input_frame(
+				&ctx,
+				&mut view,
+				&mut state,
+				vec![egui::Event::Key {
+					key: egui::Key::Tab,
+					physical_key: None,
+					pressed: true,
+					repeat: false,
+					modifiers: egui::Modifiers::NONE,
+				}],
+			);
+			assert_eq!(state.drafts[&channel], "Plain <@100000> ");
+		}
+	}
+
 	#[test]
 	fn queued_member_search_has_feedback_without_consuming_selection() {
 		let mut state = test_support::demo_state();
