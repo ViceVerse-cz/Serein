@@ -1769,7 +1769,7 @@ impl MessagingUi {
 		ui.spacing_mut().item_spacing.y = 0.0;
 		// Slots that have not arrived yet hold a person placeholder; only the first visible one
 		// is announced.
-		let mut pending = language.text("loading-people");
+		let mut announced = false;
 		let mut visible = 0usize..0;
 		let mut area = egui::ScrollArea::vertical().auto_shrink([false, false]);
 		if reset_scroll {
@@ -2073,9 +2073,14 @@ impl MessagingUi {
 							});
 						}
 						None if placeholders => {
+							let label = if std::mem::replace(&mut announced, true) {
+								String::new()
+							} else {
+								language.text("loading-people")
+							};
 							skeleton::custom(
 								ui,
-								&std::mem::take(&mut pending),
+								&label,
 								egui::vec2(ui.available_width(), MEMBER_ROW),
 								|painter, rect, fill| {
 									skeleton::paint_row(painter, fill, rect, PENDING_MEMBER, index);

@@ -648,7 +648,7 @@ impl Avatars {
 			if let Some(attempt) = self.attempts.get_mut(&key) {
 				*attempt = (Instant::now(), true);
 			}
-			if self.failed.len() >= 2048 {
+			if self.failed.len() >= ATTEMPTS {
 				self.failed.clear();
 			}
 			self.failed.insert(key.clone());

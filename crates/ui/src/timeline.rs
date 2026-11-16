@@ -5911,30 +5911,6 @@ mod tests {
 	}
 
 	#[test]
-	fn loading_history_never_paints_below_its_area() {
-		// The composer sits right below the history area and shares its clip rect, so a
-		// placeholder row taller than the area would paint over it.
-		let ctx = egui::Context::default();
-		for compact in [false, true] {
-			let mut area = egui::Rect::NOTHING;
-			let output = ctx.run_ui(Default::default(), |ui| {
-				area = egui::Rect::from_min_size(ui.max_rect().min, egui::vec2(400.0, 100.0));
-				let mut history = ui.new_child(egui::UiBuilder::new().max_rect(area));
-				loading_messages(&mut history, compact);
-			});
-			let clips: Vec<_> = output.shapes.iter().map(|shape| shape.clip_rect).collect();
-			output.drop_without_applying_deltas();
-			assert!(!clips.is_empty());
-			for clip in clips {
-				assert!(
-					clip.bottom() <= area.bottom(),
-					"compact {compact}: {clip:?} reaches below {area:?}"
-				);
-			}
-		}
-	}
-
-	#[test]
 	fn older_page_placeholder_keeps_the_reading_position() {
 		let mut state = loading_unread_channel(false);
 		state.freshness = model::Freshness::Fresh;

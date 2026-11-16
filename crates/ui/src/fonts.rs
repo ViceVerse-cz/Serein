@@ -158,7 +158,7 @@ impl Settings {
 		use crate::design;
 		use crate::icons::{Icon, paint};
 		const ROW: f32 = 32.0;
-		const SELECT: f32 = 40.0;
+		const SELECT: f32 = design::SELECT_HEIGHT;
 		let colors = design::palette(ui);
 		ui.add_space(4.0);
 		let Some(families) = &self.families else {
