@@ -236,9 +236,19 @@ struct ResultPanel {
 	values: BTreeMap<String, String>,
 }
 
+fn result_invocation(result: &ResultPanel, action: String) -> Invocation {
+	let mut invocation = result.invocation.clone();
+	invocation.action = action;
+	invocation.composer = None;
+	invocation.selected_message = None;
+	invocation.selected_message_ref = None;
+	invocation.menu_target = None;
+	invocation.values = result.values.clone();
+	invocation
+}
+
 /// Card chrome under the 16:9 preview: badges, title, blurb and the action row.
 const CARD_BODY: f32 = 196.0;
-const THEME_CARD_BODY: f32 = 108.0;
 const CARD_RADIUS: u8 = 12;
 const FOOTER_HEIGHT: f32 = 34.0;
 
@@ -262,6 +272,7 @@ pub struct ExtensionUi {
 	pub requests: Vec<ExtensionRequest>,
 	consent: Option<Consent>,
 	result: Option<ResultPanel>,
+	details: Option<String>,
 	error: Option<String>,
 	message_actions: Arc<Vec<MenuAction>>,
 	/// User, channel, server and role menu entries, published to menus each frame.
@@ -585,6 +596,13 @@ impl ExtensionUi {
 		}) {
 			self.consent = None;
 		}
+		if self.details.as_ref().is_some_and(|id| {
+			!entries.iter().any(|entry| {
+				&entry.manifest.id == id && entry.manifest.kind == ExtensionKind::Plugin
+			})
+		}) {
+			self.details = None;
+		}
 		self.previews.retain(|id, _| {
 			let old = self.entries.iter().find(|entry| &entry.manifest.id == id);
 			let new = entries.iter().find(|entry| &entry.manifest.id == id);
@@ -683,6 +701,7 @@ impl ExtensionUi {
 			self.themes = themes;
 			self.query.clear();
 			self.enlarged = None;
+			self.details = None;
 		}
 	}
 	pub fn receive_preview(&mut self, id: String, image: Option<egui::ColorImage>) {
@@ -885,6 +904,12 @@ impl ExtensionUi {
 				return;
 			}
 		}
+		if self.previews.get(id).is_some_and(|preview| preview.loading) {
+			// The artwork is on its way; a flat placeholder holds its area.
+			ui.painter()
+				.rect_filled(rect, radius, crate::skeleton::fill(ui));
+			return;
+		}
 		ui.painter().rect_filled(rect, radius, colors.sidebar);
 		let inset = rect.shrink(18.0);
 		let icon = egui::Rect::from_center_size(
@@ -901,9 +926,7 @@ impl ExtensionUi {
 		ui.painter().text(
 			inset.center() + egui::vec2(0.0, 23.0),
 			egui::Align2::CENTER_CENTER,
-			if self.previews.get(id).is_some_and(|preview| preview.loading) {
-				"Loading preview..."
-			} else if entry.preview.is_some() && !self.previews.contains_key(id) {
+			if entry.preview.is_some() && !self.previews.contains_key(id) {
 				"Preview not loaded"
 			} else {
 				"Preview unavailable"
@@ -998,8 +1021,19 @@ impl ExtensionUi {
 			self.enlarged = None;
 		}
 	}
+	pub fn open_details(&mut self, id: &str) {
+		if self
+			.entries
+			.iter()
+			.any(|entry| entry.manifest.id == id && entry.manifest.kind == ExtensionKind::Plugin)
+		{
+			self.enlarged = None;
+			self.details = Some(id.into());
+		}
+	}
 	pub fn offer_import(&mut self, entry: ExtensionEntry) {
 		self.enlarged = None;
+		self.details = None;
 		self.consent = Some(Consent {
 			entry,
 			grants: vec![],
@@ -1023,6 +1057,7 @@ impl ExtensionUi {
 		self.gallery_preview = None;
 		self.error = None;
 		self.result = None;
+		self.details = None;
 		self.consent = None;
 		self.requests.clear();
 		self.previews.clear();
@@ -1032,8 +1067,39 @@ impl ExtensionUi {
 		if self.result.as_ref().is_some_and(|result| result.id == id) {
 			self.result = None;
 		}
+		if self.details.as_deref() == Some(id) {
+			self.details = None;
+		}
 		self.requests.retain(
 			|request| !matches!(request, ExtensionRequest::Invoke { id: plugin, .. } if plugin == id),
+		);
+	}
+	fn invoke_panel(&mut self, ctx: &egui::Context, state: &State, id: String, action: String) {
+		let declared = self.entries.iter().any(|entry| {
+			entry.manifest.id == id
+				&& entry.manifest.kind == ExtensionKind::Plugin
+				&& entry.enabled
+				&& !entry.cleanup_pending
+				&& entry
+					.manifest
+					.actions
+					.iter()
+					.any(|declared| declared.id == action && declared.surface == Surface::Panel)
+		});
+		if !declared {
+			return;
+		}
+		self.details = None;
+		self.queue(
+			ctx,
+			ExtensionRequest::Invoke {
+				id,
+				invocation: Invocation {
+					action,
+					..Default::default()
+				},
+				context: ExtensionContext::panel(state),
+			},
 		);
 	}
 	pub fn present_output(
@@ -1442,7 +1508,7 @@ impl ExtensionUi {
 		let card = (width - 2.0).max(1.0);
 		let body = (card - 28.0).max(1.0);
 		let body_height = if self.themes {
-			THEME_CARD_BODY
+			theme_card_body(ui)
 		} else {
 			CARD_BODY
 		};
@@ -1456,9 +1522,22 @@ impl ExtensionUi {
 			sw: 0,
 			se: 0,
 		};
+		// A refresh with nothing listed yet shows cards, not the empty catalog.
+		let placeholder = entries.is_empty() && self.catalog_refreshing && query.is_empty();
+		let themes = self.themes;
 		let mut visible = Vec::new();
 		ui.vertical(|ui| {
 			ui.spacing_mut().item_spacing.y = gap;
+			if placeholder {
+				let rows = crate::skeleton::visible_count(ui, row_height + gap, 4);
+				catalog_placeholder(
+					ui,
+					themes,
+					(columns, rows),
+					egui::vec2(width, row_height),
+					gap,
+				);
+			}
 			for row in entries.chunks(columns) {
 				let row_rect = egui::Rect::from_min_size(
 					ui.cursor().min,
@@ -1515,7 +1594,6 @@ impl ExtensionUi {
 														&entry,
 														&mut enable,
 														&mut disable,
-														&mut invoke,
 													);
 												});
 										});
@@ -1544,7 +1622,7 @@ impl ExtensionUi {
 			// One settling frame lets a newly visible card replace a previously visible thumbnail.
 			ui.ctx().request_repaint();
 		}
-		if entries.is_empty() {
+		if entries.is_empty() && !placeholder {
 			egui::Frame::new()
 				.fill(colors.raised)
 				.corner_radius(CARD_RADIUS)
@@ -1598,6 +1676,7 @@ impl ExtensionUi {
 				});
 		}
 		self.preview_modal(ui.ctx());
+		self.details_modal(ui.ctx(), &mut enable, &mut disable, &mut invoke);
 		if let Some(entry) = enable {
 			self.offer_import(entry);
 		}
@@ -1606,19 +1685,215 @@ impl ExtensionUi {
 			self.queue(ui.ctx(), ExtensionRequest::Disable { id });
 		}
 		if let Some((id, action)) = invoke {
-			self.queue(
-				ui.ctx(),
-				ExtensionRequest::Invoke {
-					id,
-					invocation: Invocation {
-						action,
-						..Default::default()
-					},
-					context: ExtensionContext::panel(state),
-				},
-			);
+			self.invoke_panel(ui.ctx(), state, id, action);
 		}
 		self.consent_modal(ui.ctx(), &colors);
+	}
+	fn details_modal(
+		&mut self,
+		ctx: &egui::Context,
+		enable: &mut Option<ExtensionEntry>,
+		disable: &mut Option<String>,
+		invoke: &mut Option<(String, String)>,
+	) {
+		let Some(id) = self.details.clone() else {
+			return;
+		};
+		let Some(entry) = self
+			.entries
+			.iter()
+			.find(|entry| entry.manifest.id == id && entry.manifest.kind == ExtensionKind::Plugin)
+			.cloned()
+		else {
+			self.details = None;
+			return;
+		};
+		let colors = design::palette_for(ctx);
+		let panel_actions: Vec<_> = entry
+			.manifest
+			.actions
+			.iter()
+			.filter(|action| action.surface == Surface::Panel)
+			.cloned()
+			.collect();
+		let usable = entry.enabled && !entry.cleanup_pending && !self.busy;
+		let mut close = false;
+		let response = crate::dialog::Dialog::new("extension-details", &entry.manifest.name)
+			.subtitle(crate::i18n::translate(
+				"extensions-ui-details-modal-package-information-and-native-tools",
+			))
+			.width(560.0)
+			.show(ctx, |d| {
+				d.scroll(220.0, |ui| {
+					ui.spacing_mut().item_spacing.y = 10.0;
+					ui.add(
+						egui::Label::new(if entry.description.is_empty() {
+							crate::i18n::translate("extensions-ui-details-modal-no-description")
+						} else {
+							entry.description.clone()
+						})
+						.wrap(),
+					);
+					ui.horizontal_wrapped(|ui| {
+						ui.spacing_mut().item_spacing = egui::vec2(6.0, 4.0);
+						if entry.reviewed {
+							badge(
+								ui,
+								&crate::i18n::translate("extensions-ui-consent-modal-reviewed"),
+								colors.positive,
+								design::mix(colors.raised, colors.positive, 0.16),
+							);
+						} else {
+							badge(
+								ui,
+								&crate::i18n::translate("extensions-ui-consent-modal-unreviewed"),
+								colors.warning,
+								design::mix(colors.raised, colors.warning, 0.16),
+							);
+						}
+						if entry.cleanup_pending {
+							badge(
+								ui,
+								&crate::i18n::translate("extensions-ui-card-body-cleanup-pending"),
+								colors.warning,
+								design::mix(colors.raised, colors.warning, 0.16),
+							);
+						} else if entry.enabled {
+							badge(
+								ui,
+								&crate::i18n::translate("extensions-ui-card-body-enabled"),
+								colors.positive,
+								design::mix(colors.raised, colors.positive, 0.16),
+							);
+						}
+						if entry.update_available {
+							badge(
+								ui,
+								&crate::i18n::translate("extensions-ui-card-body-update"),
+								colors.accent,
+								design::mix(colors.raised, colors.accent, 0.2),
+							);
+						}
+					});
+					for (label, value) in [
+						(
+							"extensions-ui-details-modal-author",
+							entry.manifest.author.as_str(),
+						),
+						(
+							"extensions-ui-details-modal-version",
+							entry.manifest.version.as_str(),
+						),
+						(
+							"extensions-ui-details-modal-license",
+							entry.manifest.license.as_str(),
+						),
+						("extensions-ui-details-modal-plugin-id", id.as_str()),
+					] {
+						ui.add(
+							egui::Label::new(
+								egui::RichText::new(format!(
+									"{}: {value}",
+									crate::i18n::translate(label)
+								))
+								.size(12.5)
+								.color(colors.text),
+							)
+							.wrap(),
+						);
+					}
+					if !entry.manifest.source.is_empty() {
+						ui.hyperlink_to(
+							crate::i18n::translate("extensions-ui-consent-modal-view-source"),
+							&entry.manifest.source,
+						);
+					}
+					ui.separator();
+					ui.label(design::eyebrow(
+						ui,
+						crate::i18n::translate("extensions-ui-details-modal-capabilities"),
+						colors.muted,
+					));
+					if entry.manifest.capabilities.is_empty() {
+						crate::dialog::hint(ui, "extensions-ui-details-modal-no-capabilities");
+					} else {
+						for capability in &entry.manifest.capabilities {
+							ui.add(egui::Label::new(capability_label(*capability)).wrap());
+						}
+					}
+					ui.separator();
+					ui.label(design::eyebrow(
+						ui,
+						crate::i18n::translate("extensions-ui-details-modal-settings-and-tools"),
+						colors.muted,
+					));
+					if panel_actions.is_empty() {
+						crate::dialog::hint(ui, "extensions-ui-details-modal-no-panel-actions");
+					} else {
+						if !entry.enabled {
+							crate::dialog::hint(
+								ui,
+								"extensions-ui-details-modal-enable-to-use-tools",
+							);
+						}
+						ui.horizontal_wrapped(|ui| {
+							ui.spacing_mut().item_spacing = egui::vec2(8.0, 8.0);
+							for action in &panel_actions {
+								if ui
+									.add_enabled(usable, egui::Button::new(&action.label))
+									.clicked()
+								{
+									*invoke = Some((id.clone(), action.id.clone()));
+								}
+							}
+						});
+					}
+				});
+				d.footer(|ui| {
+					close |= crate::dialog::action(
+						ui,
+						"extensions-ui-show-result-close",
+						crate::dialog::Action::Neutral,
+					)
+					.clicked();
+					if entry.cleanup_pending {
+						if crate::dialog::action(
+							ui,
+							"extensions-ui-details-modal-retry-cleanup",
+							crate::dialog::Action::Danger,
+						)
+						.clicked()
+						{
+							*disable = Some(id.clone());
+						}
+					} else if entry.enabled {
+						if crate::dialog::action(
+							ui,
+							"extensions-ui-details-modal-disable",
+							crate::dialog::Action::Danger,
+						)
+						.clicked()
+						{
+							*disable = Some(id.clone());
+						}
+					} else if ui
+						.add_enabled_ui(!self.busy, |ui| {
+							crate::dialog::action(
+								ui,
+								"extensions-ui-details-modal-review-enable",
+								crate::dialog::Action::Primary,
+							)
+						})
+						.inner
+						.clicked()
+					{
+						*enable = Some(entry.clone());
+					}
+				});
+			});
+		if close || response.close || enable.is_some() || disable.is_some() || invoke.is_some() {
+			self.details = None;
+		}
 	}
 	fn card_body(
 		&mut self,
@@ -1627,7 +1902,6 @@ impl ExtensionUi {
 		entry: &ExtensionEntry,
 		enable: &mut Option<ExtensionEntry>,
 		disable: &mut Option<String>,
-		invoke: &mut Option<(String, String)>,
 	) {
 		let active = self.active_theme.as_deref() == Some(entry.manifest.id.as_str());
 		let mut update_requested = false;
@@ -1793,11 +2067,13 @@ impl ExtensionUi {
 			});
 		}
 		let body_height = if self.themes {
-			THEME_CARD_BODY
+			theme_card_body(ui)
 		} else {
 			CARD_BODY
 		};
-		let footer = ui.min_rect().top() + body_height - 24.0 - FOOTER_HEIGHT;
+		// The footer row is at least a control tall.
+		let footer = ui.min_rect().top() + body_height
+			- 24.0 - FOOTER_HEIGHT.max(ui.spacing().interact_size.y);
 		ui.add_space((footer - ui.cursor().top()).max(0.0));
 		let neutral = design::mix(colors.raised, colors.text, 0.1);
 		let outline = egui::Stroke::new(1.0, colors.border);
@@ -1824,7 +2100,8 @@ impl ExtensionUi {
 			if !entry.enabled {
 				// Catalog themes can still be opened as a copy in the editor before installing.
 				let customizable = self.themes && entry.theme_preview.is_some();
-				let width = if customizable {
+				let split = customizable || !self.themes;
+				let width = if split {
 					((ui.available_width() - 8.0) / 2.0).max(1.0)
 				} else {
 					ui.available_width().max(1.0)
@@ -1856,6 +2133,19 @@ impl ExtensionUi {
 					.clicked()
 				{
 					*enable = Some(entry.clone());
+				}
+				if !self.themes
+					&& card_button(
+						ui,
+						"extensions-ui-card-body-details",
+						egui::vec2(width, FOOTER_HEIGHT),
+						neutral,
+						outline,
+						colors.text_strong,
+					)
+					.clicked()
+				{
+					self.open_details(&entry.manifest.id);
 				}
 				if customizable
 					&& ui
@@ -1953,14 +2243,7 @@ impl ExtensionUi {
 				}
 				return;
 			}
-			let panel_actions: Vec<_> = entry
-				.manifest
-				.actions
-				.iter()
-				.filter(|action| action.surface == Surface::Panel)
-				.collect();
-			let count =
-				1 + usize::from(entry.update_available) + usize::from(!panel_actions.is_empty());
+			let count = 2 + usize::from(entry.update_available);
 			let each = ((ui.available_width() - 8.0 * (count - 1) as f32) / count as f32).max(1.0);
 			if entry.update_available
 				&& ui
@@ -1987,29 +2270,17 @@ impl ExtensionUi {
 				}
 				*enable = Some(update);
 			}
-			if !panel_actions.is_empty() {
-				ui.scope(|ui| {
-					let visuals = ui.visuals_mut();
-					visuals.widgets.inactive.weak_bg_fill = neutral;
-					visuals.widgets.hovered.weak_bg_fill = neutral.linear_multiply(1.12);
-					visuals.widgets.active.weak_bg_fill = neutral.gamma_multiply(0.85);
-					visuals.widgets.open.weak_bg_fill = neutral.linear_multiply(1.12);
-					ui.spacing_mut().button_padding.x = (each / 2.0 - 30.0).max(6.0);
-					ui.menu_button(
-						crate::i18n::translate("extensions-ui-card-body-open-tool"),
-						|ui| {
-							for action in &panel_actions {
-								if ui
-									.add_enabled(!self.busy, egui::Button::new(&action.label))
-									.clicked()
-								{
-									*invoke = Some((entry.manifest.id.clone(), action.id.clone()));
-									ui.close();
-								}
-							}
-						},
-					);
-				});
+			if card_button(
+				ui,
+				"extensions-ui-card-body-details",
+				egui::vec2(each, FOOTER_HEIGHT),
+				neutral,
+				outline,
+				colors.text_strong,
+			)
+			.clicked()
+			{
+				self.open_details(&entry.manifest.id);
 			}
 			if card_button(
 				ui,
@@ -2516,18 +2787,11 @@ impl ExtensionUi {
 				});
 			});
 		if let Some(action) = action {
-			let mut invocation = result.invocation.clone();
-			invocation.action = action;
-			invocation.composer = None;
-			invocation.selected_message = None;
-			invocation.selected_message_ref = None;
-			invocation.menu_target = None;
-			invocation.values = result.values.clone();
 			self.queue(
 				ctx,
 				ExtensionRequest::Invoke {
 					id: result.id.clone(),
-					invocation,
+					invocation: result_invocation(&result, action),
 					context: result.context.clone(),
 				},
 			);
@@ -2766,6 +3030,101 @@ fn draw_native_preview(
 	}
 	panel(0.33, 0.86, 0.64, 0.09, colors.raised);
 	panel(0.89, 0.88, 0.05, 0.05, colors.accent);
+}
+
+/// Body height of a theme card: its name and creator rows are each a control tall, above the
+/// footer button and 12px padding top and bottom.
+fn theme_card_body(ui: &egui::Ui) -> f32 {
+	let control = ui.spacing().interact_size.y;
+	2.0 * control + 8.0 + FOOTER_HEIGHT.max(control) + 24.0
+}
+
+/// Placeholder catalog cards on the grid of [`ExtensionUi::settings`], each `cell` in size:
+/// its preview area, the body text of a plugin or theme card and the footer button.
+fn catalog_placeholder(
+	ui: &mut egui::Ui,
+	themes: bool,
+	(columns, rows): (usize, usize),
+	cell: egui::Vec2,
+	gap: f32,
+) {
+	let size = egui::vec2(ui.available_width(), rows as f32 * (cell.y + gap) - gap);
+	let control = ui.spacing().interact_size.y;
+	crate::skeleton::custom(
+		ui,
+		&crate::i18n::translate("extensions-ui-toolbar-checking-for-packages-and-updates"),
+		size,
+		|painter, rect, fill| {
+			for index in 0..columns * rows {
+				let (row, column) = (index / columns, index % columns);
+				let frame = egui::Rect::from_min_size(
+					rect.min
+						+ egui::vec2(column as f32 * (cell.x + gap), row as f32 * (cell.y + gap)),
+					cell,
+				);
+				crate::skeleton::outline(painter, fill, frame, f32::from(CARD_RADIUS));
+				// Inside the 1px stroke: the 16:9 preview, then the body's 14px side padding.
+				let card = frame.shrink(1.0);
+				let preview = egui::Rect::from_min_size(
+					card.min,
+					egui::vec2(card.width(), card.width() * 9.0 / 16.0),
+				);
+				painter.rect_filled(
+					preview,
+					egui::CornerRadius {
+						nw: CARD_RADIUS,
+						ne: CARD_RADIUS,
+						sw: 0,
+						se: 0,
+					},
+					fill,
+				);
+				let left = card.left() + 14.0;
+				let body = card.width() - 28.0;
+				let factor = crate::skeleton::width_factor(index);
+				// Offset below the preview, height and width share of each line `card_body`
+				// draws below its 12px top padding. Themes centre name and creator in a
+				// control-tall row each; plugins centre their kind eyebrow in one, then stack
+				// name, creator and description.
+				let centred = |row: f32, height: f32| 12.0 + row + (control - height) * 0.5;
+				let text = 12.0 + control + 6.0;
+				let footer = FOOTER_HEIGHT.max(control);
+				let lines: &[(f32, f32, f32)] = if themes {
+					&[
+						(centred(0.0, 14.0), 14.0, 0.6 * factor),
+						(centred(control + 6.0, 10.0), 10.0, 0.35),
+					]
+				} else {
+					&[
+						(centred(0.0, 10.0), 10.0, 0.12),
+						(text + 4.0, 14.0, 0.6 * factor),
+						(text + 29.0, 10.0, 0.35),
+						(text + 45.0, 10.0, 0.9 * factor),
+					]
+				};
+				for &(top, height, share) in lines {
+					crate::skeleton::bar(
+						painter,
+						fill,
+						egui::pos2(left, preview.bottom() + top),
+						egui::vec2(body * share, height),
+					);
+				}
+				crate::skeleton::block(
+					painter,
+					fill,
+					egui::Rect::from_min_size(
+						egui::pos2(
+							left,
+							card.bottom() - 12.0 - footer + (footer - FOOTER_HEIGHT) * 0.5,
+						),
+						egui::vec2(body, FOOTER_HEIGHT),
+					),
+					8.0,
+				);
+			}
+		},
+	);
 }
 
 /// Card action button: fixed size, hover feedback and the shared button typography.
@@ -3188,6 +3547,48 @@ mod tests {
 		);
 	}
 
+	#[test]
+	fn stale_result_is_rejected_before_it_replaces_the_current_panel() {
+		let mut state = test_support::demo_state();
+		let context = ExtensionContext::panel(&state);
+		let invocation = Invocation {
+			action: "open".into(),
+			..Default::default()
+		};
+		let mut shop = ExtensionUi::default();
+		shop.present_output(
+			"synthetic.words".into(),
+			invocation.clone(),
+			context.clone(),
+			Output {
+				panel: vec![Element::Heading {
+					text: "Current settings".into(),
+				}],
+				..Default::default()
+			},
+			&state,
+		);
+		state.generation += 1;
+		shop.present_output(
+			"synthetic.words".into(),
+			invocation,
+			context,
+			Output {
+				panel: vec![Element::Heading {
+					text: "Stale settings".into(),
+				}],
+				..Default::default()
+			},
+			&state,
+		);
+		let result = shop.result.as_ref().expect("current panel is retained");
+		assert!(matches!(
+			result.output.panel.as_slice(),
+			[Element::Heading { text }] if text == "Current settings"
+		));
+		assert!(shop.status.contains("discarded"), "{}", shop.status);
+	}
+
 	fn entry() -> ExtensionEntry {
 		ExtensionEntry {
 			cover_image: None,
@@ -3216,6 +3617,132 @@ mod tests {
 			update_manifest: None,
 		}
 	}
+
+	#[test]
+	fn details_invokes_only_declared_panel_actions_and_routes_typed_values() {
+		let ctx = egui::Context::default();
+		let state = test_support::demo_state();
+		let mut shop = ExtensionUi::default();
+		let mut plugin = entry();
+		plugin.enabled = true;
+		let action = |id: &str, surface| extensions::Action {
+			id: id.into(),
+			label: format!("{id} action"),
+			surface,
+		};
+		plugin.manifest.actions = vec![
+			action("open", Surface::Panel),
+			action("activate", Surface::Activation),
+			action("compose", Surface::Composer),
+		];
+		shop.set_entries(vec![plugin]);
+		shop.open_details("synthetic.words");
+		for action in ["activate", "compose", "missing"] {
+			shop.invoke_panel(&ctx, &state, "synthetic.words".into(), action.into());
+			assert!(shop.requests.is_empty(), "{action} was not offered");
+			assert_eq!(shop.details.as_deref(), Some("synthetic.words"));
+		}
+		shop.entries[0].enabled = false;
+		shop.invoke_panel(&ctx, &state, "synthetic.words".into(), "open".into());
+		assert!(shop.requests.is_empty(), "disabled plugins stay inert");
+		shop.entries[0].enabled = true;
+		shop.invoke_panel(&ctx, &state, "synthetic.words".into(), "open".into());
+		assert!(shop.details.is_none());
+		let [
+			ExtensionRequest::Invoke {
+				id,
+				invocation,
+				context,
+			},
+		] = shop.requests.as_slice()
+		else {
+			panic!("one declared panel invocation")
+		};
+		assert_eq!(id, "synthetic.words");
+		assert_eq!(invocation.action, "open");
+		assert!(invocation.values.is_empty());
+		assert!(context.app_wide);
+		assert_eq!(context.generation, state.generation);
+
+		shop.present_output(
+			id.clone(),
+			invocation.clone(),
+			context.clone(),
+			Output::default(),
+			&state,
+		);
+		let result = shop.result.as_mut().unwrap();
+		result.values.insert("mode".into(), "URL".into());
+		result.values.insert("enabled".into(), "true".into());
+		result.values.insert("size".into(), "18".into());
+		let followup = result_invocation(result, "apply".into());
+		assert_eq!(followup.action, "apply");
+		assert_eq!(followup.values.get("mode").map(String::as_str), Some("URL"));
+		assert_eq!(
+			followup.values.get("enabled").map(String::as_str),
+			Some("true")
+		);
+		assert_eq!(followup.values.get("size").map(String::as_str), Some("18"));
+		assert!(followup.storage.is_none());
+	}
+
+	#[test]
+	fn details_offers_an_empty_state_and_follows_plugin_reload_and_disable() {
+		let ctx = egui::Context::default();
+		let mut shop = ExtensionUi::default();
+		let mut plugin = entry();
+		plugin.enabled = true;
+		plugin.reviewed = true;
+		plugin.description = "Offline package description".into();
+		shop.set_entries(vec![plugin.clone()]);
+		shop.open_details(&plugin.manifest.id);
+		frame(&ctx, &mut shop, 320.0, vec![]);
+		let labels = frame(&ctx, &mut shop, 320.0, vec![]);
+		let metadata = |key, value| format!("{}: {value}", crate::i18n::translate(key));
+		for expected in [
+			plugin.description.clone(),
+			metadata(
+				"extensions-ui-details-modal-author",
+				&plugin.manifest.author,
+			),
+			metadata(
+				"extensions-ui-details-modal-version",
+				&plugin.manifest.version,
+			),
+			metadata(
+				"extensions-ui-details-modal-license",
+				&plugin.manifest.license,
+			),
+			metadata("extensions-ui-details-modal-plugin-id", &plugin.manifest.id),
+			crate::i18n::translate("extensions-ui-details-modal-no-panel-actions"),
+		] {
+			assert!(
+				labels.iter().any(|(text, _)| *text == expected),
+				"missing {expected}"
+			);
+		}
+		plugin.description = "Reloaded package description".into();
+		shop.set_entries(vec![plugin.clone()]);
+		assert_eq!(shop.details.as_deref(), Some("synthetic.words"));
+		frame(&ctx, &mut shop, 320.0, vec![]);
+		let labels = frame(&ctx, &mut shop, 320.0, vec![]);
+		click(
+			&ctx,
+			&mut shop,
+			320.0,
+			&labels,
+			&crate::i18n::translate("extensions-ui-details-modal-disable"),
+		);
+		assert!(matches!(
+			shop.requests.as_slice(),
+			[ExtensionRequest::Disable { id }] if id == "synthetic.words"
+		));
+		assert!(shop.details.is_none(), "disable closes its details");
+		shop.open_details(&plugin.manifest.id);
+		shop.set_entries(vec![]);
+		assert!(shop.details.is_none(), "removed plugin closes its details");
+	}
+
 	/// Runs one frame that publishes context actions and draws `target`'s plugin entries, and
 	/// returns the drawn text with its screen rectangles.
 	fn context_frame(

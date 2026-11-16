@@ -407,6 +407,15 @@ message-request-title = Demande de message
 ## crates/ui/src/channel_menu.rs
 # Context: context
 channel-menu-context-add-to-favorites = Ajouter aux favoris
+channel-menu-context-remove-from-channel-list = Retirer de la liste des salons
+channel-menu-context-add-to-channel-list = Ajouter à la liste des salons
+channel-browser-title = Parcourir les salons
+channel-browser-subtitle = Choisis les salons qui apparaissent dans ta liste.
+channel-browser-show-all-channels = Afficher tous les salons
+channel-browser-search = Rechercher des salons
+channel-browser-follow-category = Suivre la catégorie
+channel-browser-saving = Enregistrement…
+channel-browser-unavailable = Les paramètres de la liste des salons sont indisponibles pour le moment.
 # Context: context
 channel-menu-context-copy-channel-id = Copier l'ID de la chaîne
 # Context: context
@@ -2413,8 +2422,6 @@ search-pane-hide-matching-text-highlight = Masquer la surbrillance du texte corr
 # Context: pane
 search-pane-indexing-is-incomplete-results-may-be-missing = L'indexation est incomplète; les résultats peuvent manquer.
 # Context: pane
-search-pane-looking-for-matching-messages = Recherche de messages correspondants.
-# Context: pane
 search-pane-messages-are-unavailable-while-disconnected-or-without-channel-access = Les messages ne sont pas disponibles en cas de déconnexion ou sans accès au canal.
 # Context: pane
 search-pane-newest-first = Le plus récent en premier
@@ -3604,6 +3611,8 @@ slash-commands-composer-choose-a-different-command = choisissez une autre comman
 slash-commands-composer-command-unavailable-your-arguments-are-kept = Commande indisponible. Vos arguments sont conservés.
 # Context: footer
 slash-commands-footer-refresh-application-commands = Actualiser les commandes de l'application
+# Context: list
+slash-commands-list-loading-application-commands = Chargement des commandes d’applications…
 
 ## crates/ui/src/stickers.rs
 # Context: message
@@ -4946,3 +4955,34 @@ settings-local-api-reset-key = Réinitialiser la clé
 settings-local-api-security-detail = Seuls les programmes exécutés sous votre compte sur cet ordinateur peuvent se connecter, et uniquement avec la clé d'accès. Les pages web et les autres appareils n'y ont pas accès. Les applications ne reçoivent jamais vos identifiants, vos messages ni votre audio.
 # Context: local_api_settings
 settings-local-api-revocation-unsaved = Serein n’a pas encore pu enregistrer la réinitialisation sur cet appareil : l’ancienne clé pourrait de nouveau fonctionner après un redémarrage. Serein continue de réessayer.
+
+# Context: moderation
+moderation-menu-timeout = Exclure temporairement { $name }
+# Context: moderation
+moderation-menu-kick = Expulser { $name }
+# Context: moderation
+moderation-menu-ban = Bannir { $name }
+# Context: moderation
+moderation-timeout-detail = Cette personne ne pourra ni envoyer de messages, ni réagir, ni rejoindre de salons vocaux jusqu'à la fin de l'exclusion.
+# Context: moderation
+moderation-kick-detail = Cette personne pourra revenir avec une nouvelle invitation.
+# Context: moderation
+moderation-ban-detail = Cette personne ne pourra pas revenir tant que le bannissement n'est pas levé.
+# Context: moderation
+moderation-duration-60-seconds = 60 secondes
+# Context: moderation
+moderation-remove-timeout = Lever l'exclusion
+# Context: moderation
+moderation-delete-history = Supprimer l'historique des messages
+# Context: moderation
+moderation-delete-none = Ne rien supprimer
+# Context: moderation
+moderation-delete-hour = Dernière heure
+# Context: moderation
+moderation-delete-day = Dernières 24 heures
+# Context: moderation
+moderation-delete-week = 7 derniers jours
+# Context: moderation
+moderation-confirm-timeout = Exclure
+# Context: moderation
+moderation-confirm-ban = Bannir

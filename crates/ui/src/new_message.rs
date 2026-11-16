@@ -285,6 +285,7 @@ mod tests {
 		);
 		// Regression: choosing the group already on screen sends nothing but still closes.
 		state.channels.push(model::Channel {
+			user_limit: None,
 			last_message: None,
 			id: Id(50),
 			guild: None,

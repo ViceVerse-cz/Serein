@@ -408,6 +408,15 @@ message-request-title = Mesaj isteği
 ## crates/ui/src/channel_menu.rs
 # Context: context
 channel-menu-context-add-to-favorites = Favorilere Ekle
+channel-menu-context-remove-from-channel-list = Kanal Listesinden Kaldır
+channel-menu-context-add-to-channel-list = Kanal Listesine Ekle
+channel-browser-title = Kanallara Göz At
+channel-browser-subtitle = Kanal listende hangi kanalların görüneceğini seç.
+channel-browser-show-all-channels = Tüm Kanalları Göster
+channel-browser-search = Kanallarda ara
+channel-browser-follow-category = Kategoriyi takip et
+channel-browser-saving = Kaydediliyor…
+channel-browser-unavailable = Kanal listesi ayarları şu anda kullanılamıyor.
 # Context: context
 channel-menu-context-copy-channel-id = Kanal Kimliğini Kopyala
 # Context: context
@@ -2414,8 +2423,6 @@ search-pane-hide-matching-text-highlight = Eşleşen metin vurgusunu gizle
 # Context: pane
 search-pane-indexing-is-incomplete-results-may-be-missing = Dizin oluşturma tamamlanmadı; sonuçlar eksik olabilir.
 # Context: pane
-search-pane-looking-for-matching-messages = Eşleşen mesajlar aranıyor.
-# Context: pane
 search-pane-messages-are-unavailable-while-disconnected-or-without-channel-access = Bağlantı kesildiğinde veya kanal erişimi olmadığında mesajlar kullanılamaz.
 # Context: pane
 search-pane-newest-first = Önce en yeni
@@ -3602,6 +3609,8 @@ slash-commands-composer-choose-a-different-command = farklı bir komut seç
 slash-commands-composer-command-unavailable-your-arguments-are-kept = Komut kullanılamıyor. Argümanlarınız saklıdır.
 # Context: footer
 slash-commands-footer-refresh-application-commands = Uygulama komutlarını yenile
+# Context: list
+slash-commands-list-loading-application-commands = Uygulama komutları yükleniyor…
 
 ## crates/ui/src/stickers.rs
 # Context: message
@@ -4932,3 +4941,34 @@ settings-local-api-reset-key = Anahtarı sıfırla
 settings-local-api-security-detail = Yalnızca bu bilgisayarda sizin kullanıcınızla çalışan programlar ve yalnızca erişim anahtarıyla bağlanabilir. Web sayfaları ve diğer cihazlar erişemez. Uygulamalar oturum bilgilerinizi, mesajlarınızı veya sesinizi asla almaz.
 # Context: local_api_settings
 settings-local-api-revocation-unsaved = Serein sıfırlamayı bu cihaza henüz kaydedemedi; bu yüzden eski anahtar yeniden başlatmadan sonra tekrar çalışabilir. Serein denemeye devam ediyor.
+
+# Context: moderation
+moderation-menu-timeout = { $name } için zaman aşımı
+# Context: moderation
+moderation-menu-kick = { $name } kullanıcısını at
+# Context: moderation
+moderation-menu-ban = { $name } kullanıcısını yasakla
+# Context: moderation
+moderation-timeout-detail = Zaman aşımı bitene kadar mesaj gönderemez, tepki ekleyemez ve ses kanallarına katılamaz.
+# Context: moderation
+moderation-kick-detail = Yeni bir davetle tekrar katılabilir.
+# Context: moderation
+moderation-ban-detail = Yasak kaldırılana kadar tekrar katılamaz.
+# Context: moderation
+moderation-duration-60-seconds = 60 saniye
+# Context: moderation
+moderation-remove-timeout = Zaman aşımını kaldır
+# Context: moderation
+moderation-delete-history = Mesaj geçmişini sil
+# Context: moderation
+moderation-delete-none = Hiçbirini silme
+# Context: moderation
+moderation-delete-hour = Son bir saat
+# Context: moderation
+moderation-delete-day = Son 24 saat
+# Context: moderation
+moderation-delete-week = Son 7 gün
+# Context: moderation
+moderation-confirm-timeout = Zaman aşımı
+# Context: moderation
+moderation-confirm-ban = Yasakla

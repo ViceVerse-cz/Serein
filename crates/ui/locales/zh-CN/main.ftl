@@ -409,6 +409,15 @@ message-request-title = 消息请求
 ## crates/ui/src/channel_menu.rs
 # Context: context
 channel-menu-context-add-to-favorites = 加入收藏
+channel-menu-context-remove-from-channel-list = 从频道列表中移除
+channel-menu-context-add-to-channel-list = 添加到频道列表
+channel-browser-title = 浏览频道
+channel-browser-subtitle = 选择要在频道列表中显示的频道。
+channel-browser-show-all-channels = 显示所有频道
+channel-browser-search = 搜索频道
+channel-browser-follow-category = 关注类别
+channel-browser-saving = 正在保存…
+channel-browser-unavailable = 频道列表设置暂时不可用。
 # Context: context
 channel-menu-context-copy-channel-id = 复制频道 ID
 # Context: context
@@ -2444,8 +2453,6 @@ search-pane-hide-matching-text-highlight = 隐藏匹配文字的高亮
 # Context: pane
 search-pane-indexing-is-incomplete-results-may-be-missing = 索引尚未完成，结果可能有遗漏。
 # Context: pane
-search-pane-looking-for-matching-messages = 正在查找匹配的消息。
-# Context: pane
 search-pane-messages-are-unavailable-while-disconnected-or-without-channel-access = 断线或无法访问频道时，消息不可用。
 # Context: pane
 search-pane-newest-first = 最新在前
@@ -3635,6 +3642,8 @@ slash-commands-composer-choose-a-different-command = 改选其他命令
 slash-commands-composer-command-unavailable-your-arguments-are-kept = 命令不可用。你的参数已保留。
 # Context: footer
 slash-commands-footer-refresh-application-commands = 刷新应用命令
+# Context: list
+slash-commands-list-loading-application-commands = 正在加载应用命令…
 
 ## crates/ui/src/stickers.rs
 # Context: message
@@ -5043,3 +5052,34 @@ settings-local-api-reset-key = 重置密钥
 settings-local-api-security-detail = 只有在这台电脑上以你的用户身份运行的程序才能连接，并且必须持有访问密钥。网页和其他设备无法访问。应用永远不会收到你的登录凭据、消息或音频。
 # Context: local_api_settings
 settings-local-api-revocation-unsaved = Serein 尚未能在此设备上保存重置，因此重启后旧密钥可能会再次生效。Serein 会继续重试。
+
+# Context: moderation
+moderation-menu-timeout = 禁言 { $name }
+# Context: moderation
+moderation-menu-kick = 移出 { $name }
+# Context: moderation
+moderation-menu-ban = 封禁 { $name }
+# Context: moderation
+moderation-timeout-detail = 禁言结束前，对方无法发送消息、添加反应或加入语音频道。
+# Context: moderation
+moderation-kick-detail = 对方可以通过新的邀请重新加入。
+# Context: moderation
+moderation-ban-detail = 封禁解除前，对方无法重新加入。
+# Context: moderation
+moderation-duration-60-seconds = 60 秒
+# Context: moderation
+moderation-remove-timeout = 解除禁言
+# Context: moderation
+moderation-delete-history = 删除消息记录
+# Context: moderation
+moderation-delete-none = 不删除
+# Context: moderation
+moderation-delete-hour = 过去 1 小时
+# Context: moderation
+moderation-delete-day = 过去 24 小时
+# Context: moderation
+moderation-delete-week = 过去 7 天
+# Context: moderation
+moderation-confirm-timeout = 禁言
+# Context: moderation
+moderation-confirm-ban = 封禁

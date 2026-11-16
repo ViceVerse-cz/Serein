@@ -271,7 +271,10 @@ fn rows_at<'a>(
 	let category_ids: BTreeSet<_> = categories.iter().map(|c| c.id).collect();
 	let mut groups: BTreeMap<Option<Id>, Vec<&Channel>> = BTreeMap::new();
 	let admitted = |c: &Channel| {
-		scope.admits(c, state) && (show_hidden || state.can_view(c.id)) && !roster.lifted(c.id)
+		scope.admits(c, state)
+			&& (show_hidden || state.can_view(c.id))
+			&& !roster.lifted(c.id)
+			&& state.channel_listed(c)
 	};
 	// Threads appear only beneath their parents, following Discord's relevance rules.
 	let mut threads = guild.map_or_else(BTreeMap::new, |guild| {
@@ -343,7 +346,8 @@ fn rows_at<'a>(
 	}
 	for category in categories {
 		let children = groups.remove(&Some(category.id)).unwrap_or_default();
-		if !show_hidden && children.is_empty() {
+		// Opt-in mode drops a category with nothing listed even while showing hidden ones.
+		if children.is_empty() && (!show_hidden || !state.channel_listed(category)) {
 			continue;
 		}
 		tree.push(Row::Category(category, count(&children)));
@@ -720,6 +724,41 @@ impl MessagingUi {
 		}
 		let colors = design::palette(ui);
 		let mut selected = None;
+		if let Some(guild) = self.guild
+			&& state.channel_list_opt_in(guild) == Some(true)
+		{
+			let response = ui
+				.scope(|ui| {
+					ui.spacing_mut().button_padding = egui::vec2(36.0, 8.0);
+					ui.add(
+						egui::Button::new(())
+							.left_text(
+								design::medium(
+									ui,
+									crate::i18n::translate("channel-browser-title"),
+									15.0,
+								)
+								.color(colors.muted),
+							)
+							.min_size(egui::vec2(ui.available_width(), 34.0))
+							.frame_when_inactive(false)
+							.corner_radius(4),
+					)
+				})
+				.inner;
+			crate::icons::paint(
+				ui.painter(),
+				crate::icons::Icon::Search,
+				egui::Rect::from_center_size(
+					egui::pos2(response.rect.left() + 18.0, response.rect.center().y),
+					egui::Vec2::splat(18.0),
+				),
+				colors.muted,
+			);
+			if response.clicked() {
+				self.channel_browser.open(state, guild);
+			}
+		}
 		if self.guild.is_some() && self.channel_cache.rows.is_empty() {
 			ui.label(RichText::new(language.text("no-conversations")).color(colors.muted));
 		}
@@ -1815,6 +1854,23 @@ mod tests {
 				!matches!(row, Row::Channel(c, Slot::Tree, _) if matches!(c.id, Id(7) | Id(9)))
 			}));
 		}
+		// Favorites follow the opt-in channel list like the rest of the sidebar.
+		state
+			.apply_notification_preferences(client_core::notifications::Event::Settings {
+				entries: vec![client_core::notifications::Setting {
+					overrides_known: true,
+					guild: Some(Id(100)),
+					channels: vec![(Id(7), None, None)],
+					flags: Some(client_core::channel_list::OPT_IN_CHANNELS_ON),
+					channel_flags: vec![(Id(7), client_core::channel_list::OPT_IN_ENABLED)],
+					..Default::default()
+				}],
+				replace: true,
+			})
+			.unwrap();
+		let roster = Roster::build(&state, &preferences, scope, false);
+		assert_eq!(roster.sections()[0].channels.len(), 1);
+		assert!(!roster.lifted(Id(9)));
 		state.permissions = Default::default();
 		assert!(
 			Roster::build(&state, &preferences, scope, false)
@@ -1824,6 +1880,7 @@ mod tests {
 	}
 	fn channel(id: u64, kind: u8, position: i32, parent_id: Option<Id>) -> Channel {
 		Channel {
+			user_limit: None,
 			last_message: None,
 			id: Id(id),
 			guild: Some(Id(100)),
@@ -2798,6 +2855,13 @@ mod tests {
 		let mut state = test_support::voice_demo_state();
 		state.demo = false;
 		state.gateway_connected = true;
+		// The fixture reuses id 26 for its quiet room, so every row with that id is set.
+		let limit = |state: &mut State, limit| {
+			for channel in state.channels.iter_mut().filter(|c| c.id == Id(26)) {
+				channel.user_limit = limit;
+			}
+		};
+		limit(&mut state, None);
 		let mut view = MessagingUi {
 			guild: Some(Id(10)),
 			voice_available: true,
@@ -2867,6 +2931,12 @@ mod tests {
 		assert_eq!(picked, Some(Id(26)));
 		assert!(commands.is_empty() && view.voice_switch.is_some());
 		view.voice_switch = None;
+
+		// A full room refuses before any switch would leave the current call.
+		limit(&mut state, Some(2));
+		let (_, commands) = click(&mut view, &mut state, "Quiet room", 2);
+		assert!(commands.is_empty() && view.voice_switch.is_none());
+		limit(&mut state, None);
 
 		// Double-clicking the current call's channel is a no-op.
 		let (_, commands) = click(&mut view, &mut state, "Room 3,5", 2);

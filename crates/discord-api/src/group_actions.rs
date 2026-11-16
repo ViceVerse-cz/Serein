@@ -82,6 +82,7 @@ impl DiscordApi {
 			None => Patch::Null,
 		};
 		Ok(Some(ChannelPatch {
+			user_limit: Patch::Absent,
 			id: channel,
 			name,
 			icon,

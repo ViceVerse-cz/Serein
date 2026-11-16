@@ -173,10 +173,7 @@ impl OnboardingUi {
 			_ => {}
 		}
 		let Some(form) = flow.form.as_ref().filter(|_| !flow.loading) else {
-			ui.horizontal(|ui| {
-				ui.spinner();
-				ui.label(translate("onboarding-body-loading"));
-			});
+			pending_form(ui);
 			return;
 		};
 		if form.is_empty() {
@@ -324,6 +321,47 @@ fn field_ui(ui: &mut egui::Ui, field: &Field, answer: &mut Answer) {
 		}
 		_ => {}
 	}
+}
+
+/// The form while it loads. Whether it opens with a question, the server rules or nothing to
+/// answer is unknown until it arrives, so this is the one heading every form has, in the
+/// title size questions and the rules share, over a few lines of body text.
+fn pending_form(ui: &mut egui::Ui) {
+	use crate::skeleton::{bar, width_factor};
+	use egui::{pos2, vec2};
+	const LINES: usize = 3;
+	let spacing = ui.spacing().item_spacing.y;
+	let control = ui.spacing().interact_size.y;
+	let body = ui.text_style_height(&egui::TextStyle::Body);
+	let title = ui.fonts_mut(|fonts| {
+		fonts.row_height(&egui::FontId::new(16.0, design::semibold_family(ui.ctx())))
+	});
+	// A question's title shares a wrapped row with its required marker: one control tall.
+	let title = title.max(control);
+	let height = title + LINES as f32 * (spacing + body);
+	crate::skeleton::custom(
+		ui,
+		&translate("onboarding-body-loading"),
+		vec2(ui.available_width(), height),
+		|painter, rect, fill| {
+			let width = rect.width().min(440.0);
+			bar(
+				painter,
+				fill,
+				pos2(rect.left(), rect.top() + (title - 12.0) * 0.5),
+				vec2(width * 0.45, 12.0),
+			);
+			for line in 0..LINES {
+				let top = rect.top() + title + spacing + line as f32 * (spacing + body);
+				bar(
+					painter,
+					fill,
+					pos2(rect.left(), top + (body - 10.0) * 0.5),
+					vec2(width * width_factor(line), 10.0),
+				);
+			}
+		},
+	);
 }
 
 /// One selectable onboarding answer: emoji, title and optional detail in an outlined row.

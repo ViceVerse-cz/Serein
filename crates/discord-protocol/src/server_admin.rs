@@ -400,6 +400,44 @@ pub fn pruned(bytes: &[u8]) -> Result<Option<u64>, DecodeError> {
 	}
 	Ok(crate::decode::<Response>(bytes)?.pruned)
 }
+/// Member edit ending a timeout `seconds` after `now_millis`; `None` clears it.
+/// https://docs.discord.com/developers/resources/guild#modify-guild-member
+pub fn timeout(seconds: Option<u32>, now_millis: i64) -> Result<Value, DecodeError> {
+	let until = match seconds {
+		Some(seconds) => {
+			let end = (i128::from(now_millis) + i128::from(seconds) * 1000) * 1_000_000;
+			Some(
+				time::OffsetDateTime::from_unix_timestamp_nanos(end)
+					.ok()
+					.and_then(|end| {
+						end.format(&time::format_description::well_known::Rfc3339)
+							.ok()
+					})
+					.ok_or(DecodeError)?,
+			)
+		}
+		None => None,
+	};
+	Ok(json!({"communication_disabled_until":until}))
+}
+
+#[cfg(test)]
+mod timeout_tests {
+	use super::*;
+
+	#[test]
+	fn timeout_bodies_end_after_the_duration_or_clear_it() {
+		assert_eq!(
+			timeout(Some(60), 1_700_000_000_000).unwrap(),
+			json!({"communication_disabled_until":"2023-11-14T22:14:20Z"})
+		);
+		assert_eq!(
+			timeout(None, 1_700_000_000_000).unwrap(),
+			json!({"communication_disabled_until":null})
+		);
+		assert!(timeout(Some(60), i64::MAX).is_err());
+	}
+}
 
 #[cfg(test)]
 mod sticker_tests {

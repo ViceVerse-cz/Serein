@@ -497,6 +497,7 @@ mod join_tests {
 			auth: crate::auth::AuthState::Authenticated,
 			gateway_connected: true,
 			channels: vec![model::Channel {
+				user_limit: None,
 				id: group_id,
 				guild: None,
 				name: "Synthetic group".into(),
@@ -527,6 +528,7 @@ mod join_tests {
 			gateway_connected: true,
 			channels: vec![
 				model::Channel {
+					user_limit: None,
 					id: group_id,
 					guild: None,
 					name: "Synthetic group".into(),
@@ -541,6 +543,7 @@ mod join_tests {
 					message_count: None,
 				},
 				model::Channel {
+					user_limit: None,
 					id: other_id,
 					guild: None,
 					name: "Other DM".into(),

@@ -188,6 +188,7 @@ mod tests {
 	fn live() -> crate::State {
 		crate::State {
 			channels: vec![model::Channel {
+				user_limit: None,
 				id: model::Id(1),
 				guild: None,
 				parent_id: None,

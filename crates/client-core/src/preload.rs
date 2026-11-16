@@ -380,6 +380,7 @@ mod tests {
 			gateway_connected: true,
 			channels: (1..=20)
 				.map(|id| Channel {
+					user_limit: None,
 					id: Id(id),
 					guild: None,
 					parent_id: None,

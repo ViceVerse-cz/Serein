@@ -537,6 +537,7 @@ mod tests {
 				emojis: None,
 			}],
 			channels: vec![Channel {
+				user_limit: None,
 				id: Id(1),
 				guild: Some(Id(10)),
 				parent_id: None,

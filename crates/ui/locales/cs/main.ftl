@@ -424,6 +424,15 @@ message-request-title = Žádost o zprávu
 ## crates/ui/src/channel_menu.rs
 # Context: context
 channel-menu-context-add-to-favorites = Přidat do oblíbených
+channel-menu-context-remove-from-channel-list = Odebrat ze seznamu kanálů
+channel-menu-context-add-to-channel-list = Přidat do seznamu kanálů
+channel-browser-title = Procházet kanály
+channel-browser-subtitle = Vyber, které kanály se zobrazí v seznamu kanálů.
+channel-browser-show-all-channels = Zobrazit všechny kanály
+channel-browser-search = Hledat kanály
+channel-browser-follow-category = Sledovat kategorii
+channel-browser-saving = Ukládání…
+channel-browser-unavailable = Nastavení seznamu kanálů teď není k dispozici.
 # Context: context
 channel-menu-context-copy-channel-id = Kopírovat ID kanálu
 # Context: context
@@ -2441,8 +2450,6 @@ search-pane-hide-matching-text-highlight = Skrýt zvýraznění shodného textu
 # Context: pane
 search-pane-indexing-is-incomplete-results-may-be-missing = Indexování je neúplné; výsledky mohou chybět.
 # Context: pane
-search-pane-looking-for-matching-messages = Hledání odpovídajících zpráv.
-# Context: pane
 search-pane-messages-are-unavailable-while-disconnected-or-without-channel-access = Zprávy nejsou dostupné, pokud jste odpojeni nebo nemáte přístup ke kanálu.
 # Context: pane
 search-pane-newest-first = Nejdříve nejnovější
@@ -3635,6 +3642,8 @@ slash-commands-composer-choose-a-different-command = zvolte jiný příkaz
 slash-commands-composer-command-unavailable-your-arguments-are-kept = Příkaz nedostupný. Vaše argumenty jsou zachovány.
 # Context: footer
 slash-commands-footer-refresh-application-commands = Obnovit příkazy aplikace
+# Context: list
+slash-commands-list-loading-application-commands = Načítání příkazů aplikací…
 
 ## crates/ui/src/stickers.rs
 # Context: message
@@ -5074,3 +5083,34 @@ settings-local-api-reset-key = Obnovit klíč
 settings-local-api-security-detail = Připojit se mohou jen programy spuštěné pod vaším uživatelem na tomto počítači, a to jen s přístupovým klíčem. Webové stránky a jiná zařízení se připojit nemohou. Aplikace nikdy nedostanou vaše přihlášení, zprávy ani zvuk.
 # Context: local_api_settings
 settings-local-api-revocation-unsaved = Serein zatím nemohl uložit obnovení klíče v tomto zařízení, takže po restartu by starý klíč mohl znovu fungovat. Stále to zkouší znovu.
+
+# Context: moderation
+moderation-menu-timeout = Oddechový čas pro { $name }
+# Context: moderation
+moderation-menu-kick = Vyhodit { $name }
+# Context: moderation
+moderation-menu-ban = Zabanovat { $name }
+# Context: moderation
+moderation-timeout-detail = Do konce oddechového času nemůže psát zprávy, reagovat ani se připojovat k hlasovým kanálům.
+# Context: moderation
+moderation-kick-detail = Může se znovu připojit pomocí nové pozvánky.
+# Context: moderation
+moderation-ban-detail = Nemůže se znovu připojit, dokud ban nezrušíte.
+# Context: moderation
+moderation-duration-60-seconds = 60 sekund
+# Context: moderation
+moderation-remove-timeout = Zrušit oddechový čas
+# Context: moderation
+moderation-delete-history = Smazat historii zpráv
+# Context: moderation
+moderation-delete-none = Nic nemazat
+# Context: moderation
+moderation-delete-hour = Poslední hodina
+# Context: moderation
+moderation-delete-day = Posledních 24 hodin
+# Context: moderation
+moderation-delete-week = Posledních 7 dní
+# Context: moderation
+moderation-confirm-timeout = Oddechový čas
+# Context: moderation
+moderation-confirm-ban = Zabanovat

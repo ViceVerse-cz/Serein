@@ -1108,6 +1108,7 @@ mod tests {
 						member_list_id: None,
 						tags: None,
 						message_count: None,
+						user_limit: None,
 					}],
 					selected: Some(model::Id(1)),
 					auth: client_core::auth::AuthState::Authenticated,

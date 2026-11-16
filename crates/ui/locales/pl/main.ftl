@@ -407,6 +407,15 @@ message-request-title = Prośba o wiadomość
 ## crates/ui/src/channel_menu.rs
 # Context: context
 channel-menu-context-add-to-favorites = Dodaj do ulubionych
+channel-menu-context-remove-from-channel-list = Usuń z listy kanałów
+channel-menu-context-add-to-channel-list = Dodaj do listy kanałów
+channel-browser-title = Przeglądaj kanały
+channel-browser-subtitle = Wybierz, które kanały pojawiają się na Twojej liście.
+channel-browser-show-all-channels = Pokaż wszystkie kanały
+channel-browser-search = Szukaj kanałów
+channel-browser-follow-category = Obserwuj kategorię
+channel-browser-saving = Zapisywanie…
+channel-browser-unavailable = Ustawienia listy kanałów są teraz niedostępne.
 # Context: context
 channel-menu-context-copy-channel-id = Skopiuj identyfikator kanału
 # Context: context
@@ -2413,8 +2422,6 @@ search-pane-hide-matching-text-highlight = Ukryj zaznaczenie pasującego tekstu
 # Context: pane
 search-pane-indexing-is-incomplete-results-may-be-missing = Indeksowanie jest niekompletne; wyników może brakować.
 # Context: pane
-search-pane-looking-for-matching-messages = Szukam pasujących wiadomości.
-# Context: pane
 search-pane-messages-are-unavailable-while-disconnected-or-without-channel-access = Wiadomości są niedostępne po rozłączeniu lub braku dostępu do kanału.
 # Context: pane
 search-pane-newest-first = Najpierw najnowsze
@@ -3606,6 +3613,8 @@ slash-commands-composer-choose-a-different-command = wybierz inne polecenie
 slash-commands-composer-command-unavailable-your-arguments-are-kept = Polecenie niedostępne. Twoje argumenty zostaną zachowane.
 # Context: footer
 slash-commands-footer-refresh-application-commands = Odśwież polecenia aplikacji
+# Context: list
+slash-commands-list-loading-application-commands = Wczytywanie poleceń aplikacji…
 
 ## crates/ui/src/stickers.rs
 # Context: message
@@ -4948,3 +4957,34 @@ settings-local-api-reset-key = Zresetuj klucz
 settings-local-api-security-detail = Połączyć mogą się tylko programy uruchomione na Twoim koncie użytkownika na tym komputerze i tylko z kluczem dostępu. Strony internetowe i inne urządzenia nie mają do niego dostępu. Aplikacje nigdy nie otrzymują Twoich danych logowania, wiadomości ani dźwięku.
 # Context: local_api_settings
 settings-local-api-revocation-unsaved = Serein nie mógł jeszcze zapisać resetu na tym urządzeniu, więc po ponownym uruchomieniu stary klucz mógłby znowu działać. Serein ponawia próby.
+
+# Context: moderation
+moderation-menu-timeout = Wyślij { $name } na przerwę
+# Context: moderation
+moderation-menu-kick = Wyrzuć { $name }
+# Context: moderation
+moderation-menu-ban = Zbanuj { $name }
+# Context: moderation
+moderation-timeout-detail = Do końca przerwy ta osoba nie może wysyłać wiadomości, reagować ani dołączać do kanałów głosowych.
+# Context: moderation
+moderation-kick-detail = Ta osoba może dołączyć ponownie z nowym zaproszeniem.
+# Context: moderation
+moderation-ban-detail = Ta osoba nie dołączy ponownie, dopóki ban nie zostanie zdjęty.
+# Context: moderation
+moderation-duration-60-seconds = 60 sekund
+# Context: moderation
+moderation-remove-timeout = Zakończ przerwę
+# Context: moderation
+moderation-delete-history = Usuń historię wiadomości
+# Context: moderation
+moderation-delete-none = Nie usuwaj niczego
+# Context: moderation
+moderation-delete-hour = Ostatnia godzina
+# Context: moderation
+moderation-delete-day = Ostatnie 24 godziny
+# Context: moderation
+moderation-delete-week = Ostatnie 7 dni
+# Context: moderation
+moderation-confirm-timeout = Przerwa
+# Context: moderation
+moderation-confirm-ban = Zbanuj

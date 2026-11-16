@@ -266,7 +266,13 @@ impl Admin {
 				self.error = None;
 			}
 		}
-		if state.server_admin.pending {
+		let loaded = if members {
+			state.server_admin.members.is_some()
+		} else {
+			state.server_admin.emojis.is_some()
+		};
+		// A first load sketches the list where it will appear; saves and reloads keep this line.
+		if state.server_admin.pending && (loaded || state.server_admin.saving) {
 			ui.horizontal(|ui| {
 				ui.spinner();
 				ui.weak(crate::i18n::translate_if_key(
@@ -398,6 +404,9 @@ impl Admin {
 		}
 		ui.add_space(24.0);
 		let Some(catalog) = state.server_admin.emojis.as_ref() else {
+			if first_load(state, state.server_admin.emojis.is_some()) {
+				pending_emojis(ui);
+			}
 			return;
 		};
 		for animated in [false, true] {
@@ -454,15 +463,7 @@ impl Admin {
 				});
 			} else {
 				design::card(ui, |ui| {
-					let width = ui.available_width();
-					let name_width = ((width - 116.0) * 0.47).max(60.0);
-					let by_width = (width - name_width - 116.0).max(40.0);
-					ui.horizontal(|ui| {
-						cell_text(ui, "server-admin-emojis-image", 44.0, true);
-						cell_text(ui, "server-admin-emojis-name", name_width, true);
-						cell_text(ui, "server-admin-emojis-uploaded-by", by_width, true);
-					});
-					ui.separator();
+					let (name_width, by_width) = emoji_table_header(ui);
 					for row in catalog
 						.items
 						.iter()
@@ -471,7 +472,7 @@ impl Admin {
 						ui.push_id(row.emoji.id, |ui| {
 							ui.horizontal(|ui| {
 								ui.allocate_ui_with_layout(
-									egui::vec2(44.0, 44.0),
+									egui::vec2(IMAGE_COLUMN, ROW),
 									egui::Layout::left_to_right(egui::Align::Center),
 									|ui| {
 										if let Some(image) = avatars.custom_image(
@@ -486,7 +487,7 @@ impl Admin {
 								);
 								cell_text(ui, &format!(":{}:", row.emoji.name), name_width, false);
 								ui.allocate_ui_with_layout(
-									egui::vec2(by_width, 44.0),
+									egui::vec2(by_width, ROW),
 									egui::Layout::left_to_right(egui::Align::Center),
 									|ui| {
 										ui.set_max_width(by_width);
@@ -659,7 +660,7 @@ impl Admin {
 		ui.add_space(10.0);
 		ui.separator();
 		if let Some(members) = &state.server_admin.members {
-			if ui.available_width() < 820.0 {
+			if ui.available_width() < WIDE_MEMBERS {
 				for member in &members.items {
 					ui.push_id(member.user.id, |ui| {
 						self.member_card(
@@ -676,36 +677,22 @@ impl Admin {
 				}
 			} else {
 				ui.scope(|ui| {
-					ui.spacing_mut().item_spacing = egui::vec2(8.0, 0.0);
-					let width = ui.available_width();
-					ui.set_width(width);
-					let names = (width * 0.24).clamp(190.0, 310.0);
-					let dates = 112.0;
-					let method = 108.0;
-					let roles = width - names - dates * 2.0 - method - 136.0;
-					ui.horizontal(|ui| {
-						for (text, width) in [
-							("server-stickers-show-name", names),
-							("server-admin-member-card-member-since", dates),
-							("server-admin-member-card-joined-discord", dates),
-							("server-admin-member-card-join-method", method),
-							("server-settings-page-roles", roles),
-							("server-admin-members-signals", 64.0),
-						] {
-							cell_text(ui, &crate::i18n::translate(text), width, true);
-						}
-					});
-					ui.separator();
+					let MemberColumns {
+						names,
+						dates,
+						method,
+						roles,
+					} = member_table_header(ui);
 					for member in &members.items {
 						ui.push_id(member.user.id, |ui| {
 							ui.horizontal(|ui| {
 								let user_row = ui
 									.allocate_ui_with_layout(
-										egui::vec2(names, 44.0),
+										egui::vec2(names, ROW),
 										egui::Layout::left_to_right(egui::Align::Center),
 										|ui| {
 											ui.set_width(names);
-											ui.set_min_height(44.0);
+											ui.set_min_height(ROW);
 											let avatar =
 												avatars.show(ui, &member.user, 30.0, state.demo);
 											profile.person_click(ui, &avatar, None, &member.user);
@@ -758,11 +745,11 @@ impl Admin {
 								);
 								if let Some(code) = &member.invite_code {
 									ui.allocate_ui_with_layout(
-										egui::vec2(method, 44.0),
+										egui::vec2(method, ROW),
 										egui::Layout::left_to_right(egui::Align::Center),
 										|ui| {
 											ui.set_width(method);
-											ui.set_min_height(44.0);
+											ui.set_min_height(ROW);
 											egui::Frame::new()
 												.fill(colors.raised)
 												.corner_radius(3)
@@ -790,11 +777,11 @@ impl Admin {
 									cell_text(ui, &join_method(member), method, false);
 								}
 								ui.allocate_ui_with_layout(
-									egui::vec2(roles, 44.0),
+									egui::vec2(roles, ROW),
 									egui::Layout::left_to_right(egui::Align::Center),
 									|ui| {
 										ui.set_width(roles);
-										ui.set_min_height(44.0);
+										ui.set_min_height(ROW);
 										let mut known = members
 											.roles
 											.iter()
@@ -890,6 +877,8 @@ impl Admin {
 					action = Some(Action::LoadMembers(self.query.clone()));
 				}
 			});
+		} else if first_load(state, state.server_admin.members.is_some()) {
+			pending_members(ui);
 		}
 		if let Some(action) = action
 			&& let Some(command) = state.request_server_admin(guild, action)
@@ -1372,15 +1361,253 @@ impl Admin {
 		}
 	}
 }
+/// Height of a member or emoji table row, and of the tables' heading rows.
+const ROW: f32 = 44.0;
+const HEADING_ROW: f32 = 32.0;
+/// Width of the emoji table's image column.
+const IMAGE_COLUMN: f32 = 44.0;
+/// Pages at least this wide list members in a table instead of cards.
+const WIDE_MEMBERS: f32 = 820.0;
+
+/// Widths of the wide member table's columns.
+struct MemberColumns {
+	names: f32,
+	dates: f32,
+	method: f32,
+	roles: f32,
+}
+
+/// The wide member table's headings and separator; returns the column widths under them.
+fn member_table_header(ui: &mut egui::Ui) -> MemberColumns {
+	ui.spacing_mut().item_spacing = egui::vec2(8.0, 0.0);
+	let width = ui.available_width();
+	ui.set_width(width);
+	let names = (width * 0.24).clamp(190.0, 310.0);
+	let dates = 112.0;
+	let method = 108.0;
+	let roles = width - names - dates * 2.0 - method - 136.0;
+	ui.horizontal(|ui| {
+		for (text, width) in [
+			("server-stickers-show-name", names),
+			("server-admin-member-card-member-since", dates),
+			("server-admin-member-card-joined-discord", dates),
+			("server-admin-member-card-join-method", method),
+			("server-settings-page-roles", roles),
+			("server-admin-members-signals", 64.0),
+		] {
+			cell_text(ui, &crate::i18n::translate(text), width, true);
+		}
+	});
+	ui.separator();
+	MemberColumns {
+		names,
+		dates,
+		method,
+		roles,
+	}
+}
+
+/// An emoji section's table headings and separator; returns the name and uploader widths.
+fn emoji_table_header(ui: &mut egui::Ui) -> (f32, f32) {
+	let width = ui.available_width();
+	let name_width = ((width - 116.0) * 0.47).max(60.0);
+	let by_width = (width - name_width - 116.0).max(40.0);
+	ui.horizontal(|ui| {
+		cell_text(ui, "server-admin-emojis-image", IMAGE_COLUMN, true);
+		cell_text(ui, "server-admin-emojis-name", name_width, true);
+		cell_text(ui, "server-admin-emojis-uploaded-by", by_width, true);
+	});
+	ui.separator();
+	(name_width, by_width)
+}
+
+/// Whether a server settings page waits on its first data, not yet `loaded`, rather than on a
+/// save or a reload. A first load is sketched in place; saves and reloads keep their spinner line.
+pub(crate) fn first_load(state: &State, loaded: bool) -> bool {
+	state.server_admin.pending && !state.server_admin.saving && !loaded
+}
+
+/// Height of the 12px cell text, which sits at the top of its cell.
+fn cell_line(ui: &egui::Ui) -> f32 {
+	ui.fonts_mut(|fonts| fonts.row_height(&egui::FontId::proportional(12.0)))
+}
+
+/// The first page of members while it loads: member cards on narrow pages, rows under the
+/// real table headings on wide ones. Roles and signals are optional, so names and dates show.
+fn pending_members(ui: &mut egui::Ui) {
+	use crate::skeleton::{bar, circle, custom, visible_count, width_factor};
+	use egui::vec2;
+	let label = crate::i18n::translate("server-admin-show-loading");
+	let label = |index: usize| if index == 0 { label.as_str() } else { "" };
+	let spacing = ui.spacing().item_spacing;
+	if ui.available_width() < WIDE_MEMBERS {
+		// A card's avatar row and Member Details toggle are one control tall each, around
+		// the Member Since line; the card pads them by 12px inside a 1px border.
+		let control = ui.spacing().interact_size.y;
+		let body = ui.text_style_height(&egui::TextStyle::Body);
+		// The name sits at the top of its column.
+		let name = ui.fonts_mut(|fonts| {
+			fonts.row_height(&egui::FontId::new(14.0, design::medium_family(ui.ctx())))
+		});
+		let since = control + spacing.y;
+		let details = since + body + spacing.y;
+		let content = details + control;
+		for index in 0..visible_count(ui, content + 26.0 + spacing.y, 8) {
+			design::card(ui, |ui| {
+				custom(
+					ui,
+					label(index),
+					vec2(ui.available_width(), content),
+					|painter, rect, fill| {
+						let factor = width_factor(index);
+						circle(painter, fill, rect.min + vec2(16.0, control * 0.5), 16.0);
+						bar(
+							painter,
+							fill,
+							rect.min + vec2(32.0 + spacing.x, (name - 12.0) * 0.5),
+							vec2(72.0 + 48.0 * factor, 12.0),
+						);
+						bar(
+							painter,
+							fill,
+							rect.min + vec2(0.0, since + (body - 10.0) * 0.5),
+							vec2(160.0 + 80.0 * factor, 10.0),
+						);
+						bar(
+							painter,
+							fill,
+							rect.min + vec2(0.0, details + (control - 10.0) * 0.5),
+							vec2(112.0, 10.0),
+						);
+					},
+				);
+			});
+		}
+	} else {
+		ui.scope(|ui| {
+			let MemberColumns {
+				names,
+				dates,
+				method,
+				..
+			} = member_table_header(ui);
+			let row = crate::skeleton::Row {
+				height: ROW,
+				avatar: 30.0,
+				square: false,
+				lines: 2,
+				inset: 0.0,
+			};
+			let line = cell_line(ui);
+			// Every row sits over a 6px separator.
+			for index in 0..visible_count(ui, ROW + 6.0, 12) {
+				custom(
+					ui,
+					label(index),
+					vec2(ui.available_width(), ROW),
+					|painter, rect, fill| {
+						let name = egui::Rect::from_min_size(rect.min, vec2(names, ROW));
+						crate::skeleton::paint_row(painter, fill, name, row, index);
+						let mut left = names + spacing.x;
+						for width in [dates, dates, method] {
+							bar(
+								painter,
+								fill,
+								rect.min + vec2(left, (line - 10.0) * 0.5),
+								vec2(width * 0.6 * width_factor(index).max(0.7), 10.0),
+							);
+							left += width + spacing.x;
+						}
+					},
+				);
+				ui.separator();
+			}
+		});
+	}
+}
+
+/// Both emoji sections while the catalog loads: each real title over its slot count and a
+/// card with the real table headings and two rows of image, name and uploader.
+fn pending_emojis(ui: &mut egui::Ui) {
+	use crate::skeleton::{bar, block, custom, width_factor};
+	use egui::vec2;
+	const ROWS: usize = 2;
+	let colors = design::palette(ui);
+	let mut label = crate::i18n::translate("server-admin-show-loading");
+	let help = ui.fonts_mut(|fonts| fonts.row_height(&egui::FontId::proportional(13.0)));
+	let line = cell_line(ui);
+	let gap = ui.spacing().item_spacing.x;
+	for (section, title) in [
+		"server-emoji-section-static",
+		"server-admin-emojis-animated-emoji",
+	]
+	.into_iter()
+	.enumerate()
+	{
+		// The section heading, with its slot count as a placeholder line.
+		ui.label(design::medium(ui, crate::i18n::translate(title), 16.0).color(colors.text_strong));
+		custom(
+			ui,
+			&std::mem::take(&mut label),
+			vec2(ui.available_width(), help),
+			|painter, rect, fill| {
+				bar(
+					painter,
+					fill,
+					rect.min + vec2(0.0, (help - 10.0) * 0.5),
+					vec2(104.0, 10.0),
+				);
+			},
+		);
+		ui.add_space(6.0);
+		design::card(ui, |ui| {
+			let (name_width, _) = emoji_table_header(ui);
+			for row in 0..ROWS {
+				custom(
+					ui,
+					"",
+					vec2(ui.available_width(), ROW),
+					|painter, rect, fill| {
+						let factor = width_factor(section * ROWS + row);
+						block(
+							painter,
+							fill,
+							egui::Rect::from_min_size(
+								rect.min + vec2(0.0, (ROW - 36.0) * 0.5),
+								vec2(36.0, 36.0),
+							),
+							8.0,
+						);
+						let name = IMAGE_COLUMN + gap;
+						bar(
+							painter,
+							fill,
+							rect.min + vec2(name, (line - 10.0) * 0.5),
+							vec2((name_width * 0.4 * factor).max(40.0), 10.0),
+						);
+						bar(
+							painter,
+							fill,
+							rect.min + vec2(name + name_width + gap, ROW * 0.5 - 6.0),
+							vec2(80.0 + 40.0 * factor, 12.0),
+						);
+					},
+				);
+			}
+		});
+		ui.add_space(24.0);
+	}
+}
+
 fn cell_text(ui: &mut egui::Ui, text: &str, width: f32, heading: bool) {
 	let translated = heading.then(|| crate::i18n::translate_if_key(text));
 	let text = translated.as_deref().unwrap_or(text);
 	ui.allocate_ui_with_layout(
-		egui::vec2(width, if heading { 32.0 } else { 44.0 }),
+		egui::vec2(width, if heading { HEADING_ROW } else { ROW }),
 		egui::Layout::left_to_right(egui::Align::Center),
 		|ui| {
 			ui.set_width(width);
-			ui.set_min_height(if heading { 32.0 } else { 44.0 });
+			ui.set_min_height(if heading { HEADING_ROW } else { ROW });
 			ui.vertical(|ui| {
 				ui.set_width(width);
 				ui.spacing_mut().item_spacing.y = 0.0;

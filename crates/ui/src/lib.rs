@@ -24,6 +24,7 @@ mod categories;
 pub use categories::debug_thread_navigation_check;
 #[cfg(feature = "demo")]
 pub use timeline::debug_unread_navigation_check;
+mod channel_browser;
 mod channel_marks;
 mod channel_menu;
 mod channel_permissions;
@@ -125,11 +126,13 @@ mod server_stickers;
 mod settings;
 mod setup;
 mod shortcuts;
+mod skeleton;
 mod switcher;
 mod text_menu;
 mod thumbhash;
 #[cfg(feature = "demo")]
 pub use polls::debug_poll_check;
+mod moderation;
 mod timeline;
 #[cfg(test)]
 mod title_bar_tests;
@@ -167,6 +170,12 @@ pub struct AttachmentPaste {
 	pub text: Option<String>,
 	pub image: Option<std::sync::Arc<egui::ColorImage>>,
 }
+/// A pasted image is held decoded while it is encoded, so pixels bound its memory rather than
+/// its file size: 64 MiB for each RGBA copy, the composer thumbnail's decode budget, which
+/// fits a 5K screenshot. Larger images attach as files.
+pub const MAX_PASTE_PIXELS: usize = 16 * 1024 * 1024;
+pub const PASTE_PIXELS_EXCEEDED: &str =
+	"Paste an image with at most 16 million pixels, or attach it as a file";
 
 fn oversized_text(limit: u64) -> String {
 	crate::i18n::translate_args(
@@ -194,6 +203,17 @@ fn shift_clicked(ui: &egui::Ui, response: &egui::Response) -> bool {
 		})
 	})
 }
+
+/// Height of every member list row, group header or person.
+const MEMBER_ROW: f32 = 42.0;
+
+/// A person row that has not arrived, where `member_rows` paints the 32px avatar inset 8px and
+/// the name 12px after it. Status lines are optional, so only the name is drawn.
+const PENDING_MEMBER: skeleton::Row = skeleton::Row {
+	lines: 1,
+	height: MEMBER_ROW,
+	..skeleton::Row::PERSON
+};
 
 fn thread_member_rows<'a>(
 	state: &'a State,
@@ -288,6 +308,7 @@ pub struct MessagingUi {
 	group_menu: group_menu::GroupMenu,
 	server_menu: server_menu::ServerMenu,
 	channel_menu: channel_menu::ChannelMenu,
+	channel_browser: channel_browser::ChannelBrowser,
 	pub channel_preferences: model::ChannelPreferences,
 	pub channel_preferences_changed: bool,
 	pub channel_preferences_loaded: bool,
@@ -336,11 +357,15 @@ pub struct MessagingUi {
 	menu_role_change: bool,
 	pending_mention: Option<Id>,
 	contact_editor: contact_editor::ContactEditor,
+	moderation: moderation::Moderation,
 	profile_link: Option<String>,
 	/// The docked DM card's link awaiting confirmation, apart from the popout's.
 	dm_profile_link: Option<String>,
 	profile_formatted: markdown::FormatCache,
 	pub reading_preferences: model::ReadingPreferences,
+	/// Local render filters only; neither changes relationships nor service-side read state.
+	pub hide_blocked_messages: bool,
+	pub hide_ignored_messages: bool,
 	pub show_hidden_channels: bool,
 	/// Folds the home list's message requests away; the device preference restores it.
 	pub message_requests_collapsed: bool,
@@ -1212,9 +1237,12 @@ impl MessagingUi {
 				} else if request
 					.image
 					.as_ref()
-					.is_some_and(|image| image.pixels().len() > 4 * 1024 * 1024)
+					.is_some_and(|image| image.pixels().len() > MAX_PASTE_PIXELS)
 				{
-					state.status = "Paste an image with at most 4 million pixels";
+					// A toast, like the clipboard worker's own rejections: the status line is
+					// easy to miss, so an oversized paste looked like nothing happened.
+					self.toasts
+						.push(design::Level::Error, PASTE_PIXELS_EXCEEDED);
 				} else {
 					self.attachment_paste_requested = Some(request);
 					self.upload_busy = true;
@@ -1239,7 +1267,20 @@ impl MessagingUi {
 		self.voice_fullscreen_request.take()
 	}
 	pub fn clear_avatars(&mut self) {
+		// The `--demo-loading` artwork hold is a setting, not cached data, so it survives.
+		#[cfg(feature = "demo")]
+		let hold = self.avatars.hold_demo_images;
 		self.avatars = avatars::Avatars::default();
+		#[cfg(feature = "demo")]
+		{
+			self.avatars.hold_demo_images = hold;
+		}
+	}
+	/// `--demo-loading`: withhold synthetic artwork, so avatars, icons and badges show their
+	/// loading state.
+	#[cfg(feature = "demo")]
+	pub fn hold_demo_images(&mut self) {
+		self.avatars.hold_demo_images = true;
 	}
 	pub fn take_avatar_requests(&mut self) -> Vec<String> {
 		self.avatars.take_requests()
@@ -1278,6 +1319,9 @@ impl MessagingUi {
 			minimize_to_tray: self.minimize_to_tray,
 			tray_available: self.tray_available,
 			tray_status: self.tray_status,
+			// Device-level chat filters belong to the device, not to the account being cleared.
+			hide_blocked_messages: self.hide_blocked_messages,
+			hide_ignored_messages: self.hide_ignored_messages,
 			startup_enabled: self.startup_enabled,
 			startup_minimized: self.startup_minimized,
 			startup_available: self.startup_available,
@@ -1664,23 +1708,6 @@ impl MessagingUi {
 					.on_hover_text(&text);
 				});
 		}
-		if !has_entry {
-			ui.add_space(8.0);
-			if list.freshness != Freshness::Fresh {
-				let text = if list.freshness == Freshness::Unavailable {
-					language.text("people-unavailable")
-				} else {
-					language.text("loading-people")
-				};
-				ui.label(RichText::new(text).small().color(colors.muted));
-			} else {
-				ui.label(
-					RichText::new(language.text("no-people"))
-						.small()
-						.color(colors.muted),
-				);
-			}
-		}
 		// Thread snapshots contain people only; paged channel lists supply their own headers.
 		let thread_rows = (!list.lazy
 			&& state
@@ -1704,8 +1731,61 @@ impl MessagingUi {
 		} else {
 			thread_rows.as_ref().map_or(list.slots.len(), Vec::len)
 		};
+		// An invalidated list keeps its total but will not fill its slots, so it shows no
+		// placeholders.
+		let placeholders = list.freshness != Freshness::Unavailable;
+		if !has_entry {
+			if placeholders && list.freshness != Freshness::Fresh {
+				if row_count == 0 {
+					// Guild and thread lists both open with a group header such as ONLINE — N,
+					// its 12px label centred below a 16px top margin; as many people as fit
+					// follow it.
+					let people = ((ui.available_height() - MEMBER_ROW) / MEMBER_ROW)
+						.floor()
+						.max(1.0) as usize;
+					ui.scope(|ui| {
+						ui.spacing_mut().item_spacing.y = 0.0;
+						let (header, _) = ui.allocate_exact_size(
+							egui::vec2(ui.available_width(), MEMBER_ROW),
+							egui::Sense::hover(),
+						);
+						skeleton::bar(
+							ui.painter(),
+							skeleton::fill(ui),
+							egui::pos2(header.left() + 8.0, header.top() + 24.0),
+							egui::vec2(72.0, 10.0),
+						);
+						skeleton::rows(
+							ui,
+							&language.text("loading-people"),
+							PENDING_MEMBER,
+							people,
+						);
+					});
+					return;
+				}
+				// Otherwise the list's own empty slots hold the placeholders below.
+			} else if !placeholders {
+				ui.add_space(8.0);
+				ui.label(
+					RichText::new(language.text("people-unavailable"))
+						.small()
+						.color(colors.muted),
+				);
+			} else {
+				ui.add_space(8.0);
+				ui.label(
+					RichText::new(language.text("no-people"))
+						.small()
+						.color(colors.muted),
+				);
+			}
+		}
 		let row_spacing = ui.spacing().item_spacing.y;
 		ui.spacing_mut().item_spacing.y = 0.0;
+		// Slots that have not arrived yet hold a person placeholder; only the first visible one
+		// is announced.
+		let mut announced = false;
 		let mut visible = 0usize..0;
 		let mut area = egui::ScrollArea::vertical().auto_shrink([false, false]);
 		if reset_scroll {
@@ -1714,7 +1794,7 @@ impl MessagingUi {
 		let output = self
 			.scroll
 			.attach(ui, ("people", guild_or_channel, list.request), area)
-			.show_rows(ui, 42.0, row_count, |ui, range| {
+			.show_rows(ui, MEMBER_ROW, row_count, |ui, range| {
 				visible = range.clone();
 				for index in range {
 					let slot = if lazy {
@@ -1758,7 +1838,7 @@ impl MessagingUi {
 								.map(|count| format!("{name} - {count}"))
 								.unwrap_or(name);
 							let (rect, _) = ui.allocate_exact_size(
-								egui::vec2(ui.available_width(), 42.0),
+								egui::vec2(ui.available_width(), MEMBER_ROW),
 								egui::Sense::hover(),
 							);
 							let mut header = ui.new_child(
@@ -1799,7 +1879,7 @@ impl MessagingUi {
 							let online =
 								status.is_some_and(|s| matches!(s, "online" | "idle" | "dnd"));
 							let (rect, response) = ui.allocate_exact_size(
-								egui::vec2(ui.available_width(), 42.0),
+								egui::vec2(ui.available_width(), MEMBER_ROW),
 								egui::Sense::click(),
 							);
 							response.widget_info(|| {
@@ -2008,9 +2088,24 @@ impl MessagingUi {
 								}
 							});
 						}
+						None if placeholders => {
+							let label = if std::mem::replace(&mut announced, true) {
+								String::new()
+							} else {
+								language.text("loading-people")
+							};
+							skeleton::custom(
+								ui,
+								&label,
+								egui::vec2(ui.available_width(), MEMBER_ROW),
+								|painter, rect, fill| {
+									skeleton::paint_row(painter, fill, rect, PENDING_MEMBER, index);
+								},
+							);
+						}
 						None => {
 							ui.allocate_exact_size(
-								egui::vec2(ui.available_width(), 42.0),
+								egui::vec2(ui.available_width(), MEMBER_ROW),
 								egui::Sense::hover(),
 							);
 						}
@@ -4399,6 +4494,9 @@ impl MessagingUi {
 			.is_none()
 			.then(|| state.known_profile(recipient.id))
 			.flatten();
+		// `--demo-loading` keeps the docked card loading, like every open profile card.
+		#[cfg(feature = "demo")]
+		let cached = cached.filter(|_| !self.avatars.hold_demo_images);
 		self.dm_profile.calls_blocked = self.calls_unavailable(state);
 		let mut action = None;
 		// The panel shares the conversation surface, so the card floats on the chat itself.
@@ -5064,6 +5162,22 @@ impl MessagingUi {
 		}
 		self.server_menu
 			.show(&ctx, state, self.guild, &mut commands, &mut self.avatars);
+		if let Some(guild) = self
+			.channel_menu
+			.browse_requested
+			.take()
+			.or(self.server_menu.browse_requested.take())
+		{
+			self.channel_browser.open(state, guild);
+		}
+		if let Some((guild, change)) = self.server_menu.channel_list_requested.take()
+			&& Some(guild) == self.guild
+			&& let Some(command) = state.change_channel_list(guild, change)
+		{
+			commands.push(command);
+		}
+		self.channel_browser
+			.show(&ctx, state, self.guild, &mut commands);
 		if let Some(guild) = self.server_menu.settings_requested.take()
 			&& let Some(command) = self.preview_server_settings(state, guild)
 		{
@@ -5503,6 +5617,8 @@ impl MessagingUi {
 					.show(ui, |ui| {
 						design::paint_chat_background(ui, ui.available_rect_before_wrap());
 						self.timeline.hide_media_links = self.reading_preferences.hide_media_links;
+						self.timeline.hide_blocked_messages = self.hide_blocked_messages;
+						self.timeline.hide_ignored_messages = self.hide_ignored_messages;
 						self.timeline.compact_messages = self.reading_preferences.compact_messages;
 						self.timeline.double_click_reaction = self
 							.reading_preferences
@@ -5977,6 +6093,11 @@ impl MessagingUi {
 					self.profile.hide();
 					self.contact_editor.open(user, true, state)
 				}
+				user_menu::Action::Moderate { guild, user, kind } => {
+					self.profile.hide();
+					self.moderation.open(guild, user, kind, state);
+					None
+				}
 				user_menu::Action::Shortcut(intent) => {
 					self.apply_shortcut(state, intent);
 					None
@@ -5996,6 +6117,8 @@ impl MessagingUi {
 			}
 		}
 		self.contact_editor.show(&ctx, state, &mut commands);
+		self.moderation
+			.show(&ctx, state, &mut commands, self.server_settings.is_open());
 		self.drain_profile(state, &mut commands);
 		// While the card's DM waits on a captcha, step aside for the dialog but keep its draft.
 		let direct_verifying = self.user_direct.is_some()
@@ -6185,15 +6308,19 @@ mod composer_tests {
 	use client_core::MAX_CONTENT;
 
 	#[test]
-	fn clearing_an_account_preserves_the_device_log_preference() {
+	fn clearing_an_account_preserves_device_level_preferences() {
 		let mut ui = MessagingUi {
 			diagnostics_log: diagnostics::Level::Info,
 			diagnostics_log_path: Some("local-log".into()),
+			hide_blocked_messages: true,
+			hide_ignored_messages: true,
 			..Default::default()
 		};
 		ui.clear();
 		assert_eq!(ui.diagnostics_log, diagnostics::Level::Info);
 		assert_eq!(ui.diagnostics_log_path.as_deref(), Some("local-log"));
+		// Account filters are device preferences; clearing one account must not turn them off.
+		assert!(ui.hide_blocked_messages && ui.hide_ignored_messages);
 		assert!(!ui.open_log_folder_requested);
 	}
 
@@ -6908,6 +7035,7 @@ mod composer_tests {
 		let mut state = State {
 			selected: Some(Id(10)),
 			channels: vec![model::Channel {
+				user_limit: None,
 				id: Id(10),
 				guild: None,
 				parent_id: None,
@@ -8856,6 +8984,7 @@ mod composer_tests {
 				.unwrap();
 			state.selected = Some(Id(11));
 			state.channels.push(model::Channel {
+				user_limit: None,
 				id: Id(11),
 				guild: None,
 				kind: 1,
@@ -8929,6 +9058,7 @@ mod composer_tests {
 			demo: true,
 			selected: Some(Id(1)),
 			channels: vec![model::Channel {
+				user_limit: None,
 				last_message: None,
 				id: Id(1),
 				guild: Some(Id(2)),
@@ -9122,6 +9252,7 @@ mod composer_tests {
 				cosmetics: None,
 			}),
 			channels: vec![model::Channel {
+				user_limit: None,
 				last_message: None,
 				id: Id(1),
 				guild: None,
@@ -9523,6 +9654,7 @@ mod composer_tests {
 				demo: true,
 				selected: Some(Id(1)),
 				channels: vec![model::Channel {
+					user_limit: None,
 					last_message: None,
 					id: Id(1),
 					guild,
@@ -10013,6 +10145,7 @@ mod composer_tests {
 		let mut state = State {
 			selected: Some(Id(1)),
 			channels: vec![model::Channel {
+				user_limit: None,
 				last_message: None,
 				id: Id(1),
 				guild: None,

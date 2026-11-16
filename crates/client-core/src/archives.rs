@@ -281,6 +281,7 @@ mod tests {
 
 	fn channel(id: u64, parent: Option<Id>, kind: u8) -> Channel {
 		Channel {
+			user_limit: None,
 			id: Id(id),
 			guild: Some(Id(1)),
 			parent_id: parent,
@@ -568,6 +569,7 @@ mod tests {
 						Event::ThreadChanged {
 							guild: Id(guild),
 							patch: model::ChannelPatch {
+								user_limit: model::Patch::Absent,
 								icon: model::Patch::Absent,
 								id: Id(id),
 								name: model::Patch::Value("Updated archive metadata".into()),

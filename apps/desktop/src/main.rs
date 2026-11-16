@@ -513,11 +513,14 @@ fn main() -> eframe::Result {
 		return Ok(());
 	}
 	// Native GPU/window capabilities are selected before the first window exists.
-	let preferences = if demo {
-		Ok(local_store::AppPreferences::default())
-	} else {
-		local_store::LocalStore::open_default().and_then(|store| store.app_preferences())
+	// The storage worker takes over this connection, so a launch opens the store only once.
+	let store = (!demo).then(local_store::LocalStore::open_default);
+	let preferences = match &store {
+		Some(Ok(store)) => store.app_preferences(),
+		Some(Err(error)) => Err(*error),
+		None => Ok(local_store::AppPreferences::default()),
 	};
+	let store = store.and_then(Result::ok);
 	// The owner's saved log level takes effect before the window, so an early defect leaves a
 	// trace instead of a description that has to be reconstructed afterwards.
 	let log_directory = local_store::data_dir().ok().map(|root| root.join("logs"));
@@ -626,8 +629,14 @@ fn main() -> eframe::Result {
 		"Serein",
 		options,
 		Box::new(move |cc| {
-			let mut desktop =
-				Desktop::new(cc, demo, frame_sample, transparency_available, preferences)?;
+			let mut desktop = Desktop::new(
+				cc,
+				demo,
+				frame_sample,
+				transparency_available,
+				preferences,
+				store,
+			)?;
 			let wake = cc.egui_ctx.clone();
 			instance.listen(
 				desktop.window.clone(),
@@ -1107,6 +1116,12 @@ struct Desktop {
 	/// `--demo-reply`: keeps two synthetic typists active on the selected fixture channel.
 	#[cfg(feature = "demo")]
 	demo_typing: bool,
+	/// `--demo-loading`: fetches stay unanswered; see `demo_fetch` and `hold_demo_loading`.
+	#[cfg(feature = "demo")]
+	demo_loading: bool,
+	/// `--demo-loading=partial`: loaded content, profiles and artwork are kept.
+	#[cfg(feature = "demo")]
+	demo_loading_partial: bool,
 	variant_changed: bool,
 	pending_save: Option<Arc<SessionSecret>>,
 	/// Written under the account's own entry on every READY, including a launch restore, so
@@ -1412,6 +1427,65 @@ fn select_demo_group(state: &mut State) {
 	}
 }
 
+/// `--demo-loading`: fetched data stays pending forever, so loading states can be captured.
+/// Synthetic artwork (avatars, icons, badges, covers, banners) is withheld and open profile cards
+/// keep loading too. `--demo-loading=partial` keeps the first history page and People rows, with
+/// their artwork, so only older history and further rows stay pending.
+#[cfg(feature = "demo")]
+fn demo_loading() -> bool {
+	std::env::args().any(|arg| arg == "--demo-loading" || arg == "--demo-loading=partial")
+}
+/// `--demo-loading=partial`; see [`demo_loading`].
+#[cfg(feature = "demo")]
+fn demo_loading_partial() -> bool {
+	std::env::args().any(|arg| arg == "--demo-loading=partial")
+}
+
+/// Reads the offline fixture would answer; `--demo-loading` leaves them unanswered.
+#[cfg(feature = "demo")]
+fn demo_fetch(command: &Command) -> bool {
+	use client_core::{channel_actions, onboarding, polls, reactions, user_actions};
+	match command {
+		Command::ChannelAction { action, .. } => matches!(
+			action,
+			channel_actions::Action::Reference
+				| channel_actions::Action::Load
+				| channel_actions::Action::PostLoad
+		),
+		Command::ServerAdmin { action, .. } => !action.write(),
+		Command::ServerSettings { edit, .. } => edit.is_none(),
+		Command::Onboarding { action, .. } => matches!(action, onboarding::Action::Load { .. }),
+		Command::GuildFolders(change) => change.is_none(),
+		Command::MessagingPermissions { change, .. } => change.is_none(),
+		Command::EditProfile { changes, .. } => changes.is_none(),
+		Command::GifFavorites { change, .. } => change.is_none(),
+		Command::UserAction { action, .. } => matches!(action, user_actions::Action::LoadNote(_)),
+		Command::Polls(request) => matches!(request.action, polls::Action::Read),
+		Command::Reactions(command) => matches!(
+			command,
+			reactions::Command::Read { .. } | reactions::Command::Users { .. }
+		),
+		Command::StickerPacks
+		| Command::Sticker(_)
+		| Command::ApplicationCommands { .. }
+		| Command::MemberSearch(_)
+		| Command::Invite { .. }
+		| Command::ForumSummaries { .. }
+		| Command::ForumPosts { .. }
+		| Command::Archives { .. }
+		| Command::Pins { .. }
+		| Command::Search { .. }
+		| Command::ThreadStarter { .. }
+		| Command::ThreadPreview { .. }
+		| Command::Gifs { .. }
+		| Command::Profile { .. }
+		| Command::StreamPreview { .. }
+		| Command::Members { .. }
+		| Command::History { .. } => true,
+		_ => false,
+	}
+}
+
 /// Synthetic People rows with presence; never a Discord member directory.
 #[cfg(feature = "demo")]
 fn demo_members(
@@ -1540,6 +1614,7 @@ impl Desktop {
 		frame_sample: Option<(Duration, Duration)>,
 		transparency_available: bool,
 		preferences: Result<local_store::AppPreferences, local_store::StoreError>,
+		local_store: Option<local_store::LocalStore>,
 	) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
 		ui::fonts::install(&cc.egui_ctx);
 		ui::emoji::install(&cc.egui_ctx)?;
@@ -1571,7 +1646,7 @@ impl Desktop {
 			platform::plaintext_login::configure(plaintext_login_dir());
 		}
 		let mut store = (!demo).then(|| credentials::Store::start(cc.egui_ctx.clone()));
-		let cache = (!demo).then(|| cache::Cache::start(cc.egui_ctx.clone()));
+		let cache = (!demo).then(|| cache::Cache::start(cc.egui_ctx.clone(), local_store));
 		#[cfg(all(debug_assertions, feature = "demo"))]
 		if demo && std::env::args().any(|arg| arg == "--demo-voice-messages") {
 			audio::debug_voice_message_check();
@@ -1641,6 +1716,10 @@ impl Desktop {
 				}
 			};
 		}
+		#[cfg(feature = "demo")]
+		let demo_loading = demo && demo_loading();
+		#[cfg(feature = "demo")]
+		let demo_loading_partial = demo_loading && demo_loading_partial();
 		#[cfg(feature = "demo")]
 		if demo && std::env::args().any(|arg| arg == "--demo-group-dm") {
 			// Existing synthetic group conversation; no account or call is opened.
@@ -2121,7 +2200,9 @@ impl Desktop {
 					.map(|rest| rest.trim_start_matches('=').to_owned())
 			}) {
 			// `--demo-account` or `--demo-account=status` for the written-status variant.
-			if let Some(Command::EditProfile { user, request, .. }) = state.load_own_profile() {
+			if let Some(Command::EditProfile { user, request, .. }) = state.load_own_profile()
+				&& !demo_loading
+			{
 				let profile = ui::synthetic_own_profile(state.user.as_ref().expect("demo user"));
 				state.apply(client_core::Envelope {
 					generation: state.generation,
@@ -2281,7 +2362,15 @@ impl Desktop {
 		let mut sign_in_forget = None;
 		#[cfg(feature = "demo")]
 		if demo && std::env::args().any(|arg| arg == "--demo-join-server") {
-			messaging.preview_join_server(state.generation);
+			if demo_loading {
+				// Offline lookups never start, so this one is pending from the outset.
+				state
+					.invites
+					.insert("serein".into(), (std::time::Instant::now(), None));
+				messaging.open_rpc_invite(state.generation, "serein".into());
+			} else {
+				messaging.preview_join_server(state.generation);
+			}
 			state.status = "Offline fixture · join-server dialog opened at startup";
 		}
 		#[cfg(feature = "demo")]
@@ -2346,6 +2435,41 @@ impl Desktop {
 			// The new editor fixture includes a known server default: mentions only.
 			state.guilds[0].default_message_notifications = Some(1);
 			messaging.preview_server_notifications(&mut state, guild);
+		}
+		#[cfg(feature = "demo")]
+		if demo_loading {
+			// Withhold artwork before the first frame paints it; the per-frame hold keeps it so.
+			if !demo_loading_partial {
+				messaging.hold_demo_images();
+			}
+			// Data the fixture pre-seeds is requested again instead; `demo_fetch` never answers.
+			if demo_loading_partial {
+				// The latest page and the first People rows stay; scrolling asks for more.
+				if let Some(Command::Members {
+					guild: guild @ Some(_),
+					channel: Some(channel),
+					request,
+					..
+				}) = state.request_members()
+				{
+					let mut list = demo_members(&state, guild, channel, request);
+					list.lazy = true;
+					list.total = 60;
+					state.members = Some(list);
+				}
+			} else if state.selected.is_some() {
+				state.timeline.clear();
+				let _ = state.history(None);
+				state.members = None;
+			}
+			if let Some(channel) = state.selected {
+				let _ = state.request_application_commands(channel, true);
+			}
+			state.stickers.packs.clear();
+			state.stickers.loaded = false;
+			state.stickers.loading = true;
+			// Offline messaging permissions settle in client-core without a command.
+			state.messaging_permissions.pending = true;
 		}
 		// The fixture never touches the credential store, so its access key lasts one run.
 		let local_api = local_api::LocalApi::start(runtime.handle(), !demo, {
@@ -2505,6 +2629,10 @@ impl Desktop {
 			tray_error: None,
 			#[cfg(feature = "demo")]
 			demo_typing,
+			#[cfg(feature = "demo")]
+			demo_loading,
+			#[cfg(feature = "demo")]
+			demo_loading_partial,
 			variant_changed: false,
 			pending_save: None,
 			pending_account_save: None,
@@ -3693,6 +3821,9 @@ impl Desktop {
 		}
 		#[cfg(feature = "demo")]
 		if self.state.demo {
+			if self.demo_loading && demo_fetch(&command) {
+				return;
+			}
 			let event = match command {
 				// Offline typing has no transport or synthetic state change.
 				Command::Typing { .. } => return,
@@ -3818,6 +3949,14 @@ impl Desktop {
 				Command::ServerAction { action, request } => {
 					server_settings_demo::execute_action(&mut self.state, action, request)
 				}
+				// Synthetic settings writes are confirmed as sent.
+				Command::ChannelList { request, write, .. } => {
+					Event::ChannelList(client_core::channel_list::Event::Written {
+						guild: write.guild,
+						request,
+						result: Ok(write),
+					})
+				}
 				Command::UserAction {
 					action: client_core::user_actions::Action::OpenDm(user),
 					request,
@@ -3859,6 +3998,7 @@ impl Desktop {
 					let patch = match action {
 						Action::Leave(_) => None,
 						Action::Edit { name, icon, .. } => Some(model::ChannelPatch {
+							user_limit: Patch::Absent,
 							id: channel,
 							name: name.map_or(Patch::Absent, Patch::Value),
 							icon: match icon {
@@ -4041,6 +4181,7 @@ impl Desktop {
 						parent,
 						request,
 						result: Ok(model::Channel {
+							user_limit: None,
 							id: model::Id(self.synthetic_id),
 							guild: Some(guild),
 							parent_id: Some(parent),
@@ -4093,6 +4234,7 @@ impl Desktop {
 					let threads = ids
 						.into_iter()
 						.map(|id| model::Channel {
+							user_limit: None,
 							id: model::Id(id),
 							guild: Some(guild),
 							parent_id: Some(parent),
@@ -4554,6 +4696,41 @@ impl Desktop {
 }
 
 impl Desktop {
+	/// `--demo-loading`: client-core settles these offline without sending a command, so they
+	/// are held open each frame like the fetches `demo_fetch` leaves unanswered.
+	#[cfg(feature = "demo")]
+	fn hold_demo_loading(&mut self) {
+		let state = &mut self.state;
+		// Full mode: the fixture seeds some profiles (your own, `--demo-profile`), yet every open
+		// card waits, the docked DM card included. Partial keeps the seeded ones.
+		let full = !self.demo_loading_partial;
+		if let Some(view) = state
+			.profile
+			.as_mut()
+			.filter(|view| full || view.data.is_none())
+		{
+			if full {
+				view.data = None;
+			}
+			view.loading = true;
+			view.error = None;
+		}
+		if let Some(forum) = state.selected.filter(|id| state.is_forum(*id)) {
+			state.posts.parent = Some(forum);
+			state.posts.loading = true;
+		}
+		// The installed-font scan is local, but its list shows the same loading state.
+		if matches!(
+			self.messaging.custom_font.request,
+			Some(ui::fonts::Action::List)
+		) {
+			self.messaging.custom_font.request = None;
+		}
+		// Full mode withholds synthetic artwork: images stay on their loading placeholder too.
+		if full {
+			self.messaging.hold_demo_images();
+		}
+	}
 	fn clear_avatars(&mut self, ctx: &egui::Context) {
 		self.avatar_start_failed = false;
 		if self.avatar_cleanup.is_some() && !self.fixture_only && !self.state.demo {
@@ -5838,6 +6015,10 @@ impl eframe::App for Desktop {
 		);
 		self.messaging.sync_reading_zoom(ctx);
 		self.poll(ctx);
+		#[cfg(feature = "demo")]
+		if self.demo_loading {
+			self.hold_demo_loading();
+		}
 		// Here, not in `ui`: a connection made while hidden in the tray must still go idle.
 		if let Some(connection) = &mut self.connection {
 			// shortcut: the timeout is read once per connection; a change made on another
@@ -6980,7 +7161,8 @@ impl eframe::App for Desktop {
 					self.messaging.accept_avatar(&ctx, key, None);
 				}
 			}
-			// Idle frames are freed on a pass, so an otherwise idle window wakes once for them.
+			// Idle frames are freed, and stalled image placeholders give way to fallback art, on a
+			// pass, so an otherwise idle window wakes once for them.
 			if let Some(at) = self.messaging.avatar_release_at() {
 				ctx.request_repaint_after(at.saturating_duration_since(std::time::Instant::now()));
 			}

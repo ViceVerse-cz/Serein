@@ -146,6 +146,38 @@ five are opt-in: they stay hidden, unrequested and without catalog reads until e
 Settings › Appearance › Profile cosmetics. This is a local display choice; nothing is sent
 to Discord.
 
+## Member moderation from the user menu — November 13, 2026
+
+A server member's context menu offers Timeout, Kick and Ban, each behind a confirmation.
+A timeout picks one of Discord's durations (60 seconds to one week) or removes the
+timeout; a ban chooses how much recent message history to delete (none, one hour, 24
+hours or seven days). An entry appears only when the account holds Moderate Members,
+Kick Members or Ban Members and the target's roles are loaded (the open channel's member
+list, its looked-up message authors, or the Server Settings member page) and rank below
+the account's highest role. Owners keep their hierarchy exemption. The owner, the account
+itself and members whose rank is not loaded are never offered, and administrators are not
+offered a timeout. Discord remains the authority and may still refuse.
+
+Kick keeps the existing `DELETE /guilds/{guild}/members/{user}` request. Ban sends
+[Create Guild Ban](https://docs.discord.com/developers/resources/guild#create-guild-ban)
+with `delete_message_seconds` (at most seven days) and expects an empty reply. Timeout
+sends [Modify Guild Member](https://docs.discord.com/developers/resources/guild#modify-guild-member)
+with only `communication_disabled_until` (at most 28 days ahead, null to remove). The
+expiry is taken after the shared REST cooldown and route admission, so time spent
+waiting is not subtracted from the duration. The bounded 64 KiB member reply must
+identify the requested user and echo whether a timeout is set. These routes are
+documented for bots; normal-account acceptance is unofficial and live-unverified.
+Existing REST deadlines, write ambiguity handling and the single administration
+request apply, and a failure stays in the confirmation. A definite
+refusal can be retried there; a result that may already have applied cannot, and needs
+a new confirmation opened from the menu. The server is always the clicked row's own:
+a DM, friends or other row without a server never offers moderation in the selected one.
+
+No audit-log reason is sent, bans cannot be listed or removed, and a user who is not a
+loaded member cannot be banned by ID. Synthetic tests cover the permission and hierarchy
+rules, request bounds, the timeout body and failure reporting. No live kick, ban or
+timeout was performed.
+
 ## Guild voice moderation — October 8, 2026
 
 Server mute/unmute and voice movement/disconnection use the documented
@@ -575,6 +607,26 @@ The selected channel stays visible. A preloaded user-settings proto update does
 not clear these mutes. Create Channel, Create Category and Invite to Server reuse the same
 permission checks, confirmation UI and request lanes as the existing channel and
 server menus.
+
+Browse Channels, Show All Channels and Remove from / Add to Channel List use Discord's
+opt-in channel list, unofficial and documented by discord-userdoccers: the user guild
+settings `flags` bit `OPT_IN_CHANNELS_ON` (1 << 14) hides channels without the channel
+override flag `OPT_IN_ENABLED` (1 << 12), and `OPT_IN_CHANNELS_OFF` (1 << 13) shows all
+channels. READY and User Guild Settings Update restore the flags; unknown flags (including
+any override with null flags) list every channel and disable the controls. A followed
+category lists its channels. On a server that never used the list (neither mode bit set and
+nothing followed), the first removal follows every category and uncategorized channel; a
+saved selection, even an empty one, is kept across Show All Channels. Removing a channel
+from a followed category follows its siblings instead, so only the removed item leaves the
+list. Each change is one bounded `PATCH /users/@me/guilds/{guild}/settings` that preserves
+the other flag bits, is built from the newest known settings right before it is sent, and
+must be echoed before the sidebar changes. A live capture showed Discord omits `flags` when it
+is 0 and drops an override left with only defaults, so both read as 0; explicit null is
+ambiguous. The open channel and the active call stay listed, and
+removed channels do not light the server's unread marker. Discord's client offers these
+controls in Community servers; Serein shows them wherever the settings row is known, and
+the official client may ignore the flags outside Community servers. Onboarding default
+channels are not read separately (unverified).
 
 Text/announcement editing (name, topic, slowmode and age restriction), channel
 duplication, text/voice/announcement/forum channel and category creation, and confirmed deletion use the documented
@@ -1104,7 +1156,11 @@ Unknown relationship/settings state is distinguished from false. One write is pe
 rejections, disconnects and ambiguous outcomes remain visible without automatic retries.
 Gateway updates take precedence over late HTTP confirmations. Notification suppression reuses
 the existing account settings and rejects alerts from known blocked authors. Existing timeline
-content is retained; this does not implement Discord's collapsed blocked-message presentation.
+content is retained. By default the native blocked-message presentation is unchanged; an explicit
+device-local Chat preference can omit known blocked authors from visible main/thread-starter rows,
+with a second option for known ignored authors. Unknown relationship state does not hide a row,
+and filtering does not mark messages read or mutate relationships. This local presentation filter
+is not Discord's collapsed blocked-group implementation or a service-side moderation change.
 Offline reducer, decoder and local HTTP tests cover these actions; normal-user acceptance,
 cross-device behavior and native interaction remain live-unverified. No accounts were accessed.
 
@@ -1691,6 +1747,8 @@ holographic colors. Equal positions favor the lower role ID, consistent with
 Names retain hue when readable; the theme adjusts insufficient contrast, including hover.
 Profile name colors and role chips prefer current self/member assignments, including empty
 assignments, and fall back to fetched profile roles when current membership is unavailable.
+Profile chips list those assignments from the top of the hierarchy: higher `position` first,
+and the lower role ID first when positions match.
 Gradients color shaped glyph vertices without splitting Unicode text or recoloring color
 emoji. Inline mention pills and composer mention previews retain their primary color.
 `--features demo -- --demo --demo-chat --demo-role-gradients` enables synthetic gradients;
@@ -2465,7 +2523,8 @@ applications resolves to none. Discord itself detects some of these games by unk
 (unverified); Serein still cannot detect them from a process alone. Matching compares path suffixes longest-first, plus `.app` bundle
 components for macOS entries; an executable-name index keeps a full sweep at roughly 6 ms for
 900 processes instead of ~920 ms for a linear scan. Processes are enumerated read-only through
-`/proc` on Linux, `ps` on macOS and `tasklist` on Windows: executable paths only, never
+`/proc` on Linux, `ps` on macOS and `tasklist` plus a limited-query image-path read on Windows
+(a bare image name such as `gh.exe` otherwise matches an unrelated game): executable paths only, never
 arguments, environment, memory or another user's processes. Detection is polled every ten
 seconds while sharing is on, keeps a running match stable rather than flapping between two
 matches, and always loses to a connected client, which knows more than a process name.

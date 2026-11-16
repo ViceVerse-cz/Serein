@@ -409,6 +409,15 @@ message-request-title = 訊息請求
 ## crates/ui/src/channel_menu.rs
 # Context: context
 channel-menu-context-add-to-favorites = 加入最愛
+channel-menu-context-remove-from-channel-list = 從頻道列表中移除
+channel-menu-context-add-to-channel-list = 新增至頻道列表
+channel-browser-title = 瀏覽頻道
+channel-browser-subtitle = 選擇要在頻道列表中顯示的頻道。
+channel-browser-show-all-channels = 顯示所有頻道
+channel-browser-search = 搜尋頻道
+channel-browser-follow-category = 追蹤類別
+channel-browser-saving = 正在儲存…
+channel-browser-unavailable = 頻道列表設定暫時無法使用。
 # Context: context
 channel-menu-context-copy-channel-id = 複製頻道 ID
 # Context: context
@@ -2444,8 +2453,6 @@ search-pane-hide-matching-text-highlight = 隱藏符合文字的反白
 # Context: pane
 search-pane-indexing-is-incomplete-results-may-be-missing = 索引尚未完成，結果可能有遺漏。
 # Context: pane
-search-pane-looking-for-matching-messages = 正在尋找符合的訊息。
-# Context: pane
 search-pane-messages-are-unavailable-while-disconnected-or-without-channel-access = 斷線或無法存取頻道時，訊息無法使用。
 # Context: pane
 search-pane-newest-first = 最新在前
@@ -3635,6 +3642,8 @@ slash-commands-composer-choose-a-different-command = 改選其他指令
 slash-commands-composer-command-unavailable-your-arguments-are-kept = 指令無法使用。你的參數已保留。
 # Context: footer
 slash-commands-footer-refresh-application-commands = 重新整理應用指令
+# Context: list
+slash-commands-list-loading-application-commands = 正在載入應用指令…
 
 ## crates/ui/src/stickers.rs
 # Context: message
@@ -5043,3 +5052,34 @@ settings-local-api-reset-key = 重設金鑰
 settings-local-api-security-detail = 只有在這台電腦上以你的使用者身分執行的程式才能連線，而且必須持有存取金鑰。網頁和其他裝置無法存取。應用程式永遠不會收到你的登入憑證、訊息或音訊。
 # Context: local_api_settings
 settings-local-api-revocation-unsaved = Serein 尚未能在此裝置上儲存重設，因此重新啟動後舊金鑰可能會再次生效。Serein 會持續重試。
+
+# Context: moderation
+moderation-menu-timeout = 將 { $name } 禁言
+# Context: moderation
+moderation-menu-kick = 移出 { $name }
+# Context: moderation
+moderation-menu-ban = 將 { $name } 停權
+# Context: moderation
+moderation-timeout-detail = 禁言結束前，對方無法傳送訊息、新增反應或加入語音頻道。
+# Context: moderation
+moderation-kick-detail = 對方可以透過新的邀請重新加入。
+# Context: moderation
+moderation-ban-detail = 停權解除前，對方無法重新加入。
+# Context: moderation
+moderation-duration-60-seconds = 60 秒
+# Context: moderation
+moderation-remove-timeout = 解除禁言
+# Context: moderation
+moderation-delete-history = 刪除訊息記錄
+# Context: moderation
+moderation-delete-none = 不刪除
+# Context: moderation
+moderation-delete-hour = 過去 1 小時
+# Context: moderation
+moderation-delete-day = 過去 24 小時
+# Context: moderation
+moderation-delete-week = 過去 7 天
+# Context: moderation
+moderation-confirm-timeout = 禁言
+# Context: moderation
+moderation-confirm-ban = 停權

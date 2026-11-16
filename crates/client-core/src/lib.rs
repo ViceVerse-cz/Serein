@@ -32,6 +32,7 @@ pub mod reactions;
 pub mod read_state;
 mod replies;
 pub use replies::{HistoryNavigation, LinkResolution, ParkedReplies, Reply, ReplyDeletions};
+pub mod channel_list;
 pub mod group_actions;
 pub mod onboarding;
 pub mod resident;
@@ -132,6 +133,12 @@ pub enum Command {
 	ServerAction {
 		action: server_actions::Action,
 		request: u64,
+	},
+	/// One opt-in channel list settings write.
+	ChannelList {
+		request: u64,
+		write: Box<channel_list::Write>,
+		latest: channel_list::Latest,
 	},
 	UserAction {
 		action: user_actions::Action,
@@ -526,6 +533,7 @@ pub enum Event {
 	},
 	UserAction(user_actions::Event),
 	ServerAction(server_actions::Event),
+	ChannelList(channel_list::Event),
 	GroupAction(group_actions::Event),
 	Invite {
 		code: String,
@@ -776,6 +784,7 @@ pub struct State {
 	pub folders_stale: bool,
 	pub user_actions: user_actions::Actions,
 	pub server_actions: server_actions::Actions,
+	pub channel_list: channel_list::ChannelList,
 	pub channel_actions: channel_actions::Actions,
 	pub server_settings: server_settings::Editor,
 	pub onboarding: onboarding::Onboarding,
@@ -1022,6 +1031,7 @@ impl Default for State {
 			folders_stale: false,
 			user_actions: user_actions::Actions::default(),
 			server_actions: server_actions::Actions::default(),
+			channel_list: channel_list::ChannelList::default(),
 			channel_actions: channel_actions::Actions::default(),
 			server_settings: server_settings::Editor::default(),
 			onboarding: onboarding::Onboarding::default(),
@@ -2286,6 +2296,16 @@ impl State {
 			});
 			return;
 		}
+		if let Command::ChannelList { request, write, .. } = command {
+			let _ = self.apply_channel_list(channel_list::Event::Written {
+				guild: write.guild,
+				request,
+				result: Err(auth::Failure::ProtocolAt(
+					"Channel list change was not queued; try again",
+				)),
+			});
+			return;
+		}
 		if let Command::UserAction {
 			action, request, ..
 		} = command
@@ -3083,6 +3103,7 @@ impl State {
 				result
 			}
 			Event::ServerAction(event) => self.apply_server_action(event),
+			Event::ChannelList(event) => self.apply_channel_list(event),
 			Event::ChannelAction(event) => self.apply_channel_action(event),
 			Event::ServerSettings(event) => self.apply_server_settings(event),
 			Event::Onboarding(event) => self.apply_onboarding(event),
@@ -3370,6 +3391,11 @@ impl State {
 					if let Patch::Value(count) = patch.message_count {
 						channel.message_count = Some(count);
 					}
+					match patch.user_limit {
+						Patch::Value(limit) => channel.user_limit = Some(limit),
+						Patch::Null => channel.user_limit = None,
+						Patch::Absent => {}
+					}
 					match patch.tags {
 						Patch::Value(tags) => channel.tags = Some(tags),
 						Patch::Null => channel.tags = None,
@@ -3626,6 +3652,7 @@ impl State {
 				self.notification_preferences = notifications::Preferences::default();
 				self.cancel_user_action();
 				self.cancel_server_action();
+				self.cancel_channel_list();
 				self.cancel_channel_action();
 				self.cancel_server_settings();
 				self.cancel_onboarding();
@@ -3635,6 +3662,7 @@ impl State {
 				self.cancel_guild_creation();
 				self.user_actions.reset();
 				self.server_actions.reset();
+				self.channel_list.reset();
 				self.channel_actions.reset();
 				self.server_settings.reset();
 				self.reset_onboarding();
@@ -4077,6 +4105,7 @@ impl State {
 				self.cancel_message_actions();
 				self.cancel_user_action();
 				self.cancel_server_action();
+				self.cancel_channel_list();
 				self.cancel_channel_action();
 				self.cancel_server_settings();
 				self.cancel_onboarding();
@@ -4109,6 +4138,7 @@ impl State {
 				self.cancel_message_actions();
 				self.cancel_user_action();
 				self.cancel_server_action();
+				self.cancel_channel_list();
 				self.cancel_channel_action();
 				self.cancel_server_settings();
 				self.cancel_onboarding();
@@ -4229,6 +4259,7 @@ impl State {
 				&& !self.can_open_integration_settings(guild)
 				&& !self.can_retain_channel_integrations(guild)
 				&& !self.can_open_audit_log_settings(guild)
+				&& !self.can_moderate_guild(guild)
 			{
 				self.server_admin.reset();
 			} else {
@@ -4336,6 +4367,7 @@ impl State {
 			}
 			self.cancel_user_action();
 			self.cancel_server_action();
+			self.cancel_channel_list();
 			self.cancel_channel_action();
 			self.cancel_server_settings();
 			self.cancel_onboarding();
@@ -4796,6 +4828,7 @@ mod tests {
 	fn rate_limited_sends_stay_pending_and_raise_the_slow_down_notice() {
 		let mut state = State {
 			channels: vec![Channel {
+				user_limit: None,
 				id: Id(1),
 				guild: None,
 				parent_id: None,
@@ -4879,6 +4912,7 @@ mod tests {
 	fn rejected_sends_do_not_invalidate_a_healthy_conversation() {
 		let mut state = State {
 			channels: vec![Channel {
+				user_limit: None,
 				id: Id(1),
 				guild: None,
 				parent_id: None,
@@ -4933,6 +4967,7 @@ mod tests {
 	fn attachment_sends_from_an_older_window_keep_caption_and_reply() {
 		let mut state = State {
 			channels: vec![Channel {
+				user_limit: None,
 				id: Id(1),
 				guild: None,
 				parent_id: None,
@@ -5061,6 +5096,7 @@ mod tests {
 	fn attachment_only_sends_are_bounded_and_keep_existing_confirmation() {
 		let mut state = State {
 			channels: vec![Channel {
+				user_limit: None,
 				id: Id(1),
 				guild: None,
 				parent_id: None,
@@ -5196,6 +5232,7 @@ mod tests {
 				channels: [(10, 1, 0), (11, 1, 0), (12, 1, 2), (20, 2, 0), (30, 0, 1)]
 					.into_iter()
 					.map(|(id, guild, kind)| Channel {
+						user_limit: None,
 						id: Id(id),
 						guild: (guild != 0).then_some(Id(guild)),
 						kind,
@@ -5410,6 +5447,7 @@ mod tests {
 		}
 		{
 			let channel = Channel {
+				user_limit: None,
 				id: Id(1),
 				guild: Some(Id(10)),
 				parent_id: None,
@@ -5459,6 +5497,7 @@ mod tests {
 			apply(
 				&mut state,
 				Event::ChannelChanged(ChannelPatch {
+					user_limit: Patch::Absent,
 					icon: model::Patch::Absent,
 					id: Id(1),
 					name: Patch::Value("Renamed".into()),
@@ -5570,6 +5609,7 @@ mod tests {
 		let mut state = State {
 			selected: Some(channel),
 			channels: vec![Channel {
+				user_limit: None,
 				id: channel,
 				guild: None,
 				parent_id: None,
@@ -6007,6 +6047,7 @@ mod tests {
 				..State::default()
 			};
 			let channel = Channel {
+				user_limit: None,
 				last_message: None,
 				id: Id(2),
 				guild: Some(Id(1)),
@@ -6026,6 +6067,7 @@ mod tests {
 			apply(
 				&mut state,
 				Event::ChannelChanged(ChannelPatch {
+					user_limit: Patch::Absent,
 					icon: model::Patch::Absent,
 					last_message: model::Patch::Absent,
 					id: Id(2),
@@ -6046,6 +6088,7 @@ mod tests {
 			apply(
 				&mut state,
 				Event::ChannelChanged(ChannelPatch {
+					user_limit: Patch::Absent,
 					icon: model::Patch::Absent,
 					last_message: model::Patch::Absent,
 					id: Id(2),
@@ -6066,6 +6109,7 @@ mod tests {
 				apply(
 					&mut state,
 					Event::ChannelCreated(Channel {
+						user_limit: None,
 						last_message: None,
 						id: Id(id as u64),
 						guild: None,
@@ -6091,6 +6135,7 @@ mod tests {
 				auth: auth::AuthState::Authenticated,
 				selected: Some(Id(1)),
 				channels: vec![Channel {
+					user_limit: None,
 					id: Id(1),
 					guild: None,
 					parent_id: None,
@@ -6282,6 +6327,7 @@ mod tests {
 			gateway_connected: true,
 			auth: auth::AuthState::Authenticated,
 			channels: vec![Channel {
+				user_limit: None,
 				last_message: None,
 				id: Id(1),
 				guild: None,
@@ -6422,6 +6468,7 @@ mod tests {
 	#[test]
 	fn voice_navigation_survives_ready_but_revocation_ends_the_call_before_restoration() {
 		let channel = Channel {
+			user_limit: None,
 			id: Id(1),
 			guild: Some(Id(10)),
 			parent_id: None,
@@ -6515,6 +6562,7 @@ mod tests {
 	fn ready_replacement_and_removed_reload_cannot_restore_unavailable_history() {
 		{
 			let channel = |kind| Channel {
+				user_limit: None,
 				id: Id(1),
 				guild: None,
 				parent_id: None,
@@ -6671,6 +6719,7 @@ mod tests {
 					},
 					guilds: vec![],
 					channels: vec![Channel {
+						user_limit: None,
 						last_message: None,
 						id: Id(1),
 						guild: None,

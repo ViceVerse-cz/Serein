@@ -145,8 +145,8 @@ fn supplied_image(image: std::sync::Arc<egui::ColorImage>) -> Result<Read, &'sta
 		.width()
 		.checked_mul(image.height())
 		.ok_or("Image is too large")?;
-	if pixels == 0 || pixels > 4 * 1024 * 1024 || pixels != image.pixels().len() {
-		return Err("Paste an image with at most 4 million pixels");
+	if pixels == 0 || pixels > ui::MAX_PASTE_PIXELS || pixels != image.pixels().len() {
+		return Err(ui::PASTE_PIXELS_EXCEEDED);
 	}
 	let bytes: Vec<u8> = image
 		.pixels()
@@ -184,8 +184,8 @@ fn normalize(path: std::path::PathBuf) -> std::path::PathBuf {
 
 fn png(bytes: &[u8], width: usize, height: usize) -> Result<Read, &'static str> {
 	let pixels = width.checked_mul(height).ok_or("Image is too large")?;
-	if pixels == 0 || pixels > 4 * 1024 * 1024 || bytes.len() != pixels * 4 {
-		return Err("Paste an image with at most 4 million pixels");
+	if pixels == 0 || pixels > ui::MAX_PASTE_PIXELS || bytes.len() != pixels * 4 {
+		return Err(ui::PASTE_PIXELS_EXCEEDED);
 	}
 	let mut encoded = Vec::new();
 	image::codecs::png::PngEncoder::new(&mut encoded)

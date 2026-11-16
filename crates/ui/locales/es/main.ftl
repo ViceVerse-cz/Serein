@@ -407,6 +407,15 @@ message-request-title = Solicitud de mensaje
 ## crates/ui/src/channel_menu.rs
 # Context: context
 channel-menu-context-add-to-favorites = Agregar a favoritos
+channel-menu-context-remove-from-channel-list = Quitar de la lista de canales
+channel-menu-context-add-to-channel-list = Añadir a la lista de canales
+channel-browser-title = Explorar canales
+channel-browser-subtitle = Elige qué canales aparecen en tu lista de canales.
+channel-browser-show-all-channels = Mostrar todos los canales
+channel-browser-search = Buscar canales
+channel-browser-follow-category = Seguir categoría
+channel-browser-saving = Guardando…
+channel-browser-unavailable = Los ajustes de la lista de canales no están disponibles ahora.
 # Context: context
 channel-menu-context-copy-channel-id = Copiar ID de canal
 # Context: context
@@ -2413,8 +2422,6 @@ search-pane-hide-matching-text-highlight = Ocultar resaltado de texto coincident
 # Context: pane
 search-pane-indexing-is-incomplete-results-may-be-missing = La indexación está incompleta; Es posible que falten resultados.
 # Context: pane
-search-pane-looking-for-matching-messages = Buscando mensajes coincidentes.
-# Context: pane
 search-pane-messages-are-unavailable-while-disconnected-or-without-channel-access = Los mensajes no están disponibles mientras estás desconectado o sin acceso al canal.
 # Context: pane
 search-pane-newest-first = Lo nuevo primero
@@ -3604,6 +3611,8 @@ slash-commands-composer-choose-a-different-command = elige un comando diferente
 slash-commands-composer-command-unavailable-your-arguments-are-kept = Comando no disponible. Tus argumentos se mantienen.
 # Context: footer
 slash-commands-footer-refresh-application-commands = Actualizar comandos de la aplicación
+# Context: list
+slash-commands-list-loading-application-commands = Cargando comandos de aplicaciones…
 
 ## crates/ui/src/stickers.rs
 # Context: message
@@ -4949,3 +4958,34 @@ settings-local-api-reset-key = Restablecer clave
 settings-local-api-security-detail = Solo pueden conectarse los programas que se ejecutan con tu usuario en este equipo, y solo con la clave de acceso. Las páginas web y otros dispositivos no pueden acceder. Las apps nunca reciben tu inicio de sesión, tus mensajes ni tu audio.
 # Context: local_api_settings
 settings-local-api-revocation-unsaved = Serein aún no pudo guardar el restablecimiento en este dispositivo, así que la clave anterior podría volver a funcionar tras reiniciar. Sigue reintentándolo.
+
+# Context: moderation
+moderation-menu-timeout = Aislar temporalmente a { $name }
+# Context: moderation
+moderation-menu-kick = Expulsar a { $name }
+# Context: moderation
+moderation-menu-ban = Banear a { $name }
+# Context: moderation
+moderation-timeout-detail = No podrá enviar mensajes, reaccionar ni unirse a canales de voz hasta que termine el aislamiento.
+# Context: moderation
+moderation-kick-detail = Podrá volver a unirse con una invitación nueva.
+# Context: moderation
+moderation-ban-detail = No podrá volver a unirse hasta que se retire el baneo.
+# Context: moderation
+moderation-duration-60-seconds = 60 segundos
+# Context: moderation
+moderation-remove-timeout = Quitar aislamiento
+# Context: moderation
+moderation-delete-history = Eliminar historial de mensajes
+# Context: moderation
+moderation-delete-none = No eliminar nada
+# Context: moderation
+moderation-delete-hour = Última hora
+# Context: moderation
+moderation-delete-day = Últimas 24 horas
+# Context: moderation
+moderation-delete-week = Últimos 7 días
+# Context: moderation
+moderation-confirm-timeout = Aislar
+# Context: moderation
+moderation-confirm-ban = Banear

@@ -168,7 +168,8 @@ impl Editor {
 			}
 		}
 		let colors = design::palette(ui);
-		if state.own_profile.loading {
+		// A reload keeps this line over the form; the first load sketches the form instead.
+		if state.own_profile.loading && state.own_profile.data.is_some() {
 			ui.horizontal(|ui| {
 				ui.add(egui::Spinner::new().size(14.0));
 				ui.label(
@@ -194,6 +195,9 @@ impl Editor {
 			}
 		}
 		let Some(profile) = state.own_profile.data.as_ref() else {
+			if state.own_profile.loading {
+				pending_editor(ui);
+			}
 			return;
 		};
 		let fresh = Draft::from_profile(profile);
@@ -221,11 +225,11 @@ impl Editor {
 		};
 		let mut action = None;
 		let width = ui.available_width();
-		if width >= 620.0 {
+		if let Some(form_width) = columns(width) {
 			ui.horizontal_top(|ui| {
-				ui.spacing_mut().item_spacing.x = 24.0;
+				ui.spacing_mut().item_spacing.x = COLUMN_GAP;
 				ui.allocate_ui_with_layout(
-					egui::vec2(width - 324.0, 0.0),
+					egui::vec2(form_width, 0.0),
 					egui::Layout::top_down(egui::Align::Min),
 					|ui| {
 						ui.add_enabled_ui(editable, |ui| {
@@ -234,7 +238,7 @@ impl Editor {
 					},
 				);
 				ui.vertical(|ui| {
-					ui.set_width(300.0);
+					ui.set_width(PREVIEW_WIDTH);
 					if let Some(picked) = preview(
 						ui,
 						draft,
@@ -355,7 +359,7 @@ impl Editor {
 					});
 				});
 			});
-		if width < 620.0
+		if columns(width).is_none()
 			&& let (Some(draft), Some(profile)) = (&self.draft, &state.own_profile.data)
 		{
 			ui.add_space(16.0);
@@ -394,7 +398,6 @@ fn form(
 	profile: &UserProfile,
 	choosing: bool,
 ) -> Option<AvatarAction> {
-	let colors = design::palette(ui);
 	ui.spacing_mut().item_spacing.y = 6.0;
 	let mut action = None;
 	let has_picture = match &draft.avatar {
@@ -447,13 +450,7 @@ fn form(
 		model::MAX_PROFILE_NAME_CHARS,
 		false,
 	);
-	ui.label(
-		egui::RichText::new(crate::i18n::translate(
-			"profile-edit-form-leave-blank-to-use-your-username",
-		))
-		.size(12.0)
-		.color(colors.muted),
-	);
+	name_hint(ui);
 	ui.add_space(8.0);
 	field(
 		ui,
@@ -526,24 +523,10 @@ fn field(
 	multiline: bool,
 ) {
 	let colors = design::palette(ui);
-	let label = crate::i18n::translate_if_key(label);
-	let label_id = ui
-		.horizontal(|ui| {
-			let label = ui.label(design::eyebrow(ui, &label, colors.muted));
-			if multiline {
-				ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-					ui.label(
-						egui::RichText::new(format!("{} / {limit}", value.chars().count()))
-							.size(11.0)
-							.color(colors.muted),
-					);
-				});
-			}
-			label.id
-		})
-		.inner;
+	let counter = multiline.then(|| format!("{} / {limit}", value.chars().count()));
+	let label_id = field_label(ui, label, counter);
 	let edit = if multiline {
-		egui::TextEdit::multiline(value).desired_rows(4)
+		egui::TextEdit::multiline(value).desired_rows(BIO_ROWS)
 	} else {
 		egui::TextEdit::singleline(value).align(egui::Align2::LEFT_CENTER)
 	};
@@ -551,10 +534,195 @@ fn field(
 		ui,
 		edit.id(egui::Id::unique(id))
 			.char_limit(limit)
-			.font(egui::FontId::proportional(15.0))
+			.font(field_font())
 			.text_color(colors.text),
 	)
 	.labelled_by(label_id);
+}
+
+/// Width of the preview column beside the form, and the gap between them.
+const PREVIEW_WIDTH: f32 = 300.0;
+const COLUMN_GAP: f32 = 24.0;
+/// The preview's banner height, avatar size and the least height of its details panel.
+const BANNER: f32 = 90.0;
+const AVATAR: f32 = 80.0;
+/// The card-coloured ring behind the preview avatar.
+const AVATAR_RING: f32 = AVATAR * 0.5 + 6.0;
+/// The preview banner is the card's top: only its upper corners are rounded.
+const BANNER_CORNERS: egui::CornerRadius = egui::CornerRadius {
+	nw: 12,
+	ne: 12,
+	sw: 0,
+	se: 0,
+};
+const PANEL_MIN_HEIGHT: f32 = 138.0;
+/// Text rows the About Me field shows.
+const BIO_ROWS: usize = 4;
+
+/// The form column's width when the preview fits beside it, or `None` when it stacks below.
+fn columns(width: f32) -> Option<f32> {
+	(width >= 620.0).then_some(width - PREVIEW_WIDTH - COLUMN_GAP)
+}
+
+fn field_font() -> egui::FontId {
+	egui::FontId::proportional(15.0)
+}
+
+/// A field's uppercase label row, with its character counter on the right when given.
+fn field_label(ui: &mut egui::Ui, label: &str, counter: Option<String>) -> egui::Id {
+	let colors = design::palette(ui);
+	let label = crate::i18n::translate_if_key(label);
+	ui.horizontal(|ui| {
+		let label = ui.label(design::eyebrow(ui, &label, colors.muted));
+		if let Some(counter) = counter {
+			ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+				ui.label(egui::RichText::new(counter).size(11.0).color(colors.muted));
+			});
+		}
+		label.id
+	})
+	.inner
+}
+
+fn name_hint(ui: &mut egui::Ui) {
+	ui.label(
+		egui::RichText::new(crate::i18n::translate(
+			"profile-edit-form-leave-blank-to-use-your-username",
+		))
+		.size(12.0)
+		.color(design::palette(ui).muted),
+	);
+}
+
+fn preview_heading(ui: &mut egui::Ui) {
+	ui.label(design::eyebrow(
+		ui,
+		crate::i18n::translate("profile-edit-preview-preview"),
+		design::palette(ui).muted,
+	));
+	ui.add_space(4.0);
+}
+
+/// The editor while the profile loads: the form's real titles, labels and hints over input
+/// placeholders, and beside it on wide pages the preview's banner, avatar and name lines.
+fn pending_editor(ui: &mut egui::Ui) {
+	let label = crate::i18n::translate("profile-edit-show-loading-your-profile");
+	let width = ui.available_width();
+	if let Some(form_width) = columns(width) {
+		ui.horizontal_top(|ui| {
+			ui.spacing_mut().item_spacing.x = COLUMN_GAP;
+			ui.allocate_ui_with_layout(
+				egui::vec2(form_width, 0.0),
+				egui::Layout::top_down(egui::Align::Min),
+				|ui| pending_form(ui, &label),
+			);
+			ui.vertical(|ui| {
+				ui.set_width(PREVIEW_WIDTH);
+				pending_preview(ui);
+			});
+		});
+	} else {
+		pending_form(ui, &label);
+	}
+}
+
+fn pending_form(ui: &mut egui::Ui, label: &str) {
+	use crate::skeleton::form as pending;
+	ui.spacing_mut().item_spacing.y = 6.0;
+	design::row(
+		ui,
+		"profile-edit-form-profile-picture",
+		Some("profile-edit-form-png-jpeg-gif-or-webp-up-to-8-mb-cropped"),
+		|ui| pending::controls(ui, label, &[92.0], design::BUTTON_HEIGHT),
+	);
+	ui.add_space(10.0);
+	for (index, (key, rows)) in [
+		("profile-edit-form-display-name", 1),
+		("profile-edit-form-pronouns", 1),
+		("profile-edit-form-about-me", BIO_ROWS),
+	]
+	.into_iter()
+	.enumerate()
+	{
+		if index > 0 {
+			ui.add_space(8.0);
+		}
+		field_label(ui, key, None);
+		pending::input(ui, "", Some(field_font()), rows);
+		if index == 0 {
+			name_hint(ui);
+		}
+	}
+	ui.add_space(8.0);
+	design::row(
+		ui,
+		"profile-edit-form-profile-color",
+		Some("profile-edit-form-tints-your-banner-when-you-have-not-set-a-banner"),
+		|ui| {
+			let height = ui.spacing().interact_size.y;
+			pending::controls(ui, "", &[96.0], height);
+		},
+	);
+}
+
+/// The preview card's banner, avatar and details panel with the name and username lines.
+fn pending_preview(ui: &mut egui::Ui) {
+	use crate::skeleton::{bar, circle, frame_tint, outline};
+	use egui::{pos2, vec2};
+	preview_heading(ui);
+	let page = design::palette(ui).chat;
+	let (name, username) = ui.fonts_mut(|fonts| {
+		(
+			fonts.row_height(&egui::FontId::new(20.0, design::semibold_family(ui.ctx()))),
+			fonts.row_height(&egui::FontId::proportional(13.0)),
+		)
+	});
+	// The panel starts 12px under the avatar, which hangs half below the banner, and pads
+	// its lines by 12px; the card adds 12px under it.
+	let panel_top = BANNER + AVATAR * 0.5 + 12.0;
+	let panel = PANEL_MIN_HEIGHT + 24.0;
+	crate::skeleton::custom(
+		ui,
+		"",
+		vec2(ui.available_width(), panel_top + panel + 12.0),
+		|painter, rect, fill| {
+			let width = rect.width();
+			// One card frames the banner and the inset panel, as the loaded preview does;
+			// without it the panel's inset reads as misalignment.
+			outline(painter, fill, rect, 12.0);
+			// The banner is the card's top, rounded like the loaded card's.
+			outline(
+				painter,
+				fill,
+				egui::Rect::from_min_size(rect.min, vec2(width, BANNER)),
+				BANNER_CORNERS,
+			);
+			// A ring in the card's own colour sets the avatar off the banner, as on the
+			// loaded card: the page colour under the card's frame tint.
+			let avatar = pos2(rect.left() + 16.0 + AVATAR * 0.5, rect.top() + BANNER);
+			circle(painter, page, avatar, AVATAR_RING);
+			circle(painter, frame_tint(fill), avatar, AVATAR_RING);
+			circle(painter, fill, avatar, AVATAR * 0.5);
+			let panel = egui::Rect::from_min_size(
+				rect.min + vec2(12.0, panel_top),
+				vec2(width - 24.0, panel),
+			);
+			outline(painter, fill, panel, 8.0);
+			let text = panel.min + vec2(12.0, 12.0);
+			bar(
+				painter,
+				fill,
+				text + vec2(0.0, (name - 12.0) * 0.5),
+				vec2(width * 0.5, 12.0),
+			);
+			bar(
+				painter,
+				fill,
+				text + vec2(0.0, name + 4.0 + (username - 10.0) * 0.5),
+				vec2(width * 0.35, 10.0),
+			);
+		},
+	);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -571,12 +739,7 @@ fn preview(
 	let (demo, guilds) = media;
 	let colors = design::palette(ui);
 	let mut action = None;
-	ui.label(design::eyebrow(
-		ui,
-		crate::i18n::translate("profile-edit-preview-preview"),
-		colors.muted,
-	));
-	ui.add_space(4.0);
+	preview_heading(ui);
 	// Paint with the profile's own colors, as other people see the card, not the app theme.
 	let theme = crate::profiles::Theme::new(&colors, profile.theme_colors);
 	let rgb = |c: u32| egui::Color32::from_rgb((c >> 16) as u8, (c >> 8) as u8, c as u8);
@@ -587,14 +750,11 @@ fn preview(
 		ui.set_width(ui.available_width());
 		ui.spacing_mut().item_spacing.y = 0.0;
 		{
-			let (banner, _) = ui
-				.allocate_exact_size(egui::vec2(ui.available_width(), 90.0), egui::Sense::hover());
-			let corner = egui::CornerRadius {
-				nw: 12,
-				ne: 12,
-				sw: 0,
-				se: 0,
-			};
+			let (banner, _) = ui.allocate_exact_size(
+				egui::vec2(ui.available_width(), BANNER),
+				egui::Sense::hover(),
+			);
+			let corner = BANNER_CORNERS;
 			if profile.banner.is_some() {
 				// The banner image covers its color, so the saved profile paints it as is.
 				avatars.paint_banner(ui, profile, banner, corner, demo);
@@ -607,11 +767,11 @@ fn preview(
 				ui.painter().rect_filled(banner, corner, color);
 			}
 			let avatar = egui::Rect::from_min_size(
-				banner.left_bottom() + egui::vec2(16.0, -40.0),
-				egui::Vec2::splat(80.0),
+				banner.left_bottom() + egui::vec2(16.0, -AVATAR * 0.5),
+				egui::Vec2::splat(AVATAR),
 			);
 			ui.painter()
-				.circle_filled(avatar.center(), 46.0, theme.card);
+				.circle_filled(avatar.center(), AVATAR_RING, theme.card);
 			let response =
 				ui.scope_builder(
 					egui::UiBuilder::new().max_rect(avatar),
@@ -669,7 +829,7 @@ fn preview(
 						.inner_margin(12)
 						.show(ui, |ui| {
 							ui.set_width(ui.available_width());
-							ui.set_min_height(138.0);
+							ui.set_min_height(PANEL_MIN_HEIGHT);
 							ui.spacing_mut().item_spacing.y = 4.0;
 							let name = if draft.name.is_empty() {
 								&profile.username
