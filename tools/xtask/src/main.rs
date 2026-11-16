@@ -220,7 +220,9 @@ fn package_windows(root: &std::path::Path) -> Result<(), String> {
 	if let Some(makensis) = makensis {
 		let installer_dir = PathBuf::from("dist-installer");
 		std::fs::create_dir_all(&installer_dir).map_err(|e| e.to_string())?;
-		let version = env!("CARGO_PKG_VERSION");
+		// The release workflow exports VERSION (1.0.<run_number>) and stamps the
+		// app package with it; a plain local build keeps the crate version.
+		let version = std::env::var("VERSION").unwrap_or_else(|_| env!("CARGO_PKG_VERSION").to_string());
 		let status = Command::new(makensis)
 			.args([
 				"-NOCD",

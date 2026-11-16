@@ -9,6 +9,12 @@ permissions:
   contents: write
   actions: write
 
+# The upstream merge, the zapret refresh and their pushes all target main; run
+# them one at a time so a push can never race another workflow's push.
+concurrency:
+  group: main-writer
+  cancel-in-progress: false
+
 jobs:
   refresh:
     runs-on: windows-latest
@@ -44,17 +50,26 @@ jobs:
           Copy-Item "$env:ZAPRET_DIR\lists\*.txt" "$target\lists" -Force
 
       - name: Commit changes
+        id: commit
         shell: pwsh
         run: |
           git config user.name "serein-fork-bot"
           git config user.email "bot@users.noreply.github.com"
           git add -A
-          git diff --cached --quiet && echo "already current" || git commit -m "chore: refresh zapret bundle"
-          git push
+          if (git diff --cached --quiet) {
+            Write-Host 'zapret bundle already current; nothing to publish'
+            "changed=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+            exit 0
+          }
+          git commit -m "chore(zapret): refresh bundle from Flowseal"
+          "changed=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
       # Pushes made with GITHUB_TOKEN do not start other workflows.
-      - name: Trigger build
+      - name: Push and build
+        if: steps.commit.outputs.changed == 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh workflow run fork-build.yml --ref main
+        run: |
+          git push
+          gh workflow run fork-build.yml --ref main

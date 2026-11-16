@@ -23,6 +23,9 @@ jobs:
       VERSION: 1.0.${{ github.run_number }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The changelog needs the release tags and the commits between them.
+          fetch-depth: 0
 
       - uses: dtolnay/rust-toolchain@1.98.1
         with:
@@ -35,8 +38,9 @@ jobs:
         run: |
           $path = 'apps/desktop/Cargo.toml'
           $text = Get-Content $path -Raw
-          $text = $text -replace '(?m)^version\.workspace = true$', "version = `"$env:VERSION`""
-          [IO.File]::WriteAllText((Resolve-Path $path), $text, (New-Object Text.UTF8Encoding($false)))
+          $stamped = $text -replace 'version\.workspace = true', "version = `"$env:VERSION`""
+          if ($stamped -eq $text) { throw "could not stamp $path with $env:VERSION" }
+          [IO.File]::WriteAllText((Resolve-Path $path), $stamped, (New-Object Text.UTF8Encoding($false)))
 
       - name: Install NSIS
         run: choco install nsis --no-progress -y
@@ -57,6 +61,11 @@ jobs:
             dist/serein-zapret-portable.zip
           if-no-files-found: error
 
+      - name: Generate changelog
+        if: github.ref == 'refs/heads/main'
+        shell: pwsh
+        run: ./tools/release-notes.ps1 -Version $env:VERSION -OutputPath target/release-notes.md
+
       # Runs triggered by GITHUB_TOKEN do not start another workflow, so this
       # cannot loop back into the build.
       - name: Publish release
@@ -65,8 +74,9 @@ jobs:
         with:
           tag_name: v${{ env.VERSION }}
           name: SereinDPI ${{ env.VERSION }}
+          body_path: target/release-notes.md
+          generate_release_notes: false
           make_latest: true
-          generate_release_notes: true
           files: |
             dist-installer/*.exe
             dist/serein-zapret-portable.zip

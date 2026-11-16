@@ -26,7 +26,6 @@ discord-api.workspace = true
 discord-gateway.workspace = true
 discord-protocol.workspace = true
 test-support = { workspace = true, optional = true }
-zapret.workspace = true
 tokio.workspace = true
 tokio-tungstenite.workspace = true
 futures-util.workspace = true
@@ -57,6 +56,9 @@ fontique = { version = "=0.11.1", default-features = false, features = ["system"
 # Serein never installs a `log` logger, so dependency log calls (wgpu, winit, reqwest, ...)
 # are dead code; this feature compiles them out of release builds instead of shipping them.
 log = { version = "=0.4.34", features = ["release_max_level_off"] }
+# Fork-only: DPI bypass. Kept out of the root manifest so upstream dependency
+# bumps never conflict with this line (see tools/fork-sync.py).
+zapret = { path = "../../crates/zapret" }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # Use Adwaita decorations when the Wayland compositor does not provide a frame (GNOME).

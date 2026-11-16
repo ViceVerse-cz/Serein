@@ -2,33 +2,47 @@ name: Sync upstream
 
 on:
   schedule:
-    - cron: '0 4 * * *'
+    - cron: '17 4 * * *'
   workflow_dispatch:
 
 permissions:
   contents: write
   actions: write
 
+# The upstream merge, the zapret refresh and their pushes all target main; run
+# them one at a time so a push can never race another workflow's push.
+concurrency:
+  group: main-writer
+  cancel-in-progress: false
+
 jobs:
   merge:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@1.98.1
+
+      - uses: Swatinem/rust-cache@v2
+
       - name: Merge upstream main
+        id: merge
         run: |
           git config user.name "serein-fork-bot"
           git config user.email "bot@users.noreply.github.com"
           git remote add upstream https://github.com/ViceVerse-cz/Serein.git 2>/dev/null || true
-          git fetch upstream main
-          git merge --no-edit upstream/main
-          git push
+          git fetch --no-tags upstream main
+          python3 tools/fork-sync.py
 
       # Pushes made with GITHUB_TOKEN do not start other workflows.
-      - name: Trigger build
-        shell: bash
+      - name: Push and build
+        if: steps.merge.outputs.changed == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh workflow run fork-build.yml --ref main
+        run: |
+          git push origin HEAD:main
+          gh workflow run fork-build.yml --ref main
