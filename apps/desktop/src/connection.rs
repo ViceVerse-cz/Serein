@@ -634,7 +634,7 @@ impl Connection {
                                     let event=api.execute(command).await;
                                     let failure=match &event {Event::SafetyHub{result:Err(f),..} if f.ends_session() && *f!=Failure::Capacity=>Some(*f),_=>None};
                                     let error=emit(event).err().or(failure);
-                                    if let Some(error)=error {api.stop();let _=finished.send(Some(error));}
+                                    if let Some(error)=error {api.stop_with(error);publish_terminal(&finished,api.stop_reason().unwrap_or(error));}
                                     wake.request_repaint();
                                 })));
                                 continue;

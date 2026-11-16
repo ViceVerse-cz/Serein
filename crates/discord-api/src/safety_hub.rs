@@ -8,7 +8,7 @@ use wreq::Method;
 impl DiscordApi {
 	pub(super) async fn safety_hub(&self) -> Result<Snapshot, Failure> {
 		let bytes = self
-			.request_limited(Method::GET, "/safety-hub/@me", None, safety_hub::MAX_WIRE)
+			.request_once(Method::GET, "/safety-hub/@me", safety_hub::MAX_WIRE)
 			.await?;
 		let snapshot = safety_hub::decode_hub(&bytes).map_err(|_| Failure::Protocol)?;
 		if snapshot.valid() {
@@ -84,6 +84,47 @@ mod tests {
 			);
 			assert_eq!(snapshot.classifications.len(), 1);
 			assert!(!format!("{snapshot:?}").contains("must not be retained"));
+			server.await.unwrap();
+		})
+		.await
+		.unwrap();
+	}
+
+	#[tokio::test]
+	async fn a_short_rate_limit_is_reported_without_a_second_request() {
+		tokio::time::timeout(Duration::from_secs(10), async {
+			let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+			let mut api = DiscordApi::new(Arc::new(
+				SessionSecret::from_owner_input("SYNTHETIC_SAFETY_TOKEN".into()).unwrap(),
+			))
+			.unwrap();
+			api.base = format!("http://{}", listener.local_addr().unwrap());
+			let server = tokio::spawn(async move {
+				let (mut stream, _) = listener.accept().await.unwrap();
+				let mut bytes = Vec::new();
+				while !bytes.windows(4).any(|part| part == b"\r\n\r\n") {
+					let mut chunk = [0; 4096];
+					let n = stream.read(&mut chunk).await.unwrap();
+					assert!(n > 0, "the client stopped after one request");
+					bytes.extend_from_slice(&chunk[..n]);
+				}
+				let body = r#"{"retry_after":0.1,"global":false,"message":"slow down"}"#;
+				stream
+					.write_all(
+						format!(
+							"HTTP/1.1 429 Too Many Requests\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+							body.len()
+						)
+						.as_bytes(),
+					)
+					.await
+					.unwrap();
+				// A retry would arrive here; the test then fails on the second read above.
+				let mut extra = [0; 1];
+				assert_eq!(stream.read(&mut extra).await.unwrap(), 0);
+			});
+			// One click reaches the service once, even though the wait is short enough to resend.
+			assert_eq!(api.safety_hub().await, Err(Failure::RateLimited));
 			server.await.unwrap();
 		})
 		.await

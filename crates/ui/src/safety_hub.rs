@@ -81,9 +81,7 @@ impl MessagingUi {
 					};
 					ui.add(egui::Label::new(design::medium(ui, title, 14.0)).wrap());
 					for action in &classification.actions {
-						if let Some(description) = action.descriptions.first() {
-							design::hint(ui, description);
-						} else {
+						if action.descriptions.is_empty() {
 							design::hint(
 								ui,
 								&i18n::translate_args(
@@ -91,6 +89,11 @@ impl MessagingUi {
 									&[("type", &action.action_type.to_string())],
 								),
 							);
+						} else {
+							// One action can carry several retained restrictions; show them all.
+							for description in &action.descriptions {
+								design::hint(ui, description);
+							}
 						}
 					}
 					if let Some(at) = classification.max_expiration_time
@@ -314,5 +317,39 @@ mod tests {
 				.any(|label| label.contains("Action recorded (type") && label.contains("9999"))
 		);
 		assert!(labels.iter().any(|label| label == "Unavailable"));
+
+		// One action can retain several restrictions; every one of them stays readable.
+		state.safety_hub.snapshot = Some(Snapshot {
+			standing: None,
+			classifications: vec![model::safety_hub::Classification {
+				id: model::Id(79),
+				classification_type: 1,
+				description: "Synthetic multi-restriction".into(),
+				explainer_link: None,
+				actions: vec![model::safety_hub::Action {
+					id: model::Id(80),
+					action_type: 1,
+					descriptions: vec![
+						"Messaging disabled".into(),
+						"Voice disabled".into(),
+						"Joining servers disabled".into(),
+					],
+				}],
+				max_expiration_time: None,
+				appeal_status: None,
+			}],
+			..Default::default()
+		});
+		let labels = render(&mut view, &mut state, vec![]).0;
+		for description in [
+			"Messaging disabled",
+			"Voice disabled",
+			"Joining servers disabled",
+		] {
+			assert!(
+				labels.iter().any(|label| label == description),
+				"every retained description is shown: {description}"
+			);
+		}
 	}
 }
