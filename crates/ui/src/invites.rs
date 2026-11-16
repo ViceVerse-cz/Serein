@@ -229,6 +229,8 @@ pub fn show(
 				),
 				None => {
 					let embed = preview.map(|p| &p.embed);
+					// Nothing to say about the server yet: sketch its name and details instead.
+					let looking_up = preview.is_none() && !failed && !demo && status.is_none();
 					let title = embed.and_then(|e| e.title.clone()).unwrap_or_else(|| {
 						crate::i18n::translate_if_key(if failed {
 							"invites-show-invite-expired-or-invalid"
@@ -256,7 +258,9 @@ pub fn show(
 							color: colors.muted,
 						})
 					});
-					server_card(ui, width, &title, preview, status, images, demo, &button)
+					server_card(
+						ui, width, &title, preview, status, images, demo, &button, looking_up,
+					)
 				}
 			};
 			if clicked {
@@ -293,6 +297,7 @@ fn server_card(
 	images: &mut Avatars,
 	demo: bool,
 	button: &Button,
+	looking_up: bool,
 ) -> bool {
 	let colors = crate::design::palette(ui);
 	let detail = colors.text.lerp_to_gamma(colors.muted, 0.4);
@@ -348,6 +353,9 @@ fn server_card(
 					};
 					images.paint_guild(ui, &guild, icon, demo, 18);
 				}
+				_ if looking_up => {
+					crate::skeleton::block(ui.painter(), crate::skeleton::fill(ui), icon, 18.0);
+				}
 				_ => {
 					ui.painter().rect_filled(icon, 18, colors.sidebar);
 					let initial = title
@@ -375,67 +383,73 @@ fn server_card(
 				.show(ui, |ui| {
 					ui.set_width(width - 2.0 * PAD);
 					ui.spacing_mut().item_spacing.y = 2.0;
-					ui.add(
-						egui::Label::new(
-							crate::design::semibold(ui, title, 16.0).color(colors.text_strong),
-						)
-						.truncate()
-						.selectable(false),
-					);
-					ui.add_space(2.0);
-					match status {
-						Some(status) => {
-							ui.add(
-								egui::Label::new(
-									egui::RichText::new(&status.text)
-										.size(13.0)
-										.color(status.color),
-								)
-								.truncate()
-								.selectable(false),
+					if looking_up {
+						pending_details(ui);
+					} else {
+						ui.add(
+							egui::Label::new(
+								crate::design::semibold(ui, title, 16.0).color(colors.text_strong),
 							)
-							.on_hover_text(&status.text);
-						}
-						None => {
-							if let Some((online, members)) = embed
-								.and_then(|e| e.description.as_deref())
-								.and_then(counts)
-							{
-								ui.horizontal(|ui| {
-									ui.spacing_mut().item_spacing.x = 5.0;
-									stat(
-										ui,
-										colors.positive,
-										online,
-										"server-settings-preview-online",
-										detail,
+							.truncate()
+							.selectable(false),
+						);
+						ui.add_space(2.0);
+						match status {
+							Some(status) => {
+								ui.add(
+									egui::Label::new(
+										egui::RichText::new(&status.text)
+											.size(13.0)
+											.color(status.color),
+									)
+									.truncate()
+									.selectable(false),
+								)
+								.on_hover_text(&status.text);
+							}
+							None => {
+								if let Some((online, members)) = embed
+									.and_then(|e| e.description.as_deref())
+									.and_then(counts)
+								{
+									ui.horizontal(|ui| {
+										ui.spacing_mut().item_spacing.x = 5.0;
+										stat(
+											ui,
+											colors.positive,
+											online,
+											"server-settings-preview-online",
+											detail,
+										);
+										ui.add_space(8.0);
+										stat(
+											ui,
+											detail,
+											members,
+											"server-settings-preview-members",
+											detail,
+										);
+									});
+								}
+								if let Some(established) =
+									preview.and_then(|p| p.guild).and_then(established)
+								{
+									ui.label(
+										egui::RichText::new(established).size(13.0).color(detail),
 									);
+								}
+								if let Some(about) = preview.and_then(|p| p.about.as_deref()) {
 									ui.add_space(8.0);
-									stat(
-										ui,
+									let mut job = egui::text::LayoutJob::simple(
+										about.to_owned(),
+										egui::FontId::proportional(13.0),
 										detail,
-										members,
-										"server-settings-preview-members",
-										detail,
+										width - 2.0 * PAD,
 									);
-								});
-							}
-							if let Some(established) =
-								preview.and_then(|p| p.guild).and_then(established)
-							{
-								ui.label(egui::RichText::new(established).size(13.0).color(detail));
-							}
-							if let Some(about) = preview.and_then(|p| p.about.as_deref()) {
-								ui.add_space(8.0);
-								let mut job = egui::text::LayoutJob::simple(
-									about.to_owned(),
-									egui::FontId::proportional(13.0),
-									detail,
-									width - 2.0 * PAD,
-								);
-								job.wrap.max_rows = 3;
-								job.wrap.overflow_character = Some('…');
-								ui.add(egui::Label::new(job).selectable(false));
+									job.wrap.max_rows = 3;
+									job.wrap.overflow_character = Some('…');
+									ui.add(egui::Label::new(job).selectable(false));
+								}
 							}
 						}
 					}
@@ -444,6 +458,46 @@ fn server_card(
 				});
 		});
 	clicked
+}
+
+/// The name and counts of a server card whose invite is still being looked up. The founding date
+/// and description are optional, so they are left out.
+fn pending_details(ui: &mut egui::Ui) {
+	let spacing = ui.spacing().item_spacing.y;
+	let (title, detail) = ui.fonts_mut(|fonts| {
+		(
+			fonts
+				.row_height(&egui::FontId::new(
+					16.0,
+					crate::design::semibold_family(ui.ctx()),
+				))
+				.round(),
+			fonts.row_height(&egui::FontId::proportional(13.0)).round(),
+		)
+	});
+	// Title, a 2px gap and the counts row (a horizontal row, one control tall).
+	let counts = ui.spacing().interact_size.y.max(detail);
+	// (top, row height, bar height, width share)
+	let rows = [
+		(0.0, title, 12.0, 0.6),
+		(title + spacing + 2.0, counts, 10.0, 0.7),
+	];
+	let height = rows[1].0 + counts;
+	crate::skeleton::custom(
+		ui,
+		&crate::i18n::translate("invites-show-fetching-server-details"),
+		egui::vec2(ui.available_width(), height),
+		|painter, rect, fill| {
+			for (top, row, bar, share) in rows {
+				crate::skeleton::bar(
+					painter,
+					fill,
+					egui::pos2(rect.left(), rect.top() + top + (row - bar) * 0.5),
+					egui::vec2(rect.width() * share, bar),
+				);
+			}
+		},
+	);
 }
 
 /// One count beside its coloured dot, at the card's detail size.

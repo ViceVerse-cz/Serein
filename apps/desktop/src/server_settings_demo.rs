@@ -679,6 +679,8 @@ pub fn open(state: &mut State, messaging: &mut ui::MessagingUi) {
 		generation: state.generation,
 		event: Event::Permissions(client_core::permissions::Event::Snapshot(permissions)),
 	});
+	// `--demo-loading` sends the same loads and leaves them unanswered.
+	let loading = crate::demo_loading();
 	if let Some(page) =
 		std::env::args().find_map(|arg| arg.strip_prefix("--demo-server-page=").map(str::to_owned))
 	{
@@ -687,6 +689,7 @@ pub fn open(state: &mut State, messaging: &mut ui::MessagingUi) {
 			request,
 			action,
 		}) = messaging.preview_server_admin(state, guild, &page)
+			&& !loading
 		{
 			let event = execute_admin(state, guild, request, *action);
 			state.apply(Envelope {
@@ -701,6 +704,7 @@ pub fn open(state: &mut State, messaging: &mut ui::MessagingUi) {
 		request,
 		edit,
 	}) = state.load_server_settings(guild)
+		&& !loading
 	{
 		let event = execute(state, guild, request, edit);
 		state.apply(Envelope {
@@ -713,6 +717,7 @@ pub fn open(state: &mut State, messaging: &mut ui::MessagingUi) {
 		request,
 		edit,
 	}) = messaging.preview_server_settings(state, guild)
+		&& !loading
 	{
 		let event = execute(state, guild, request, edit);
 		state.apply(Envelope {

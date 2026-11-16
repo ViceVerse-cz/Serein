@@ -251,7 +251,18 @@ impl IntegrationsUi {
 				"server-integrations-show-reload-integrations-before-making-more-changes-your-draft-will-be",
 			));
 		}
-		if state.server_admin.pending {
+		let loaded = state
+			.server_admin
+			.integrations
+			.as_ref()
+			.is_some_and(|snapshot| snapshot.guild == guild && snapshot.channel == self.channel);
+		// The overview's first load is sketched in place; saves and reloads keep this line, as
+		// does an overview with neither webhooks nor apps to sketch.
+		let first_load = crate::server_admin::first_load(state, loaded)
+			&& self.page == Page::Overview
+			&& (self.can_manage_webhooks(state, guild)
+				|| self.channel.is_none() && state.can_manage_guild(guild));
+		if state.server_admin.pending && !first_load {
 			ui.horizontal(|ui| {
 				ui.spinner();
 				ui.weak(crate::i18n::translate_if_key(
@@ -279,6 +290,8 @@ impl IntegrationsUi {
 				Page::App(id) => self.app(ui, state, guild, snapshot, id, avatars),
 				Page::Editor => {}
 			}
+		} else if first_load {
+			self.pending_overview(ui, state, guild);
 		}
 		if self.page != previous_page {
 			state.clear_webhook_url();
@@ -326,14 +339,7 @@ impl IntegrationsUi {
 		snapshot: &Snapshot,
 		avatars: &mut Avatars,
 	) {
-		ui.add_space(-12.0);
-		ui.hyperlink_to(
-			crate::i18n::translate(
-				"server-integrations-overview-learn-more-about-managing-integrations",
-			),
-			HELP,
-		);
-		ui.add_space(20.0);
+		help_link(ui);
 		if self.can_manage_webhooks(state, guild)
 			&& let Some(webhooks) = &snapshot.webhooks
 		{
@@ -397,21 +403,19 @@ impl IntegrationsUi {
 				.id_salt("integration-apps")
 				.max_height(height)
 				.auto_shrink([false, true])
-				.show_rows(ui, 112.0, integrations.len(), |ui, range| {
+				.show_rows(ui, APP_SLOT, integrations.len(), |ui, range| {
 					for integration in &integrations[range] {
 						let width = ui.available_width();
-						let (rect, _) =
-							ui.allocate_exact_size(Vec2::new(width, 112.0), egui::Sense::hover());
-						ui.painter().rect_filled(
-							rect.shrink2(Vec2::new(0.0, 6.0)),
-							8,
-							design::palette(ui).raised,
-						);
+						let (rect, _) = ui
+							.allocate_exact_size(Vec2::new(width, APP_SLOT), egui::Sense::hover());
+						let (card, content) = app_slot(rect);
+						ui.painter()
+							.rect_filled(card, 8, design::palette(ui).raised);
 						card_contents(
 							ui,
 							egui::UiBuilder::new()
 								.id_salt(("integration-app", integration.id))
-								.max_rect(rect.shrink2(Vec2::new(16.0, 18.0))),
+								.max_rect(content),
 							|ui| {
 								ui.horizontal(|ui| {
 									app_avatar(ui, integration, avatars, state.demo);
@@ -485,6 +489,22 @@ impl IntegrationsUi {
 						);
 					}
 				});
+		}
+	}
+	/// The overview while it first loads: the help link, then the webhook and followed-channel
+	/// cards and the app cards wherever the loaded overview will show them. At least one of the
+	/// two groups applies.
+	fn pending_overview(&self, ui: &mut egui::Ui, state: &State, guild: Id) {
+		let mut label = crate::i18n::translate("server-integrations-show-loading-integrations");
+		if self.can_manage_webhooks(state, guild) {
+			pending_summary(ui, &std::mem::take(&mut label));
+			ui.add_space(24.0);
+		} else {
+			help_link(ui);
+		}
+		if self.channel.is_none() && state.can_manage_guild(guild) {
+			design::section(ui, "server-integrations-overview-bots-and-apps", None);
+			pending_apps(ui, &std::mem::take(&mut label));
 		}
 	}
 	fn webhooks(
@@ -1014,6 +1034,147 @@ fn primary(ui: &mut egui::Ui, text: &str, enabled: bool) -> egui::Response {
 	})
 	.inner
 }
+/// Height of a webhook or followed-channel summary card.
+const SUMMARY_CARD: f32 = 88.0;
+/// Height of one app card's slot in the virtualized app list.
+const APP_SLOT: f32 = 112.0;
+
+/// A summary card's icon and text areas.
+fn summary_layout(rect: egui::Rect) -> (egui::Rect, egui::Rect) {
+	(
+		egui::Rect::from_center_size(
+			egui::pos2(rect.left() + 36.0, rect.center().y),
+			Vec2::splat(26.0),
+		),
+		egui::Rect::from_min_max(
+			rect.min + Vec2::new(72.0, 22.0),
+			rect.max - Vec2::new(40.0, 12.0),
+		),
+	)
+}
+
+/// An app slot's raised card and the content area inside it.
+fn app_slot(rect: egui::Rect) -> (egui::Rect, egui::Rect) {
+	(
+		rect.shrink2(Vec2::new(0.0, 6.0)),
+		rect.shrink2(Vec2::new(16.0, 18.0)),
+	)
+}
+
+/// The overview's help link and its webhook and followed-channel cards while they load, as
+/// the channel settings' integrations page also shows them before the channel loads.
+pub(crate) fn pending_summary(ui: &mut egui::Ui, label: &str) {
+	use crate::skeleton::{bar, block, width_factor};
+	help_link(ui);
+	let spacing = ui.spacing().item_spacing.y;
+	let (name, count) = ui.fonts_mut(|fonts| {
+		(
+			fonts.row_height(&egui::FontId::new(15.0, design::medium_family(ui.ctx()))),
+			fonts.row_height(&egui::FontId::proportional(12.0)),
+		)
+	});
+	// The two cards sit 8px plus one item spacing apart.
+	let pitch = SUMMARY_CARD + 8.0 + spacing;
+	crate::skeleton::custom(
+		ui,
+		label,
+		Vec2::new(ui.available_width(), pitch + SUMMARY_CARD),
+		|painter, rect, fill| {
+			for index in 0..2 {
+				let card = egui::Rect::from_min_size(
+					rect.min + Vec2::new(0.0, index as f32 * pitch),
+					Vec2::new(rect.width(), SUMMARY_CARD),
+				);
+				crate::skeleton::outline(painter, fill, card, 8.0);
+				let (glyph, text) = summary_layout(card);
+				block(painter, fill, glyph, 6.0);
+				bar(
+					painter,
+					fill,
+					text.min + Vec2::new(0.0, (name - 12.0) * 0.5),
+					Vec2::new(96.0 + 32.0 * width_factor(index), 12.0),
+				);
+				bar(
+					painter,
+					fill,
+					text.min + Vec2::new(0.0, name + spacing + (count - 10.0) * 0.5),
+					Vec2::new(72.0, 10.0),
+				);
+			}
+		},
+	);
+}
+
+/// The overview's help link, pulled up under the page header.
+fn help_link(ui: &mut egui::Ui) {
+	ui.add_space(-12.0);
+	ui.hyperlink_to(
+		crate::i18n::translate(
+			"server-integrations-overview-learn-more-about-managing-integrations",
+		),
+		HELP,
+	);
+	ui.add_space(20.0);
+}
+/// App cards while the list loads, as many as the list's height shows: the card, the app's
+/// avatar, its name, its service chip and the Manage button. The added-by line depends on the
+/// app, so the chip sits where cards without it put it.
+fn pending_apps(ui: &mut egui::Ui, label: &str) {
+	use crate::skeleton::{bar, circle, control, outline, width_factor};
+	let spacing = ui.spacing();
+	let (gap, padding) = (spacing.item_spacing, spacing.button_padding.y);
+	let (name, chip) = ui.fonts_mut(|fonts| {
+		(
+			fonts.row_height(&egui::FontId::new(15.0, design::medium_family(ui.ctx()))),
+			fonts.row_height(&egui::FontId::proportional(12.0)),
+		)
+	});
+	let chip = chip + 2.0 * padding;
+	// The list spaces its slots by the item spacing too.
+	let pitch = APP_SLOT + gap.y;
+	let height = design::list_height(ui, 0.0);
+	let count = crate::skeleton::fitting_count(height, pitch, gap.y);
+	crate::skeleton::custom(
+		ui,
+		label,
+		Vec2::new(ui.available_width(), count as f32 * pitch - gap.y),
+		|painter, rect, fill| {
+			for index in 0..count {
+				let slot = egui::Rect::from_min_size(
+					rect.min + Vec2::new(0.0, index as f32 * pitch),
+					Vec2::new(rect.width(), APP_SLOT),
+				);
+				let (card, content) = app_slot(slot);
+				outline(painter, fill, card, 8.0);
+				circle(painter, fill, content.min + Vec2::splat(22.0), 22.0);
+				let text = content.left() + 44.0 + gap.x;
+				// The text block leaves 94px of the row for the Manage button.
+				let text_width = (content.right() - text - 94.0).max(48.0);
+				bar(
+					painter,
+					fill,
+					egui::pos2(text, content.top() + (name - 12.0) * 0.5),
+					Vec2::new(80.0 + 48.0 * width_factor(index), 12.0),
+				);
+				control(
+					painter,
+					fill,
+					egui::Rect::from_min_size(
+						egui::pos2(text, content.top() + name + gap.y),
+						Vec2::new(44.0, chip),
+					),
+					3.0,
+				);
+				bar(
+					painter,
+					fill,
+					egui::pos2(text + text_width + gap.x, content.top() + 33.0),
+					Vec2::new(64.0, 10.0),
+				);
+			}
+		},
+	);
+}
 fn app_avatar(ui: &mut egui::Ui, integration: &Integration, avatars: &mut Avatars, demo: bool) {
 	if let Some(bot) = integration
 		.application
@@ -1043,24 +1204,15 @@ fn card_contents(
 }
 fn summary_card(ui: &mut egui::Ui, glyph: icons::Icon, name: &str, subtitle: &str) -> bool {
 	let colors = design::palette(ui);
-	let (rect, response) =
-		ui.allocate_exact_size(Vec2::new(ui.available_width(), 88.0), egui::Sense::click());
+	let (rect, response) = ui.allocate_exact_size(
+		Vec2::new(ui.available_width(), SUMMARY_CARD),
+		egui::Sense::click(),
+	);
 	let frame = design::interactive_card_frame(ui, &response);
 	ui.painter().add(frame.paint(rect));
 	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), name));
-	icons::paint(
-		ui.painter(),
-		glyph,
-		egui::Rect::from_center_size(
-			egui::pos2(rect.left() + 36.0, rect.center().y),
-			Vec2::splat(26.0),
-		),
-		colors.muted,
-	);
-	let text_rect = egui::Rect::from_min_max(
-		rect.min + Vec2::new(72.0, 22.0),
-		rect.max - Vec2::new(40.0, 12.0),
-	);
+	let (glyph_rect, text_rect) = summary_layout(rect);
+	icons::paint(ui.painter(), glyph, glyph_rect, colors.muted);
 	card_contents(
 		ui,
 		egui::UiBuilder::new()
