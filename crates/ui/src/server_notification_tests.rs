@@ -160,6 +160,14 @@ impl Harness {
 			.open_notifications(&mut self.state, Id(10));
 		self.settle();
 	}
+	fn open_menu(&mut self) {
+		if self.rail {
+			self.settle();
+			self.click_at(egui::pos2(24.0, 24.0), egui::PointerButton::Secondary);
+		} else {
+			self.click("Synthetic server");
+		}
+	}
 
 	fn write(&mut self) -> Box<client_core::preferences_sync::Request> {
 		self.state.flush_channel_preferences();
@@ -355,6 +363,181 @@ fn ordinary_member_can_choose_a_timed_mute_without_changing_other_fields() {
 		assert_eq!(request.patch.fields.level, Patch::Absent);
 		assert_eq!(request.patch.fields.suppress_everyone, Patch::Absent);
 		assert!(!h.state.can_manage_guild(Id(10)));
+	}
+}
+
+#[test]
+fn quick_server_mute_requires_a_known_baseline_and_offers_an_explicit_refresh() {
+	for rail in [false, true] {
+		for partial in [false, true] {
+			let mut h = Harness::new(800.0, 1000.0, false);
+			h.rail = rail;
+			h.state.demo = false;
+			h.state.auth = client_core::auth::AuthState::Authenticated;
+			h.state.gateway_connected = true;
+			h.state.notification_preferences = Default::default();
+			if partial {
+				h.state
+					.apply_notification_preferences(client_core::notifications::Event::Settings {
+						entries: vec![client_core::notifications::Setting {
+							guild: Some(Id(10)),
+							level: Some(3),
+							..Default::default()
+						}],
+						replace: false,
+					})
+					.unwrap();
+			}
+			assert!(h.state.can_update_server_notifications(Id(10)));
+			assert_eq!(h.state.server_notification_settings(Id(10)).muted, None);
+			h.open_menu();
+			h.click("Mute Server");
+			assert!(
+				!h.settle()
+					.iter()
+					.any(|(label, _)| label == "For 15 Minutes"),
+				"unloaded preferences must not offer an action the queue rejects"
+			);
+			assert!(h.commands.is_empty());
+			assert!(
+				h.state
+					.poll_channel_preferences(std::time::Instant::now())
+					.is_none()
+			);
+			h.open_menu();
+			h.click("Refresh");
+			let [Command::ChannelPreferences(refresh)] = h.commands.as_slice() else {
+				panic!("one explicit preference refresh")
+			};
+			assert_eq!(refresh.guild, Id(10));
+			assert_eq!(refresh.patch, model::guild_preferences::Write::default());
+		}
+	}
+}
+
+#[test]
+fn quick_server_mute_queues_a_sparse_save_for_an_ordinary_member() {
+	for rail in [false, true] {
+		for partial in [false, true] {
+			let mut h = Harness::new(800.0, 1000.0, false);
+			h.rail = rail;
+			if partial {
+				h.state.notification_preferences = Default::default();
+				h.state
+					.apply_notification_preferences(client_core::notifications::Event::Settings {
+						entries: vec![client_core::notifications::Setting {
+							guild: Some(Id(10)),
+							muted: Some(false),
+							..Default::default()
+						}],
+						replace: false,
+					})
+					.unwrap();
+			}
+			h.open_menu();
+			h.click("Mute Server");
+			h.click("For 15 Minutes");
+			assert!(h.commands.is_empty());
+			assert_eq!(
+				h.state.server_notification_settings(Id(10)).muted,
+				Some(true)
+			);
+			let request = h.write();
+			assert_eq!(request.patch.fields.muted, Patch::Value(true));
+			assert!(matches!(request.patch.fields.mute_until, Patch::Value(_)));
+			assert_eq!(request.patch.fields.flags, Patch::Absent);
+			assert_eq!(request.patch.fields.level, Patch::Absent);
+			assert_eq!(request.patch.fields.suppress_everyone, Patch::Absent);
+			assert_eq!(request.patch.fields.suppress_roles, Patch::Absent);
+			assert!(request.patch.channels.is_empty());
+			assert!(!h.state.can_manage_guild(Id(10)));
+		}
+	}
+}
+
+#[test]
+fn quick_server_mute_keeps_refresh_loading_and_failure_visible() {
+	let mut h = Harness::new(800.0, 1000.0, false);
+	h.state.demo = false;
+	h.state.auth = client_core::auth::AuthState::Authenticated;
+	h.state.gateway_connected = true;
+	h.state.notification_preferences = Default::default();
+	h.open_menu();
+	h.click("Refresh");
+	let [Command::ChannelPreferences(refresh)] = h.commands.as_slice() else {
+		panic!("one explicit refresh")
+	};
+	let refresh = refresh.clone();
+	h.commands.clear();
+	h.open_menu();
+	assert!(h.settle().iter().any(|(label, _)| label == "Loading…"));
+	h.click("Refresh");
+	assert!(
+		h.commands.is_empty(),
+		"an active refresh cannot be duplicated"
+	);
+	h.state.apply(Envelope {
+		generation: h.state.generation,
+		event: Event::ChannelPreferences(client_core::preferences_sync::Finished {
+			generation: refresh.generation,
+			guild: refresh.guild,
+			request: refresh.request,
+			result: Err(client_core::auth::Failure::Network),
+		}),
+	});
+	h.open_menu();
+	assert!(h.settle().iter().any(|(label, _)| label == "Not confirmed"));
+	h.click("Mute Server");
+	assert!(
+		!h.settle()
+			.iter()
+			.any(|(label, _)| label == "For 15 Minutes")
+	);
+	h.open_menu();
+	h.click("Refresh");
+	assert!(matches!(
+		h.commands.as_slice(),
+		[Command::ChannelPreferences(_)]
+	));
+}
+
+#[test]
+fn quick_server_mute_rechecks_connection_and_account_before_the_click_finishes() {
+	for logout in [false, true] {
+		let mut h = Harness::new(800.0, 1000.0, false);
+		h.state.demo = false;
+		h.state.auth = client_core::auth::AuthState::Authenticated;
+		h.state.gateway_connected = true;
+		h.open_menu();
+		h.click("Mute Server");
+		let point = h.point("For 15 Minutes");
+		h.frame(vec![
+			egui::Event::PointerMoved(point),
+			egui::Event::PointerButton {
+				pos: point,
+				button: egui::PointerButton::Primary,
+				pressed: true,
+				modifiers: egui::Modifiers::NONE,
+			},
+		]);
+		if logout {
+			h.state.logout();
+		} else {
+			h.state.gateway_connected = false;
+		}
+		h.frame(vec![egui::Event::PointerButton {
+			pos: point,
+			button: egui::PointerButton::Primary,
+			pressed: false,
+			modifiers: egui::Modifiers::NONE,
+		}]);
+		assert!(h.commands.is_empty());
+		h.state.gateway_connected = true;
+		assert!(
+			h.state
+				.poll_channel_preferences(std::time::Instant::now())
+				.is_none()
+		);
 	}
 }
 

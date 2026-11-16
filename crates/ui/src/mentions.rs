@@ -66,6 +66,7 @@ enum Candidate {
 	Channel {
 		id: Id,
 		name: String,
+		known: bool,
 	},
 	Unicode {
 		text: &'static str,
@@ -592,6 +593,34 @@ pub fn insert(draft: &mut String, pick: Pick, editing: bool) -> Option<usize> {
 	draft.replace_range(pick.range, &token);
 	Some(cursor)
 }
+
+pub fn insert_checked(
+	state: &State,
+	channel: Id,
+	draft: &mut String,
+	pick: Pick,
+	editing: bool,
+) -> Option<usize> {
+	if let Candidate::Channel { id, known, .. } = &pick.candidate {
+		let guild = state.channel(channel)?.guild?;
+		if !state.can_view(channel)
+			|| !state.channel(*id).map_or(!*known, |target| {
+				channel_mention_readable(state, target, Some(guild))
+			}) {
+			return None;
+		}
+	}
+	insert(draft, pick, editing)
+}
+
+fn channel_mention_readable(state: &State, channel: &model::Channel, guild: Option<Id>) -> bool {
+	guild.is_some()
+		&& channel.guild == guild
+		&& matches!(channel.kind, 0 | 5 | 10..=12 | 15 | 16)
+		&& state.can_view(channel.id)
+		&& state.can_read_history(channel.id)
+}
+
 /// Rank a name against the typed query: prefix hits first, then substrings, then snowflakes.
 fn rank(query: &str, name: &str, id: Id) -> Option<u8> {
 	if query.is_empty() {
@@ -835,11 +864,7 @@ impl Menu {
 			Kind::Channel => state
 				.channels
 				.iter()
-				.filter(|c| {
-					guild.is_some()
-						&& c.guild == guild
-						&& matches!(c.kind, 0 | 5 | 10..=12 | 15 | 16)
-				})
+				.filter(|c| channel_mention_readable(state, c, guild))
 				.filter_map(|c| {
 					rank(&query, &c.name, c.id).map(|r| {
 						(
@@ -847,6 +872,7 @@ impl Menu {
 							Candidate::Channel {
 								id: c.id,
 								name: c.name.chars().take(120).collect(),
+								known: true,
 							},
 						)
 					})
@@ -910,6 +936,7 @@ impl Menu {
 				Candidate::Channel {
 					id,
 					name: format!("Unknown channel ({id})"),
+					known: false,
 				},
 			));
 		}
@@ -2802,18 +2829,23 @@ mod tests {
 								tertiary_color: None,
 								position: 0,
 								hoist: false,
-								bits: p::VIEW_CHANNEL | p::SEND_MESSAGES | p::MENTION_EVERYONE,
+								bits: p::VIEW_CHANNEL
+									| p::READ_MESSAGE_HISTORY | p::SEND_MESSAGES
+									| p::MENTION_EVERYONE,
 							}]),
 							member: Some(p::Member {
 								roles: vec![],
 								timeout_until: None,
 							}),
 						}],
-						channels: vec![p::Channel {
-							id: Id(1),
-							guild,
-							overwrites: Some(vec![]),
-						}],
+						channels: [Id(1), Id(42)]
+							.into_iter()
+							.map(|id| p::Channel {
+								id,
+								guild,
+								overwrites: Some(vec![]),
+							})
+							.collect(),
 					})
 					.unwrap();
 			}
@@ -2961,6 +2993,173 @@ mod tests {
 			icon: None,
 		}
 	}
+	fn channel_mention_state() -> State {
+		let mut state = test_support::demo_state();
+		state
+			.channels
+			.push(channel(1000, Some(Id(10)), 0, "Reference target"));
+		state
+			.permissions
+			.replace(test_support::permission_snapshot(&state))
+			.unwrap();
+		state
+	}
+
+	fn deny_channel_mention_permission(state: &mut State, bits: u128) {
+		let mut permissions = test_support::permission_snapshot(state);
+		permissions
+			.channels
+			.iter_mut()
+			.find(|channel| channel.id == Id(1000))
+			.unwrap()
+			.overwrites = Some(vec![model::permissions::Overwrite {
+			id: Id(10),
+			kind: 0,
+			allow: 0,
+			deny: bits,
+		}]);
+		state.permissions.replace(permissions).unwrap();
+	}
+
+	#[test]
+	fn channel_mention_suggestions_require_view_and_history_access() {
+		for denied in [
+			model::permissions::VIEW_CHANNEL,
+			model::permissions::READ_MESSAGE_HISTORY,
+		] {
+			let mut state = channel_mention_state();
+			deny_channel_mention_permission(&mut state, denied);
+			let mut menu = Menu::default();
+			for draft in ["#Reference", "#1000"] {
+				menu.refresh(&state, Id(20), draft, Some(draft.chars().count()), &[]);
+				assert!(
+					menu.candidates.is_empty(),
+					"denied channel appeared for {draft}"
+				);
+			}
+		}
+	}
+
+	#[test]
+	fn channel_mention_suggestions_keep_personally_hidden_and_muted_readable_channels() {
+		let mut state = channel_mention_state();
+		state
+			.apply_notification_preferences(client_core::notifications::Event::Settings {
+				entries: vec![client_core::notifications::Setting {
+					guild: Some(Id(10)),
+					flags: Some(model::channel_visibility::OPT_IN_CHANNELS_ON),
+					channel_flags: vec![(Id(1000), Some(0), Some(false))],
+					overrides_known: true,
+					muted: Some(false),
+					channels: vec![(Id(1000), Some(true), Some(3))],
+					..Default::default()
+				}],
+				replace: true,
+			})
+			.unwrap();
+		assert!(!state.channel_personally_selected(Id(1000)));
+		assert_eq!(state.guild_channel_effectively_muted(Id(1000)), Some(true));
+		assert!(state.can_view(Id(1000)) && state.can_read_history(Id(1000)));
+		let mut menu = Menu::default();
+		menu.refresh(&state, Id(20), "#Reference", Some(10), &[]);
+		assert_eq!(
+			menu.candidates
+				.iter()
+				.map(Candidate::id)
+				.collect::<Vec<_>>(),
+			[Id(1000)]
+		);
+		let mut draft = "#Reference".into();
+		assert!(insert_checked(&state, Id(20), &mut draft, menu.pick(0).unwrap(), true).is_some());
+		assert_eq!(draft, "<#1000> ");
+	}
+
+	#[test]
+	fn channel_mention_suggestions_refresh_after_permission_changes() {
+		for denied in [
+			model::permissions::VIEW_CHANNEL,
+			model::permissions::READ_MESSAGE_HISTORY,
+		] {
+			let mut state = channel_mention_state();
+			let mut menu = Menu::default();
+			menu.refresh(&state, Id(20), "#Reference", Some(10), &[]);
+			assert_eq!(menu.candidates[0].id(), Id(1000));
+			deny_channel_mention_permission(&mut state, denied);
+			menu.refresh(&state, Id(20), "#Reference", Some(10), &[]);
+			assert!(menu.candidates.is_empty());
+		}
+	}
+
+	#[test]
+	fn channel_mention_insertion_rechecks_permission_changes() {
+		for denied in [
+			model::permissions::VIEW_CHANNEL,
+			model::permissions::READ_MESSAGE_HISTORY,
+		] {
+			let mut state = channel_mention_state();
+			let mut menu = Menu::default();
+			menu.refresh(&state, Id(20), "#Reference", Some(10), &[]);
+			let pick = menu.pick(0).unwrap();
+			deny_channel_mention_permission(&mut state, denied);
+			let mut draft = "#Reference".into();
+			assert!(insert_checked(&state, Id(20), &mut draft, pick, true).is_none());
+			assert_eq!(draft, "#Reference");
+		}
+	}
+
+	#[test]
+	fn channel_mention_insertion_rejects_removed_known_metadata() {
+		let mut state = channel_mention_state();
+		let mut menu = Menu::default();
+		menu.refresh(&state, Id(20), "#Reference", Some(10), &[]);
+		let pick = menu.pick(0).unwrap();
+		state.channels.retain(|channel| channel.id != Id(1000));
+		let mut draft = "#Reference".into();
+		assert!(insert_checked(&state, Id(20), &mut draft, pick, true).is_none());
+		assert_eq!(draft, "#Reference");
+	}
+
+	#[test]
+	fn channel_mention_insertion_rechecks_target_scope_and_kind() {
+		for (guild, kind) in [(Some(Id(11)), 0), (Some(Id(10)), 2)] {
+			let mut state = channel_mention_state();
+			let mut menu = Menu::default();
+			menu.refresh(&state, Id(20), "#Reference", Some(10), &[]);
+			let pick = menu.pick(0).unwrap();
+			let target = state
+				.channels
+				.iter_mut()
+				.find(|channel| channel.id == Id(1000))
+				.unwrap();
+			target.guild = guild;
+			target.kind = kind;
+			let mut draft = "#Reference".into();
+			assert!(insert_checked(&state, Id(20), &mut draft, pick, true).is_none());
+			assert_eq!(draft, "#Reference");
+		}
+	}
+
+	#[test]
+	fn channel_mention_insertion_rechecks_new_metadata_for_unknown_ids() {
+		let mut state = test_support::demo_state();
+		let mut menu = Menu::default();
+		menu.refresh(&state, Id(20), "#1000", Some(5), &[]);
+		assert_eq!(menu.candidates[0].id(), Id(1000));
+		let mut unresolved = "#1000".into();
+		assert!(
+			insert_checked(&state, Id(20), &mut unresolved, menu.pick(0).unwrap(), true).is_some()
+		);
+		assert_eq!(unresolved, "<#1000> ");
+		let pick = menu.pick(0).unwrap();
+		state
+			.channels
+			.push(channel(1000, Some(Id(10)), 0, "Reference target"));
+		deny_channel_mention_permission(&mut state, model::permissions::VIEW_CHANNEL);
+		let mut draft = "#1000".into();
+		assert!(insert_checked(&state, Id(20), &mut draft, pick, true).is_none());
+		assert_eq!(draft, "#1000");
+	}
+
 	#[test]
 	fn channel_references_scope_bound_and_insert_unicode_without_user_mentions() {
 		let mut menu = Menu::default();
@@ -2975,8 +3174,23 @@ mod tests {
 				channel(7, Some(Id(9)), 11, "Žlutá thread"),
 				channel(8, Some(Id(9)), 15, "Žlutá forum container"),
 			],
-			..State::default()
+			..test_support::demo_state()
 		};
+		state.guilds[0].id = Id(9);
+		let mut other_guild = state.guilds[0].clone();
+		other_guild.id = Id(8);
+		state.guilds.push(other_guild);
+		state.invalidate_navigation();
+		state
+			.channels
+			.iter_mut()
+			.find(|channel| channel.id == Id(7))
+			.unwrap()
+			.parent_id = Some(Id(1));
+		state
+			.permissions
+			.replace(test_support::permission_snapshot(&state))
+			.unwrap();
 		assert_eq!(query("čau #Žl", 7), Some((5..9, "Žl", Kind::Channel)));
 		for text in ["https://host/#name", "abc#name", "<#6>"] {
 			assert!(query(text, text.chars().count()).is_none());
@@ -3013,6 +3227,10 @@ mod tests {
 		state
 			.channels
 			.extend((20..40).map(|id| channel(id, Some(Id(9)), 0, &"é".repeat(300))));
+		state
+			.permissions
+			.replace(test_support::permission_snapshot(&state))
+			.unwrap();
 		menu.refresh(&state, Id(1), "#é", Some(2), &[]);
 		assert_eq!(menu.candidates.len(), 8);
 		assert!(menu.candidates.iter().all(|c| c.token().len() <= 40));
@@ -3501,6 +3719,14 @@ pub fn debug_role_mentions_check(state: &mut State) {
 	forum.name = "Forum check".into();
 	forum.kind = 15;
 	state.channels.push(forum);
+	state
+		.permissions
+		.update(client_core::permissions::Event::Channel {
+			channel: Id(1549042875830898711),
+			guild: Some(guild),
+			overwrites: model::Patch::Value(vec![]),
+		})
+		.unwrap();
 	state.invalidate_navigation();
 	menu.refresh(state, channel, "#Forum", Some(6), &[]);
 	assert_eq!(
