@@ -1881,6 +1881,7 @@ mod tests {
 	fn channel(id: u64, kind: u8, position: i32, parent_id: Option<Id>) -> Channel {
 		Channel {
 			user_limit: None,
+			slowmode: 0,
 			last_message: None,
 			id: Id(id),
 			guild: Some(Id(100)),
@@ -2181,6 +2182,7 @@ mod tests {
 				cosmetics: None,
 			}),
 			guilds: vec![model::Guild {
+				banner: None,
 				default_message_notifications: None,
 				stickers: None,
 				id: Id(100),
@@ -2350,6 +2352,7 @@ mod tests {
 				cosmetics: None,
 			}),
 			guilds: vec![model::Guild {
+				banner: None,
 				default_message_notifications: None,
 				stickers: None,
 				id: Id(100),

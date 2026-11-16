@@ -83,6 +83,7 @@ impl DiscordApi {
 		};
 		Ok(Some(ChannelPatch {
 			user_limit: Patch::Absent,
+			slowmode: Patch::Absent,
 			id: channel,
 			name,
 			icon,

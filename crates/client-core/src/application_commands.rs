@@ -294,6 +294,7 @@ mod tests {
 			selected: Some(Id(2)),
 			channels: vec![Channel {
 				user_limit: None,
+				slowmode: 0,
 				id: Id(2),
 				guild: None,
 				name: "Synthetic bot DM".into(),
@@ -364,6 +365,7 @@ mod tests {
 			state.channels[0].guild = Some(Id(10));
 			state.channels[0].kind = 0;
 			state.guilds.push(model::Guild {
+				banner: None,
 				default_message_notifications: None,
 				id: Id(10),
 				name: "Synthetic guild".into(),
@@ -662,6 +664,7 @@ mod tests {
 		sibling.id = Id(3);
 		state.channels.push(sibling);
 		state.guilds.push(model::Guild {
+			banner: None,
 			default_message_notifications: None,
 			id: Id(10),
 			name: "Synthetic guild".into(),

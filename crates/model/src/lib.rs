@@ -324,12 +324,15 @@ pub struct Guild {
 	pub id: Id,
 	pub name: String,
 	pub icon: Option<String>,
+	/// Banner hash; absent for servers without one.
+	pub banner: Option<String>,
 }
 impl Guild {
 	pub fn bytes(&self) -> usize {
 		std::mem::size_of::<Self>()
 			+ self.name.capacity()
 			+ self.icon.as_ref().map_or(0, String::capacity)
+			+ self.banner.as_ref().map_or(0, String::capacity)
 			+ self.emojis.as_ref().map_or(0, custom_emoji_bytes)
 			+ self.stickers.as_ref().map_or(0, sticker_bytes)
 	}
@@ -339,6 +342,13 @@ impl Guild {
 			.filter(|hash| valid_avatar_hash(hash))
 			.map(|hash| format!("guild-{}-{hash}", self.id))
 	}
+	/// Shares the `banner-` media key: guild and user banners use one documented CDN path.
+	pub fn banner_key(&self) -> Option<String> {
+		self.banner
+			.as_deref()
+			.filter(|hash| valid_avatar_hash(hash))
+			.map(|hash| format!("banner-{}-{hash}", self.id))
+	}
 }
 #[derive(Clone)]
 pub struct GuildPatch {
@@ -346,6 +356,7 @@ pub struct GuildPatch {
 	pub id: Id,
 	pub name: Patch<String>,
 	pub icon: Patch<String>,
+	pub banner: Patch<String>,
 }
 #[derive(Clone, PartialEq, Eq)]
 pub struct Channel {
@@ -365,6 +376,8 @@ pub struct Channel {
 	pub message_count: Option<u32>,
 	/// Voice or stage channel user limit; None when unlimited or unknown.
 	pub user_limit: Option<u16>,
+	/// Seconds a member waits between messages here; zero when slowmode is off.
+	pub slowmode: u16,
 	/// Forum tags offered by a forum or media channel, or applied to one of its posts.
 	pub tags: Option<Box<forum::Tags>>,
 }
@@ -394,6 +407,8 @@ pub struct ChannelPatch {
 	pub message_count: Patch<u32>,
 	/// Null clears a limit; zero arrives as Null.
 	pub user_limit: Patch<u16>,
+	/// Null arrives as a zero value.
+	pub slowmode: Patch<u16>,
 	/// Channel updates carry whole objects, so present tags replace the known ones.
 	pub tags: Patch<Box<forum::Tags>>,
 }

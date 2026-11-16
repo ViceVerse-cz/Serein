@@ -96,6 +96,7 @@ mod tests {
 		let mut state = State {
 			channels: vec![Channel {
 				user_limit: None,
+				slowmode: 0,
 				id: Id(1),
 				guild: Some(Id(10)),
 				parent_id: None,

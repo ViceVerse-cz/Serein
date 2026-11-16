@@ -529,6 +529,7 @@ mod tests {
 			freshness: Freshness::Fresh,
 			selected: Some(Id(1)),
 			guilds: vec![Guild {
+				banner: None,
 				default_message_notifications: None,
 				stickers: None,
 				id: Id(10),
@@ -538,6 +539,7 @@ mod tests {
 			}],
 			channels: vec![Channel {
 				user_limit: None,
+				slowmode: 0,
 				id: Id(1),
 				guild: Some(Id(10)),
 				parent_id: None,

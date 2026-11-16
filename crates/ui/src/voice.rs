@@ -6680,6 +6680,7 @@ mod tests {
 			gateway_connected: true,
 			channels: vec![model::Channel {
 				user_limit: None,
+				slowmode: 0,
 				last_message: None,
 				id: Id(1),
 				guild: None,

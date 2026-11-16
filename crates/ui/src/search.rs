@@ -2440,6 +2440,7 @@ mod tests {
 				selected: Some(Id(1)),
 				channels: vec![model::Channel {
 					user_limit: None,
+					slowmode: 0,
 					id: Id(1),
 					guild: None,
 					parent_id: None,
@@ -2746,6 +2747,7 @@ mod tests {
 			};
 			state.channels.push(model::Channel {
 				user_limit: None,
+				slowmode: 0,
 				id: Id(1),
 				guild: None,
 				parent_id: None,
@@ -2818,6 +2820,7 @@ mod tests {
 	fn search_results_resolve_payload_mentions_and_queue_unknown_channels() {
 		let channel = model::Channel {
 			user_limit: None,
+			slowmode: 0,
 			id: Id(1),
 			guild: Some(Id(10)),
 			parent_id: None,

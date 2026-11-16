@@ -213,6 +213,9 @@ pub struct ChannelDto {
 	/// Zero means unlimited.
 	#[serde(default, deserialize_with = "lossy::null_default")]
 	pub user_limit: u32,
+	/// Slowmode seconds; zero means off.
+	#[serde(default, deserialize_with = "lossy::null_default")]
+	pub rate_limit_per_user: u32,
 	#[serde(default, deserialize_with = "lossy::null_default")]
 	pub is_message_request: bool,
 	#[serde(default, deserialize_with = "lossy::null_default")]
@@ -308,6 +311,7 @@ impl ChannelDto {
 			member_list_id: None,
 			message_count: self.message_count,
 			user_limit: user_limit(self.user_limit),
+			slowmode: slowmode(self.rate_limit_per_user),
 		}
 	}
 }
@@ -315,6 +319,11 @@ impl ChannelDto {
 /// limits stay within 0..=10000; zero and anything unrepresentable mean unlimited.
 fn user_limit(limit: u32) -> Option<u16> {
 	u16::try_from(limit).ok().filter(|limit| *limit > 0)
+}
+/// [Documented](https://docs.discord.com/developers/resources/channel#channel-object) slowmode
+/// stays within 0..=21600 seconds; anything beyond is held to that ceiling.
+fn slowmode(seconds: u32) -> u16 {
+	seconds.min(21600) as u16
 }
 #[derive(Deserialize)]
 pub struct ChannelPatchDto {
@@ -339,6 +348,8 @@ pub struct ChannelPatchDto {
 	pub message_count: Patch<u32>,
 	#[serde(default)]
 	pub user_limit: Patch<u32>,
+	#[serde(default)]
+	pub rate_limit_per_user: Patch<u32>,
 	#[serde(default)]
 	pub is_message_request: Patch<bool>,
 	#[serde(default)]
@@ -444,6 +455,11 @@ impl ChannelPatchDto {
 			user_limit: match self.user_limit {
 				Patch::Value(limit) => user_limit(limit).map_or(Patch::Null, Patch::Value),
 				Patch::Null => Patch::Null,
+				Patch::Absent => Patch::Absent,
+			},
+			slowmode: match self.rate_limit_per_user {
+				Patch::Value(seconds) => Patch::Value(slowmode(seconds)),
+				Patch::Null => Patch::Value(0),
 				Patch::Absent => Patch::Absent,
 			},
 		}
@@ -566,6 +582,8 @@ pub struct GuildDto {
 	#[serde(default)]
 	pub icon: Option<String>,
 	#[serde(default)]
+	pub banner: Option<String>,
+	#[serde(default)]
 	pub name: String,
 	#[serde(default)]
 	pub channels: Vec<ChannelDto>,
@@ -609,6 +627,8 @@ pub struct GuildProperties {
 	pub name: Patch<String>,
 	#[serde(default)]
 	pub icon: Patch<String>,
+	#[serde(default)]
+	pub banner: Patch<String>,
 }
 #[derive(Deserialize)]
 pub struct GuildPatchDto {
@@ -623,6 +643,7 @@ impl GuildPatchDto {
 			id: self.id,
 			name: self.properties.name,
 			icon: self.properties.icon,
+			banner: self.properties.banner,
 		}
 	}
 }
@@ -725,6 +746,11 @@ impl Ready {
 						Patch::Null => g.icon = None,
 						Patch::Absent => {}
 					}
+					match properties.banner {
+						Patch::Value(banner) => g.banner = Some(banner),
+						Patch::Null => g.banner = None,
+						Patch::Absent => {}
+					}
 				}
 				let everyone = g
 					.roles
@@ -786,6 +812,7 @@ impl Ready {
 					id: g.id,
 					name: g.name.chars().take(128).collect(),
 					icon: g.icon.filter(|hash| model::valid_avatar_hash(hash)),
+					banner: g.banner.filter(|hash| model::valid_avatar_hash(hash)),
 				}
 			})
 			.collect::<Vec<_>>();

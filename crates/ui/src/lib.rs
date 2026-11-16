@@ -7020,6 +7020,7 @@ mod composer_tests {
 			selected: Some(Id(10)),
 			channels: vec![model::Channel {
 				user_limit: None,
+				slowmode: 0,
 				id: Id(10),
 				guild: None,
 				parent_id: None,
@@ -7350,6 +7351,7 @@ mod composer_tests {
 		let mut state = edit_state();
 		state.demo = false;
 		state.guilds.push(model::Guild {
+			banner: None,
 			default_message_notifications: None,
 			stickers: None,
 			id: Id(100),
@@ -7501,6 +7503,7 @@ mod composer_tests {
 			target.kind = 0;
 			state.channels.push(target);
 			state.guilds.push(model::Guild {
+				banner: None,
 				default_message_notifications: None,
 				stickers: None,
 				id: Id(100),
@@ -7632,6 +7635,7 @@ mod composer_tests {
 				target.name = "Malformed-origin cached target".into();
 				state.channels.push(target);
 				state.guilds.push(model::Guild {
+					banner: None,
 					id: Id(100),
 					name: "Malformed-origin cached server".into(),
 					icon: None,
@@ -8969,6 +8973,7 @@ mod composer_tests {
 			state.selected = Some(Id(11));
 			state.channels.push(model::Channel {
 				user_limit: None,
+				slowmode: 0,
 				id: Id(11),
 				guild: None,
 				kind: 1,
@@ -9043,6 +9048,7 @@ mod composer_tests {
 			selected: Some(Id(1)),
 			channels: vec![model::Channel {
 				user_limit: None,
+				slowmode: 0,
 				last_message: None,
 				id: Id(1),
 				guild: Some(Id(2)),
@@ -9237,6 +9243,7 @@ mod composer_tests {
 			}),
 			channels: vec![model::Channel {
 				user_limit: None,
+				slowmode: 0,
 				last_message: None,
 				id: Id(1),
 				guild: None,
@@ -9639,6 +9646,7 @@ mod composer_tests {
 				selected: Some(Id(1)),
 				channels: vec![model::Channel {
 					user_limit: None,
+					slowmode: 0,
 					last_message: None,
 					id: Id(1),
 					guild,
@@ -10130,6 +10138,7 @@ mod composer_tests {
 			selected: Some(Id(1)),
 			channels: vec![model::Channel {
 				user_limit: None,
+				slowmode: 0,
 				last_message: None,
 				id: Id(1),
 				guild: None,

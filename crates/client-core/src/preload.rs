@@ -381,6 +381,7 @@ mod tests {
 			channels: (1..=20)
 				.map(|id| Channel {
 					user_limit: None,
+					slowmode: 0,
 					id: Id(id),
 					guild: None,
 					parent_id: None,

@@ -11,6 +11,7 @@ fn state() -> State {
 		selected: Some(Id(10)),
 		channels: vec![model::Channel {
 			user_limit: None,
+			slowmode: 0,
 			id: Id(10),
 			guild: None,
 			parent_id: None,

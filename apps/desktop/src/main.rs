@@ -3981,6 +3981,7 @@ impl Desktop {
 						Action::Leave(_) => None,
 						Action::Edit { name, icon, .. } => Some(model::ChannelPatch {
 							user_limit: Patch::Absent,
+							slowmode: Patch::Absent,
 							id: channel,
 							name: name.map_or(Patch::Absent, Patch::Value),
 							icon: match icon {
@@ -4164,6 +4165,7 @@ impl Desktop {
 						request,
 						result: Ok(model::Channel {
 							user_limit: None,
+							slowmode: 0,
 							id: model::Id(self.synthetic_id),
 							guild: Some(guild),
 							parent_id: Some(parent),
@@ -4217,6 +4219,7 @@ impl Desktop {
 						.into_iter()
 						.map(|id| model::Channel {
 							user_limit: None,
+							slowmode: 0,
 							id: model::Id(id),
 							guild: Some(guild),
 							parent_id: Some(parent),

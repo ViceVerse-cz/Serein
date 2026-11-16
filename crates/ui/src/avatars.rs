@@ -2441,6 +2441,7 @@ mod tests {
 		};
 		let (pictured, plain) = (user(1, Some(hash)), user(2, None));
 		let guild = model::Guild {
+			banner: None,
 			default_message_notifications: None,
 			stickers: None,
 			emojis: None,
@@ -3312,6 +3313,7 @@ mod tests {
 		);
 		let mut preview = Avatars::default();
 		let guild = model::Guild {
+			banner: None,
 			default_message_notifications: None,
 			stickers: None,
 			emojis: None,

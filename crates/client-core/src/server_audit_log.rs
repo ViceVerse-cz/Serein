@@ -90,6 +90,7 @@ mod tests {
 				webhook: false,
 			}),
 			guilds: vec![model::Guild {
+				banner: None,
 				default_message_notifications: None,
 				stickers: None,
 				id: Id(2),

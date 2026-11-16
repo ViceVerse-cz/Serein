@@ -1399,6 +1399,7 @@ mod tests {
 				cosmetics: None,
 			}),
 			guilds: vec![model::Guild {
+				banner: None,
 				default_message_notifications: None,
 				id: Id(10),
 				name: "Synthetic".into(),
@@ -1408,6 +1409,7 @@ mod tests {
 			}],
 			channels: vec![Channel {
 				user_limit: None,
+				slowmode: 0,
 				id: Id(20),
 				guild: Some(Id(10)),
 				kind: 2,
@@ -1635,6 +1637,7 @@ mod tests {
 					discriminator: 0,
 				}),
 				guilds: vec![model::Guild {
+					banner: None,
 					default_message_notifications: None,
 					stickers: None,
 					id: Id(10),
@@ -1646,6 +1649,7 @@ mod tests {
 					.into_iter()
 					.map(|id| Channel {
 						user_limit: None,
+						slowmode: 0,
 						id: Id(id),
 						guild: Some(Id(10)),
 						kind: 2,
@@ -1915,6 +1919,7 @@ mod tests {
 					discriminator: 0,
 				}),
 				guilds: vec![model::Guild {
+					banner: None,
 					default_message_notifications: None,
 					stickers: None,
 					id: Id(10),
@@ -1926,6 +1931,7 @@ mod tests {
 					.into_iter()
 					.map(|id| Channel {
 						user_limit: None,
+						slowmode: 0,
 						id: Id(id),
 						guild: Some(Id(10)),
 						kind: 2,
@@ -2062,6 +2068,7 @@ mod tests {
 			}),
 			channels: vec![Channel {
 				user_limit: None,
+				slowmode: 0,
 				last_message: None,
 				id: Id(2),
 				name: "DM".into(),
@@ -2354,6 +2361,7 @@ mod tests {
 				}),
 				channels: vec![Channel {
 					user_limit: None,
+					slowmode: 0,
 					last_message: None,
 					id: Id(2),
 					name: "DM".into(),

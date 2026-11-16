@@ -326,6 +326,7 @@ pub fn demo_state() -> State {
 				name: "You (synthetic)".into(),
 			},
 			guilds: vec![Guild {
+				banner: None,
 				default_message_notifications: None,
 				stickers: None,
 				emojis: Some(vec![
@@ -353,6 +354,7 @@ pub fn demo_state() -> State {
 			channels: vec![
 				Channel {
 					user_limit: None,
+					slowmode: 0,
 					last_message: None,
 					id: Id(20),
 					guild: Some(Id(10)),
@@ -368,6 +370,7 @@ pub fn demo_state() -> State {
 				},
 				Channel {
 					user_limit: None,
+					slowmode: 0,
 					last_message: None,
 					id: Id(21),
 					guild: Some(Id(10)),
@@ -383,6 +386,7 @@ pub fn demo_state() -> State {
 				},
 				Channel {
 					user_limit: None,
+					slowmode: 0,
 					last_message: None,
 					id: Id(22),
 					guild: None,
@@ -398,6 +402,7 @@ pub fn demo_state() -> State {
 				},
 				Channel {
 					user_limit: None,
+					slowmode: 0,
 					last_message: None,
 					id: Id(23),
 					guild: Some(Id(10)),
@@ -413,6 +418,7 @@ pub fn demo_state() -> State {
 				},
 				Channel {
 					user_limit: None,
+					slowmode: 0,
 					id: Id(40),
 					guild: None,
 					parent_id: None,
@@ -437,6 +443,7 @@ pub fn demo_state() -> State {
 				},
 				Channel {
 					user_limit: None,
+					slowmode: 0,
 					id: Id(43),
 					guild: None,
 					parent_id: None,
@@ -461,6 +468,7 @@ pub fn demo_state() -> State {
 				},
 				Channel {
 					user_limit: None,
+					slowmode: 0,
 					id: Id(29),
 					guild: None,
 					parent_id: None,
@@ -488,6 +496,7 @@ pub fn demo_state() -> State {
 				},
 				Channel {
 					user_limit: None,
+					slowmode: 0,
 					last_message: None,
 					id: Id(24),
 					guild: Some(Id(10)),
@@ -503,6 +512,7 @@ pub fn demo_state() -> State {
 				},
 				Channel {
 					user_limit: None,
+					slowmode: 0,
 					last_message: None,
 					id: Id(25),
 					guild: Some(Id(10)),
@@ -518,6 +528,7 @@ pub fn demo_state() -> State {
 				},
 				Channel {
 					user_limit: None,
+					slowmode: 0,
 					id: Id(26),
 					guild: Some(Id(10)),
 					parent_id: Some(Id(24)),
@@ -533,6 +544,7 @@ pub fn demo_state() -> State {
 				},
 				Channel {
 					user_limit: None,
+					slowmode: 0,
 					id: Id(27),
 					guild: Some(Id(10)),
 					parent_id: Some(Id(26)),
@@ -551,6 +563,7 @@ pub fn demo_state() -> State {
 				},
 				Channel {
 					user_limit: None,
+					slowmode: 0,
 					id: Id(41),
 					guild: Some(Id(10)),
 					parent_id: Some(Id(26)),
@@ -569,6 +582,7 @@ pub fn demo_state() -> State {
 				},
 				Channel {
 					user_limit: None,
+					slowmode: 0,
 					id: Id(42),
 					guild: Some(Id(10)),
 					parent_id: Some(Id(26)),
@@ -587,6 +601,7 @@ pub fn demo_state() -> State {
 				},
 				Channel {
 					user_limit: None,
+					slowmode: 0,
 					id: Id(28),
 					guild: Some(Id(10)),
 					parent_id: Some(Id(20)),
@@ -776,6 +791,7 @@ pub fn voice_demo_state() -> State {
 	// A full two-person room shows the user-limit pill and refuses joins.
 	state.channels.push(Channel {
 		user_limit: Some(2),
+		slowmode: 0,
 		id: Id(26),
 		guild: Some(Id(10)),
 		parent_id: Some(Id(24)),
@@ -1001,6 +1017,7 @@ pub fn seed_access_marks(state: &mut State) {
 	const ACCESS: Id = Id(60);
 	let channel = |id, kind, parent, position, name: &str| Channel {
 		user_limit: None,
+		slowmode: 0,
 		last_message: None,
 		id: Id(id),
 		guild: Some(GUILD),
@@ -1099,6 +1116,7 @@ pub fn seed_demo_folder_mosaic(state: &mut State) {
 	];
 	for (id, name, hash) in EXTRA {
 		state.guilds.push(Guild {
+			banner: None,
 			default_message_notifications: None,
 			stickers: None,
 			emojis: None,

@@ -475,6 +475,7 @@ mod join_tests {
 				state.apply(crate::Envelope {
 					generation: state.generation,
 					event: crate::Event::GuildJoined(model::Guild {
+						banner: None,
 						default_message_notifications: None,
 						stickers: None,
 						id: model::Id(2),
@@ -498,6 +499,7 @@ mod join_tests {
 			gateway_connected: true,
 			channels: vec![model::Channel {
 				user_limit: None,
+				slowmode: 0,
 				id: group_id,
 				guild: None,
 				name: "Synthetic group".into(),
@@ -529,6 +531,7 @@ mod join_tests {
 			channels: vec![
 				model::Channel {
 					user_limit: None,
+					slowmode: 0,
 					id: group_id,
 					guild: None,
 					name: "Synthetic group".into(),
@@ -544,6 +547,7 @@ mod join_tests {
 				},
 				model::Channel {
 					user_limit: None,
+					slowmode: 0,
 					id: other_id,
 					guild: None,
 					name: "Other DM".into(),
