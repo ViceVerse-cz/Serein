@@ -9,6 +9,7 @@ use std::{
 
 const LIMIT: usize = 128;
 const HINT_LIMIT: usize = 128;
+const RETIRED_LIMIT: usize = 128;
 const MAX_BYTES: usize = 256 * 1024;
 const MEMBER_LIMIT: usize = 512;
 const MEMBER_BYTES: usize = 384 * 1024;
@@ -48,6 +49,8 @@ impl<'a> ObservedUser<'a> {
 #[derive(Default)]
 pub struct Labels {
 	entries: VecDeque<(u64, MemberIdentity)>,
+	// Keep bounded per-user guards after their larger live observations are evicted.
+	retired: VecDeque<(u64, Id, Id)>,
 	// The last flag distinguishes complete query/sync observations from sidebar rows,
 	// which may omit nickname and role fields on their first appearance.
 	members: VecDeque<(Id, Member, Instant, bool)>,
@@ -56,6 +59,8 @@ pub struct Labels {
 	visible_users: Vec<Id>,
 	watch_revision: u64,
 	revision: u64,
+	// Reads older than discarded live guards cannot safely install disk hints.
+	disk_read_floor: u64,
 	display_revision: u64,
 	bytes: usize,
 }
@@ -64,16 +69,33 @@ impl Labels {
 	pub(crate) fn clear(&mut self) {
 		let display_revision = self.display_revision.wrapping_add(1);
 		let watch_revision = self.watch_revision.wrapping_add(1);
+		let revision = self.revision.wrapping_add(1);
 		*self = Self::default();
 		self.display_revision = display_revision;
 		self.watch_revision = watch_revision;
+		self.revision = revision;
+		self.disk_read_floor = revision;
 	}
 	pub(crate) fn revision(&self) -> u64 {
 		self.revision
 	}
+	fn retire(&mut self, guild: Id, user: Id) {
+		self.revision = self.revision.wrapping_add(1);
+		if self.retired.len() == RETIRED_LIMIT {
+			let (revision, _, _) = self.retired.pop_front().expect("retired guard overflow");
+			self.disk_read_floor = revision;
+		}
+		self.retired.push_back((self.revision, guild, user));
+	}
+	fn retired_after(&self, guild: Id, user: Id, started: u64) -> bool {
+		self.retired
+			.iter()
+			.any(|(revision, g, u)| *revision > started && *g == guild && *u == user)
+	}
 	pub fn bytes(&self) -> usize {
 		self.bytes
 			+ self.entries.capacity() * size_of::<(u64, MemberIdentity)>()
+			+ self.retired.capacity() * size_of::<(u64, Id, Id)>()
 			+ self.member_bytes
 			+ self.members.capacity() * size_of::<(Id, Member, Instant, bool)>()
 			+ self.visible_users.capacity() * size_of::<Id>()
@@ -228,10 +250,11 @@ impl Labels {
 				+ self.members.capacity() * size_of::<(Id, Member, Instant, bool)>()
 				> MEMBER_BYTES
 		{
-			let Some((_, old, _, _)) = self.members.pop_front() else {
+			let Some((guild, old, _, _)) = self.members.pop_front() else {
 				break;
 			};
 			self.member_bytes -= old.bytes();
+			self.retire(guild, old.user.id);
 		}
 	}
 	pub(crate) fn get(&self, guild: Id, user: Id) -> Option<&MemberIdentity> {
@@ -289,6 +312,7 @@ impl Labels {
 				.remove(index)
 				.expect("live identity index checked");
 			self.bytes -= old.bytes();
+			self.retire(old.guild, old.user);
 		}
 		while hints > HINT_LIMIT || self.overlay_bytes() > MAX_BYTES {
 			let index = self
@@ -301,6 +325,9 @@ impl Labels {
 			};
 			hints -= usize::from(revision == 0);
 			self.bytes -= old.bytes();
+			if revision != 0 {
+				self.retire(old.guild, old.user);
+			}
 		}
 	}
 	fn insert(&mut self, mut update: MemberIdentity, display_changed: bool) {
@@ -665,6 +692,11 @@ impl State {
 	pub fn member_display_revision(&self) -> u64 {
 		self.member_labels.revision()
 	}
+	/// Unrelated live observations are safe; losing their bounded guards fences older reads.
+	pub fn member_display_read_valid(&self, started_revision: u64) -> bool {
+		started_revision >= self.member_labels.disk_read_floor
+			&& started_revision <= self.member_labels.revision()
+	}
 	/// Revision of the persisted name/username/nickname projection, independent of
 	/// observation ordering used to reject stale lookups and disk reads.
 	pub fn member_display_cache_revision(&self) -> u64 {
@@ -787,7 +819,7 @@ impl State {
 			|| !self.can_view(request.channel)
 			|| !self.gateway_connected
 			|| self.auth != crate::auth::AuthState::Authenticated
-			|| self.member_labels.revision() != started_revision
+			|| !self.member_display_read_valid(started_revision)
 			|| self.member_search[request.slot].request.as_ref() != Some(request)
 			|| rows.len() > member_search::LIMIT
 			|| rows.iter().map(MemberDisplay::bytes).sum::<usize>() > member_search::MAX_BYTES
@@ -831,7 +863,7 @@ impl State {
 			|| self.selected != Some(request.channel)
 			|| self.member_labels.visible_scope != Some((request.guild, request.channel))
 			|| self.member_labels.watch_revision != request.nonce
-			|| self.member_labels.revision() != started_revision
+			|| !self.member_display_read_valid(started_revision)
 			|| self.auth != crate::auth::AuthState::Authenticated
 			|| !self.gateway_connected
 			|| !self.can_view(request.channel)
@@ -860,6 +892,9 @@ impl State {
 			.filter(|row| {
 				self.member_labels.get(guild, row.user).is_none()
 					&& self.member_labels.member(guild, row.user).is_none()
+					&& !self
+						.member_labels
+						.retired_after(guild, row.user, started_revision)
 			})
 			.count();
 		let mut removed = false;
@@ -897,7 +932,7 @@ impl State {
 			self.revision = self.revision.wrapping_add(1);
 			self.skip_identity_navigation();
 		}
-		self.hydrate_member_displays(guild, started_revision, rows);
+		self.merge_member_displays(guild, started_revision, rows);
 	}
 	/// Older disk observations never override a live result, removal or account transition.
 	pub fn hydrate_member_displays(
@@ -919,6 +954,14 @@ impl State {
 		{
 			return;
 		}
+		self.merge_member_displays(guild, started_revision, rows);
+	}
+	fn merge_member_displays(
+		&mut self,
+		guild: Id,
+		started_revision: u64,
+		rows: Vec<MemberDisplay>,
+	) {
 		let mut changed = false;
 		let mut hints = self
 			.member_labels
@@ -927,6 +970,12 @@ impl State {
 			.filter(|(revision, _)| *revision == 0)
 			.count();
 		for row in rows {
+			if self
+				.member_labels
+				.retired_after(guild, row.user, started_revision)
+			{
+				continue;
+			}
 			if self.member_labels.get(guild, row.user).is_some()
 				|| self.member_labels.member(guild, row.user).is_some()
 			{
@@ -1861,7 +1910,7 @@ mod cache_search_tests {
 				clients: Default::default(),
 			}]),
 		);
-		assert!(!state.hydrate_member_search_displays(
+		assert!(state.hydrate_member_search_displays(
 			&current,
 			revision,
 			vec![row(9000, "NewNickFromDisk")]
@@ -1905,6 +1954,275 @@ mod cache_search_tests {
 				.observed_member_users(Id(1))
 				.any(|user| user.id == Id(9001))
 		);
+	}
+
+	#[test]
+	fn delayed_targeted_cache_merges_untouched_rows_and_keeps_live_clears() {
+		let mut state = state();
+		let Some(crate::Command::MemberSearch(request)) = state.search_members(Id(1), "Cached", 0)
+		else {
+			panic!("member query");
+		};
+		let revision = state.member_display_revision();
+		for (user, nick, departed) in [
+			(9000, Patch::Value("Live nickname".into()), false),
+			(9001, Patch::Null, false),
+			(9002, Patch::Null, true),
+		] {
+			state.apply_member_identity(MemberIdentity {
+				guild: Id(2),
+				user: Id(user),
+				profile: None,
+				global_name: model::GlobalNameUpdate::Unchanged,
+				avatar: Patch::Absent,
+				nick,
+				roles: Patch::Absent,
+				departed,
+			});
+		}
+		let mut profile = crate::tests::message(1).author;
+		profile.id = Id(9004);
+		profile.name = "current_account".into();
+		profile.username = Some("current_account".into());
+		state.apply_member_identity(MemberIdentity {
+			guild: Id(2),
+			user: profile.id,
+			profile: Some(profile),
+			global_name: model::GlobalNameUpdate::Cleared,
+			avatar: Patch::Absent,
+			nick: Patch::Absent,
+			roles: Patch::Absent,
+			departed: false,
+		});
+		// A busy stream of unrelated observations must not spend a cache retry budget.
+		for user in 9100..9140 {
+			state.apply_member_identity(MemberIdentity {
+				guild: Id(2),
+				user: Id(user),
+				profile: None,
+				global_name: model::GlobalNameUpdate::Unchanged,
+				avatar: Patch::Absent,
+				nick: Patch::Value("Unrelated observation".into()),
+				roles: Patch::Absent,
+				departed: false,
+			});
+		}
+		assert_ne!(revision, state.member_display_revision());
+		assert!(state.member_display_read_valid(revision));
+		assert!(
+			state.hydrate_member_search_displays(
+				&request,
+				revision,
+				(9000..9005)
+					.map(|user| row(user, "Cached nickname"))
+					.collect()
+			)
+		);
+		assert_eq!(
+			state.member_nickname(Id(1), Id(9000)),
+			Some(Some("Live nickname"))
+		);
+		assert_eq!(state.member_nickname(Id(1), Id(9001)), Some(None));
+		assert!(state.member_identity(Id(1), Id(9002)).unwrap().departed);
+		assert_eq!(
+			state.member_nickname(Id(1), Id(9003)),
+			Some(Some("Cached nickname"))
+		);
+		assert!(matches!(
+			state.member_identity(Id(1), Id(9003)).unwrap().roles,
+			Patch::Absent
+		));
+		let cleared = state.member_identity(Id(1), Id(9004)).unwrap();
+		assert_eq!(cleared.global_name, model::GlobalNameUpdate::Cleared);
+		assert_eq!(cleared.profile.as_ref().unwrap().name, "current_account");
+		assert!(matches!(cleared.nick, Patch::Absent));
+		assert!(!state.member_search[0].finished);
+	}
+
+	#[test]
+	fn delayed_visible_cache_keeps_live_departures_and_fills_other_authors() {
+		let mut state = state();
+		state.request_author_members(&[Id(9000), Id(9001)]).unwrap();
+		let request = state.visible_member_cache_request().unwrap();
+		let revision = state.member_display_revision();
+		state.apply_member_identity(MemberIdentity {
+			guild: Id(2),
+			user: Id(9000),
+			profile: None,
+			global_name: model::GlobalNameUpdate::Unchanged,
+			avatar: Patch::Absent,
+			nick: Patch::Null,
+			roles: Patch::Absent,
+			departed: true,
+		});
+		assert!(state.hydrate_visible_member_displays(
+			&request,
+			revision,
+			vec![row(9000, "Departed"), row(9001, "Visible nickname")]
+		));
+		assert!(state.member_identity(Id(1), Id(9000)).unwrap().departed);
+		assert_eq!(
+			state.member_nickname(Id(1), Id(9001)),
+			Some(Some("Visible nickname"))
+		);
+		assert!(!state.member_search[1].finished);
+	}
+
+	#[test]
+	fn evicted_live_clears_and_departures_stay_excluded_until_history_is_fenced() {
+		for departed in [false, true] {
+			for churn in [LIMIT, LIMIT + RETIRED_LIMIT] {
+				let mut state = state();
+				let Some(crate::Command::MemberSearch(request)) =
+					state.search_members(Id(1), "Cached", 0)
+				else {
+					panic!("member query");
+				};
+				let revision = state.member_display_revision();
+				state.apply_member_identity(MemberIdentity {
+					guild: Id(2),
+					user: Id(9000),
+					profile: None,
+					global_name: model::GlobalNameUpdate::Unchanged,
+					avatar: Patch::Absent,
+					nick: Patch::Null,
+					roles: Patch::Absent,
+					departed,
+				});
+				for user in 10000..10000 + churn as u64 {
+					state.apply_member_identity(MemberIdentity {
+						guild: Id(2),
+						user: Id(user),
+						profile: None,
+						global_name: model::GlobalNameUpdate::Unchanged,
+						avatar: Patch::Absent,
+						nick: Patch::Value("Live nickname".into()),
+						roles: Patch::Absent,
+						departed: false,
+					});
+				}
+				assert!(state.member_identity(Id(1), Id(9000)).is_none());
+				// An incomplete sidebar row must not let the disk restore an evicted clear.
+				let mut profile = crate::tests::message(1).author;
+				profile.id = Id(9000);
+				state.member_labels.remember_with_source(
+					Id(2),
+					&[Member {
+						user: profile,
+						roles: vec![],
+						nick: None,
+						status: None,
+						custom_status: None,
+						activities: vec![],
+						clients: Default::default(),
+					}],
+					false,
+				);
+				let history_retained = churn == LIMIT;
+				assert_eq!(state.member_display_read_valid(revision), history_retained);
+				assert_eq!(
+					state.hydrate_member_search_displays(
+						&request,
+						revision,
+						vec![row(9000, "Cached nickname"), row(9001, "Cached untouched")]
+					),
+					history_retained
+				);
+				assert_eq!(state.member_nickname(Id(1), Id(9000)), None);
+				assert_eq!(
+					state.member_nickname(Id(1), Id(9001)),
+					history_retained.then_some(Some("Cached untouched"))
+				);
+				assert!(state.member_labels.bytes() < MAX_BYTES);
+				assert!(state.member_labels.retired.len() <= RETIRED_LIMIT);
+			}
+		}
+	}
+
+	#[test]
+	fn delayed_targeted_read_cannot_cross_a_clear_or_access_change() {
+		let mut state = state();
+		let Some(crate::Command::MemberSearch(request)) = state.search_members(Id(1), "Cached", 0)
+		else {
+			panic!("member query");
+		};
+		let revision = state.member_display_revision();
+		state.channels[0].guild = Some(Id(3));
+		assert!(!state.hydrate_member_search_displays(
+			&request,
+			revision,
+			vec![row(9000, "Cached")]
+		));
+		state.channels[0].guild = Some(Id(2));
+		state.selected = None;
+		assert!(!state.hydrate_member_search_displays(
+			&request,
+			revision,
+			vec![row(9000, "Cached")]
+		));
+		state.selected = Some(Id(1));
+		state.gateway_connected = false;
+		assert!(!state.hydrate_member_search_displays(
+			&request,
+			revision,
+			vec![row(9000, "Cached")]
+		));
+		state.gateway_connected = true;
+		state.member_labels.clear();
+		assert!(!state.member_display_read_valid(revision));
+		assert!(!state.hydrate_member_search_displays(
+			&request,
+			revision,
+			vec![row(9000, "Cached")]
+		));
+		let revision = state.member_display_revision();
+		state.permissions.guilds.clear();
+		assert!(!state.hydrate_member_search_displays(
+			&request,
+			revision,
+			vec![row(9000, "Cached")]
+		));
+		assert!(state.member_labels.entries.is_empty());
+	}
+
+	#[test]
+	fn prepared_local_query_ignores_live_feedback_until_dispatched() {
+		let mut state = state();
+		let Some(crate::Command::MemberSearchLocal(request)) =
+			state.prepare_member_search(Id(1), "Cached", 0)
+		else {
+			panic!("local query");
+		};
+		state.member_search_cooldown(request.clone(), 30);
+		state.searched_members(request.clone(), Ok(vec![]));
+		assert!(state.member_search[0].local_only);
+		assert!(!state.member_search[0].finished);
+		assert!(state.member_search[0].cooldown_until.is_none());
+		let local_revision = state.member_search[0].identity_revision;
+		state.apply_member_identity(MemberIdentity {
+			guild: Id(2),
+			user: Id(9100),
+			profile: None,
+			global_name: model::GlobalNameUpdate::Unchanged,
+			avatar: Patch::Absent,
+			nick: Patch::Value("Observed during debounce".into()),
+			roles: Patch::Absent,
+			departed: false,
+		});
+		let live_revision = state.member_display_revision();
+		assert_ne!(local_revision, live_revision);
+		assert!(state.hydrate_member_search_displays(
+			&request,
+			local_revision,
+			vec![row(9000, "Cached nickname")]
+		));
+		assert!(
+			matches!(state.dispatch_member_search(&request), Some(crate::Command::MemberSearch(live)) if live == request)
+		);
+		assert_eq!(state.member_search[0].identity_revision, live_revision);
+		assert!(state.dispatch_member_search(&request).is_none());
+		state.member_search_cooldown(request, 30);
+		assert!(state.member_search[0].cooldown_until.is_some());
 	}
 
 	#[test]

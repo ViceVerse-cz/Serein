@@ -119,12 +119,26 @@ completed reads rejected by a newer live revision or navigation retry only after
 Disk hints retain older provenance than in-flight live requests, including intervening
 role-only updates, and never acquire authority merely by being restored.
 
+Composer queries start a bounded SQLite lookup before the live-query debounce. Targeted
+query and visible-author reads merge unaffected hints even when unrelated members change
+while the storage worker is reading. Live values, explicit clears and departures still
+win. A session-only journal retains at most 128 retired identity guards; discarding guard
+history fences older reads and uses the existing bounded retry path. The journal's
+allocation is charged to resident identity memory. This adds no disk schema or retention
+change and does not make cached roles or display hints authoritative.
+When scoped cleanup fences an in-flight lookup, the still-current query retries in
+the new cache epoch within the same retry limit; rejected rows are never installed.
+
 Member-cache writes use a display-data revision separate from the observation ordering
 used to reject stale searches and disk reads. Scoped cleanup fences queued writes; a full
-clear suppresses retained guild hints until a new accepted identity observation for that guild. A partial
-accepted nickname update removes an older disk row when it cannot form a complete
-replacement. Off-server member updates are not retained by this display cache; a cached
-nickname for another server may therefore remain stale until that server refreshes.
+clear suppresses retained guild hints until a new accepted identity observation for that guild. An
+accepted display-name, username or nickname change removes an older disk row before
+the next coalesced snapshot, even if its complete replacement leaves RAM first.
+Changed targets are deduplicated into one bounded cleanup per event drain, tied to
+their original account and generation. Unchanged observations do not enqueue cleanup;
+retained complete replacements are saved again. Off-server member updates are not
+retained by this display cache; a cached nickname for another server may therefore
+remain stale until that server refreshes.
 
 Background messages, edits and reactions retain a bounded stale conversation preview.
 It is refreshed before becoming authoritative; existing deletion tombstones, permissions,

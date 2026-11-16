@@ -302,10 +302,21 @@ impl Desktop {
 		let Some(account) = self.state.user.as_ref().map(|user| user.id) else {
 			return;
 		};
+		self.invalidate_cache_scope_for(self.state.generation, account, operation);
+	}
+	pub(super) fn invalidate_cache_scope_for(
+		&mut self,
+		generation: u64,
+		account: model::Id,
+		operation: cache::Operation,
+	) {
+		if self.state.demo || self.fixture_only {
+			return;
+		}
 		let Some(cache) = &self.cache else {
 			return;
 		};
-		if cache.invalidate_scope(self.state.generation, account, operation) {
+		if cache.invalidate_scope(generation, account, operation) {
 			self.cache_pending += 1;
 		} else {
 			self.request_history_clear(account);

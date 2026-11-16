@@ -790,43 +790,48 @@ impl Menu {
 							Some(&MentionSource { state, channel }),
 						);
 						let name = label.strip_prefix('@').unwrap_or(&label);
-						[
-							rank(&query, name, user.id),
-							rank(&query, &user.name, user.id),
-							user.username
-								.as_deref()
-								.and_then(|name| rank(&query, name, user.id)),
-							(user.discriminator != 0 && query.contains('#'))
-								.then(|| {
-									user.username.as_ref().and_then(|name| {
-										rank(
-											&query,
-											&format!("{name}#{:04}", user.discriminator),
-											user.id,
-										)
-									})
-								})
-								.flatten(),
-						]
-						.into_iter()
-						.flatten()
-						.min()
-						.or_else(|| {
-							let search = &state.member_search[0];
-							(search.request.as_ref().is_some_and(|r| {
-								r.channel == channel && r.query.to_lowercase() == query
-							}) && search.rows.iter().any(|m| m.user.id == user.id))
-							.then_some(0)
-						})
-						.map(|r| {
-							(
-								(r, 0, recency.get(&user.id).copied().unwrap_or(u64::MAX)),
-								Candidate::User {
-									user: user.clone(),
-									name: name.to_owned(),
-								},
-							)
-						})
+						// The displayed nickname leads; account aliases remain searchable.
+						rank(&query, name, Id(0))
+							.or_else(|| {
+								[
+									rank(&query, &user.name, Id(0)),
+									user.username
+										.as_deref()
+										.and_then(|name| rank(&query, name, Id(0))),
+									(user.discriminator != 0 && query.contains('#'))
+										.then(|| {
+											user.username.as_ref().and_then(|name| {
+												rank(
+													&query,
+													&format!("{name}#{:04}", user.discriminator),
+													Id(0),
+												)
+											})
+										})
+										.flatten(),
+								]
+								.into_iter()
+								.flatten()
+								.min()
+								.map(|rank| rank + 2)
+							})
+							.or_else(|| rank(&query, "", user.id).map(|_| 4))
+							.or_else(|| {
+								let search = &state.member_search[0];
+								(search.request.as_ref().is_some_and(|r| {
+									r.channel == channel && r.query.to_lowercase() == query
+								}) && search.rows.iter().any(|m| m.user.id == user.id))
+								.then_some(5)
+							})
+							.map(|r| {
+								(
+									(r, 0, recency.get(&user.id).copied().unwrap_or(u64::MAX)),
+									Candidate::User {
+										user: user.clone(),
+										name: name.to_owned(),
+									},
+								)
+							})
 					})
 					.collect::<Vec<_>>();
 				for role in known_roles(state, channel)
@@ -1620,6 +1625,60 @@ mod tests {
 		assert_eq!(
 			username_label(&legacy, "Shared nickname"),
 			Some("account_20001#0042".into())
+		);
+	}
+
+	#[test]
+	fn nickname_matches_lead_account_aliases_before_recency() {
+		let mut state = test_support::demo_state();
+		state.demo = false;
+		state.auth = client_core::auth::AuthState::Authenticated;
+		state.gateway_connected = true;
+		let channel = state.selected.unwrap();
+		let guild = state.channel(channel).unwrap().guild.unwrap();
+		let rows = [
+			(90001, "Different nickname", "prefix_account"),
+			(90002, "A prefix nickname", "prefix_other"),
+			(90003, "Prefix nickname", "other_account"),
+		];
+		state.hydrate_member_displays(
+			guild,
+			state.member_display_revision(),
+			rows.iter()
+				.map(|(id, nick, username)| model::MemberDisplay {
+					guild,
+					user: Id(*id),
+					name: "Global display".into(),
+					username: Some((*username).into()),
+					nick: Some((*nick).into()),
+				})
+				.collect(),
+		);
+		let users: Vec<_> = rows
+			.iter()
+			.map(|(id, _, username)| {
+				let mut profile = user(*id, "Global display");
+				profile.username = Some((*username).into());
+				profile
+			})
+			.collect();
+		let mut menu = Menu::default();
+		menu.refresh(&state, channel, "@prefix", Some(7), &users);
+		assert_eq!(
+			menu.candidates
+				.iter()
+				.map(Candidate::id)
+				.collect::<Vec<_>>(),
+			[Id(90003), Id(90002), Id(90001)]
+		);
+		let mut draft = "@prefix".into();
+		insert(&mut draft, menu.pick(0).unwrap(), false).unwrap();
+		assert_eq!(draft, "<@90003> ");
+		menu.refresh(&state, channel, "@prefix_account", Some(15), &users);
+		assert_eq!(menu.candidates.len(), 1);
+		assert_eq!(menu.candidates[0].id(), Id(90001));
+		assert!(
+			matches!(&menu.candidates[0], Candidate::User { name, .. } if name == "Different nickname")
 		);
 	}
 
@@ -2881,7 +2940,10 @@ mod tests {
 				|ui| view.composer(ui, &mut state, Id(1), &ctx, &mut commands),
 			);
 			output.textures_delta.clear();
-			assert!(commands.is_empty());
+			assert!(commands.iter().all(|command| matches!(
+				command,
+				client_core::Command::MemberSearchLocal(_) | client_core::Command::MemberSearch(_)
+			)));
 			assert_eq!(state.drafts[&Id(1)], expected);
 			assert!(view.draft_changes.contains(&Id(1)));
 		}

@@ -12,6 +12,10 @@ use super::{
 impl Desktop {
 	/// Dispatches one queued command to the demo or live transport.
 	pub(super) fn command(&mut self, command: Command) {
+		if let Command::MemberSearchLocal(request) = &command {
+			self.queue_member_cache_search(request);
+			return;
+		}
 		if let Command::MemberSearch(request) = &command {
 			self.queue_member_cache_search(request);
 		}
@@ -408,6 +412,7 @@ impl Desktop {
 						)),
 					})
 				}
+				Command::MemberSearchLocal(_) => return,
 				Command::MemberSearch(request) => {
 					let query = request.query.to_lowercase();
 					let rows = demo_members(

@@ -876,6 +876,7 @@ impl Desktop {
 		let mut persist_timeline = false;
 		let mut full_window = false;
 		let mut changed_messages = std::collections::BTreeSet::new();
+		let mut member_cleanup = cache::MemberDisplayCleanup::default();
 		for (mut event, epoch) in events {
 			if epoch.is_some_and(|epoch| {
 				self.connection
@@ -978,7 +979,7 @@ impl Desktop {
 				_ => None,
 			};
 			let removed_member = cache::departed_member_target(&self.state, &event);
-			let partial_nickname = cache::nickname_target(&event.event);
+			let display_update = cache::member_display_target(&event.event);
 			let member_observation_guild = cache::member_observation_guild(&event.event);
 			let before_member_cache = self.state.member_display_cache_revision();
 			let before_member_observation = self.state.member_display_revision();
@@ -1099,13 +1100,12 @@ impl Desktop {
 				member_observation_guild,
 				before_member_observation,
 			);
-			// A partial live nickname update must not leave an older disk nickname
-			// behind when there is no complete current row to overwrite it.
-			let incomplete_member = cache::incomplete_nickname_cleanup(
-				&self.state,
-				partial_nickname,
-				before_member_cache,
-			);
+			// Coalesce changed display rows before any post-drain cache read or save.
+			if let Some((generation, account, operation)) =
+				member_cleanup.observe(&self.state, display_update, before_member_cache)
+			{
+				self.invalidate_cache_scope_for(generation, account, operation);
+			}
 			if reset_session {
 				self.expression_cache = Default::default();
 			}
@@ -1200,7 +1200,7 @@ impl Desktop {
 						emoji,
 					});
 				}
-				if let Some((guild, user)) = removed_member.or(incomplete_member) {
+				if let Some((guild, user)) = removed_member {
 					self.invalidate_cache_scope(cache::Operation::RemoveMember {
 						guild,
 						user: Some(user),
@@ -1258,6 +1258,9 @@ impl Desktop {
 				let command = self.state.history(None);
 				self.command(command);
 			}
+		}
+		if let Some((generation, account, operation)) = member_cleanup.take() {
+			self.invalidate_cache_scope_for(generation, account, operation);
 		}
 		if persist_timeline
 			&& self.state.freshness == model::Freshness::Fresh

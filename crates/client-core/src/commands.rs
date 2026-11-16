@@ -42,6 +42,8 @@ pub enum Command {
 		request: u64,
 	},
 	MemberSearch(member_search::Request),
+	/// Local display hints only; the composer debounces the corresponding live query.
+	MemberSearchLocal(member_search::Request),
 	MessagingPermissions {
 		request: u64,
 		change: Option<model::messaging_permissions::Change>,

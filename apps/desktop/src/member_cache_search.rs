@@ -18,12 +18,56 @@ pub(super) struct Search {
 }
 
 impl Search {
+	pub(super) fn sync_scope(&mut self, scope: (u64, Id)) {
+		if self.scope != Some(scope) {
+			// A command can be the first request of a new account. Retain only pending
+			// requests, which admission checks against the new account's current slots.
+			let pending = std::mem::take(&mut self.pending);
+			*self = Self {
+				scope: Some(scope),
+				pending,
+				..Default::default()
+			};
+		}
+	}
+
 	fn retry_stale(
 		&mut self,
 		state: &State,
 		generation: u64,
 		request: &Request,
 		revision: u64,
+		epoch: u64,
+	) -> bool {
+		if state.member_display_read_valid(revision) {
+			return false;
+		}
+		self.retry_current(state, generation, request, epoch)
+	}
+
+	pub(super) fn retry_epoch(
+		&mut self,
+		state: &State,
+		generation: u64,
+		request: &Request,
+		read_epoch: u64,
+		current_epoch: u64,
+	) -> bool {
+		read_epoch != current_epoch
+			&& request.valid()
+			&& !self.loads[request.slot].was_accepted((
+				generation,
+				request.channel,
+				request.nonce,
+				current_epoch,
+			)) && self.retry_current(state, generation, request, current_epoch)
+	}
+
+	fn retry_current(
+		&mut self,
+		state: &State,
+		generation: u64,
+		request: &Request,
 		epoch: u64,
 	) -> bool {
 		if !request.valid()
@@ -41,7 +85,6 @@ impl Search {
 				.and_then(|channel| channel.guild)
 				!= Some(request.guild)
 			|| state.member_search[request.slot].request.as_ref() != Some(request)
-			|| state.member_display_revision() == revision
 			|| self.retries[request.slot] >= STALE_RETRIES
 		{
 			return false;
@@ -72,16 +115,7 @@ impl Desktop {
 			return;
 		}
 		let scope = (self.state.generation, account);
-		if self.member_cache_search.scope != Some(scope) {
-			// A command can be the first request of a new account. Keep only requests
-			// that exactly match the newly authenticated state's current slots.
-			let pending = std::mem::take(&mut self.member_cache_search.pending);
-			self.member_cache_search = Search {
-				scope: Some(scope),
-				pending,
-				..Default::default()
-			};
-		}
+		self.member_cache_search.sync_scope(scope);
 		let Some(cache) = &self.cache else {
 			return;
 		};
@@ -177,7 +211,7 @@ impl Desktop {
 			return;
 		}
 		if let Ok(rows) = result {
-			if !rows.is_empty() && self.state.member_display_revision() != revision {
+			if !rows.is_empty() && !self.state.member_display_read_valid(revision) {
 				let retries = self
 					.member_cache_search
 					.visible_retry
@@ -203,13 +237,25 @@ impl Desktop {
 		epoch: u64,
 		result: Result<Vec<model::MemberDisplay>, local_store::StoreError>,
 	) {
-		if generation == self.state.generation
-			&& self
-				.cache
-				.as_ref()
-				.is_some_and(|cache| cache.history.allows(epoch))
-			&& let Ok(rows) = result
-		{
+		if generation != self.state.generation {
+			return;
+		}
+		let Some(cache) = &self.cache else {
+			return;
+		};
+		if !cache.history.allows(epoch) {
+			if self.member_cache_search.retry_epoch(
+				&self.state,
+				generation,
+				&request,
+				epoch,
+				cache.history.epoch(),
+			) {
+				self.poll_member_cache_search();
+			}
+			return;
+		}
+		if let Ok(rows) = result {
 			if !rows.is_empty()
 				&& self.member_cache_search.retry_stale(
 					&self.state,
@@ -232,7 +278,68 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn retries_a_stale_cache_read_only_for_the_current_account_and_query() {
+	fn epoch_retries_are_bounded_and_require_the_current_account_and_query() {
+		let mut state = test_support::demo_state();
+		state.demo = false;
+		state.auth = AuthState::Authenticated;
+		state.gateway_connected = true;
+		let channel = state.selected.unwrap();
+		let generation = state.generation;
+		let account = state.user.as_ref().unwrap().id;
+		let client_core::Command::MemberSearchLocal(old) =
+			state.prepare_member_search(channel, "Cached", 0).unwrap()
+		else {
+			panic!("local query");
+		};
+		let mut search = Search::default();
+		search.sync_scope((generation, account));
+		assert!(!search.retry_epoch(&state, generation, &old, 0, 0));
+		assert!(!search.retry_epoch(&state, generation.wrapping_add(1), &old, 0, 1));
+		state.user.as_mut().unwrap().id = Id(account.0 + 1);
+		assert!(!search.retry_epoch(&state, generation, &old, 0, 1));
+		state.user.as_mut().unwrap().id = account;
+		state.auth = AuthState::Unauthenticated;
+		assert!(!search.retry_epoch(&state, generation, &old, 0, 1));
+		state.auth = AuthState::Authenticated;
+		state.gateway_connected = false;
+		assert!(!search.retry_epoch(&state, generation, &old, 0, 1));
+		state.gateway_connected = true;
+		state.selected = None;
+		assert!(!search.retry_epoch(&state, generation, &old, 0, 1));
+		state.selected = Some(channel);
+		let permissions = std::mem::take(&mut state.permissions);
+		assert!(!search.retry_epoch(&state, generation, &old, 0, 1));
+		state.permissions = permissions;
+		let client_core::Command::MemberSearchLocal(current) =
+			state.prepare_member_search(channel, "Current", 0).unwrap()
+		else {
+			panic!("current query");
+		};
+		assert!(!search.retry_epoch(&state, generation, &old, 0, 1));
+		assert!(search.pending[0].is_none());
+		let current_key = (generation, channel, current.nonce, 1);
+		assert!(search.loads[0].attempt(current_key));
+		search.loads[0].accepted(current_key);
+		assert!(
+			!search.retry_epoch(&state, generation, &current, 0, 1),
+			"an older completion must not duplicate a read already admitted in the new epoch"
+		);
+		search.loads[0].retry(current_key);
+		for attempt in 0..=STALE_RETRIES {
+			let epoch = u64::from(attempt);
+			let retry = search.retry_epoch(&state, generation, &current, epoch, epoch + 1);
+			assert_eq!(retry, attempt < STALE_RETRIES);
+			if retry {
+				assert_eq!(search.pending[0].take().as_ref(), Some(&current));
+			} else {
+				assert!(search.pending[0].is_none());
+			}
+		}
+		assert!(state.member_search[0].local_only);
+	}
+
+	#[test]
+	fn unrelated_updates_keep_reads_and_lost_guard_history_has_bounded_retries() {
 		let mut state = test_support::demo_state();
 		state.demo = false;
 		state.auth = AuthState::Authenticated;
@@ -253,22 +360,42 @@ mod tests {
 		};
 		assert!(search.loads[0].attempt(key));
 		search.loads[0].accepted(key);
+		let revision = state.member_display_revision();
+		state.apply(client_core::Envelope {
+			generation,
+			event: client_core::Event::MemberIdentity(Box::new(model::MemberIdentity {
+				guild,
+				user: Id(9000),
+				profile: None,
+				global_name: model::GlobalNameUpdate::Unchanged,
+				avatar: model::Patch::Absent,
+				nick: model::Patch::Value("Unrelated observation".into()),
+				roles: model::Patch::Absent,
+				departed: false,
+			})),
+		});
+		assert_ne!(revision, state.member_display_revision());
+		assert!(!search.retry_stale(&state, generation, &request, revision, epoch));
 		for attempt in 0..=STALE_RETRIES {
 			let revision = state.member_display_revision();
 			assert!(!search.retry_stale(&state, generation, &request, revision, epoch));
-			state.apply(client_core::Envelope {
-				generation,
-				event: client_core::Event::MemberIdentity(Box::new(model::MemberIdentity {
-					guild,
-					user: Id(9000 + u64::from(attempt)),
-					profile: None,
-					global_name: model::GlobalNameUpdate::Unchanged,
-					avatar: model::Patch::Absent,
-					nick: model::Patch::Value(format!("Updated {attempt}")),
-					roles: model::Patch::Absent,
-					departed: false,
-				})),
-			});
+			// Only exceeding both bounded live and retired guards requires a retry.
+			let first = 10000 + u64::from(attempt) * 300;
+			for user in first..first + 257 {
+				state.apply(client_core::Envelope {
+					generation,
+					event: client_core::Event::MemberIdentity(Box::new(model::MemberIdentity {
+						guild,
+						user: Id(user),
+						profile: None,
+						global_name: model::GlobalNameUpdate::Unchanged,
+						avatar: model::Patch::Absent,
+						nick: model::Patch::Value(format!("Updated {attempt}")),
+						roles: model::Patch::Absent,
+						departed: false,
+					})),
+				});
+			}
 			let retry = search.retry_stale(&state, generation, &request, revision, epoch);
 			assert_eq!(retry, attempt < STALE_RETRIES);
 			if retry {
