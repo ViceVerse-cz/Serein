@@ -167,6 +167,15 @@ account card, and a "Voice Connected" panel above it while connected. While this
 screen share is capturing, a live section above "Voice Connected" shows the source, chosen
 height/frame rate and a stop control. Activities and soundboard are shown disabled.
 
+Settings > Chat also offers an original native adaptation of Equicord's `noBlockedMessages`
+behavior (upstream reference `0d4da19faff378b7f62fd7fd31e78499a5e03e5b`, GPL-3.0-or-later), not
+its renderer patches or another restrictions manager. The default-off preference filters visible
+rows from known blocked authors through the existing bounded timeline iterator; a second option
+includes known ignored authors. It covers thread starters and removes the row from virtual-list
+measurement rather than leaving blank space. Unknown relationship state stays visible, retained
+messages are unchanged, and unread/read behavior is not rewritten. Both choices are device-local
+and survive restart; no new endpoint, account list, per-message ID store or server write exists.
+
 ## Verification notes
 
 Native macOS captures at 1120×760 in Serein dark, Eclipse, Slate, Nightfall and light were
