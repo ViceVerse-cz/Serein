@@ -1,5 +1,12 @@
 """Run with python test_catalog.py; no external test dependencies."""
 import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
+import textwrap
 
 import catalog
 
@@ -100,4 +107,48 @@ assert catalog.content(pinned, "ViceVerse-cz/Serein") == catalog.content(moved, 
 assert catalog.content(pinned, "ViceVerse-cz/Other") is None
 moved["entries"][0]["sha256"] = "0" * 64
 assert catalog.content(pinned, "ViceVerse-cz/Serein") != catalog.content(moved, "ViceVerse-cz/Serein")
+
+workflow = (catalog.ROOT.parent / ".github/workflows/extension-catalog.yml").read_text()
+assert "fetch-depth: 0" in workflow
+pin_step = workflow.split("      - name: Pin catalog to this commit\n", 1)[1].split("      - name:", 1)[0]
+pin_run = pin_step.split("        run:", 1)[1]
+pin_run = textwrap.dedent(pin_run[3:]) if pin_run.startswith(" |\n") else pin_run.strip()
+with tempfile.TemporaryDirectory(prefix="serein-fork-catalog-") as temporary:
+    root = Path(temporary)
+    extensions = root / "extensions"
+    (extensions / "themes").mkdir(parents=True)
+    (extensions / "previews").mkdir()
+    shutil.copyfile(catalog.ROOT / "catalog.py", extensions / "catalog.py")
+    (extensions / "themes/ocean.serein-extension").write_bytes(theme)
+    (extensions / "previews/ocean.png").write_bytes(b"synthetic preview")
+    environment = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    def git_fixture(*args):
+        return subprocess.check_output(["git", "-c", "user.name=Synthetic Fixture", "-c",
+                                        "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false",
+                                        *args], cwd=root, env=environment, stderr=subprocess.PIPE).decode().strip()
+    git_fixture("init", "--quiet")
+    git_fixture("add", "extensions")
+    git_fixture("commit", "--quiet", "-m", "Synthetic fork package")
+    commit = git_fixture("rev-parse", "HEAD")
+    repository = "Fork-Owner/NuSerein"
+    subprocess.run([sys.executable, "extensions/catalog.py", "--commit", commit],
+                   cwd=root, env=environment, check=True, stdout=subprocess.PIPE)
+    subprocess.run(["bash", "-e", "-c", pin_run], cwd=root, check=True, stdout=subprocess.PIPE,
+                   env=environment | {"GITHUB_SHA": commit, "GITHUB_REPOSITORY": repository})
+    generated = json.loads((extensions / "catalog.json").read_bytes())
+    entry, = generated["entries"]
+    base = f"https://raw.githubusercontent.com/{repository}/{commit}/extensions/"
+    assert entry["release_url"] == base + "themes/ocean.serein-extension", entry["release_url"]
+    assert entry["preview"]["url"] == base + "previews/ocean.png"
+    assert entry["source_commit"] == commit
+    assert entry["sha256"] == catalog.hashlib.sha256(theme).hexdigest()
+    assert entry["preview"]["sha256"] == catalog.hashlib.sha256(b"synthetic preview").hexdigest()
+    assert catalog.content(generated, repository) is not None
+    assert catalog.content(generated, catalog.REPOSITORY) is None
+    assert '--check --repository "$GITHUB_REPOSITORY"' in pin_run
+    git_fixture("commit", "--quiet", "--allow-empty", "-m", "Unchanged package content")
+    subprocess.run(["bash", "-e", "-c", pin_run], cwd=root, check=True, stdout=subprocess.PIPE,
+                   env=environment | {"GITHUB_SHA": git_fixture("rev-parse", "HEAD"),
+                                      "GITHUB_REPOSITORY": repository})
+    assert json.loads((extensions / "catalog.json").read_bytes()) == generated
 print("Theme/plugin identity, byte, capability, action and URL checks passed.")

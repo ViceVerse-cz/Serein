@@ -29,12 +29,16 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
       - name: Validate packages
         run: |
           PYTHONDONTWRITEBYTECODE=1 python3 extensions/test_catalog.py
           python3 extensions/catalog.py --validate
       - name: Pin catalog to this commit
-        run: python3 extensions/catalog.py --pin "$GITHUB_SHA"
+        run: |
+          python3 extensions/catalog.py --pin "$GITHUB_SHA" --repository "$GITHUB_REPOSITORY"
+          python3 extensions/catalog.py --check --repository "$GITHUB_REPOSITORY"
       - name: Commit catalog
         run: |
           if git diff --quiet -- extensions/catalog.json; then

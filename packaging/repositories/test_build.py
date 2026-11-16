@@ -2,9 +2,12 @@
 
 import argparse
 import hashlib
+import os
 from pathlib import Path
+import re
 import subprocess
 import tempfile
+import textwrap
 import unittest
 
 from build import input_packages, validate
@@ -12,6 +15,71 @@ from verify_downloads import verify
 
 
 class RepositoryInputs(unittest.TestCase):
+    def test_publishing_url_matches_current_pages_site_or_explicit_override(self):
+        source = Path(__file__).resolve().parents[2]
+        workflow = (source / ".github/workflows/package-repositories.yml").read_text()
+        download = workflow.split("\n  download:\n", 1)[1].split("\n  repositories:\n", 1)[0]
+        self.assertIn("pages: read", download)
+        self.assertIn("base_url: ${{ steps.hosting.outputs.base_url }}", download)
+        step = download.split("      - name: Resolve repository URL\n", 1)[1].split("\n      - ", 1)[0]
+        self.assertIn("GH_REPO: ${{ github.repository }}", step)
+        self.assertIn("INPUT_BASE_URL: ${{ inputs.base_url }}", step)
+        command = textwrap.dedent(step.split("        run: |\n", 1)[1])
+        self.assertEqual(workflow.count("BASE_URL: ${{ needs.download.outputs.base_url }}"), 2)
+        release = (source / ".github/workflows/release.yml").read_text()
+        self.assertNotIn("base_url:", release.split("\n  repositories:\n", 1)[1])
+        self.assertNotIn("default: https://viceverse-cz.github.io/Serein", workflow)
+        call_url = workflow.split("  workflow_call:\n", 1)[1].split("      base_url:\n", 1)[1].split("      deploy:\n", 1)[0]
+        self.assertIn("required: false", call_url)
+        flatpak = re.search(r"python3 - <<'PY'\n(.*?)\n          PY\n", workflow, re.S)
+        self.assertIsNotNone(flatpak)
+        with tempfile.TemporaryDirectory(prefix="serein-publishing-url-") as temporary:
+            root = Path(temporary)
+            commands = root / "commands"
+            commands.mkdir()
+            gh = commands / "gh"
+            gh.write_text('#!/bin/sh\nset -eu\nprintf "%s\\n" "$*" > "$GH_FIXTURE_LOG"\n'
+                          'test "${GH_FIXTURE_FAIL:-0}" = 0\nprintf "%s\\n" "$GH_FIXTURE_URL"\n')
+            gh.chmod(0o755)
+            (root / "packaging/flatpak").mkdir(parents=True)
+            (root / "packaging/flatpak/serein.flatpakref").write_bytes(
+                (source / "packaging/flatpak/serein.flatpakref").read_bytes())
+            (root / "site/flatpak").mkdir(parents=True)
+            for repository, configured_url, override in (
+                ("ViceVerse-cz/Serein", "https://viceverse-cz.github.io/Serein/", ""),
+                ("Fork-Owner/NuSerein", "https://fork-owner.github.io/NuSerein/", ""),
+                ("Fork-Owner/fork-owner.github.io", "https://fork-owner.github.io/", ""),
+                ("Fork-Owner/NuSerein", "https://packages.example.org/", ""),
+                ("Fork-Owner/NuSerein", "https://unused.example.org/", "https://mirror.example.org/serein/"),
+            ):
+                with self.subTest(repository=repository, configured_url=configured_url, override=override):
+                    output, log = root / "output", root / "gh.log"
+                    output.write_text("")
+                    log.unlink(missing_ok=True)
+                    environment = os.environ | {"PATH": str(commands) + os.pathsep + os.environ["PATH"],
+                        "GH_REPO": repository, "INPUT_BASE_URL": override, "GITHUB_OUTPUT": str(output),
+                        "GH_FIXTURE_LOG": str(log), "GH_FIXTURE_URL": configured_url,
+                        "GH_FIXTURE_FAIL": "1" if override else "0"}
+                    result = subprocess.run(["bash", "-e", "-c", command], cwd=root,
+                                            env=environment, capture_output=True, text=True)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    expected = (override or configured_url).rstrip("/")
+                    self.assertEqual(output.read_text(), f"base_url={expected}\n")
+                    if override:
+                        self.assertFalse(log.exists())
+                    else:
+                        self.assertEqual(log.read_text(), f"api repos/{repository}/pages --jq .html_url\n")
+                    subprocess.run([os.sys.executable, "-c", textwrap.dedent(flatpak.group(1))],
+                                   cwd=root, env=environment | {"BASE_URL": expected}, check=True)
+                    reference = (root / "site/flatpak/serein.flatpakref").read_text()
+                    self.assertIn(f"\nUrl={expected}/flatpak/repo\n", reference)
+                    self.assertIn(f"\nIcon={expected}/icons/serein.png\n", reference)
+            output.write_text("")
+            result = subprocess.run(["bash", "-e", "-c", command], cwd=root, capture_output=True,
+                                    env=environment | {"INPUT_BASE_URL": "", "GH_FIXTURE_FAIL": "1"})
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(output.read_text(), "")
+
     def test_downloads_require_complete_matching_checksums(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

@@ -242,6 +242,5 @@ jobs:
     with:
       tag: ${{ needs.prepare.outputs.tag }}
       channel: ${{ inputs.channel }}
-      base_url: https://viceverse-cz.github.io/Serein
       deploy: true
     secrets: inherit
