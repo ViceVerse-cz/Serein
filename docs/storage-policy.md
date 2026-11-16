@@ -1025,13 +1025,18 @@ run at the lowest OS priority (Windows `THREAD_PRIORITY_LOWEST`, Linux nice 10, 
 utility QoS). Painted and prefetched requests wait in two queues of at most 512 jobs each;
 a full queue drops its oldest job, and painted jobs not requested in the current or
 previous frame are skipped. Finished rasters wait in a queue of at most 1,024 items /
-16 MiB and are uploaded at most 4 MiB per frame into one texture each, held in a
-1,024-item / 16-MiB least-recently-drawn cache. Rasters drawn in the current or previous
-frame are never evicted: a painted raster that does not fit beside them stays an empty slot,
-without being requested again, until idle release frees space, and a prefetched one is
-dropped. Prefetching pauses while the cache holds more than 12 MiB and covers at most one
-screen beyond the visible area. Rasters not drawn for 60 seconds are released at the
-existing artwork maintenance deadline. Driver overhead and upload staging are additional.
+16 MiB. They are packed into shared 1,024×1,024 RGBA texture pages (4 MiB each, at most
+four, created on demand), each divided by a buddy allocator into power-of-two square blocks
+of 16 to 512 pixels; a raster takes the smallest block that fits it with a one-pixel
+transparent guard, and its whole block is uploaded, at most 4 MiB of blocks per frame. At
+most 1,024 rasters are kept. When no block is free and four pages exist, the least recently
+drawn rasters are evicted, undrawn prefetches first, but never rasters drawn in the current or
+previous frame: a painted raster that does not fit beside them stays an empty slot, without
+being requested again, until idle release frees space, and a prefetched one is dropped.
+Prefetching pauses while blocks reserve more than 12 MiB and covers at most one screen
+beyond the visible area. Rasters not drawn for 60 seconds are released at the existing
+artwork maintenance deadline, and a page left empty is then freed, so an idle session
+returns to no emoji pages. Driver overhead and upload staging are additional.
 There are no emoji downloads, disk writes or retries; an emoji whose artwork fails to
 rasterise lays out as text from its next layout for the rest of the session. Unknown sequences and explicit text-presentation selectors
 remain font text.

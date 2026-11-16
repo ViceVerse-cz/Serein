@@ -1,4 +1,6 @@
-//! Bundled Twemoji: scalable artwork rasterised on demand at the size it is drawn.
+//! Bundled Twemoji: scalable artwork rasterised on demand at the size it is drawn, packed
+//! into shared texture pages.
+mod pages;
 mod raster;
 
 pub use raster::{Backend, MAX_EDGE, MIN_EDGE};
@@ -158,10 +160,11 @@ pub(crate) fn image(ctx: &Context, text: &str, size: f32) -> Option<Image<'stati
 	let cell = lookup(text)?;
 	let service = raster::service(ctx)?;
 	let image = match service.paint(ctx, (cell, raster::edge(ctx, size))) {
-		raster::Lookup::Ready(texture) => Image::new(egui::load::SizedTexture::new(
+		raster::Lookup::Ready(texture, uv) => Image::new(egui::load::SizedTexture::new(
 			texture,
 			egui::Vec2::splat(size),
-		)),
+		))
+		.uv(uv),
 		raster::Lookup::Pending => blank(ctx, size),
 		raster::Lookup::Failed => return None,
 	};
