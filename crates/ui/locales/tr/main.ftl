@@ -408,6 +408,15 @@ message-request-title = Mesaj isteği
 ## crates/ui/src/channel_menu.rs
 # Context: context
 channel-menu-context-add-to-favorites = Favorilere Ekle
+channel-menu-context-remove-from-channel-list = Kanal Listesinden Kaldır
+channel-menu-context-add-to-channel-list = Kanal Listesine Ekle
+channel-browser-title = Kanallara Göz At
+channel-browser-subtitle = Kanal listende hangi kanalların görüneceğini seç.
+channel-browser-show-all-channels = Tüm Kanalları Göster
+channel-browser-search = Kanallarda ara
+channel-browser-follow-category = Kategoriyi takip et
+channel-browser-saving = Kaydediliyor…
+channel-browser-unavailable = Kanal listesi ayarları şu anda kullanılamıyor.
 # Context: context
 channel-menu-context-copy-channel-id = Kanal Kimliğini Kopyala
 # Context: context
@@ -2414,8 +2423,6 @@ search-pane-hide-matching-text-highlight = Eşleşen metin vurgusunu gizle
 # Context: pane
 search-pane-indexing-is-incomplete-results-may-be-missing = Dizin oluşturma tamamlanmadı; sonuçlar eksik olabilir.
 # Context: pane
-search-pane-looking-for-matching-messages = Eşleşen mesajlar aranıyor.
-# Context: pane
 search-pane-messages-are-unavailable-while-disconnected-or-without-channel-access = Bağlantı kesildiğinde veya kanal erişimi olmadığında mesajlar kullanılamaz.
 # Context: pane
 search-pane-newest-first = Önce en yeni
@@ -3602,6 +3609,8 @@ slash-commands-composer-choose-a-different-command = farklı bir komut seç
 slash-commands-composer-command-unavailable-your-arguments-are-kept = Komut kullanılamıyor. Argümanlarınız saklıdır.
 # Context: footer
 slash-commands-footer-refresh-application-commands = Uygulama komutlarını yenile
+# Context: list
+slash-commands-list-loading-application-commands = Uygulama komutları yükleniyor…
 
 ## crates/ui/src/stickers.rs
 # Context: message

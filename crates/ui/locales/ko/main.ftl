@@ -425,6 +425,15 @@ message-request-title = 메시지 요청
 ## crates/ui/src/channel_menu.rs
 # Context: context
 channel-menu-context-add-to-favorites = 즐겨찾기에 추가
+channel-menu-context-remove-from-channel-list = 채널 목록에서 제거
+channel-menu-context-add-to-channel-list = 채널 목록에 추가
+channel-browser-title = 채널 둘러보기
+channel-browser-subtitle = 채널 목록에 표시할 채널을 선택하세요.
+channel-browser-show-all-channels = 모든 채널 보기
+channel-browser-search = 채널 검색
+channel-browser-follow-category = 카테고리 팔로우
+channel-browser-saving = 저장 중…
+channel-browser-unavailable = 지금은 채널 목록 설정을 사용할 수 없어요.
 # Context: context
 channel-menu-context-copy-channel-id = 채널 ID 복사
 # Context: context
@@ -2449,8 +2458,6 @@ search-pane-hide-matching-text-highlight = 검색어 강조 표시 숨기기
 # Context: pane
 search-pane-indexing-is-incomplete-results-may-be-missing = 색인 작업이 완료되지 않아 일부 결과가 누락될 수 있습니다.
 # Context: pane
-search-pane-looking-for-matching-messages = 일치하는 메시지를 찾는 중입니다.
-# Context: pane
 search-pane-messages-are-unavailable-while-disconnected-or-without-channel-access = 연결이 끊어졌거나 채널 접근 권한이 없으면 메시지를 볼 수 없습니다.
 # Context: pane
 search-pane-newest-first = 최신순
@@ -3633,6 +3640,8 @@ slash-commands-composer-choose-a-different-command = 다른 명령어 선택
 slash-commands-composer-command-unavailable-your-arguments-are-kept = 명령어를 사용할 수 없습니다. 입력한 인수는 유지됩니다.
 # Context: footer
 slash-commands-footer-refresh-application-commands = 애플리케이션 명령어 새로고침
+# Context: list
+slash-commands-list-loading-application-commands = 애플리케이션 명령어를 불러오는 중…
 
 ## crates/ui/src/stickers.rs
 # Context: message
@@ -5103,3 +5112,43 @@ moderation-delete-week = 지난 7일
 moderation-confirm-timeout = 타임아웃
 # Context: moderation
 moderation-confirm-ban = 차단
+# Context: extensions_ui
+extensions-ui-card-body-details = 세부 정보
+# Context: extensions_ui
+extensions-ui-details-modal-author = 제작자
+# Context: extensions_ui
+extensions-ui-details-modal-capabilities = 권한
+# Context: extensions_ui
+extensions-ui-details-modal-disable = 확장 비활성화
+# Context: extensions_ui
+extensions-ui-details-modal-enable-to-use-tools = 이 확장의 설정과 도구를 사용하려면 활성화하세요.
+# Context: extensions_ui
+extensions-ui-details-modal-license = 라이선스
+# Context: extensions_ui
+extensions-ui-details-modal-no-capabilities = 요청한 권한이 없습니다.
+# Context: extensions_ui
+extensions-ui-details-modal-no-description = 제공된 설명이 없습니다.
+# Context: extensions_ui
+extensions-ui-details-modal-no-panel-actions = 이 확장은 패널 설정이나 도구를 선언하지 않습니다.
+# Context: extensions_ui
+extensions-ui-details-modal-package-information-and-native-tools = 패키지 세부 정보와 기본 설정입니다.
+# Context: extensions_ui
+extensions-ui-details-modal-plugin-id = 플러그인 ID
+# Context: extensions_ui
+extensions-ui-details-modal-retry-cleanup = 정리 다시 시도
+# Context: extensions_ui
+extensions-ui-details-modal-review-enable = 검토 후 활성화
+# Context: extensions_ui
+extensions-ui-details-modal-settings-and-tools = 설정 및 도구
+# Context: extensions_ui
+extensions-ui-details-modal-version = 버전
+
+# Context: reading_chat
+reading-chat-reading-settings-hide-blocked-messages = 차단한 사용자의 메시지 숨기기
+# Context: reading_chat
+reading-chat-reading-settings-hide-blocked-messages-description = 이 기기의 채팅 행에서 차단한 작성자의 메시지를 숨깁니다. 메시지는 Discord에 그대로 남으며 읽음 상태는 바뀌지 않습니다.
+# Context: reading_chat
+reading-chat-reading-settings-hide-ignored-messages = 무시한 사용자의 메시지도 숨기기
+# Context: reading_chat
+reading-chat-reading-settings-hide-ignored-messages-description = 무시한 작성자도 로컬 필터에 포함합니다. 관계 상태를 알 수 없으면 메시지를 숨기지 않습니다.
+

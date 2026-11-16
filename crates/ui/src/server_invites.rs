@@ -178,7 +178,10 @@ impl InvitesUi {
 				action = Some(Action::Load);
 			}
 		}
-		if state.server_admin.pending {
+		// The first load is sketched as the table; saves and reloads keep this line.
+		let first_load =
+			crate::server_admin::first_load(state, state.server_admin.invites.is_some());
+		if state.server_admin.pending && !first_load {
 			ui.horizontal(|ui| {
 				ui.spinner();
 				ui.weak(crate::i18n::translate_if_key(
@@ -189,6 +192,9 @@ impl InvitesUi {
 					},
 				));
 			});
+		}
+		if first_load {
+			pending_table(ui, width);
 		}
 		if let Some(snapshot) = &state.server_admin.invites {
 			if snapshot.items.is_empty() {
@@ -220,32 +226,23 @@ impl InvitesUi {
 					.show(ui, |ui| {
 						let table_width = width.max(640.0);
 						ui.set_width(table_width);
-						let columns = [0.30, 0.24, 0.11, 0.18, 0.11, 0.06];
+						let columns = COLUMNS;
 						let (header, _) = ui.allocate_exact_size(
-							Vec2::new(table_width, 30.0),
+							Vec2::new(table_width, TABLE_HEADER),
 							egui::Sense::hover(),
 						);
-						for (index, label) in ["Inviter", "Invite Code", "Uses", "Expires", "Roles"]
-							.into_iter()
-							.enumerate()
-						{
-							cell(ui, column(header, &columns, index), |ui| {
-								ui.add(
-									egui::Label::new(design::medium(ui, label, 14.0)).truncate(),
-								);
-							});
-						}
+						headings(ui, header);
 						let height = design::list_height(ui, 0.0);
 						ui.spacing_mut().item_spacing.y = 0.0;
 						egui::ScrollArea::vertical()
 							.id_salt("invites-table-y")
 							.max_height(height)
 							.auto_shrink([false, true])
-							.show_rows(ui, 62.0, snapshot.items.len(), |ui, range| {
+							.show_rows(ui, INVITE_ROW, snapshot.items.len(), |ui, range| {
 								for invite in &snapshot.items[range] {
 									ui.push_id(&invite.code, |ui| {
 										let (rect, _) = ui.allocate_exact_size(
-											Vec2::new(table_width, 62.0),
+											Vec2::new(table_width, INVITE_ROW),
 											egui::Sense::hover(),
 										);
 										let hovered = ui.rect_contains_pointer(rect);
@@ -540,6 +537,75 @@ impl InvitesUi {
 		}
 	}
 }
+/// The table's column headings in the `header` row.
+fn headings(ui: &mut egui::Ui, header: egui::Rect) {
+	for (index, label) in ["Inviter", "Invite Code", "Uses", "Expires", "Roles"]
+		.into_iter()
+		.enumerate()
+	{
+		cell(ui, column(header, &COLUMNS, index), |ui| {
+			ui.add(egui::Label::new(design::medium(ui, label, 14.0)).truncate());
+		});
+	}
+}
+/// The invite table while invites load: its real column headings, then 62px rows of inviter
+/// avatar and name, code, uses and expiry, filling the list's height. Channels and roles are
+/// optional.
+fn pending_table(ui: &mut egui::Ui, width: f32) {
+	use crate::skeleton::{bar, circle, width_factor};
+	use egui::pos2;
+	// The loaded table is at least 640px wide and scrolls sideways in narrower views.
+	let table_width = width.max(640.0);
+	let (row, _) = ui.allocate_exact_size(Vec2::new(width, TABLE_HEADER), egui::Sense::hover());
+	// Headings draw in a child that allocates nothing in `ui`, so the rows start exactly where the
+	// loaded table's rows do and the wider table never widens this view.
+	let mut head = ui.new_child(egui::UiBuilder::new().max_rect(row));
+	head.set_clip_rect(ui.clip_rect().intersect(row));
+	headings(
+		&mut head,
+		egui::Rect::from_min_size(row.min, Vec2::new(table_width, TABLE_HEADER)),
+	);
+	// The rows' scroll area starts one item spacing below the headings.
+	let height = design::list_height(ui, 0.0);
+	let count = ((height / INVITE_ROW).ceil() as usize).min(32);
+	crate::skeleton::custom(
+		ui,
+		&crate::i18n::translate("server-invites-show-loading-invites"),
+		Vec2::new(width, height),
+		|painter, rect, fill| {
+			for index in 0..count {
+				let row = egui::Rect::from_min_size(
+					rect.min + Vec2::new(0.0, index as f32 * INVITE_ROW),
+					Vec2::new(table_width, INVITE_ROW),
+				);
+				let middle = row.center().y;
+				let factor = width_factor(index);
+				let inviter = column(row, &COLUMNS, 0);
+				circle(painter, fill, pos2(inviter.left() + 18.0, middle), 14.0);
+				bar(
+					painter,
+					fill,
+					pos2(inviter.left() + 40.0, middle - 6.0),
+					Vec2::new(56.0 + 32.0 * factor, 12.0),
+				);
+				for (index, share) in [(1, 0.6), (2, 0.2), (3, 0.6)] {
+					let cell = column(row, &COLUMNS, index);
+					bar(
+						painter,
+						fill,
+						pos2(cell.left() + 4.0, middle - 5.0),
+						Vec2::new((cell.width() - 8.0) * share, 10.0),
+					);
+				}
+			}
+		},
+	);
+}
+/// Heights of the invite table's heading row and of each invite row.
+const TABLE_HEADER: f32 = 30.0;
+const INVITE_ROW: f32 = 62.0;
+/// Shares of the table width taken by inviter, code, uses, expiry, roles and actions.
+const COLUMNS: [f32; 6] = [0.30, 0.24, 0.11, 0.18, 0.11, 0.06];
 fn column(rect: egui::Rect, columns: &[f32; 6], index: usize) -> egui::Rect {
 	let x = rect.left() + rect.width() * columns[..index].iter().sum::<f32>();
 	egui::Rect::from_min_size(

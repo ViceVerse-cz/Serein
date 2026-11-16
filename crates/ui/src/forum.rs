@@ -17,6 +17,12 @@ const CARD_TAGS: usize = 3;
 const PREVIEW: f32 = 72.0;
 /// Narrowest gallery tile before a row drops a column.
 const GALLERY_TILE: f32 = 300.0;
+/// Space between post cards and between gallery tiles.
+const POST_GAP: f32 = 12.0;
+/// A list [`card`] without tags: title, latest message and stats in its frame.
+const POST_CARD_HEIGHT: f32 = 123.0;
+/// A gallery [`tile`] below its art: the reserved tag row, title, latest message and stats.
+const POST_TILE_TEXT_HEIGHT: f32 = 149.0;
 
 fn sort_label(sort: Sort) -> String {
 	crate::i18n::translate_if_key(match sort {
@@ -169,6 +175,7 @@ impl ForumUi {
 						};
 						let filtered = !query.is_empty() || !tags.is_empty();
 						let mut posts: Vec<&Channel> = state.forum_posts(forum);
+						let unlisted = posts.is_empty();
 						if self.sort == Sort::Created {
 							posts.sort_by_key(|post| std::cmp::Reverse(post.id));
 						}
@@ -184,6 +191,9 @@ impl ForumUi {
 							.unwrap_or_default();
 						let now = time::OffsetDateTime::now_utc();
 						let loading = state.posts.parent == Some(forum) && state.posts.loading;
+						// A first page shows placeholder cards; a later one only the footer line.
+						let placeholder = loading && unlisted && archived.is_empty();
+						let archive_loading = archive.is_some_and(|view| view.loading);
 						if active.is_empty() && archived.is_empty() && !loading {
 							ui.add_space(24.0);
 							ui.vertical_centered(|ui| {
@@ -217,6 +227,14 @@ impl ForumUi {
 							.into_iter()
 							.filter(|post| !archived.iter().any(|row| row.id == post.id))
 							.collect();
+						if placeholder {
+							posts_placeholder(
+								ui,
+								"forum-posts-footer-loading-posts",
+								self.layout,
+								None,
+							);
+						}
 						let responses =
 							posts_view(ui, state, images, (&active, false), self.layout, now);
 						for (post, response) in active.iter().zip(responses) {
@@ -240,7 +258,18 @@ impl ForumUi {
 								open = Some(Open::Active(post.id));
 							}
 						}
-						posts_request = posts_footer(ui, state, forum);
+						if !placeholder {
+							posts_request = posts_footer(ui, state, forum);
+						}
+						// An archive request clears its page, so a loading archive lists nothing.
+						if archive_loading {
+							posts_placeholder(
+								ui,
+								"forum-archive-footer-loading-archived-posts",
+								self.layout,
+								Some(2),
+							);
+						}
 						let responses =
 							posts_view(ui, state, images, (&archived, true), self.layout, now);
 						for (post, response) in archived.iter().zip(responses) {
@@ -1811,14 +1840,11 @@ fn posts_view(
 			.map(|post| card(ui, state, images, post, flags(post), now))
 			.collect(),
 		Layout::Gallery => {
-			const GAP: f32 = 12.0;
-			let width = ui.available_width();
-			let columns = ((width + GAP) / (GALLERY_TILE + GAP)).floor().max(1.0) as usize;
-			let tile_width = ((width - GAP * (columns - 1) as f32) / columns as f32).floor();
+			let (columns, tile_width) = gallery_grid(ui.available_width());
 			let mut responses = Vec::with_capacity(posts.len());
 			for row in posts.chunks(columns) {
 				ui.horizontal_top(|ui| {
-					ui.spacing_mut().item_spacing.x = GAP;
+					ui.spacing_mut().item_spacing.x = POST_GAP;
 					for post in row {
 						responses.push(tile(
 							ui,
@@ -1832,6 +1858,114 @@ fn posts_view(
 				});
 			}
 			responses
+		}
+	}
+}
+
+/// Gallery columns for `width`, and the width of each tile.
+fn gallery_grid(width: f32) -> (usize, f32) {
+	let columns = ((width + POST_GAP) / (GALLERY_TILE + POST_GAP))
+		.floor()
+		.max(1.0) as usize;
+	let tile_width = ((width - POST_GAP * (columns - 1) as f32) / columns as f32).floor();
+	(columns, tile_width)
+}
+
+/// Bars for a post's title, latest message and stats, stacked from `origin`.
+fn post_text_bars(
+	painter: &egui::Painter,
+	fill: egui::Color32,
+	origin: egui::Pos2,
+	width: f32,
+	seed: usize,
+) {
+	let mut top = origin.y;
+	for (line, (height, share)) in [(14.0, 0.6), (12.0, 0.85), (12.0, 0.4)]
+		.into_iter()
+		.enumerate()
+	{
+		crate::skeleton::bar(
+			painter,
+			fill,
+			egui::pos2(origin.x, top),
+			egui::vec2(
+				width * share * crate::skeleton::width_factor(seed + line),
+				height,
+			),
+		);
+		top += height + 10.0;
+	}
+}
+
+/// Placeholder post cards, or gallery tiles, shaped like [`card`] and [`tile`] without their
+/// optional tags, reaction and starter image. `rows` of them, or as many as fit the view.
+/// `key` names the translated label.
+fn posts_placeholder(ui: &mut egui::Ui, key: &str, layout: Layout, rows: Option<usize>) {
+	let label = crate::i18n::translate(key);
+	let fit = |ui: &egui::Ui, pitch: f32| {
+		rows.unwrap_or_else(|| {
+			// Scroll contents have unbounded height; fill only what is in view.
+			let room = ui.clip_rect().bottom() - ui.cursor().top();
+			crate::skeleton::fitting_count(room, pitch, POST_GAP)
+		})
+	};
+	match layout {
+		Layout::List => {
+			let count = fit(ui, POST_CARD_HEIGHT + POST_GAP);
+			crate::skeleton::cards(
+				ui,
+				&label,
+				crate::skeleton::Card {
+					height: POST_CARD_HEIGHT,
+					avatar: 0.0,
+					gap: POST_GAP,
+					lines: 3,
+				},
+				count,
+			);
+		}
+		Layout::Gallery => {
+			let width = ui.available_width();
+			let (columns, tile_width) = gallery_grid(width);
+			let art = ((tile_width - 18.0) * 0.6).round();
+			let tile_height = art + POST_TILE_TEXT_HEIGHT;
+			let count = columns * fit(ui, tile_height + POST_GAP);
+			let size = egui::vec2(
+				width,
+				count.div_ceil(columns) as f32 * (tile_height + POST_GAP) - POST_GAP,
+			);
+			crate::skeleton::custom(ui, &label, size, |painter, rect, fill| {
+				for index in 0..count {
+					let (row, column) = (index / columns, index % columns);
+					let frame = egui::Rect::from_min_size(
+						rect.min
+							+ egui::vec2(
+								column as f32 * (tile_width + POST_GAP),
+								row as f32 * (tile_height + POST_GAP),
+							),
+						egui::vec2(tile_width, tile_height),
+					);
+					crate::skeleton::outline(painter, fill, frame, 8.0);
+					let inner = frame.shrink(9.0);
+					// Every tile leads with its art area, a stand-in when the post has no image.
+					crate::skeleton::block(
+						painter,
+						fill,
+						egui::Rect::from_min_size(inner.min, egui::vec2(inner.width(), art)),
+						8.0,
+					);
+					post_text_bars(
+						painter,
+						fill,
+						egui::pos2(
+							inner.left() + 6.0,
+							inner.top() + art + 8.0 + CARD_TAG_HEIGHT + 6.0,
+						),
+						inner.width() - 12.0,
+						index,
+					);
+				}
+			});
 		}
 	}
 }
@@ -1913,15 +2047,8 @@ fn archive_footer(
 				);
 			}
 		}
-		Some(view) if view.loading => {
-			ui.label(
-				RichText::new(crate::i18n::translate(
-					"forum-archive-footer-loading-archived-posts",
-				))
-				.size(13.0)
-				.color(colors.muted),
-			);
-		}
+		// Placeholder cards above stand in for the archive page while it loads.
+		Some(view) if view.loading => {}
 		Some(view) => {
 			if let Some(error) = view.error {
 				ui.label(RichText::new(error).size(13.0).color(colors.danger));

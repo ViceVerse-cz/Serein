@@ -407,6 +407,15 @@ message-request-title = Solicitud de mensaje
 ## crates/ui/src/channel_menu.rs
 # Context: context
 channel-menu-context-add-to-favorites = Agregar a favoritos
+channel-menu-context-remove-from-channel-list = Quitar de la lista de canales
+channel-menu-context-add-to-channel-list = Añadir a la lista de canales
+channel-browser-title = Explorar canales
+channel-browser-subtitle = Elige qué canales aparecen en tu lista de canales.
+channel-browser-show-all-channels = Mostrar todos los canales
+channel-browser-search = Buscar canales
+channel-browser-follow-category = Seguir categoría
+channel-browser-saving = Guardando…
+channel-browser-unavailable = Los ajustes de la lista de canales no están disponibles ahora.
 # Context: context
 channel-menu-context-copy-channel-id = Copiar ID de canal
 # Context: context
@@ -2413,8 +2422,6 @@ search-pane-hide-matching-text-highlight = Ocultar resaltado de texto coincident
 # Context: pane
 search-pane-indexing-is-incomplete-results-may-be-missing = La indexación está incompleta; Es posible que falten resultados.
 # Context: pane
-search-pane-looking-for-matching-messages = Buscando mensajes coincidentes.
-# Context: pane
 search-pane-messages-are-unavailable-while-disconnected-or-without-channel-access = Los mensajes no están disponibles mientras estás desconectado o sin acceso al canal.
 # Context: pane
 search-pane-newest-first = Lo nuevo primero
@@ -3604,6 +3611,8 @@ slash-commands-composer-choose-a-different-command = elige un comando diferente
 slash-commands-composer-command-unavailable-your-arguments-are-kept = Comando no disponible. Tus argumentos se mantienen.
 # Context: footer
 slash-commands-footer-refresh-application-commands = Actualizar comandos de la aplicación
+# Context: list
+slash-commands-list-loading-application-commands = Cargando comandos de aplicaciones…
 
 ## crates/ui/src/stickers.rs
 # Context: message

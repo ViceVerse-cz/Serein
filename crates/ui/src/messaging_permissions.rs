@@ -78,6 +78,63 @@ fn detail(ui: &mut egui::Ui, text: &str) {
 			.color(design::palette(ui).muted),
 	);
 }
+const SPAM_FILTERS: [(u32, &str, Option<&str>); 3] = [
+	(3, "Filter all spam", None),
+	(2, "Filter messages from non-friends", Some("Recommended")),
+	(1, "Don't filter spam", None),
+];
+const ALLOW_DMS: &str = "Allow DMs from other server members";
+const FILTER_REQUESTS: (&str, &str) = (
+	"Filter messages from server members I may not know",
+	"Move messages from people you may not know into Message Requests.",
+);
+const GUILD_PICKER_WIDTH: f32 = 260.0;
+
+fn spam_heading(ui: &mut egui::Ui) {
+	design::section(
+		ui,
+		&crate::i18n::translate(
+			"messaging-permissions-messaging-permissions-settings-automatically-filter-suspected-spam-messages",
+		),
+		Some(&crate::i18n::translate(
+			"messaging-permissions-messaging-permissions-settings-discord-can-filter-out-some-messages-that-contain-spam-these",
+		)),
+	);
+}
+
+/// The spam and DM cards while the preferences load: their real headings and titles, with
+/// the choices, server picker and switches stood in for at their loaded sizes.
+fn pending_cards(ui: &mut egui::Ui, nav: &mut Navigation) {
+	use crate::skeleton::form as pending;
+	let mut label = crate::i18n::translate(
+		"messaging-permissions-messaging-permissions-settings-loading-your-preferences",
+	);
+	nav.heading(ui, Tab::Spam);
+	design::card(ui, |ui| {
+		spam_heading(ui);
+		for (_, title, detail) in SPAM_FILTERS {
+			pending::radio(ui, &std::mem::take(&mut label), title, detail);
+		}
+	});
+	nav.heading(ui, Tab::DirectMessages);
+	design::card(ui, |ui| {
+		design::row(
+			ui,
+			"messaging-permissions-messaging-permissions-settings-server",
+			Some(
+				"messaging-permissions-messaging-permissions-settings-changes-apply-to-all-current-servers-and-set-the-default",
+			),
+			|ui| {
+				let width = ui.available_width().min(GUILD_PICKER_WIDTH);
+				pending::controls(ui, "", &[width], design::SELECT_HEIGHT);
+			},
+		);
+		design::card_divider(ui);
+		pending::switch(ui, "", ALLOW_DMS, None);
+		design::card_divider(ui);
+		pending::switch(ui, "", FILTER_REQUESTS.0, Some(FILTER_REQUESTS.1));
+	});
+}
 impl MessagingUi {
 	pub(super) fn messaging_permissions_settings(
 		&mut self,
@@ -126,16 +183,13 @@ impl MessagingUi {
 			});
 		}
 		let busy = state.messaging_permissions.pending;
-		if busy {
+		// Saving keeps its status line; the first load is sketched where the settings go.
+		if busy && state.messaging_permissions.snapshot.is_some() {
 			ui.horizontal(|ui| {
 				ui.add(egui::Spinner::new().size(14.0));
 				detail(
 					ui,
-					if state.messaging_permissions.snapshot.is_some() {
-						"messaging-permissions-messaging-permissions-settings-saving"
-					} else {
-						"messaging-permissions-messaging-permissions-settings-loading-your-preferences"
-					},
+					"messaging-permissions-messaging-permissions-settings-saving",
 				);
 			});
 		}
@@ -154,22 +208,17 @@ impl MessagingUi {
 			}
 		}
 		let Some(settings) = state.messaging_permissions.snapshot.as_ref() else {
+			if busy {
+				pending_cards(ui, nav);
+			}
 			return;
 		};
 		let mut change = None;
 		ui.add_enabled_ui(!busy, |ui| {
 			nav.heading(ui, Tab::Spam);
 			design::card(ui, |ui| {
-				design::section(
-					ui,
-					&crate::i18n::translate("messaging-permissions-messaging-permissions-settings-automatically-filter-suspected-spam-messages"),
-					Some(&crate::i18n::translate("messaging-permissions-messaging-permissions-settings-discord-can-filter-out-some-messages-that-contain-spam-these")),
-				);
-				for (value, label, hint) in [
-					(3, "Filter all spam", None),
-					(2, "Filter messages from non-friends", Some("Recommended")),
-					(1, "Don't filter spam", None),
-				] {
+				spam_heading(ui);
+				for (value, label, hint) in SPAM_FILTERS {
 					let selected = settings.spam_filter == value || (settings.spam_filter == 0 && value == 2);
 					if design::radio_row(ui, selected, label, hint).clicked() && !selected {
 						change = Some(Change::SpamFilter(value));
@@ -206,7 +255,7 @@ impl MessagingUi {
 					|ui| {
 						crate::design::Select::from_id_salt("messaging-permissions-guild")
 							.selected_text(label)
-							.width(ui.available_width().min(260.0))
+							.width(ui.available_width().min(GUILD_PICKER_WIDTH))
 							.height(280.0)
 							.show_ui(ui, |ui| {
 								ui.selectable_value(
@@ -222,14 +271,14 @@ impl MessagingUi {
 				);
 				design::card_divider(ui);
 				ui.add_enabled_ui(!all || state.guilds.len() <= MAX_GUILDS, |ui| {
-					if let Some(enabled) = toggle(ui, "Allow DMs from other server members", None, allow) {
+					if let Some(enabled) = toggle(ui, ALLOW_DMS, None, allow) {
 						change = Some(match nav.guild {
 							Some(id) => Change::AllowGuildDms(id, enabled),
 							None => Change::AllowAllDms { guilds: state.guilds.iter().map(|guild| guild.id).collect(), enabled },
 						});
 					}
 					design::card_divider(ui);
-					if let Some(enabled) = toggle(ui, "Filter messages from server members I may not know", Some("Move messages from people you may not know into Message Requests."), filter) {
+					if let Some(enabled) = toggle(ui, FILTER_REQUESTS.0, Some(FILTER_REQUESTS.1), filter) {
 						change = Some(match nav.guild {
 							Some(id) => Change::FilterGuildRequests(id, enabled),
 							None => Change::FilterAllRequests { guilds: state.guilds.iter().map(|guild| guild.id).collect(), enabled },

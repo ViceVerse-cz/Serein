@@ -409,6 +409,15 @@ message-request-title = 消息请求
 ## crates/ui/src/channel_menu.rs
 # Context: context
 channel-menu-context-add-to-favorites = 加入收藏
+channel-menu-context-remove-from-channel-list = 从频道列表中移除
+channel-menu-context-add-to-channel-list = 添加到频道列表
+channel-browser-title = 浏览频道
+channel-browser-subtitle = 选择要在频道列表中显示的频道。
+channel-browser-show-all-channels = 显示所有频道
+channel-browser-search = 搜索频道
+channel-browser-follow-category = 关注类别
+channel-browser-saving = 正在保存…
+channel-browser-unavailable = 频道列表设置暂时不可用。
 # Context: context
 channel-menu-context-copy-channel-id = 复制频道 ID
 # Context: context
@@ -2444,8 +2453,6 @@ search-pane-hide-matching-text-highlight = 隐藏匹配文字的高亮
 # Context: pane
 search-pane-indexing-is-incomplete-results-may-be-missing = 索引尚未完成，结果可能有遗漏。
 # Context: pane
-search-pane-looking-for-matching-messages = 正在查找匹配的消息。
-# Context: pane
 search-pane-messages-are-unavailable-while-disconnected-or-without-channel-access = 断线或无法访问频道时，消息不可用。
 # Context: pane
 search-pane-newest-first = 最新在前
@@ -3635,6 +3642,8 @@ slash-commands-composer-choose-a-different-command = 改选其他命令
 slash-commands-composer-command-unavailable-your-arguments-are-kept = 命令不可用。你的参数已保留。
 # Context: footer
 slash-commands-footer-refresh-application-commands = 刷新应用命令
+# Context: list
+slash-commands-list-loading-application-commands = 正在加载应用命令…
 
 ## crates/ui/src/stickers.rs
 # Context: message

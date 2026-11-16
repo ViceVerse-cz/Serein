@@ -165,7 +165,10 @@ impl StickersUi {
 				self.error = None;
 			}
 		}
-		if state.server_admin.pending {
+		// A first load shows placeholder cards where the catalog will be listed.
+		let placeholder =
+			crate::server_admin::first_load(state, state.server_admin.stickers.is_some());
+		if state.server_admin.pending && !placeholder {
 			ui.horizontal(|ui| {
 				ui.spinner();
 				ui.weak(crate::i18n::translate_if_key(
@@ -278,6 +281,9 @@ impl StickersUi {
 
 		ui.add_space(24.0);
 		let Some(catalog) = state.server_admin.stickers.as_ref() else {
+			if placeholder {
+				catalog_placeholder(ui);
+			}
 			return;
 		};
 		let count = catalog.items.len();
@@ -313,10 +319,10 @@ impl StickersUi {
 			});
 		} else {
 			let available = ui.available_width();
-			let columns = ((available / 190.0).floor() as usize).clamp(1, 4);
+			let columns = grid_columns(available);
 			egui::Grid::new("server-sticker-grid")
 				.num_columns(columns)
-				.spacing(egui::vec2(10.0, 10.0))
+				.spacing(egui::Vec2::splat(CARD_GAP))
 				.show(ui, |ui| {
 					for (index, row) in catalog.items.iter().enumerate() {
 						ui.push_id(row.sticker.id, |ui| {
@@ -326,16 +332,12 @@ impl StickersUi {
 								.corner_radius(10)
 								.inner_margin(10)
 								.show(ui, |ui| {
-									ui.set_width(
-										((available - 10.0 * (columns.saturating_sub(1)) as f32)
-											/ columns as f32 - 22.0)
-											.max(120.0),
-									);
+									ui.set_width(card_inner_width(available, columns));
 									ui.vertical_centered(|ui| {
 										avatars.sticker_image(
 											ui,
 											&row.sticker,
-											egui::Vec2::splat(104.0),
+											egui::Vec2::splat(ART),
 											state.demo,
 										);
 										ui.add(
@@ -366,7 +368,7 @@ impl StickersUi {
 											let button = icons::button(
 												ui,
 												icons::Icon::More,
-												22.0,
+												ACTIONS,
 												&crate::i18n::translate(
 													"server-stickers-show-sticker-actions",
 												),
@@ -554,6 +556,107 @@ impl StickersUi {
 			self.dialog = None;
 		}
 	}
+}
+
+/// Space between catalog cards, across and down.
+const CARD_GAP: f32 = 10.0;
+/// A catalog card's 10px inner margin and 1px stroke on both sides.
+const CARD_FRAME: f32 = 22.0;
+/// Side of a catalog card's sticker artwork.
+const ART: f32 = 104.0;
+/// The actions button under an editable sticker's name.
+const ACTIONS: f32 = 22.0;
+/// Rows of placeholder cards while the catalog loads.
+const PLACEHOLDER_ROWS: usize = 2;
+
+fn grid_columns(available: f32) -> usize {
+	((available / 190.0).floor() as usize).clamp(1, 4)
+}
+
+/// Content width of a catalog card in a grid of `columns`, inside its [`CARD_FRAME`].
+fn card_inner_width(available: f32, columns: usize) -> f32 {
+	((available - CARD_GAP * columns.saturating_sub(1) as f32) / columns as f32 - CARD_FRAME)
+		.max(120.0)
+}
+
+/// The catalog while its first load is pending: the section title, then a placeholder for its
+/// usage line and two rows of cards, laid out like [`design::section`] and the sticker grid.
+/// Cards show their frame, the in-flight artwork square and the name. They are as tall as an
+/// administrator's cards, whose uploader line and actions button the catalog lists too.
+fn catalog_placeholder(ui: &mut egui::Ui) {
+	let colors = design::palette(ui);
+	// Mirrors `design::section`'s title, help line and closing space; keep the two in sync.
+	ui.label(
+		design::medium(
+			ui,
+			crate::i18n::translate("server-stickers-show-your-stickers"),
+			16.0,
+		)
+		.color(colors.text_strong),
+	);
+	let spacing = ui.spacing().item_spacing.y;
+	let medium = design::medium_family(ui.ctx());
+	let (usage, name, uploader) = ui.fonts_mut(|fonts| {
+		(
+			fonts.row_height(&egui::FontId::proportional(13.0)),
+			fonts.row_height(&egui::FontId::new(14.0, medium)),
+			fonts.row_height(&egui::FontId::proportional(12.0)),
+		)
+	});
+	let available = ui.available_width();
+	let columns = grid_columns(available);
+	let card = egui::vec2(
+		card_inner_width(available, columns) + CARD_FRAME,
+		CARD_FRAME + ART + spacing + name + spacing + uploader + spacing + ACTIONS,
+	);
+	// The usage line, then `design::section`'s closing space before the grid.
+	let grid_top = usage + spacing + 6.0;
+	let size = egui::vec2(
+		available,
+		grid_top + PLACEHOLDER_ROWS as f32 * (card.y + CARD_GAP) - CARD_GAP,
+	);
+	crate::skeleton::custom(
+		ui,
+		&crate::i18n::translate("server-stickers-show-loading"),
+		size,
+		|painter, rect, fill| {
+			crate::skeleton::bar(
+				painter,
+				fill,
+				egui::pos2(rect.left(), rect.top() + (usage - 10.0) * 0.5),
+				egui::vec2(120.0, 10.0),
+			);
+			for index in 0..columns * PLACEHOLDER_ROWS {
+				let (row, column) = (index / columns, index % columns);
+				let frame = egui::Rect::from_min_size(
+					rect.min
+						+ egui::vec2(
+							column as f32 * (card.x + CARD_GAP),
+							grid_top + row as f32 * (card.y + CARD_GAP),
+						),
+					card,
+				);
+				crate::skeleton::outline(painter, fill, frame, 10.0);
+				let inner = frame.shrink(CARD_FRAME * 0.5);
+				// Artwork in flight paints this inset square.
+				let art = egui::Rect::from_min_size(
+					egui::pos2(inner.center().x - ART * 0.5, inner.top()),
+					egui::Vec2::splat(ART),
+				);
+				crate::skeleton::block(painter, fill, art.shrink(8.0), 8.0);
+				let width = inner.width() * 0.55 * crate::skeleton::width_factor(index);
+				crate::skeleton::bar(
+					painter,
+					fill,
+					egui::pos2(
+						inner.center().x - width * 0.5,
+						art.bottom() + spacing + (name - 12.0) * 0.5,
+					),
+					egui::vec2(width, 12.0),
+				);
+			}
+		},
+	);
 }
 
 fn valid_fields(name: &str, description: &str, tags: &str) -> bool {

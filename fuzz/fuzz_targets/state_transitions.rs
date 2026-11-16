@@ -42,6 +42,7 @@ fn ready() -> Event {
 				last_message: None,
 				message_count: None,
 				member_list_id: None,
+				user_limit: None,
 				tags: None,
 			})
 			.collect(),

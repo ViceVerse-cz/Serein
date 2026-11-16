@@ -425,6 +425,15 @@ message-request-title = Message request
 ## crates/ui/src/channel_menu.rs
 # Context: context
 channel-menu-context-add-to-favorites = Add To Favorites
+channel-menu-context-remove-from-channel-list = Remove from Channel List
+channel-menu-context-add-to-channel-list = Add to Channel List
+channel-browser-title = Browse Channels
+channel-browser-subtitle = Choose which channels appear in your channel list.
+channel-browser-show-all-channels = Show All Channels
+channel-browser-search = Search channels
+channel-browser-follow-category = Follow category
+channel-browser-saving = Saving…
+channel-browser-unavailable = Channel list settings are not available right now.
 # Context: context
 channel-menu-context-copy-channel-id = Copy Channel ID
 # Context: context
@@ -940,6 +949,8 @@ extensions-ui-card-body-by = by
 # Context: card_body
 extensions-ui-card-body-cleanup-pending = Cleanup pending
 # Context: card_body
+extensions-ui-card-body-details = Details
+# Context: card_body
 extensions-ui-card-body-enabled = Enabled
 # Context: card_body
 extensions-ui-card-body-finish-removing-this-extension-and-its-local-data = Finish removing this extension and its local data.
@@ -987,6 +998,34 @@ extensions-ui-consent-modal-unreviewed = Unreviewed
 extensions-ui-consent-modal-unreviewed-package-its-source-has-not-been-reviewed-for-the = Unreviewed package — its source has not been reviewed for the catalog.
 # Context: consent_modal
 extensions-ui-consent-modal-view-source = View source
+# Context: details_modal
+extensions-ui-details-modal-author = Author
+# Context: details_modal
+extensions-ui-details-modal-capabilities = Capabilities
+# Context: details_modal
+extensions-ui-details-modal-disable = Disable extension
+# Context: details_modal
+extensions-ui-details-modal-enable-to-use-tools = Enable this extension to use its settings and tools.
+# Context: details_modal
+extensions-ui-details-modal-license = License
+# Context: details_modal
+extensions-ui-details-modal-no-capabilities = No capabilities requested.
+# Context: details_modal
+extensions-ui-details-modal-no-description = No description provided.
+# Context: details_modal
+extensions-ui-details-modal-no-panel-actions = This extension declares no panel settings or tools.
+# Context: details_modal
+extensions-ui-details-modal-package-information-and-native-tools = Package details and native settings.
+# Context: details_modal
+extensions-ui-details-modal-plugin-id = Plugin ID
+# Context: details_modal
+extensions-ui-details-modal-review-enable = Review & enable
+# Context: details_modal
+extensions-ui-details-modal-retry-cleanup = Retry cleanup
+# Context: details_modal
+extensions-ui-details-modal-settings-and-tools = Settings & tools
+# Context: details_modal
+extensions-ui-details-modal-version = Version
 # Context: preview_image
 extensions-ui-preview-image-preview = Preview
 # Context: preview_image
@@ -2249,6 +2288,14 @@ reading-chat-reading-settings-hide-image-and-gif-links = Hide image and GIF link
 # Context: chat_reading_settings
 reading-chat-reading-settings-hide-standalone-links-when-their-image-or-gif-preview-is = Hide standalone links when their image or GIF preview is shown.
 # Context: chat_reading_settings
+reading-chat-reading-settings-hide-blocked-messages = Hide blocked users' messages
+# Context: chat_reading_settings
+reading-chat-reading-settings-hide-blocked-messages-description = Hide blocked authors from visible chat rows on this device. Messages stay on Discord, and unread/read state does not change.
+# Context: chat_reading_settings
+reading-chat-reading-settings-hide-ignored-messages = Also hide ignored users' messages
+# Context: chat_reading_settings
+reading-chat-reading-settings-hide-ignored-messages-description = Include ignored authors in the local filter. Unknown relationship state never hides a message.
+# Context: chat_reading_settings
 reading-chat-reading-settings-links = Links
 # Context: chat_reading_settings
 reading-chat-reading-settings-messages-and-media = Messages and media
@@ -2448,8 +2495,6 @@ search-pane-close = Close
 search-pane-hide-matching-text-highlight = Hide matching-text highlight
 # Context: pane
 search-pane-indexing-is-incomplete-results-may-be-missing = Indexing is incomplete; results may be missing.
-# Context: pane
-search-pane-looking-for-matching-messages = Looking for matching messages.
 # Context: pane
 search-pane-messages-are-unavailable-while-disconnected-or-without-channel-access = Messages are unavailable while disconnected or without channel access.
 # Context: pane
@@ -3640,6 +3685,8 @@ slash-commands-composer-choose-a-different-command = choose a different command
 slash-commands-composer-command-unavailable-your-arguments-are-kept = Command unavailable. Your arguments are kept.
 # Context: footer
 slash-commands-footer-refresh-application-commands = Refresh application commands
+# Context: list
+slash-commands-list-loading-application-commands = Loading application commands…
 
 ## crates/ui/src/stickers.rs
 # Context: message
