@@ -5103,6 +5103,36 @@ moderation-delete-week = 지난 7일
 moderation-confirm-timeout = 타임아웃
 # Context: moderation
 moderation-confirm-ban = 차단
+# Context: extensions_ui
+extensions-ui-card-body-details = 세부 정보
+# Context: extensions_ui
+extensions-ui-details-modal-author = 제작자
+# Context: extensions_ui
+extensions-ui-details-modal-capabilities = 권한
+# Context: extensions_ui
+extensions-ui-details-modal-disable = 확장 비활성화
+# Context: extensions_ui
+extensions-ui-details-modal-enable-to-use-tools = 이 확장의 설정과 도구를 사용하려면 활성화하세요.
+# Context: extensions_ui
+extensions-ui-details-modal-license = 라이선스
+# Context: extensions_ui
+extensions-ui-details-modal-no-capabilities = 요청한 권한이 없습니다.
+# Context: extensions_ui
+extensions-ui-details-modal-no-description = 제공된 설명이 없습니다.
+# Context: extensions_ui
+extensions-ui-details-modal-no-panel-actions = 이 확장은 패널 설정이나 도구를 선언하지 않습니다.
+# Context: extensions_ui
+extensions-ui-details-modal-package-information-and-native-tools = 패키지 세부 정보와 기본 설정입니다.
+# Context: extensions_ui
+extensions-ui-details-modal-plugin-id = 플러그인 ID
+# Context: extensions_ui
+extensions-ui-details-modal-retry-cleanup = 정리 다시 시도
+# Context: extensions_ui
+extensions-ui-details-modal-review-enable = 검토 후 활성화
+# Context: extensions_ui
+extensions-ui-details-modal-settings-and-tools = 설정 및 도구
+# Context: extensions_ui
+extensions-ui-details-modal-version = 버전
 
 # Context: reading_chat
 reading-chat-reading-settings-hide-blocked-messages = 차단한 사용자의 메시지 숨기기
