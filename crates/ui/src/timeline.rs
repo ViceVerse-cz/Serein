@@ -54,6 +54,10 @@ pub struct TimelineView {
 	pub(super) hide_media_links: bool,
 	pub(super) instant_scrolling: bool,
 	applied_hide_media_links: bool,
+	pub(super) hide_blocked_messages: bool,
+	pub(super) hide_ignored_messages: bool,
+	applied_hide_blocked_messages: bool,
+	applied_hide_ignored_messages: bool,
 	pub(super) compact_messages: bool,
 	applied_compact_messages: bool,
 	pub(super) gif_favorite: Option<model::Gif>,
@@ -1262,11 +1266,20 @@ fn dm_intro(
 	action
 }
 
-/// Loaded and private (ephemeral) messages of the selected conversation in id order, without
-/// blocked users' messages when `hide_blocked`.
+/// Main and thread-starter rows share the same opt-in presentation filter. Ignored authors are
+/// included only when the primary blocked filter is enabled, matching the dependent Chat control.
+fn message_visible(state: &State, author: Id, hide_blocked: bool, hide_ignored: bool) -> bool {
+	!(hide_blocked && state.user_blocked(author) == Some(true))
+		&& !(hide_blocked && hide_ignored && state.user_ignored(author) == Some(true))
+}
+
+/// Loaded and private (ephemeral) messages of the selected conversation in id order. The
+/// relationship filter is presentation-only and borrows existing bounded rows; unknown state
+/// never hides an author, and no per-message IDs or account lists are retained here.
 fn display_rows<'a>(
 	state: &'a State,
 	hide_blocked: bool,
+	hide_ignored: bool,
 ) -> impl Iterator<Item = &'a Message> + 'a {
 	let mut private: Vec<&Message> = state
 		.interactions
@@ -1284,7 +1297,7 @@ fn display_rows<'a>(
 		(Some(_), _) => shared.next(),
 		(None, _) => private.next(),
 	})
-	.filter(move |message| !hide_blocked || state.user_blocked(message.author.id) != Some(true))
+	.filter(move |message| message_visible(state, message.author.id, hide_blocked, hide_ignored))
 }
 /// A row payload, including retained deleted bodies and private command responses.
 fn display_message(state: &State, id: Id) -> Option<&Message> {
@@ -2499,6 +2512,8 @@ impl TimelineView {
 				double_click_reaction: self.double_click_reaction,
 				compact_messages: self.compact_messages,
 				hide_media_links: self.hide_media_links,
+				hide_blocked_messages: self.hide_blocked_messages,
+				hide_ignored_messages: self.hide_ignored_messages,
 				instant_scrolling: self.instant_scrolling,
 				suppressed_deleted_highlight: std::mem::take(
 					&mut self.suppressed_deleted_highlight,
@@ -2606,20 +2621,31 @@ impl TimelineView {
 			|| self.font_revision != font_revision
 			|| self.scale != scale
 			|| self.hide_media_links != self.applied_hide_media_links
+			|| self.hide_blocked_messages != self.applied_hide_blocked_messages
+			|| self.hide_ignored_messages != self.applied_hide_ignored_messages
 			|| self.compact_messages != self.applied_compact_messages;
 		let dimensions_changed = width_changed || content_dimensions_changed;
 		self.applied_hide_media_links = self.hide_media_links;
+		self.applied_hide_blocked_messages = self.hide_blocked_messages;
+		self.applied_hide_ignored_messages = self.hide_ignored_messages;
 		self.applied_compact_messages = self.compact_messages;
-		let hide_blocked = crate::interface_tweaks::on(
-			ui.ctx(),
-			extensions::InterfaceTweak::HiddenBlockedMessages,
-		);
-		// A thread's starter joins the rows only once the whole thread history is loaded, and
-		// like other rows is left out when its author is blocked and the tweak hides them.
+		// The extension tweak and the device preference are alternatives for the same filter; a
+		// plugin can only turn blocked rows off, and only the preference widens it to ignored
+		// authors.
+		let hide_blocked = self.hide_blocked_messages
+			|| crate::interface_tweaks::on(
+				ui.ctx(),
+				extensions::InterfaceTweak::HiddenBlockedMessages,
+			);
+		let hide_ignored = self.hide_blocked_messages && self.hide_ignored_messages;
+		// A thread's starter joins the rows only once the whole thread history is loaded. It
+		// follows the same local presentation filter as the conversation rows below.
 		let starter = state
 			.thread_starter()
 			.filter(|_| history_complete(state))
-			.filter(|m| !hide_blocked || state.user_blocked(m.author.id) != Some(true));
+			.filter(|message| {
+				message_visible(state, message.author.id, hide_blocked, hide_ignored)
+			});
 		let starter_id = starter.map(|m| m.id);
 		let intro_empty = state.timeline.display_iter().next().is_none()
 			&& !state
@@ -2634,7 +2660,11 @@ impl TimelineView {
 			// anchor or reintroduce estimates for already settled message geometry.
 			let mut fingerprint = DefaultHasher::new();
 			let mut previous = None;
-			for message in starter.into_iter().chain(display_rows(state, hide_blocked)) {
+			for message in
+				starter
+					.into_iter()
+					.chain(display_rows(state, hide_blocked, hide_ignored))
+			{
 				let deleted = state.timeline.is_deleted(message.id);
 				message.id.hash(&mut fingerprint);
 				row_key(message, previous, self.unread_boundary, state).hash(&mut fingerprint);
@@ -2679,7 +2709,7 @@ impl TimelineView {
 				.map(|_| INTRO)
 				.into_iter()
 				.chain(starter_id)
-				.chain(display_rows(state, hide_blocked).map(|message| message.id))
+				.chain(display_rows(state, hide_blocked, hide_ignored).map(|message| message.id))
 				.collect();
 			self.heights
 				.retain(|id, _| row_ids.binary_search(id).is_ok());
@@ -2698,7 +2728,7 @@ impl TimelineView {
 			let mut stale_heights = Vec::new();
 			self.rows = starter
 				.into_iter()
-				.chain(display_rows(state, hide_blocked))
+				.chain(display_rows(state, hide_blocked, hide_ignored))
 				.map(|m| {
 					let prior = previous;
 					let deleted = state.timeline.is_deleted(m.id);
@@ -5644,6 +5674,43 @@ mod tests {
 			egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| painted_labels(s, out)),
 			_ => {}
 		}
+	}
+
+	#[test]
+	fn relationship_filter_borrows_rows_without_changing_retained_messages() {
+		let mut state = loading_unread_channel(false);
+		state.demo = false;
+		let blocked = text_message(1);
+		let mut ignored = text_message(2);
+		ignored.author.id = Id(3);
+		let mut unknown = text_message(3);
+		unknown.author.id = Id(4);
+		assert_eq!(state.user_blocked(Id(4)), None);
+		for message in [blocked.clone(), ignored.clone(), unknown] {
+			state.timeline.insert(message, false, false).unwrap();
+		}
+		let ids = |state: &State, ignored_too| {
+			display_rows(state, true, ignored_too)
+				.map(|message| message.id)
+				.collect::<Vec<_>>()
+		};
+		assert_eq!(ids(&state, true), vec![Id(1), Id(2), Id(3)]);
+		state.apply(client_core::Envelope {
+			generation: state.generation,
+			event: client_core::Event::UserAction(client_core::user_actions::Event::Relationships(
+				Some(vec![(Id(2), true)]),
+			)),
+		});
+		state.apply(client_core::Envelope {
+			generation: state.generation,
+			event: client_core::Event::UserAction(client_core::user_actions::Event::Restrictions(
+				Some(vec![(ignored.author, "Ignored".into(), true)]),
+			)),
+		});
+		assert_eq!(ids(&state, false), vec![Id(2), Id(3)]);
+		assert_eq!(ids(&state, true), vec![Id(3)]);
+		assert_eq!(state.timeline.display_iter().count(), 3);
+		assert_eq!(state.user_blocked(Id(4)), Some(false));
 	}
 
 	#[test]
