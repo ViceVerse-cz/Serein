@@ -1568,7 +1568,7 @@ lib-ime-updates-text-cancel-edit = Anuluj edycję
 # Context: ime_updates_text
 lib-ime-updates-text-cancel-reply = Anuluj odpowiedź
 # Context: ime_updates_text
-lib-ime-updates-text-choose-drop-or-paste-files-ctrl-cmd-option-v-up = Wybierz, upuść lub wklej pliki (Ctrl/Cmd/Opcja+V). Do 10 plików i łącznie 500 MB; limity konta mogą być niższe. Wyślij rozpoczyna przesyłanie.
+lib-ime-updates-text-choose-drop-or-paste-files-ctrl-cmd-option-v-up = Wybierz, upuść lub wklej pliki (Ctrl/Cmd+V). Do 10 plików i łącznie 500 MB; limity konta mogą być niższe. Wyślij rozpoczyna przesyłanie.
 # Context: ime_updates_text
 lib-ime-updates-text-clear-this-draft = Wyczyść tę wersję roboczą
 # Context: ime_updates_text

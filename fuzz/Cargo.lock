@@ -34,7 +34,7 @@ checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
 
 [[package]]
 name = "client-core"
-version = "0.1.0"
+version = "0.1.1-nightly.20261116.1"
 dependencies = [
  "model",
  "session-cache",
@@ -50,7 +50,7 @@ checksum = "7cd812cc2bc1d69d4764bd80df88b4317eaef9e773c75226407d9bc0876b211c"
 
 [[package]]
 name = "discord-protocol"
-version = "0.1.0"
+version = "0.1.1-nightly.20261116.1"
 dependencies = [
  "base64",
  "model",
@@ -249,7 +249,7 @@ checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 
 [[package]]
 name = "model"
-version = "0.1.0"
+version = "0.1.1-nightly.20261116.1"
 dependencies = [
  "serde",
  "zeroize",
@@ -373,7 +373,7 @@ dependencies = [
 
 [[package]]
 name = "session-cache"
-version = "0.1.0"
+version = "0.1.1-nightly.20261116.1"
 dependencies = [
  "model",
 ]

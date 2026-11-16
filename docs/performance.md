@@ -4764,3 +4764,141 @@ executable is 100,095,064 bytes and its installed DEB payload is 229,958,269
 bytes. The release excludes demo support. Current package sizes and the normal
 packaging outcome are recorded in the PR; comparing this CI artifact with a
 local build is a footprint comparison, not a matched native performance test.
+
+## Composer and member lookup (November 17, 2026)
+
+Baseline: fork main `42ad076871757225fe50a4d8e4b3ab8bc5cfef30`. Native clipboard
+text now stays in the focused editor's input stream instead of waiting for a
+second clipboard read. Image preparation and explicit menu/file reads retain one
+bounded worker. Regression fixtures exercise selection replacement, Unicode,
+same-frame input ordering, independent undo/redo, forum fields and cancellation
+after the target changes. Context-menu Copy and Cut restore editor focus for the
+next frame, allowing typing, Undo and macOS word navigation without another click.
+
+Mention search starts its SQLite lookup immediately and retains the 350 ms live
+query debounce. Nickname matches rank ahead of account-name aliases; insertion
+still uses `<@user-id>`. Targeted cached names no longer disappear just because
+an unrelated live identity arrived during the read. Live clears, departures,
+access changes and bounded guard eviction remain covered by regressions. Changed
+display rows are also invalidated on disk before a coalesced save can lose them
+to RAM eviction. Cleanup is batched per event drain; a paused-worker fixture
+exercises 129 updates without filling the command queue or clearing message history.
+An in-flight lookup fenced by that cleanup retries in the current cache epoch
+within the existing retry limit; superseded and inaccessible queries stay rejected.
+
+The additional performance pass removes member-candidate collection from focused
+plain drafts and skips hashing user/role labels when the draft does not render
+them. A first typed or pasted `@` query still prepares candidates during the same
+composer callback. Existing wire mentions continue resolving cached names and
+refreshing after live nickname changes. No extra cache or repaint timer is added.
+
+The production `MessagingUi::composer` pressure fixture uses 200 member slots,
+500 retained messages from 600 seeded authors, 512 roles and a 900×700 egui
+viewport. The before binary was frozen from the working tree immediately before
+the candidate/hash changes; it already includes the initial paste/cache fixes.
+This isolates the additional optimization rather than comparing released builds.
+Both binaries use Rust
+1.98.1, the same unoptimized UI test profile and one logical CPU on the Linux
+host below. Compilation was paused during sampling. After one discarded warmup
+run, five alternating measured runs each contain five 200-callback batches per
+case, following 20 warmup callbacks. Values are medians of run medians of batch
+means, not individual-frame percentiles or presented-frame/input latency.
+
+| Debug composer case | Before (ms/callback) | After (ms/callback) | Change |
+| --- | ---: | ---: | ---: |
+| Focused plain draft | 1.340 | 0.661 | −50.7% |
+| Plain typing/backspace | 2.148 | 1.227 | −42.9% |
+| Typing with user/role mentions | 2.634 | 2.681 | +1.8% |
+| Active member query | 10.712 | 10.490 | −2.1% |
+
+Plain typing run medians ranged from 2.075–3.826 ms before and 1.212–1.265 ms
+after; focused plain drafts ranged from 1.259–1.642 and 0.634–0.702 ms. The two
+mention cases overlap and are controls, not claimed improvements. Frozen test
+binary SHA-256 values are
+`a8be2634db912a209cc3a6c33d64952a4424ad8439fe585e3087a96f66466fb8`
+and `17d0adfcbde89839eecb6d006e363c6cae97a87b28362834a79075f47a407b74`.
+This demonstrates less work in the targeted debug callback, not an equivalent
+percentage improvement for the released application or Windows input latency.
+
+The release reducer comparison used separate frozen binaries, Rust 1.98.1 and
+the same lockfile/profile on Linux x86_64, Xeon Platinum 8573C, CPU affinity 0.
+Other builds were paused during measurement. One warmup and five alternating
+single runs produced the following medians; these short workloads were noisy.
+
+| Release workload | Baseline (ms) | Changed (ms) |
+| --- | ---: | ---: |
+| Reducer | 95.347 | 100.065 |
+| Wide channels | 10.250 | 8.939 |
+| Member watch | 49.642 | 49.822 |
+| Member cache | 8.776 | 10.632 |
+
+To investigate the apparent regressions, one warmup and five alternating
+ten-run batches measured reducer 108.018 → 107.356 ms and member cache
+10.073 → 10.127 ms. The member-watch result instead rose from 50.688 to
+59.273 ms. A final control interleaved ten A/B pairs per batch, with one warmup
+and five measured batches: the identical baseline binary compared with itself
+measured 54.133 / 54.143 ms, while baseline/changed measured 53.943 / 52.227 ms.
+The timed watch/cache lookup bodies are unchanged. The conflicting runs do not
+establish a repeatable slowdown or a speedup; none is claimed. These are reducer
+timings, not native frame, input latency, memory or Discord response measurements.
+
+A separate native X11 debug-preview comparison against frozen fork main used the
+same 1120×760 fixture at 100% scale on Linux x86_64, one logical CPU, no builds
+running and one warmup plus five alternating fresh-process samples. Each process
+warmed for three seconds, sampled every 100 ms for five seconds and settled for
+two seconds. Median idle CPU was 12.78% → 12.18% of one core (−0.60 percentage
+points); median peak/settled RSS was 197,099,520 → 197,865,472 bytes (+0.39%).
+No child/helper process was present. This passes the two-percentage-point idle
+guard for this fixture, not a release or physical-GPU measurement. Native Windows
+and macOS UI/input latency remain unmeasured. Frozen preview SHA-256 values are
+`ea62de95e0cb30a147d96addfde68ef11b38a7b1f6900f731e7223614a913163`
+and `4de6e6f4ce24dbbd8105bb1f36e30c79f524c9c5bae1060b8ca743e848a1e4d7`.
+
+The before/after native synthetic conversation images show the corrected paste
+shortcut hint. They use the same fixture, viewport and theme and do not prove
+clipboard latency or live member synchronization. Native X11 inspection also
+covered the light theme at 150% scale and a narrow viewport. Keyboard Copy/Paste,
+Cut and Undo restored the expected synthetic draft; the screenshots before Cut
+and after Undo are pixel-identical. Real Windows/macOS clipboard,
+IME and live Discord acceptance remain owner-controlled. No third-party dependency, schema,
+permission or wire-format changes are included. The release updates first-party
+package versions and the existing version-scoped platform license exception;
+third-party dependency pins and SDK compatibility are unchanged.
+
+Final local verification passed Rust 1.98.1 formatting, strict Clippy and
+`cargo xtask check` (2,804 tests passed, 37 ignored, including doctests), login-handoff/workspace and
+package-policy checks, both license graphs and six license-policy fixtures.
+Bounded decoder/state fuzz smoke tests found no failures. The 120-second core
+soak completed 1,568 passes, 50,176 channel visits and seven logout cycles while
+asserting the existing budgets. Its throughput is not a performance comparison.
+The local fat-LTO application link was killed at the environment's memory limit;
+current-head normal packages and native results are tracked in the PR/release.
+The baseline security audit already fails on unchanged dependency advisories;
+that failure is not a passing check or a fix delivered by this patch.
+
+The delivery review applied the installed AntiSlop core, UI and comment checks
+to this patch, using the existing `docs/design.md` direction: a compact native
+conversation surface, retained theme tokens and no new animation. The following
+is scoped to changed controls; it is not an application-wide accessibility audit.
+
+- Hard gate PASS: no new assets, marketing claims, navigation or decorative UI.
+  The shortcut correction is localized across the existing 13 locales. Existing
+  native TextEdit/Button semantics, labels and theme colors are retained.
+- Functional gate PASS: `composer_context_menu_saves_cuts_and_gates_clipboard_requests`
+  clicks Copy, Cut, Paste and Select All, checks actual selection/clipboard commands
+  and subsequent typing/Undo. Native paste fixtures check Unicode replacement,
+  edit/forum limits, errors and stale targets. A controlled X11 clipboard-file
+  check also passed; no personal clipboard or authenticated session was used.
+- Keyboard/state gate PASS: focus fixtures cover expiry, another field, navigation
+  and macOS word movement. The first-`@` fixture prepares candidates immediately
+  and inserts the selected ID with Tab. Existing member-search loading, empty,
+  cooldown and retry behavior remains covered by the UI suite.
+- Purpose/liveliness gate PASS: the existing conversation and composer remain the
+  focal points (energy 1, rhythm 1, motion 1). This interaction repair adds no
+  gradients, icons, typefaces, layout templates, shadows or motion.
+- Evidence/craft gate PASS: the performance table identifies its real fixture,
+  profile, samples and limitations; the screenshot pair is explicitly synthetic.
+  All changed controls retain their purpose, selection and account boundaries.
+- Comment gate PASS: added comments explain clipboard snapshot ownership,
+  generation/epoch fences, bounded cleanup or focus timing. No decorative banners,
+  generic TODOs or step-by-step narration were introduced.

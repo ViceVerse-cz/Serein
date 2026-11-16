@@ -1569,7 +1569,7 @@ lib-ime-updates-text-cancel-edit = Отменить редактирование
 # Context: ime_updates_text
 lib-ime-updates-text-cancel-reply = Отменить ответ
 # Context: ime_updates_text
-lib-ime-updates-text-choose-drop-or-paste-files-ctrl-cmd-option-v-up = Выберите, перетащите или вставьте файлы (Ctrl/Cmd/Option+V). До 10 файлов общим объемом 500 МБ; лимиты счета могут быть ниже. Отправить запускает загрузку.
+lib-ime-updates-text-choose-drop-or-paste-files-ctrl-cmd-option-v-up = Выберите, перетащите или вставьте файлы (Ctrl/Cmd+V). До 10 файлов общим объемом 500 МБ; лимиты счета могут быть ниже. Отправить запускает загрузку.
 # Context: ime_updates_text
 lib-ime-updates-text-clear-this-draft = Очистить этот черновик
 # Context: ime_updates_text

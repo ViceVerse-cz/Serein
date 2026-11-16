@@ -320,32 +320,45 @@ impl Desktop {
 		let can_attach = self.state.selected.is_some_and(|channel| {
 			self.state.can_attach(channel) || self.state.can_attach_post(channel)
 		});
+		if let Some(paste) = &mut self.clipboard {
+			paste.follow(self.state.generation, self.state.selected);
+		}
 		if let Some(paste) = &self.clipboard
 			&& let Some(result) = paste.poll()
 		{
-			if paste.generation == self.state.generation
-				&& Some(paste.channel) == self.state.selected
-				&& self.state.user.is_some()
-				&& !self.messaging.has_edit_in(self.state.selected)
-			{
+			if paste.active() && self.state.user.is_some() {
+				let text_limit = if self.state.is_forum(paste.target.channel) {
+					client_core::MAX_CONTENT
+				} else {
+					self.state.content_limit()
+				};
 				match result {
+					Ok(clipboard::Content::Text(_))
+						if !self.messaging.paste_target_current(
+							&ctx,
+							&self.state,
+							&paste.target,
+						) =>
+					{
+						self.messaging.cancel_paste(&mut self.state);
+					}
 					Ok(clipboard::Content::Text(text))
-						if upload_allowed && can_attach && {
-							let draft = self
-								.state
-								.drafts
-								.get(&paste.channel)
-								.map_or("", String::as_str);
-							model::message_options::content(draft).0.chars().count()
-								+ text.chars().count() > self.state.content_limit()
-						} =>
+						if upload_allowed
+							&& can_attach && paste.target.text_attachment
+							&& !self.messaging.has_edit_in(self.state.selected)
+							&& model::message_options::content(
+								&paste.target.replacement(&text),
+							)
+							.0
+							.chars()
+							.count() > text_limit =>
 					{
 						// Text that cannot fit one message is attached as `message.txt`, like Discord.
 						if let Err(error) =
 							discord_api::upload::Source::pasted_text(text).and_then(|source| {
 								self.uploads.select_pasted(
-									paste.generation,
-									paste.channel,
+									paste.target.generation,
+									paste.target.channel,
 									vec![source],
 									self.runtime.handle(),
 									&ctx,
@@ -355,12 +368,15 @@ impl Desktop {
 						}
 					}
 					Ok(clipboard::Content::Text(text)) => {
-						self.messaging.pasted_text = Some((paste.channel, paste.target, text));
+						self.messaging.pasted_text = Some((paste.target.clone(), text));
 					}
-					Ok(clipboard::Content::File(source)) if upload_allowed && can_attach => {
+					Ok(clipboard::Content::File(source))
+						if upload_allowed
+							&& can_attach && !self.messaging.has_edit_in(self.state.selected) =>
+					{
 						if let Err(error) = self.uploads.select_pasted(
-							paste.generation,
-							paste.channel,
+							paste.target.generation,
+							paste.target.channel,
 							source,
 							self.runtime.handle(),
 							&ctx,
@@ -456,7 +472,11 @@ impl Desktop {
 		if let Some(result) = self.uploads.take_public_result() {
 			self.messaging.external_upload.complete(result);
 		}
-		self.messaging.upload_busy = self.uploads.busy() || self.clipboard.is_some();
+		self.messaging.upload_busy = self.uploads.busy()
+			|| self
+				.clipboard
+				.as_ref()
+				.is_some_and(clipboard::Paste::active);
 		self.messaging.attach_busy = !self.uploads.accepting();
 		self.messaging.attachment_loading = self.uploads.loading();
 		if let Some(notice) = self.uploads.take_notice() {
@@ -944,12 +964,11 @@ impl Desktop {
 				self.state.status = error;
 			}
 			if let Some(request) = self.messaging.attachment_paste_requested.take()
-				&& let Some(channel) = self.state.selected
+				&& request.target.generation == self.state.generation
+				&& Some(request.target.channel) == self.state.selected
 			{
 				if self.clipboard.is_none() {
 					self.clipboard = Some(clipboard::Paste::start(
-						self.state.generation,
-						channel,
 						request,
 						self.runtime.handle(),
 						&ctx,

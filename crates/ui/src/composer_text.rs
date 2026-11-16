@@ -29,6 +29,14 @@ pub(crate) struct Layout {
 }
 
 impl Layout {
+	pub(crate) fn cached_galley(&self, text: &str) -> Option<Arc<egui::Galley>> {
+		self.cache
+			.as_ref()
+			.map(|(_, galley)| galley)
+			.filter(|galley| galley.job.text == text)
+			.cloned()
+	}
+
 	#[cfg(any(test, debug_assertions))]
 	#[allow(clippy::too_many_arguments)]
 	pub fn galley(
@@ -95,13 +103,20 @@ impl Layout {
 				.as_secs() / 60)
 				.hash(&mut key);
 		}
-		for user in users {
-			user.id.hash(&mut key);
-			user.name.hash(&mut key);
+		if text
+			.match_indices("<@")
+			.any(|(start, _)| model::user_mention_prefix(&text[start..]).is_some())
+		{
+			for user in users {
+				user.id.hash(&mut key);
+				user.name.hash(&mut key);
+			}
 		}
-		for role in roles {
-			role.id.hash(&mut key);
-			role.name.hash(&mut key);
+		if text.contains("<@&") {
+			for role in roles {
+				role.id.hash(&mut key);
+				role.name.hash(&mut key);
+			}
 		}
 		for (start, _) in text.match_indices("<#") {
 			if let Some((id, _)) = model::channel_mention_prefix(&text[start..]) {
@@ -571,6 +586,83 @@ mod tests {
 			primary_guild: None,
 			cosmetics: None,
 		}]
+	}
+
+	#[test]
+	fn identity_names_invalidate_only_layouts_that_render_their_mentions() {
+		let state = test_support::demo_state();
+		let guild = state
+			.channel(state.selected.unwrap())
+			.unwrap()
+			.guild
+			.unwrap();
+		let mut roles = state.guild_roles(guild).unwrap().to_vec();
+		roles[0].id = model::Id(77);
+		roles[0].name = "Role name".into();
+		let mut users = users();
+		let ctx = egui::Context::default();
+		let mut avatars = Avatars::default();
+		let output = ctx.run_ui(Default::default(), |ui| {
+			for (text, renders_user, renders_role) in [
+				("Plain draft", false, false),
+				("<@42>", true, false),
+				("<@&77>", false, true),
+			] {
+				let mut layout = Layout::default();
+				layout.galley(
+					ui,
+					text,
+					300.0,
+					&users,
+					&roles,
+					&[],
+					false,
+					&mut avatars,
+					false,
+				);
+				let before = layout.cache.as_ref().unwrap().0;
+				users[0].name.push('x');
+				layout.galley(
+					ui,
+					text,
+					300.0,
+					&users,
+					&roles,
+					&[],
+					false,
+					&mut avatars,
+					false,
+				);
+				let after_user = layout.cache.as_ref().unwrap().0;
+				assert_eq!(before != after_user, renders_user);
+				if renders_user {
+					assert_eq!(
+						layout.inlines[0].label.as_ref().unwrap().job.text,
+						format!("@{}", users[0].name)
+					);
+				}
+				roles[0].name.push('x');
+				layout.galley(
+					ui,
+					text,
+					300.0,
+					&users,
+					&roles,
+					&[],
+					false,
+					&mut avatars,
+					false,
+				);
+				assert_eq!(after_user != layout.cache.as_ref().unwrap().0, renders_role);
+				if renders_role {
+					assert_eq!(
+						layout.inlines[0].label.as_ref().unwrap().job.text,
+						format!("@{}", roles[0].name)
+					);
+				}
+			}
+		});
+		output.drop_without_applying_deltas();
 	}
 
 	#[test]

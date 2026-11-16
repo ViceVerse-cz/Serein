@@ -1579,7 +1579,7 @@ lib-ime-updates-text-cancel-edit = Zrušit úpravu
 # Context: ime_updates_text
 lib-ime-updates-text-cancel-reply = Zrušit odpověď
 # Context: ime_updates_text
-lib-ime-updates-text-choose-drop-or-paste-files-ctrl-cmd-option-v-up = Vyberte, přetáhněte nebo vložte soubory (Ctrl/Cmd/Option+V). Až 10 souborů a celkem 500 MB; limity účtu mohou být nižší. Odeslat spustí nahrávání.
+lib-ime-updates-text-choose-drop-or-paste-files-ctrl-cmd-option-v-up = Vyberte, přetáhněte nebo vložte soubory (Ctrl/Cmd+V). Až 10 souborů a celkem 500 MB; limity účtu mohou být nižší. Odeslat spustí nahrávání.
 # Context: ime_updates_text
 lib-ime-updates-text-clear-this-draft = Vymazat tento koncept
 # Context: ime_updates_text

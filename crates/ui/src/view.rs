@@ -7,6 +7,7 @@ use super::{
 
 impl MessagingUi {
 	pub fn show(&mut self, ui: &mut egui::Ui, state: &mut State) -> Vec<Command> {
+		self.retire_menu_paste(state);
 		message_menu::set_owner(
 			ui.ctx(),
 			message_menu::Owner {
@@ -866,7 +867,7 @@ impl MessagingUi {
 						[forum::title_id(), forum::body_id()]
 							.into_iter()
 							.find(|id| {
-								self.menu_paste == Some(*id)
+								self.menu_paste.is_some_and(|(_, _, field)| field == *id)
 									|| ui.ctx().memory(|m| m.has_focus(*id))
 							}) {
 						let ctx = ui.ctx().clone();
@@ -1839,6 +1840,7 @@ impl MessagingUi {
 		if !commands.is_empty() {
 			ctx.request_repaint();
 		}
+		self.retire_menu_paste(state);
 		commands
 	}
 }

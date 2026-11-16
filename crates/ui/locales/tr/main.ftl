@@ -1569,7 +1569,7 @@ lib-ime-updates-text-cancel-edit = Düzenlemeyi iptal et
 # Context: ime_updates_text
 lib-ime-updates-text-cancel-reply = Cevabı iptal et
 # Context: ime_updates_text
-lib-ime-updates-text-choose-drop-or-paste-files-ctrl-cmd-option-v-up = Dosyaları seçin, bırakın veya yapıştırın (Ctrl/Cmd/Option+V). En fazla 10 dosya ve toplam 500 MB; hesap limitleri daha düşük olabilir. Gönder, yüklemeyi başlatır.
+lib-ime-updates-text-choose-drop-or-paste-files-ctrl-cmd-option-v-up = Dosyaları seçin, bırakın veya yapıştırın (Ctrl/Cmd+V). En fazla 10 dosya ve toplam 500 MB; hesap limitleri daha düşük olabilir. Gönder, yüklemeyi başlatır.
 # Context: ime_updates_text
 lib-ime-updates-text-clear-this-draft = Bu taslağı temizle
 # Context: ime_updates_text

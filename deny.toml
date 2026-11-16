@@ -24,7 +24,7 @@ allow = [
 # The user-approved GPL webcam compute shader is distributed with its source.
 [[licenses.exceptions]]
 name = "platform"
-version = "=0.1.0"
+version = "=0.1.1-nightly.20261116.1"
 allow = ["MIT", "Apache-2.0", "GPL-2.0-or-later"]
 
 # Existing MPL components retain their source/notice obligations. The modified

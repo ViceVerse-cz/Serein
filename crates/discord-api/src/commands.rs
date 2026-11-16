@@ -785,9 +785,10 @@ impl DiscordApi {
 				result: self.own_server_profile(user, guild, edit).await,
 			}),
 			Command::CancelProfile => Event::Failure(Failure::Protocol),
-			Command::MemberSearch(_) | Command::Voice(_) | Command::Members { .. } => {
-				Event::Failure(Failure::Protocol)
-			}
+			Command::MemberSearch(_)
+			| Command::MemberSearchLocal(_)
+			| Command::Voice(_)
+			| Command::Members { .. } => Event::Failure(Failure::Protocol),
 			Command::History {
 				channel,
 				before,

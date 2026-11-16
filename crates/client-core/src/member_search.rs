@@ -45,6 +45,8 @@ pub struct View {
 	/// Omitted fields and explicit global-name clears in the retained rows.
 	pub(crate) missing_identity: Vec<model::MissingMemberFields>,
 	pub finished: bool,
+	/// A prepared composer query has only requested local display hints so far.
+	pub local_only: bool,
 	pub error: Option<&'static str>,
 	pub cooldown_until: Option<std::time::Instant>,
 	/// Avoid repaint-driven retries while still allowing an incomplete batch to recover.
@@ -65,6 +67,40 @@ impl View {
 	}
 }
 impl State {
+	/// Prepare a correlated local lookup immediately, before the live-query debounce.
+	pub fn prepare_member_search(
+		&mut self,
+		channel: Id,
+		query: &str,
+		slot: usize,
+	) -> Option<Command> {
+		let Command::MemberSearch(request) = self.search_members(channel, query, slot)? else {
+			return None;
+		};
+		self.member_search[slot].local_only = true;
+		Some(Command::MemberSearchLocal(request))
+	}
+
+	pub fn dispatch_member_search(&mut self, request: &Request) -> Option<Command> {
+		if !request.valid()
+			|| self.selected != Some(request.channel)
+			|| !self.gateway_connected
+			|| !self.can_view(request.channel)
+			|| self
+				.channel(request.channel)
+				.and_then(|channel| channel.guild)
+				!= Some(request.guild)
+			|| self.member_search[request.slot].request.as_ref() != Some(request)
+			|| !self.member_search[request.slot].local_only
+		{
+			return None;
+		}
+		// Live ordering begins at dispatch; the earlier disk lookup keeps its own snapshot.
+		self.member_search[request.slot].identity_revision = self.member_labels.revision();
+		self.member_search[request.slot].local_only = false;
+		Some(Command::MemberSearch(request.clone()))
+	}
+
 	pub(crate) fn refresh_member_labels(&mut self, list: &model::MemberList) {
 		self.member_labels.refresh(list);
 		if self
@@ -370,6 +406,7 @@ impl State {
 			|| !self.gateway_connected
 			|| !self.can_view(request.channel)
 			|| self.member_search[request.slot].request.as_ref() != Some(&request)
+			|| self.member_search[request.slot].local_only
 			|| self.member_search[request.slot].finished
 		{
 			return;
@@ -402,6 +439,7 @@ impl State {
 			|| !self.can_view(request.channel)
 			|| self.channel(request.channel).and_then(|c| c.guild) != Some(request.guild)
 			|| self.member_search[request.slot].request.as_ref() != Some(&request)
+			|| self.member_search[request.slot].local_only
 		{
 			return;
 		}

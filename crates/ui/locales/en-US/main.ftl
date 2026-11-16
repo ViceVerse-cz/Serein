@@ -1583,7 +1583,7 @@ lib-ime-updates-text-cancel-edit = Cancel edit
 # Context: ime_updates_text
 lib-ime-updates-text-cancel-reply = Cancel reply
 # Context: ime_updates_text
-lib-ime-updates-text-choose-drop-or-paste-files-ctrl-cmd-option-v-up = Choose, drop, or paste files (Ctrl/Cmd/Option+V). Up to 10 files and 500 MB total; account limits may be lower. Send starts the upload.
+lib-ime-updates-text-choose-drop-or-paste-files-ctrl-cmd-option-v-up = Choose, drop, or paste files (Ctrl/Cmd+V). Up to 10 files and 500 MB total; account limits may be lower. Send starts the upload.
 # Context: ime_updates_text
 lib-ime-updates-text-clear-this-draft = Clear this draft
 # Context: ime_updates_text

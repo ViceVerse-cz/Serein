@@ -2,7 +2,6 @@
 use discord_api::upload::Source;
 use eframe::egui;
 use image::ImageEncoder;
-use model::Id;
 use std::sync::mpsc;
 
 pub enum Content {
@@ -11,21 +10,18 @@ pub enum Content {
 }
 
 pub struct Paste {
-	pub generation: u64,
-	pub channel: Id,
-	pub target: egui::Id,
+	pub target: ui::PasteTarget,
+	retired: bool,
 	result: mpsc::Receiver<Result<Content, &'static str>>,
 }
 
 impl Paste {
 	pub fn start(
-		generation: u64,
-		channel: Id,
 		request: ui::AttachmentPaste,
 		runtime: &tokio::runtime::Handle,
 		context: &egui::Context,
 	) -> Self {
-		let target = request.target;
+		let target = request.target.clone();
 		let (send, result) = mpsc::sync_channel(1);
 		let context = context.clone();
 		runtime.spawn(async move {
@@ -65,11 +61,19 @@ impl Paste {
 			context.request_repaint();
 		});
 		Self {
-			generation,
-			channel,
 			target,
+			retired: false,
 			result,
 		}
+	}
+
+	pub fn follow(&mut self, generation: u64, channel: Option<model::Id>) {
+		self.retired |=
+			self.target.generation != generation || Some(self.target.channel) != channel;
+	}
+
+	pub fn active(&self) -> bool {
+		!self.retired
 	}
 
 	pub fn poll(&self) -> Option<Result<Content, &'static str>> {
@@ -87,15 +91,12 @@ enum Read {
 }
 
 fn read(request: ui::AttachmentPaste) -> Result<Read, &'static str> {
-	let mut clipboard = match arboard::Clipboard::new() {
-		Ok(clipboard) => clipboard,
-		Err(_) => {
-			// egui already transferred text/image clipboard data through the focused
-			// Wayland surface. Do not make that data depend on arboard's headless
-			// data-control backend, which may be unavailable in a sandbox.
-			return supplied_content(request).ok_or("Clipboard unavailable")?;
-		}
-	};
+	// A native Paste/PasteImage is already a snapshot of the user's action. The
+	// clipboard may have another owner by the time this worker runs.
+	if request.text.is_some() || request.image.is_some() {
+		return supplied_content(request).expect("supplied clipboard snapshot");
+	}
+	let mut clipboard = arboard::Clipboard::new().map_err(|_| "Clipboard unavailable")?;
 	match clipboard.get().file_list() {
 		Ok(paths) if !paths.is_empty() => {
 			if paths.len() > discord_api::upload::MAX_FILES {
@@ -111,33 +112,22 @@ fn read(request: ui::AttachmentPaste) -> Result<Read, &'static str> {
 			return Ok(Read::Paths(paths));
 		}
 		Err(arboard::Error::ContentNotAvailable) | Ok(_) => {}
-		Err(_) => {
-			return match supplied_content(request) {
-				Some(content) => content,
-				None => Err("Could not read copied files; paste again"),
-			};
-		}
-	}
-	if let Some(image) = request.image {
-		return supplied_image(image);
+		Err(_) => return Err("Could not read copied files; paste again"),
 	}
 	if let Ok(image) = clipboard.get_image() {
 		return png(&image.bytes, image.width, image.height);
 	}
-	if let Some(text) = request.text.or_else(|| clipboard.get_text().ok()) {
+	if let Ok(text) = clipboard.get_text() {
 		return supplied_text(text);
 	}
-	let image = clipboard
-		.get_image()
-		.map_err(|_| "Copy a file, image, or text before pasting")?;
-	png(&image.bytes, image.width, image.height)
+	Err("Copy a file, image, or text before pasting")
 }
 
 fn supplied_content(request: ui::AttachmentPaste) -> Option<Result<Read, &'static str>> {
-	if let Some(image) = request.image {
-		return Some(supplied_image(image));
+	if let Some(text) = request.text {
+		return Some(supplied_text(text));
 	}
-	request.text.map(supplied_text)
+	request.image.map(supplied_image)
 }
 
 fn supplied_image(image: std::sync::Arc<egui::ColorImage>) -> Result<Read, &'static str> {
@@ -201,6 +191,17 @@ fn png(bytes: &[u8], width: usize, height: usize) -> Result<Read, &'static str> 
 
 #[cfg(test)]
 mod tests {
+	fn target() -> ui::PasteTarget {
+		ui::PasteTarget {
+			generation: 7,
+			channel: model::Id(10),
+			widget: eframe::egui::Id::unique("paste"),
+			text: String::new(),
+			cursor: None,
+			text_attachment: true,
+		}
+	}
+
 	#[test]
 	#[cfg(unix)]
 	fn uri_list_paths_lose_line_endings_and_localhost() {
@@ -222,7 +223,7 @@ mod tests {
 		let mut clipboard = arboard::Clipboard::new().unwrap();
 		clipboard.set().file_list(&[&file]).unwrap();
 		let request = ui::AttachmentPaste {
-			target: eframe::egui::Id::unique("paste"),
+			target: target(),
 			text: None,
 			image: None,
 		};
@@ -251,15 +252,53 @@ mod tests {
 	#[test]
 	fn supplied_text_is_prepared_without_an_os_clipboard() {
 		let request = ui::AttachmentPaste {
-			target: eframe::egui::Id::unique("paste"),
+			target: target(),
 			text: Some("line one\r\nline two".into()),
 			image: None,
 		};
-		let super::Read::Content(super::Content::Text(text)) =
-			super::supplied_content(request).unwrap().unwrap()
-		else {
+		let super::Read::Content(super::Content::Text(text)) = super::read(request).unwrap() else {
 			panic!("Expected supplied clipboard text")
 		};
 		assert_eq!(text, "line one\nline two");
+	}
+
+	#[test]
+	fn supplied_image_is_prepared_without_rereading_the_clipboard() {
+		let image = std::sync::Arc::new(eframe::egui::ColorImage::filled(
+			[1, 1],
+			eframe::egui::Color32::RED,
+		));
+		let request = ui::AttachmentPaste {
+			target: target(),
+			text: None,
+			image: Some(image),
+		};
+		let super::Read::Content(super::Content::File(sources)) = super::read(request).unwrap()
+		else {
+			panic!("Expected the supplied image snapshot");
+		};
+		assert_eq!(sources.len(), 1);
+		assert_eq!(sources[0].filename(), "pasted-image.png");
+	}
+
+	#[test]
+	fn leaving_a_paste_target_retires_it_even_after_returning() {
+		for account_change in [false, true] {
+			let (_send, result) = std::sync::mpsc::sync_channel(1);
+			let mut paste = super::Paste {
+				target: target(),
+				retired: false,
+				result,
+			};
+			paste.follow(7, Some(model::Id(10)));
+			assert!(paste.active());
+			if account_change {
+				paste.follow(8, Some(model::Id(10)));
+			} else {
+				paste.follow(7, Some(model::Id(11)));
+			}
+			paste.follow(7, Some(model::Id(10)));
+			assert!(!paste.active());
+		}
 	}
 }

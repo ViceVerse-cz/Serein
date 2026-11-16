@@ -13,6 +13,8 @@ use std::{
 const QUEUE_BYTES: usize = 48 * 1024 * 1024;
 const WINDOW_BYTES: usize = 4 * 1024 * 1024;
 const SYNC_QUEUE_BYTES: usize = 8 * 1024 * 1024;
+/// Reliable events plus the bounded typing and confirmation lanes drained in one pass.
+pub const MEMBER_DISPLAY_CLEANUP_LIMIT: usize = client_core::EVENT_SLOTS + 9;
 
 struct Budget {
 	limit: usize,
@@ -174,6 +176,7 @@ pub enum Operation {
 		guild: Id,
 		user: Option<Id>,
 	},
+	RemoveMemberDisplays(Vec<(Id, Id)>),
 	ClearChannel {
 		channel: Id,
 	},
@@ -577,14 +580,16 @@ pub fn member_observation_guild(event: &client_core::Event) -> Option<Id> {
 }
 
 /// Preserve only a bounded target while the reducer validates the event.
-pub fn nickname_target(event: &client_core::Event) -> Option<(Id, Id)> {
+pub fn member_display_target(event: &client_core::Event) -> Option<(Id, Id)> {
 	let update = match event {
 		client_core::Event::MemberIdentity(update) => Some(update.as_ref()),
 		client_core::Event::Typing(signal) => signal.member.as_deref(),
 		_ => None,
 	}?;
-	(!update.departed && update.valid() && !matches!(update.nick, model::Patch::Absent))
-		.then_some((update.guild, update.user))
+	(!update.departed
+		&& update.valid()
+		&& (update.profile.is_some() || !matches!(update.nick, model::Patch::Absent)))
+	.then_some((update.guild, update.user))
 }
 
 pub fn departed_member_target(
@@ -601,16 +606,87 @@ pub fn departed_member_target(
 	}
 }
 
-/// A partial accepted nickname update cannot leave a stale complete row on disk.
-pub fn incomplete_nickname_cleanup(
+/// An accepted display change cannot leave its older disk row behind. A complete
+/// observation can be evicted before the next coalesced save snapshots it.
+pub fn changed_member_display_cleanup(
 	state: &client_core::State,
 	target: Option<(Id, Id)>,
 	before: u64,
 ) -> Option<(Id, Id)> {
 	let (guild, user) = target?;
-	(before != state.member_display_cache_revision()
-		&& !state.has_cached_member_display(guild, user))
-	.then_some((guild, user))
+	(before != state.member_display_cache_revision()).then_some((guild, user))
+}
+
+/// One bounded cleanup per event drain, with an explicit account for a scope handoff.
+#[derive(Default)]
+pub struct MemberDisplayCleanup {
+	scope: Option<(u64, Id)>,
+	targets: Vec<(Id, Id)>,
+}
+impl MemberDisplayCleanup {
+	pub fn observe(
+		&mut self,
+		state: &client_core::State,
+		target: Option<(Id, Id)>,
+		before: u64,
+	) -> Option<(u64, Id, Operation)> {
+		let scope = state.user.as_ref().map(|user| (state.generation, user.id));
+		let target = changed_member_display_cleanup(state, target, before);
+		let distinct = target.is_some_and(|target| !self.targets.contains(&target));
+		let ready = if self.scope != scope
+			|| (distinct && self.targets.len() == MEMBER_DISPLAY_CLEANUP_LIMIT)
+		{
+			self.take()
+		} else {
+			None
+		};
+		self.scope = scope;
+		if scope.is_some()
+			&& let Some(target) = target
+			&& !self.targets.contains(&target)
+		{
+			self.targets.push(target);
+		}
+		ready
+	}
+	pub fn take(&mut self) -> Option<(u64, Id, Operation)> {
+		let (generation, account) = self.scope.take()?;
+		(!self.targets.is_empty()).then(|| {
+			(
+				generation,
+				account,
+				Operation::RemoveMemberDisplays(std::mem::take(&mut self.targets)),
+			)
+		})
+	}
+}
+
+fn valid_member_display_cleanup(targets: &[(Id, Id)]) -> bool {
+	!targets.is_empty()
+		&& targets.len() <= MEMBER_DISPLAY_CLEANUP_LIMIT
+		&& targets
+			.iter()
+			.all(|(guild, user)| guild.0 != 0 && user.0 != 0)
+}
+
+fn remove_member_display_targets(
+	store: &mut LocalStore,
+	account: Id,
+	targets: &[(Id, Id)],
+) -> Result<(), StoreError> {
+	if !valid_member_display_cleanup(targets) {
+		return Err(StoreError::Capacity);
+	}
+	let mut guilds: BTreeMap<Id, Vec<Id>> = BTreeMap::new();
+	for &(guild, user) in targets {
+		guilds.entry(guild).or_default().push(user);
+	}
+	for (guild, users) in guilds {
+		for chunk in users.chunks(100) {
+			store.remove_member_displays(account, guild, chunk)?;
+		}
+	}
+	Ok(())
 }
 
 /// Admission state only: GIF contents remain in the bounded account-scoped state.
@@ -925,6 +1001,12 @@ impl Cache {
 			_ => 0,
 		};
 		let ids = match &operation {
+			Operation::RemoveMemberDisplays(targets) => {
+				if !valid_member_display_cleanup(targets) {
+					return false;
+				}
+				targets.capacity() * size_of::<(Id, Id)>()
+			}
 			Operation::SyncSaveMembers { missing, .. } => missing.capacity() * size_of::<Id>(),
 			Operation::SyncReconcileMembers { users, .. } => users.capacity() * size_of::<Id>(),
 			Operation::LoadServers { guilds, .. } => {
@@ -1231,6 +1313,7 @@ fn cache_write_reservation(operation: &Operation) -> Option<u64> {
 		| Operation::ClearChannel { .. }
 		| Operation::RemoveServer { .. }
 		| Operation::RemoveMember { .. }
+		| Operation::RemoveMemberDisplays(_)
 		| Operation::ClearExpressions { .. }
 		| Operation::Forget => return Some(64 * 1024 * 1024),
 		Operation::SaveAppPreferences(_)
@@ -1957,6 +2040,7 @@ fn execute(
 		operation,
 		Operation::ClearChannel { .. }
 			| Operation::RemoveMember { .. }
+			| Operation::RemoveMemberDisplays(_)
 			| Operation::ClearExpressions { .. }
 			| Operation::RemoveServer { .. }
 	);
@@ -1967,6 +2051,7 @@ fn execute(
 			| Operation::Forget
 			| Operation::ClearChannel { .. }
 			| Operation::RemoveMember { .. }
+			| Operation::RemoveMemberDisplays(_)
 			| Operation::ClearExpressions { .. }
 			| Operation::RemoveServer { .. }
 	);
@@ -1983,6 +2068,7 @@ fn execute(
 		}
 		Operation::ClearChannel { .. }
 		| Operation::RemoveMember { .. }
+		| Operation::RemoveMemberDisplays(_)
 		| Operation::ClearExpressions { .. } => {
 			"Could not remove inaccessible cached data; history cache disabled until restart"
 		}
@@ -2129,6 +2215,9 @@ fn execute(
 					.and_then(|()| store.clear_expression_guild(account, guild)),
 			}
 			.map(|_| Outcome::Saved),
+			Operation::RemoveMemberDisplays(targets) => {
+				remove_member_display_targets(store, account, &targets).map(|_| Outcome::Saved)
+			}
 			Operation::ClearChannel { channel } => store
 				.clear_channel_history(account, channel)
 				.map(|_| Outcome::Saved),
@@ -4368,6 +4457,242 @@ mod tests {
 		assert!(!state.member_search[1].finished);
 	}
 	#[test]
+	fn cleanup_epoch_retries_the_current_local_query_without_hydrating_the_old_read() {
+		let mut state = test_support::demo_state();
+		state.demo = false;
+		state.auth = client_core::auth::AuthState::Authenticated;
+		state.gateway_connected = true;
+		let channel = state.selected.unwrap();
+		let guild = state.channel(channel).unwrap().guild.unwrap();
+		let account = state.user.as_ref().unwrap().id;
+		let generation = state.generation;
+		let (send, commands) = mpsc::sync_channel(16);
+		let (_, receive) = mpsc::sync_channel(16);
+		let cache = Cache {
+			send,
+			receive,
+			budget: Arc::new(Budget::default()),
+			sync_budget: Arc::new(Budget {
+				limit: SYNC_QUEUE_BYTES,
+				..Budget::default()
+			}),
+			protected_history: Arc::new(Mutex::new(HistoryPins::default())),
+			history: Arc::new(HistorySafety::default()),
+		};
+		let mut store = member_hint_store(account);
+		let client_core::Command::MemberSearchLocal(request) =
+			state.prepare_member_search(channel, "Cached", 0).unwrap()
+		else {
+			panic!("local query");
+		};
+		let revision = state.member_display_revision();
+		let read_epoch = cache.history.epoch();
+		let Outcome::MemberDisplaysFound {
+			result: Ok(old_rows),
+			..
+		} = execute(
+			&mut store,
+			&cache.history,
+			account,
+			read_epoch,
+			Operation::FindMemberDisplays {
+				request: request.clone(),
+				revision,
+				visible: false,
+			},
+		)
+		else {
+			panic!("old local read");
+		};
+		assert_eq!(old_rows.len(), 1);
+		let mut search = super::super::member_cache_search::Search::default();
+		search.sync_scope((generation, account));
+		let mut profile = state.user.as_ref().unwrap().clone();
+		profile.id = Id(900001);
+		let event = client_core::Event::MemberIdentity(Box::new(model::MemberIdentity {
+			guild,
+			user: profile.id,
+			profile: Some(profile),
+			global_name: model::GlobalNameUpdate::Set,
+			avatar: model::Patch::Absent,
+			nick: model::Patch::Value("Unrelated changed nickname".into()),
+			roles: model::Patch::Absent,
+			departed: false,
+		}));
+		let target = member_display_target(&event);
+		let before = state.member_display_cache_revision();
+		state.apply(client_core::Envelope { generation, event });
+		let mut cleanup = MemberDisplayCleanup::default();
+		assert!(cleanup.observe(&state, target, before).is_none());
+		let (generation, owner, operation) = cleanup.take().unwrap();
+		assert!(cache.invalidate_scope(generation, owner, operation));
+		assert!(!cache.history.allows(read_epoch));
+		assert!(search.retry_epoch(
+			&state,
+			generation,
+			&request,
+			read_epoch,
+			cache.history.epoch()
+		));
+		drop(old_rows);
+		assert_eq!(state.member_nickname(channel, Id(900000)), None);
+		let (_, owner, epoch, operation, _reservation) = commands.try_recv().unwrap();
+		assert!(matches!(
+			execute(&mut store, &cache.history, owner, epoch, operation),
+			Outcome::Saved
+		));
+		let revision = state.member_display_revision();
+		let Outcome::MemberDisplaysFound {
+			result: Ok(rows), ..
+		} = execute(
+			&mut store,
+			&cache.history,
+			account,
+			cache.history.epoch(),
+			Operation::FindMemberDisplays {
+				request: request.clone(),
+				revision,
+				visible: false,
+			},
+		)
+		else {
+			panic!("retried local read");
+		};
+		assert!(state.hydrate_member_search_displays(&request, revision, rows));
+		assert_eq!(
+			state.member_nickname(channel, Id(900000)),
+			Some(Some("Cached nickname"))
+		);
+		assert!(
+			state.member_search[0].local_only,
+			"the local retry must not dispatch the Gateway lookup"
+		);
+		state
+			.prepare_member_search(channel, "Superseding", 0)
+			.unwrap();
+		assert!(!search.retry_epoch(
+			&state,
+			generation,
+			&request,
+			read_epoch,
+			cache.history.epoch()
+		));
+	}
+
+	#[test]
+	fn targeted_cache_after_live_eviction_uses_fresh_persisted_names() {
+		let mut state = test_support::demo_state();
+		state.demo = false;
+		state.auth = client_core::auth::AuthState::Authenticated;
+		state.gateway_connected = true;
+		let account = state.user.as_ref().unwrap().id;
+		let channel = state.selected.unwrap();
+		let guild = state.channel(channel).unwrap().guild.unwrap();
+		let target = Id(900000);
+		let safety = HistorySafety::default();
+		let mut store = member_hint_store(account);
+		let Some(client_core::Command::MemberSearch(old_request)) =
+			state.search_members(channel, "nickname", 0)
+		else {
+			panic!("initial member lookup");
+		};
+		let started = state.member_display_revision();
+		let Outcome::MemberDisplaysFound {
+			result: Ok(old_rows),
+			..
+		} = execute(
+			&mut store,
+			&safety,
+			account,
+			safety.epoch(),
+			Operation::FindMemberDisplays {
+				request: old_request.clone(),
+				revision: started,
+				visible: false,
+			},
+		)
+		else {
+			panic!("delayed cache lookup");
+		};
+		let mut profile = state.user.as_ref().unwrap().clone();
+		profile.id = target;
+		profile.name = "Fresh display".into();
+		profile.username = Some("fresh_account".into());
+		state.apply(client_core::Envelope {
+			generation: state.generation,
+			event: client_core::Event::MemberIdentity(Box::new(model::MemberIdentity {
+				guild,
+				user: target,
+				profile: Some(profile),
+				global_name: model::GlobalNameUpdate::Set,
+				avatar: model::Patch::Absent,
+				nick: model::Patch::Value("Fresh nickname".into()),
+				roles: model::Patch::Value(vec![]),
+				departed: false,
+			})),
+		});
+		assert!(matches!(
+			execute(
+				&mut store,
+				&safety,
+				account,
+				safety.epoch(),
+				Operation::SaveMembers(state.cached_member_displays(guild))
+			),
+			Outcome::Saved
+		));
+		for user in 1000000..1000128 {
+			state.apply(client_core::Envelope {
+				generation: state.generation,
+				event: client_core::Event::MemberIdentity(Box::new(model::MemberIdentity {
+					guild,
+					user: Id(user),
+					profile: None,
+					global_name: model::GlobalNameUpdate::Unchanged,
+					avatar: model::Patch::Absent,
+					nick: model::Patch::Value("Unrelated observation".into()),
+					roles: model::Patch::Absent,
+					departed: false,
+				})),
+			});
+		}
+		assert!(state.member_identity(channel, target).is_none());
+		assert!(state.hydrate_member_search_displays(&old_request, started, old_rows));
+		assert_eq!(
+			state.member_nickname(channel, target),
+			None,
+			"the delayed read must not restore the old nickname"
+		);
+		let Some(client_core::Command::MemberSearch(request)) =
+			state.search_members(channel, "Fresh", 0)
+		else {
+			panic!("fresh member lookup");
+		};
+		let revision = state.member_display_revision();
+		let Outcome::MemberDisplaysFound {
+			result: Ok(rows), ..
+		} = execute(
+			&mut store,
+			&safety,
+			account,
+			safety.epoch(),
+			Operation::FindMemberDisplays {
+				request: request.clone(),
+				revision,
+				visible: false,
+			},
+		)
+		else {
+			panic!("fresh cache lookup");
+		};
+		assert!(state.hydrate_member_search_displays(&request, revision, rows));
+		assert_eq!(
+			state.member_nickname(channel, target),
+			Some(Some("Fresh nickname"))
+		);
+	}
+
+	#[test]
 	fn resumed_session_reloads_member_hints_without_changing_history_epoch() {
 		let mut state = test_support::demo_state();
 		state.demo = false;
@@ -4785,6 +5110,229 @@ mod tests {
 	}
 
 	#[test]
+	fn complete_display_cleanup_batches_evictions_before_the_next_snapshot() {
+		for mode in ["nickname", "cleared", "profile"] {
+			for updates in [1_u64, 129] {
+				let mut state = test_support::demo_state();
+				state.demo = false;
+				state.auth = client_core::auth::AuthState::Authenticated;
+				state.gateway_connected = true;
+				let account = state.user.as_ref().unwrap().id;
+				let channel = state.selected.unwrap();
+				let guild = state.channel(channel).unwrap().guild.unwrap();
+				let target = Id(900000);
+				let (send, commands) = mpsc::sync_channel(16);
+				let (_, receive) = mpsc::sync_channel(16);
+				let cache = Cache {
+					send,
+					receive,
+					budget: Arc::new(Budget::default()),
+					sync_budget: Arc::new(Budget {
+						limit: SYNC_QUEUE_BYTES,
+						..Budget::default()
+					}),
+					protected_history: Arc::new(Mutex::new(HistoryPins::default())),
+					history: Arc::new(HistorySafety::default()),
+				};
+				let mut store = member_hint_store(account);
+				store
+					.as_mut()
+					.unwrap()
+					.save_channel(
+						account,
+						channel,
+						&[test_support::message(7000000, channel)],
+						false,
+					)
+					.unwrap();
+				let old_epoch = cache.history.epoch();
+				let old_rows = store
+					.as_ref()
+					.unwrap()
+					.load_member_displays_for_users(account, guild, &[target])
+					.unwrap();
+				assert_eq!(old_rows.len(), 1);
+				assert!(cache.queue(state.generation, account, Operation::SaveMembers(old_rows)));
+				let mut cleanups = 0;
+				let identity_batch = client_core::EVENT_SLOTS + 8;
+				// The worker stays paused, and no display snapshot is taken until all drains finish.
+				for first in (0..updates).step_by(identity_batch) {
+					let mut cleanup = MemberDisplayCleanup::default();
+					for offset in first..updates.min(first + identity_batch as u64) {
+						let mut profile = state.user.as_ref().unwrap().clone();
+						profile.id = Id(target.0 + offset);
+						profile.name = format!("Fresh display {offset}");
+						profile.username = Some(format!("fresh_{offset}").into());
+						let event =
+							client_core::Event::MemberIdentity(Box::new(model::MemberIdentity {
+								guild,
+								user: profile.id,
+								profile: Some(profile),
+								global_name: model::GlobalNameUpdate::Set,
+								avatar: model::Patch::Absent,
+								nick: if offset == 0 && mode == "profile" {
+									model::Patch::Absent
+								} else if offset == 0 && mode == "cleared" {
+									model::Patch::Null
+								} else {
+									model::Patch::Value(format!("Fresh nickname {offset}"))
+								},
+								roles: model::Patch::Absent,
+								departed: false,
+							}));
+						let target = member_display_target(&event);
+						let before = state.member_display_cache_revision();
+						state.apply(client_core::Envelope {
+							generation: state.generation,
+							event,
+						});
+						assert!(cleanup.observe(&state, target, before).is_none());
+					}
+					let (generation, owner, operation) = cleanup.take().unwrap();
+					assert!(
+						matches!(&operation, Operation::RemoveMemberDisplays(rows) if rows.len() <= MEMBER_DISPLAY_CLEANUP_LIMIT)
+					);
+					assert!(cache.invalidate_scope(generation, owner, operation));
+					cleanups += 1;
+				}
+				assert_eq!(cleanups, if updates == 129 { 9 } else { 1 });
+				assert!(!cache.history.allows(old_epoch));
+				assert!(
+					cache.history.allows(cache.history.epoch()),
+					"batched work must fit the paused 16-item queue"
+				);
+				let rows = state.cached_member_displays(guild);
+				assert_eq!(
+					rows.iter().any(|row| row.user == target),
+					updates == 1 && mode != "profile"
+				);
+				assert!(cache.queue(state.generation, account, Operation::SaveMembers(rows)));
+				let mut completed_cleanups = 0;
+				while let Ok((_, owner, epoch, operation, _reservation)) = commands.try_recv() {
+					if matches!(operation, Operation::RemoveMemberDisplays(_)) {
+						completed_cleanups += 1;
+					}
+					assert!(!matches!(operation, Operation::ClearHistory));
+					assert!(matches!(
+						execute(&mut store, &cache.history, owner, epoch, operation),
+						Outcome::Saved
+					));
+				}
+				assert_eq!(completed_cleanups, cleanups);
+				assert_eq!(
+					store
+						.as_ref()
+						.unwrap()
+						.load_channel(account, channel)
+						.unwrap()
+						.len(),
+					1
+				);
+				if updates == 129 {
+					let retained = store
+						.as_ref()
+						.unwrap()
+						.load_member_displays_for_users(account, guild, &[Id(target.0 + 128)])
+						.unwrap();
+					assert_eq!(retained.len(), 1);
+					assert_eq!(retained[0].nick.as_deref(), Some("Fresh nickname 128"));
+				}
+				let Some(client_core::Command::MemberSearch(request)) =
+					state.search_members(channel, &target.to_string(), 0)
+				else {
+					panic!("current lookup");
+				};
+				let revision = state.member_display_revision();
+				let Outcome::MemberDisplaysFound {
+					result: Ok(rows), ..
+				} = execute(
+					&mut store,
+					&cache.history,
+					account,
+					cache.history.epoch(),
+					Operation::FindMemberDisplays {
+						request: request.clone(),
+						revision,
+						visible: false,
+					},
+				)
+				else {
+					panic!("current cache read");
+				};
+				if updates == 1 && mode != "profile" {
+					assert_eq!(rows.len(), 1);
+					assert_eq!(rows[0].name, "Fresh display 0");
+					assert_eq!(
+						rows[0].nick.as_deref(),
+						if mode == "cleared" {
+							None
+						} else {
+							Some("Fresh nickname 0")
+						}
+					);
+				} else {
+					assert!(
+						rows.is_empty(),
+						"eviction before snapshot cannot preserve the stale disk row"
+					);
+				}
+				assert!(state.hydrate_member_search_displays(&request, revision, rows));
+				if updates == 129 {
+					assert_eq!(state.member_nickname(channel, target), None);
+				}
+			}
+		}
+	}
+
+	#[test]
+	fn unchanged_display_observations_do_not_enqueue_cleanup_and_scope_handoff_keeps_owner() {
+		let mut state = test_support::demo_state();
+		state.demo = false;
+		let old_scope = (state.generation, state.user.as_ref().unwrap().id);
+		let guild = state
+			.channel(state.selected.unwrap())
+			.unwrap()
+			.guild
+			.unwrap();
+		let mut profile = state.user.as_ref().unwrap().clone();
+		profile.id = Id(900000);
+		let update = model::MemberIdentity {
+			guild,
+			user: profile.id,
+			profile: Some(profile),
+			global_name: model::GlobalNameUpdate::Set,
+			avatar: model::Patch::Absent,
+			nick: model::Patch::Value("Current nickname".into()),
+			roles: model::Patch::Absent,
+			departed: false,
+		};
+		let mut cleanup = MemberDisplayCleanup::default();
+		for index in 0..64 {
+			let event = client_core::Event::MemberIdentity(Box::new(update.clone()));
+			let target = member_display_target(&event);
+			let before = state.member_display_cache_revision();
+			state.apply(client_core::Envelope {
+				generation: state.generation,
+				event,
+			});
+			assert!(cleanup.observe(&state, target, before).is_none());
+			if index != 0 {
+				assert!(changed_member_display_cleanup(&state, target, before).is_none());
+			}
+		}
+		state.generation = state.generation.wrapping_add(1);
+		state.user.as_mut().unwrap().id = Id(old_scope.1.0 + 1);
+		let (generation, account, operation) = cleanup
+			.observe(&state, None, state.member_display_cache_revision())
+			.unwrap();
+		assert_eq!((generation, account), old_scope);
+		assert!(
+			matches!(operation, Operation::RemoveMemberDisplays(targets) if targets == [(guild, update.user)])
+		);
+		assert!(cleanup.take().is_none());
+	}
+
+	#[test]
 	fn partial_live_nickname_evicts_old_disk_hint_across_reopen() {
 		use std::time::{SystemTime, UNIX_EPOCH};
 		let root = std::env::temp_dir().join(format!(
@@ -4869,14 +5417,14 @@ mod tests {
 				departed_member_target(&state, &current_departure),
 				Some((Id(10), Id(900000)))
 			);
-			let target = nickname_target(&make_event());
+			let target = member_display_target(&make_event());
 			let before = state.member_display_cache_revision();
 			state.apply(client_core::Envelope {
 				generation: state.generation.wrapping_sub(1),
 				event: make_event(),
 			});
 			assert_eq!(
-				incomplete_nickname_cleanup(&state, target, before),
+				changed_member_display_cleanup(&state, target, before),
 				None,
 				"stale generation is ignored"
 			);
@@ -4886,23 +5434,23 @@ mod tests {
 				timestamp: 0,
 				member: Some(Box::new(identity.clone())),
 			});
-			let target = nickname_target(&expired);
+			let target = member_display_target(&expired);
 			state.apply(client_core::Envelope {
 				generation: state.generation,
 				event: expired,
 			});
 			assert_eq!(
-				incomplete_nickname_cleanup(&state, target, before),
+				changed_member_display_cleanup(&state, target, before),
 				None,
 				"expired typing is ignored"
 			);
-			let target = nickname_target(&make_event());
+			let target = member_display_target(&make_event());
 			state.apply(client_core::Envelope {
 				generation: state.generation,
 				event: make_event(),
 			});
 			assert_eq!(
-				incomplete_nickname_cleanup(&state, target, before),
+				changed_member_display_cleanup(&state, target, before),
 				Some((Id(10), Id(900000)))
 			);
 			safety.invalidate();

@@ -1584,7 +1584,7 @@ lib-ime-updates-text-cancel-edit = 取消编辑
 # Context: ime_updates_text
 lib-ime-updates-text-cancel-reply = 取消回复
 # Context: ime_updates_text
-lib-ime-updates-text-choose-drop-or-paste-files-ctrl-cmd-option-v-up = 选择、拖拽或粘贴文件（Ctrl/Cmd/Option+V）。最多 10 个文件、共 500 MB；账户限制可能更低。发送即开始上传。
+lib-ime-updates-text-choose-drop-or-paste-files-ctrl-cmd-option-v-up = 选择、拖拽或粘贴文件（Ctrl/Cmd+V）。最多 10 个文件、共 500 MB；账户限制可能更低。发送即开始上传。
 # Context: ime_updates_text
 lib-ime-updates-text-clear-this-draft = 清除这份草稿
 # Context: ime_updates_text
