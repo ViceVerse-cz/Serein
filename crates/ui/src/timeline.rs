@@ -9868,6 +9868,7 @@ mod tests {
 			tags: None,
 			message_count: None,
 			icon: None,
+			user_limit: None,
 			last_message: Some(Id(last)),
 		};
 		let mut state = State {
