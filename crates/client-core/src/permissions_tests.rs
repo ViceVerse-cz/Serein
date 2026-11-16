@@ -1752,6 +1752,34 @@ fn a_friend_nickname_can_precede_a_server_nickname_without_rewriting_webhooks() 
 		.unwrap();
 	assert_eq!(state.friend_nickname(message.author.id), None);
 	assert_eq!(state.message_author_name(&message), "Server nick");
+
+	// The same holds when the friendship becomes unknown: that empties the friend set but
+	// cannot prune the nickname, so applying it would name a user who is no longer a friend.
+	state
+		.apply_user_action(crate::user_actions::Event::Friends(Some(vec![(
+			message.author.clone(),
+			"synthetic.handle".into(),
+		)])))
+		.unwrap();
+	state
+		.apply_user_action(crate::user_actions::Event::Nickname {
+			user: message.author.id,
+			text: "Private name".into(),
+		})
+		.unwrap();
+	assert_eq!(state.message_author_name(&message), "Private name");
+	state
+		.apply_user_action(crate::user_actions::Event::Friends(None))
+		.unwrap();
+	assert_eq!(
+		state.friend_nickname(message.author.id),
+		Some("Private name")
+	);
+	assert_eq!(
+		state.message_author_name(&message),
+		"Server nick",
+		"an unknown friendship never applies a retained nickname"
+	);
 }
 
 #[test]

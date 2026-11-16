@@ -310,6 +310,12 @@ impl State {
 			return &message.author.name;
 		}
 		if self.prefer_friend_nickname
+			// A nickname only describes a current friendship. The friend set is authoritative
+			// even when block state is unknown, so this does not go through `friend()`.
+			&& self
+				.user_actions
+				.friends
+				.contains_key(&message.author.id)
 			&& let Some(nick) = self.friend_nickname(message.author.id)
 		{
 			return nick;
