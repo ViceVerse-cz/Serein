@@ -29,6 +29,14 @@ pub(crate) struct Layout {
 }
 
 impl Layout {
+	pub(crate) fn cached_galley(&self, text: &str) -> Option<Arc<egui::Galley>> {
+		self.cache
+			.as_ref()
+			.map(|(_, galley)| galley)
+			.filter(|galley| galley.job.text == text)
+			.cloned()
+	}
+
 	#[cfg(any(test, debug_assertions))]
 	#[allow(clippy::too_many_arguments)]
 	pub fn galley(

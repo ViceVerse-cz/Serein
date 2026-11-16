@@ -50,7 +50,7 @@ pub struct ForumUi {
 	draft: Option<Draft>,
 	emoji: crate::emoji_picker::Picker,
 	/// A field whose context menu asked to paste from the system clipboard.
-	pub(crate) paste: Option<egui::Id>,
+	pub(crate) paste: Option<(u64, Id, egui::Id)>,
 }
 
 const THUMB: f32 = 72.0;
@@ -86,6 +86,17 @@ enum Open {
 }
 
 impl ForumUi {
+	pub(crate) fn paste_text(&self, field: egui::Id) -> Option<&str> {
+		let draft = self.draft.as_ref()?;
+		if field == title_id() {
+			Some(&draft.title)
+		} else if field == body_id() {
+			Some(&draft.body)
+		} else {
+			None
+		}
+	}
+
 	pub fn show(
 		&mut self,
 		ui: &mut egui::Ui,
@@ -626,6 +637,11 @@ impl ForumUi {
 								ui.spacing_mut().item_spacing.y = 4.0;
 								let title_selection =
 									crate::text_menu::selection_for_menu(ui.ctx(), title_id());
+								let title_pasted = crate::text_menu::begin_paste_undo(
+									ui.ctx(),
+									title_id(),
+									&draft.title,
+								);
 								let mut title = ui.add(
 									egui::TextEdit::singleline(&mut draft.title)
 										.id(title_id())
@@ -647,6 +663,13 @@ impl ForumUi {
 										)
 										.desired_width(f32::INFINITY),
 								);
+								if title_pasted {
+									crate::text_menu::undo_checkpoint(
+										ui.ctx(),
+										title_id(),
+										&draft.title,
+									);
+								}
 								if crate::text_menu::show(
 									&mut title,
 									title_id(),
@@ -654,7 +677,7 @@ impl ForumUi {
 									true,
 									title_selection,
 								) {
-									*paste = Some(title_id());
+									*paste = Some((state.generation, forum, title_id()));
 								}
 								let title = title.accessible_name(crate::i18n::translate(
 									"forum-composer-title",
@@ -665,6 +688,11 @@ impl ForumUi {
 								}
 								let body_selection =
 									crate::text_menu::selection_for_menu(ui.ctx(), body_id());
+								let body_pasted = crate::text_menu::begin_paste_undo(
+									ui.ctx(),
+									body_id(),
+									&draft.body,
+								);
 								let mut body = ui.add(
 									egui::TextEdit::multiline(&mut draft.body)
 										.id(body_id())
@@ -682,6 +710,13 @@ impl ForumUi {
 										.desired_rows(3)
 										.desired_width(f32::INFINITY),
 								);
+								if body_pasted {
+									crate::text_menu::undo_checkpoint(
+										ui.ctx(),
+										body_id(),
+										&draft.body,
+									);
+								}
 								if crate::text_menu::show(
 									&mut body,
 									body_id(),
@@ -689,7 +724,7 @@ impl ForumUi {
 									true,
 									body_selection,
 								) {
-									*paste = Some(body_id());
+									*paste = Some((state.generation, forum, body_id()));
 								}
 								body.accessible_name(crate::i18n::translate(
 									"forum-composer-enter-a-message",
@@ -2041,6 +2076,253 @@ mod tests {
 			draw,
 		);
 		output.drop_without_applying_deltas();
+	}
+
+	fn paste_frame(
+		ctx: &egui::Context,
+		view: &mut crate::MessagingUi,
+		state: &mut State,
+		events: Vec<egui::Event>,
+	) {
+		paste_frame_with_shapes(ctx, view, state, events, |_| {});
+	}
+
+	fn paste_frame_with_shapes(
+		ctx: &egui::Context,
+		view: &mut crate::MessagingUi,
+		state: &mut State,
+		events: Vec<egui::Event>,
+		inspect: impl FnOnce(&[egui::epaint::ClippedShape]),
+	) {
+		let output = ctx.run_ui(
+			egui::RawInput {
+				screen_rect: Some(egui::Rect::from_min_size(
+					egui::Pos2::ZERO,
+					egui::vec2(1000.0, 760.0),
+				)),
+				events,
+				focused: true,
+				..Default::default()
+			},
+			|ui| {
+				view.show(ui, state);
+			},
+		);
+		inspect(&output.shapes);
+		output.drop_without_applying_deltas();
+		ctx.input_mut(|input| input.keys_down.clear());
+	}
+
+	fn paste_fixture() -> (egui::Context, crate::MessagingUi, State) {
+		let ctx = egui::Context::default();
+		let mut state = test_support::demo_state();
+		state.gateway_connected = true;
+		state.auth = client_core::auth::AuthState::Authenticated;
+		state.select(Id(26));
+		let mut view = crate::MessagingUi::default();
+		paste_frame(&ctx, &mut view, &mut state, vec![]);
+		view.forum.start_draft("Title".into());
+		view.forum.draft.as_mut().unwrap().body = "Body".into();
+		for _ in 0..2 {
+			paste_frame(&ctx, &mut view, &mut state, vec![]);
+		}
+		(ctx, view, state)
+	}
+
+	#[test]
+	fn forum_context_copy_restores_either_field_before_space_input() {
+		fn copy_rect(shape: &egui::Shape) -> Option<egui::Rect> {
+			match shape {
+				egui::Shape::Text(text) if text.galley.job.text == "Copy" => {
+					Some(text.galley.rect.translate(text.pos.to_vec2()))
+				}
+				egui::Shape::Vec(shapes) => shapes.iter().find_map(copy_rect),
+				_ => None,
+			}
+		}
+		let click = |pos, button| {
+			let mut events = vec![egui::Event::PointerMoved(pos)];
+			for pressed in [true, false] {
+				events.push(egui::Event::PointerButton {
+					pos,
+					button,
+					pressed,
+					modifiers: Default::default(),
+				});
+			}
+			events
+		};
+		for (field, before, after) in [(title_id(), "Title", " tle"), (body_id(), "Body", " dy")] {
+			let (ctx, mut view, mut state) = paste_fixture();
+			ctx.memory_mut(|memory| memory.request_focus(field));
+			let mut editor = egui::TextEdit::load_state(&ctx, field).unwrap();
+			editor
+				.cursor
+				.set_char_range(Some(egui::text::CCursorRange::two(
+					egui::text::CCursor::new(0),
+					egui::text::CCursor::new(2),
+				)));
+			editor.store(&ctx, field);
+			let rect = ctx.read_response(field).unwrap().rect;
+			paste_frame(
+				&ctx,
+				&mut view,
+				&mut state,
+				click(
+					rect.left_center() + egui::vec2(1.0, 0.0),
+					egui::PointerButton::Secondary,
+				),
+			);
+			let mut copy = None;
+			paste_frame_with_shapes(&ctx, &mut view, &mut state, vec![], |shapes| {
+				copy = shapes.iter().find_map(|shape| copy_rect(&shape.shape));
+			});
+			paste_frame(
+				&ctx,
+				&mut view,
+				&mut state,
+				click(
+					copy.expect("Copy menu item").center(),
+					egui::PointerButton::Primary,
+				),
+			);
+			assert_eq!(
+				view.forum.paste_text(field),
+				Some(before),
+				"Copy preserves the selected source"
+			);
+			paste_frame(
+				&ctx,
+				&mut view,
+				&mut state,
+				vec![egui::Event::Text(" ".into())],
+			);
+			assert_eq!(
+				view.forum.paste_text(field),
+				Some(after),
+				"Immediate space replaces the preserved selection"
+			);
+			assert!(ctx.memory(|memory| memory.has_focus(field)));
+			assert_eq!(
+				view.forum.paste_text(if field == title_id() {
+					body_id()
+				} else {
+					title_id()
+				}),
+				Some(if field == title_id() { "Body" } else { "Title" })
+			);
+		}
+	}
+
+	#[test]
+	fn forum_native_paste_keeps_recent_typing_when_undoing_in_either_field() {
+		for field in [title_id(), body_id()] {
+			let (ctx, mut view, mut state) = paste_fixture();
+			ctx.memory_mut(|memory| memory.request_focus(field));
+			let before = view.forum.paste_text(field).unwrap().to_owned();
+			let mut editor = egui::TextEdit::load_state(&ctx, field).unwrap();
+			editor
+				.cursor
+				.set_char_range(Some(egui::text::CCursorRange::one(
+					egui::text::CCursor::end_of_str(&before),
+				)));
+			editor.store(&ctx, field);
+			paste_frame(
+				&ctx,
+				&mut view,
+				&mut state,
+				vec![egui::Event::Text("!".into())],
+			);
+			paste_frame(
+				&ctx,
+				&mut view,
+				&mut state,
+				vec![egui::Event::Paste(" pasted".into())],
+			);
+			assert_eq!(
+				view.forum.paste_text(field).unwrap(),
+				format!("{before}! pasted")
+			);
+			assert!(view.attachment_paste_requested.is_none());
+			paste_frame(
+				&ctx,
+				&mut view,
+				&mut state,
+				vec![egui::Event::Key {
+					key: egui::Key::Z,
+					physical_key: None,
+					pressed: true,
+					repeat: false,
+					modifiers: egui::Modifiers {
+						command: true,
+						ctrl: true,
+						..Default::default()
+					},
+				}],
+			);
+			assert_eq!(view.forum.paste_text(field).unwrap(), format!("{before}!"));
+		}
+	}
+
+	#[test]
+	fn forum_native_title_paste_rejects_overflow_without_attaching_or_truncating_it() {
+		let (ctx, mut view, mut state) = paste_fixture();
+		ctx.memory_mut(|memory| memory.request_focus(title_id()));
+		paste_frame(
+			&ctx,
+			&mut view,
+			&mut state,
+			vec![egui::Event::Paste("x".repeat(MAX_TITLE + 1))],
+		);
+		assert_eq!(view.forum.paste_text(title_id()), Some("Title"));
+		assert_eq!(view.forum.paste_text(body_id()), Some("Body"));
+		assert_eq!(state.status, "Pasted text exceeds the draft limit");
+		assert!(view.attachment_paste_requested.is_none());
+	}
+
+	#[test]
+	fn forum_native_body_paste_keeps_its_attachment_fallback_for_premium_accounts() {
+		let (ctx, mut view, mut state) = paste_fixture();
+		state.premium_type = 2;
+		assert!(state.content_limit() > MAX_CONTENT);
+		ctx.memory_mut(|memory| memory.request_focus(body_id()));
+		paste_frame(
+			&ctx,
+			&mut view,
+			&mut state,
+			vec![egui::Event::Paste("x".repeat(MAX_CONTENT + 1))],
+		);
+		let request = view
+			.attachment_paste_requested
+			.take()
+			.expect("A 2001-character body paste still becomes message.txt");
+		assert_eq!(request.text.as_ref().unwrap().len(), MAX_CONTENT + 1);
+		assert!(request.target.text_attachment);
+		assert_eq!(view.forum.paste_text(body_id()), Some("Body"));
+	}
+
+	#[test]
+	fn forum_async_paste_cannot_follow_focus_into_the_other_field() {
+		let (ctx, mut view, mut state) = paste_fixture();
+		ctx.memory_mut(|memory| memory.request_focus(title_id()));
+		view.forum.paste = Some((state.generation, Id(26), title_id()));
+		paste_frame(&ctx, &mut view, &mut state, vec![]);
+		let request = view.attachment_paste_requested.take().unwrap();
+		assert!(
+			!request.target.text_attachment,
+			"A title never uses the message.txt fallback"
+		);
+		view.upload_busy = false;
+		ctx.memory_mut(|memory| memory.request_focus(body_id()));
+		view.pasted_text = Some((request.target, "stale title paste".into()));
+		paste_frame(&ctx, &mut view, &mut state, vec![]);
+		assert_eq!(view.forum.paste_text(title_id()), Some("Title"));
+		assert_eq!(view.forum.paste_text(body_id()), Some("Body"));
+		assert_eq!(
+			state.status,
+			"Paste cancelled; focus the message and paste again"
+		);
+		assert!(view.attachment_paste_requested.is_none());
 	}
 
 	#[test]

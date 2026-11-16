@@ -1,11 +1,176 @@
 //! Composer input, edits, replies and attachment staging.
 use super::{
-	AttachmentPaste, Command, Freshness, Id, MAX_DRAFT_BYTES, MentionWrite, MessagingUi, RichText,
-	State, SubmittedEdit, TextEdit, attachments, composer_cap, design, dialog, emoji_picker,
-	emoticons, formatting, icons, mention_switch, mentions, oversized_text, text_menu, user_menu,
+	AttachmentPaste, Command, Freshness, Id, MAX_DRAFT_BYTES, MentionWrite, MessagingUi,
+	PasteTarget, RichText, State, SubmittedEdit, TextEdit, attachments, composer_cap, design,
+	dialog, emoji_picker, emoticons, formatting, icons, mention_switch, mentions, oversized_text,
+	text_menu, user_menu,
 };
 
+fn paste_shortcut(
+	os: egui::os::OperatingSystem,
+	key: egui::Key,
+	modifiers: egui::Modifiers,
+) -> bool {
+	match key {
+		egui::Key::Paste => true,
+		egui::Key::V => {
+			!modifiers.alt
+				&& !modifiers.shift
+				&& if os == egui::os::OperatingSystem::Mac {
+					modifiers.command || modifiers.mac_cmd
+				} else {
+					modifiers.command || modifiers.ctrl
+				}
+		}
+		egui::Key::Insert => {
+			os == egui::os::OperatingSystem::Windows
+				&& modifiers.shift
+				&& !modifiers.alt
+				&& !modifiers.ctrl
+				&& !modifiers.command
+		}
+		_ => false,
+	}
+}
+
+fn changes_paste_target(event: &egui::Event) -> bool {
+	matches!(
+		event,
+		egui::Event::Text(_)
+			| egui::Event::Paste(_)
+			| egui::Event::PasteImage(_)
+			| egui::Event::Cut
+			| egui::Event::Ime(_)
+			| egui::Event::PointerButton { pressed: true, .. }
+			| egui::Event::Key { pressed: true, .. }
+	)
+}
+
+pub(super) fn paste_replacement(
+	text: &str,
+	cursor: Option<egui::text::CCursorRange>,
+	pasted: &str,
+) -> String {
+	let (start, end) = cursor.map_or((text.len(), text.len()), |range| {
+		let [start, end] = range.sorted_cursors();
+		let byte = |index| {
+			text.char_indices()
+				.nth(index)
+				.map_or(text.len(), |(byte, _)| byte)
+		};
+		(byte(start.index.0), byte(end.index.0))
+	});
+	let mut result = String::with_capacity(text.len() - (end - start) + pasted.len());
+	result.push_str(&text[..start]);
+	result.push_str(pasted);
+	result.push_str(&text[end..]);
+	result
+}
+
+// Match the native editor's deletion helpers when a key and paste share a frame.
+fn project_delete_key(
+	os: egui::os::OperatingSystem,
+	key: egui::Key,
+	modifiers: egui::Modifiers,
+	galley: &egui::Galley,
+	text: &mut String,
+	range: &mut egui::text::CCursorRange,
+) {
+	use egui::{
+		Key, TextBuffer as _,
+		text::{CCursor, CCursorRange},
+	};
+	let cursor = match key {
+		Key::Backspace => {
+			if modifiers.mac_cmd {
+				text.delete_paragraph_before_cursor(galley, range)
+			} else if let Some(cursor) = range.single() {
+				if modifiers.alt || modifiers.ctrl {
+					text.delete_previous_word(cursor)
+				} else {
+					text.delete_previous_char(cursor)
+				}
+			} else {
+				text.delete_selected(range)
+			}
+		}
+		Key::Delete if !modifiers.shift || os != egui::os::OperatingSystem::Windows => {
+			let cursor = if modifiers.mac_cmd {
+				text.delete_paragraph_after_cursor(galley, range)
+			} else if let Some(cursor) = range.single() {
+				if modifiers.alt || modifiers.ctrl {
+					text.delete_next_word(cursor)
+				} else {
+					text.delete_next_char(cursor)
+				}
+			} else {
+				text.delete_selected(range)
+			};
+			CCursor {
+				prefer_next_row: true,
+				..cursor
+			}
+		}
+		Key::H if modifiers.ctrl => text.delete_previous_char(range.primary),
+		Key::K if modifiers.ctrl => text.delete_paragraph_after_cursor(galley, range),
+		Key::U if modifiers.ctrl => text.delete_paragraph_before_cursor(galley, range),
+		Key::W if modifiers.ctrl => {
+			if let Some(cursor) = range.single() {
+				text.delete_previous_word(cursor)
+			} else {
+				text.delete_selected(range)
+			}
+		}
+		_ => return,
+	};
+	*range = CCursorRange::one(cursor);
+}
+
 impl MessagingUi {
+	pub(super) fn retire_menu_paste(&mut self, state: &mut State) {
+		let stale = |(generation, channel, _)| {
+			generation != state.generation || Some(channel) != state.selected
+		};
+		let composer = self.menu_paste.is_some_and(stale);
+		let forum = self.forum.paste.is_some_and(stale);
+		if composer {
+			self.menu_paste = None;
+		}
+		if forum {
+			self.forum.paste = None;
+		}
+		if composer || forum {
+			self.cancel_paste(state);
+		}
+	}
+
+	pub fn paste_target_current(
+		&self,
+		ctx: &egui::Context,
+		state: &State,
+		origin: &PasteTarget,
+	) -> bool {
+		origin.generation == state.generation
+			&& Some(origin.channel) == state.selected
+			&& ctx.memory(|memory| {
+				memory.has_focus(origin.widget) && memory.top_modal_layer().is_none()
+			}) && !egui::Popup::is_any_open(ctx)
+			&& origin.text == self.paste_field(state, origin.channel, origin.widget)
+			&& origin.cursor
+				== egui::TextEdit::load_state(ctx, origin.widget)
+					.and_then(|editor| editor.cursor.char_range())
+			&& !ctx.input(|input| input.events.iter().any(changes_paste_target))
+	}
+
+	pub fn cancel_paste(&mut self, state: &mut State) {
+		self.composer_notice(
+			state,
+			"Paste cancelled; focus the message and paste again",
+			"composer-paste-cancelled",
+			design::Level::Warning,
+		);
+	}
+
 	// `State::status` is retained for callers that inspect the last outcome. In the
 	// signed-in UI it is not a visible status line, so an explicit composer action
 	// also needs a transient notice. Toasts coalesce repeated identical notices.
@@ -38,8 +203,21 @@ impl MessagingUi {
 			.push(design::Level::Warning, crate::i18n::translate(key));
 	}
 
-	/// Ctrl+V or a context-menu Paste in the focused field `target`: starts one bounded read of
-	/// the system clipboard (files, images and text from any app), or delivers its text.
+	fn paste_field<'a>(&'a self, state: &'a State, channel: Id, target: egui::Id) -> &'a str {
+		if self.edit_widget_id == Some(target)
+			&& let Some((edit_channel, _, text)) = &self.editing
+			&& *edit_channel == channel
+		{
+			text
+		} else if let Some(text) = self.forum.paste_text(target) {
+			text
+		} else {
+			state.drafts.get(&channel).map_or("", String::as_str)
+		}
+	}
+
+	/// Native text stays in this frame's editor event stream. Only attachment preparation
+	/// and a menu/file-only clipboard read need the worker.
 	pub(super) fn clipboard_paste(
 		&mut self,
 		ctx: &egui::Context,
@@ -48,104 +226,271 @@ impl MessagingUi {
 		target: egui::Id,
 		allowed: bool,
 	) {
-		let pasted_text = self.pasted_text.take();
-		let paste_key_released = ctx.input(|input| {
+		let menu = match self.menu_paste.take() {
+			Some((generation, paste_channel, widget))
+				if generation == state.generation
+					&& paste_channel == channel
+					&& widget == target =>
+			{
+				true
+			}
+			Some(_) => {
+				self.cancel_paste(state);
+				false
+			}
+			None => false,
+		};
+		let enabled = allowed && (menu || ctx.memory(|memory| memory.has_focus(target)));
+		let os = ctx.os();
+		let released = ctx.input(|input| {
 			input.events.iter().any(|event| {
-				matches!(
-					event,
-					egui::Event::Key {
-						key: egui::Key::V,
-						pressed: false,
-						..
-					}
-				)
+				matches!(event, egui::Event::Key { key, pressed: false, .. }
+					if matches!(key, egui::Key::V | egui::Key::Paste | egui::Key::Insert))
 			})
 		});
-		// A context-menu Paste reads the clipboard as Ctrl+V does, with the field refocused.
-		let menu = self.menu_paste.take_if(|id| *id == target).is_some();
-		let paste_enabled = allowed && (menu || ctx.memory(|m| m.has_focus(target)));
-		if let Some((paste_channel, pasted_target, text)) = pasted_text {
-			if paste_enabled && paste_channel == channel && pasted_target == target {
-				ctx.input_mut(|i| i.events.push(egui::Event::Paste(text)));
-				self.pasted_text_frame = Some(ctx.cumulative_frame_nr());
+		let mut injected_text = false;
+		if let Some((origin, text)) = self.pasted_text.take() {
+			if enabled
+				&& origin.channel == channel
+				&& origin.widget == target
+				&& self.paste_target_current(ctx, state, &origin)
+			{
+				ctx.input_mut(|input| input.events.insert(0, egui::Event::Paste(text)));
+				injected_text = true;
 			} else {
-				self.composer_notice(
-					state,
-					"Paste cancelled; focus the message and paste again",
-					"composer-paste-cancelled",
-					design::Level::Warning,
-				);
+				self.cancel_paste(state);
 			}
-		} else if paste_enabled && self.pasted_text_frame != Some(ctx.cumulative_frame_nr()) {
+		}
+		let triggered = menu
+			|| ctx.input(|input| {
+				input.events.iter().any(|event| {
+					matches!(event, egui::Event::Paste(_) | egui::Event::PasteImage(_))
+						|| matches!(event, egui::Event::Key { key, pressed, repeat: false, modifiers, .. }
+					if paste_shortcut(os, *key, *modifiers) && (*pressed || !self.paste_key_handled))
+				})
+			});
+		if !enabled || !triggered {
+			if released {
+				self.paste_key_handled = false;
+			}
+			return;
+		}
+		if enabled {
+			let editing = self.edit_widget_id == Some(target) && self.has_edit_in(Some(channel));
+			let forum_title = target == super::forum::title_id();
+			let forum_body = target == super::forum::body_id();
+			let original = self.paste_field(state, channel, target);
+			let origin = PasteTarget {
+				generation: state.generation,
+				channel,
+				widget: target,
+				text: original.to_owned(),
+				cursor: egui::TextEdit::load_state(ctx, target)
+					.and_then(|editor| editor.cursor.char_range()),
+				text_attachment: !editing && !forum_title,
+			};
+			let max_content = if forum_title {
+				client_core::forum::MAX_TITLE
+			} else if forum_body {
+				client_core::MAX_CONTENT
+			} else {
+				state.content_limit()
+			};
+			let max_bytes = if editing || forum_title {
+				max_content * 4
+			} else if forum_body {
+				MAX_DRAFT_BYTES
+			} else {
+				MAX_DRAFT_BYTES.saturating_sub(state.draft_bytes())
+					+ state.drafts.get(&channel).map_or(0, String::capacity)
+			};
+			let mut projected = origin.text.clone();
+			let mut cursor = origin.cursor;
 			let mut request = AttachmentPaste {
-				target,
+				target: origin,
 				text: None,
 				image: None,
 			};
 			let mut requested = false;
-			ctx.input_mut(|input| {
-				// eframe consumes native paste key-down. File-only clipboards can emit
-				// no Paste event, so the matching key-up is also a paste trigger.
-				let shortcut = input.events.iter().any(|event| {
-					matches!(event,
-				egui::Event::Key { key: egui::Key::V, pressed, repeat: false, modifiers, .. }
-				if !modifiers.shift && (modifiers.ctrl || modifiers.command || modifiers.alt)
-					&& (*pressed || !self.paste_key_handled))
+			let mut too_large = false;
+			let mut image_too_large = false;
+			let mut attachment_unavailable = false;
+			let width = ctx
+				.read_response(target)
+				.map_or(f32::INFINITY, |response| response.rect.width());
+			let font = egui::TextStyle::Body.resolve(&ctx.style_of(ctx.theme()));
+			let cached_galley = self.composer_layout.cached_galley(&projected);
+			let mut events = ctx.input_mut(|input| std::mem::take(&mut input.events));
+			{
+				let native_text = events
+					.iter()
+					.any(|event| matches!(event, egui::Event::Paste(_)));
+				let native_image = events
+					.iter()
+					.any(|event| matches!(event, egui::Event::PasteImage(_)));
+				// eframe consumes shortcut key-down even for a file-only clipboard. Its
+				// key-up is the fallback, and must not repeat a supplied text/image paste.
+				let shortcut = events.iter().any(|event| {
+					matches!(event, egui::Event::Key { key, pressed, repeat: false, modifiers, .. }
+						if paste_shortcut(os, *key, *modifiers) && (*pressed || !self.paste_key_handled))
 				});
-				let has_paste = input.events.iter().any(|event| {
-					matches!(event, egui::Event::Paste(_) | egui::Event::PasteImage(_))
-				});
-				if has_paste || shortcut || menu {
-					requested = true;
+				if (native_text && !injected_text) || native_image || shortcut {
 					self.paste_key_handled = true;
-					input.events.retain_mut(|event| match event {
-						egui::Event::Paste(text) => {
-							request.text = Some(std::mem::take(text));
-							false
-						}
-						egui::Event::PasteImage(image) => {
-							request.image = Some(image.clone());
-							false
-						}
-						egui::Event::Key {
-							key: egui::Key::V, ..
-						} => false,
-						// Option+V can also produce a platform text character.
-						egui::Event::Text(_) if shortcut => false,
-						_ => true,
-					});
 				}
-			});
+				events.retain_mut(|event| match event {
+					egui::Event::Paste(text) => {
+						if text.len() > MAX_DRAFT_BYTES {
+							too_large = true;
+							return false;
+						}
+						if text.contains("\r\n") {
+							*text = text.replace("\r\n", "\n");
+						}
+						let replacement = paste_replacement(&projected, cursor, text);
+						let content = if editing || forum_title {
+							replacement.as_str()
+						} else {
+							model::message_options::content(&replacement).0
+						};
+						if content.chars().count() > max_content {
+							if !editing
+								&& !forum_title && (state.can_attach(channel)
+								|| (forum_body && state.can_attach_post(channel)))
+								&& !requested
+							{
+								request.target.text = projected.clone();
+								request.target.cursor = cursor;
+								request.text = Some(std::mem::take(text));
+								requested = true;
+							} else {
+								too_large = true;
+							}
+							return false;
+						}
+						if replacement.len() > max_bytes {
+							too_large = true;
+							return false;
+						}
+						let start = cursor.map_or(projected.chars().count(), |range| {
+							range.sorted_cursors()[0].index.0
+						});
+						cursor = Some(egui::text::CCursorRange::one(egui::text::CCursor::new(
+							start + text.chars().count(),
+						)));
+						projected = replacement;
+						true
+					}
+					egui::Event::PasteImage(image) => {
+						// The text representation is authoritative when a backend supplies both.
+						attachment_unavailable |= !native_text && editing;
+						if !native_text && !editing && !requested {
+							if image.pixels.len() > 4 * 1024 * 1024 {
+								image_too_large = true;
+							} else {
+								request.image = Some(image.clone());
+								requested = true;
+							}
+						}
+						false
+					}
+					egui::Event::Key { key, modifiers, .. }
+						if paste_shortcut(os, *key, *modifiers) =>
+					{
+						false
+					}
+					egui::Event::Key {
+						key,
+						pressed: true,
+						modifiers,
+						..
+					} => {
+						let (key, modifiers) = (*key, *modifiers);
+						let galley = cached_galley
+							.as_ref()
+							.filter(|galley| galley.job.text == projected)
+							.cloned()
+							.unwrap_or_else(|| {
+								ctx.fonts_mut(|fonts| {
+									fonts.layout(
+										projected.clone(),
+										font.clone(),
+										egui::Color32::WHITE,
+										width,
+									)
+								})
+							});
+						let mut range = cursor.unwrap_or_else(|| {
+							egui::text::CCursorRange::one(egui::text::CCursor::end_of_str(
+								&projected,
+							))
+						});
+						if !range.on_event(os, event, &galley, target) {
+							project_delete_key(
+								os,
+								key,
+								modifiers,
+								&galley,
+								&mut projected,
+								&mut range,
+							);
+						}
+						cursor = Some(range);
+						true
+					}
+					egui::Event::Cut => {
+						if let Some(range) = cursor {
+							use egui::TextBuffer as _;
+							cursor = Some(egui::text::CCursorRange::one(
+								projected.delete_selected(&range),
+							));
+						}
+						true
+					}
+					egui::Event::Text(text) => {
+						let start = cursor.map_or(projected.chars().count(), |range| {
+							range.sorted_cursors()[0].index.0
+						});
+						projected = paste_replacement(&projected, cursor, text);
+						cursor = Some(egui::text::CCursorRange::one(egui::text::CCursor::new(
+							start + text.chars().count(),
+						)));
+						true
+					}
+					_ => true,
+				});
+				requested |= !native_text && !native_image && (shortcut || menu);
+			}
+			ctx.input_mut(|input| input.events = events);
+			if attachment_unavailable {
+				self.composer_notice(
+					state,
+					"Attaching files is unavailable here",
+					"lib-ime-updates-text-attachments-unavailable-right-now",
+					design::Level::Error,
+				);
+			}
+			if too_large {
+				self.composer_notice(
+					state,
+					"Pasted text exceeds the draft limit",
+					"composer-paste-too-large",
+					design::Level::Error,
+				);
+			}
+			if image_too_large {
+				self.composer_notice(
+					state,
+					"Paste an image with at most 4 million pixels",
+					"composer-paste-image-too-large",
+					design::Level::Error,
+				);
+			}
 			if requested {
-				if request
-					.text
-					.as_ref()
-					.is_some_and(|text| text.len() > MAX_DRAFT_BYTES)
-				{
-					self.composer_notice(
-						state,
-						"Pasted text exceeds the draft limit",
-						"composer-paste-too-large",
-						design::Level::Error,
-					);
-				} else if request
-					.image
-					.as_ref()
-					.is_some_and(|image| image.pixels.len() > 4 * 1024 * 1024)
-				{
-					self.composer_notice(
-						state,
-						"Paste an image with at most 4 million pixels",
-						"composer-paste-image-too-large",
-						design::Level::Error,
-					);
-				} else {
-					self.attachment_paste_requested = Some(request);
-					self.upload_busy = true;
-				}
+				self.attachment_paste_requested = Some(request);
+				self.upload_busy = true;
 			}
 		}
-		if paste_key_released {
+		if released {
 			self.paste_key_handled = false;
 		}
 	}
@@ -788,6 +1133,9 @@ impl MessagingUi {
 		if editing_here {
 			self.edit_widget_id = Some(composer_id);
 		}
+		if keyboard_enabled {
+			text_menu::restore_focus(ctx, composer_id);
+		}
 		// Typing while nothing has keyboard focus starts writing in the composer, like Discord.
 		// Focus moves before the editor runs this frame, so it also receives the typed text.
 		let typed = keyboard_enabled
@@ -831,7 +1179,6 @@ impl MessagingUi {
 			edit_state.store(ctx, composer_id);
 		}
 		let paste_allowed = keyboard_enabled
-			&& !editing_here
 			&& self.slash_commands.active.is_none()
 			&& !self.ime_active
 			&& !ime_this_frame;
@@ -1297,6 +1644,7 @@ impl MessagingUi {
                             rich_layout.select_deleted_inline(ctx, composer_id);
                         }
                         let selection = text_menu::selection_for_menu(ctx, composer_id);
+                        let pasted = keyboard_enabled && text_menu::begin_paste_undo(ctx, composer_id, draft);
                         let mut output = egui::ScrollArea::vertical()
                             .id_salt((composer_id, channel, editing_key))
                             .max_height(ui.ctx().viewport_rect().height() * 0.5)
@@ -1354,6 +1702,9 @@ impl MessagingUi {
                         if !self.ime_active && !ime_this_frame {
                             rich_layout.snap_cursor(&mut output, ctx);
                         }
+                        if pasted {
+                            text_menu::undo_checkpoint(ctx, composer_id, draft);
+                        }
                         if mention_changed || (mention_enabled && suggestion_pointer) {
                             output.response.request_focus();
                         }
@@ -1401,7 +1752,7 @@ impl MessagingUi {
                             }));
                         }
                         if text_menu::show(&mut output.response, composer_id, draft, paste_allowed, selection) {
-                            self.menu_paste = Some(composer_id);
+                            self.menu_paste = Some((state.generation, channel, composer_id));
                         }
                         let edit = output.response;
                         let cleared = draft.is_empty();
@@ -1420,6 +1771,10 @@ impl MessagingUi {
                         self.mention_lookup.text = self.mention_menu.member_query().to_owned();
                         self.mention_lookup.sync(ctx, state, channel, 0, commands);
                         if !editing_here && (!new_draft.is_empty() || restore_empty_draft) {
+                            // String growth can reserve more than the accepted paste bytes.
+                            if new_draft.capacity() > MAX_DRAFT_BYTES.saturating_sub(state.draft_bytes()) {
+                                new_draft.shrink_to_fit();
+                            }
                             state.drafts.insert(channel, new_draft);
                         }
                         edit.response
@@ -1678,7 +2033,17 @@ pub(crate) mod tests {
 		let mut view = MessagingUi::default();
 		let target = egui::Id::unique("synthetic-composer");
 		for _ in 0..2 {
-			view.pasted_text = Some((channel, target, "clipboard text".into()));
+			view.pasted_text = Some((
+				PasteTarget {
+					generation: state.generation,
+					channel,
+					widget: target,
+					text: state.drafts[&channel].clone(),
+					cursor: None,
+					text_attachment: true,
+				},
+				"clipboard text".into(),
+			));
 			frame(&ctx, |ui| {
 				view.clipboard_paste(ui.ctx(), &mut state, channel, target, false);
 				view.toasts.show(ui.ctx(), 0.0);

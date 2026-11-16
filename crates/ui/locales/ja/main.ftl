@@ -1569,7 +1569,7 @@ lib-ime-updates-text-cancel-edit = 編集をキャンセルする
 # Context: ime_updates_text
 lib-ime-updates-text-cancel-reply = 返信をキャンセル
 # Context: ime_updates_text
-lib-ime-updates-text-choose-drop-or-paste-files-ctrl-cmd-option-v-up = ファイルを選択、ドロップ、または貼り付けます (Ctrl/Cmd/Option+V)。最大 10 ファイル、合計 500 MB。アカウントの制限が低くなる可能性があります。送信するとアップロードが開始されます。
+lib-ime-updates-text-choose-drop-or-paste-files-ctrl-cmd-option-v-up = ファイルを選択、ドロップ、または貼り付けます (Ctrl/Cmd+V)。最大 10 ファイル、合計 500 MB。アカウントの制限が低くなる可能性があります。送信するとアップロードが開始されます。
 # Context: ime_updates_text
 lib-ime-updates-text-clear-this-draft = このドラフトをクリアする
 # Context: ime_updates_text
