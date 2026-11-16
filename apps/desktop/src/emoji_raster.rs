@@ -24,7 +24,9 @@ fn rasterize(source: &[u8], edge: u32) -> Option<egui::ColorImage> {
 	};
 	let tree = resvg::usvg::Tree::from_data(&svg, &options).ok()?;
 	let mut pixels = resvg::tiny_skia::Pixmap::new(edge, edge)?;
-	let padding = edge as f32 / 32.0;
+	// At least one transparent pixel on each side, so filtering at the edge blends with
+	// transparency; the ui crate clears that ring as well.
+	let padding = (edge as f32 / 32.0).max(1.0);
 	let scale = (edge as f32 - padding * 2.0) / tree.size().width().max(tree.size().height());
 	let transform = resvg::tiny_skia::Transform::from_row(scale, 0.0, 0.0, scale, padding, padding);
 	resvg::render(&tree, transform, &mut pixels.as_mut());

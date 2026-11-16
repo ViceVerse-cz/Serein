@@ -2,8 +2,9 @@
 //!
 //! Small textures each cost a padded GPU allocation, so rasters share up to [`PAGES`] pages of
 //! [`PAGE`]² pixels. Each page is a quad-tree buddy allocator over power-of-two square blocks.
-//! A raster sits one pixel in from its block's corner, and its whole block is uploaded, so a
-//! transparent guard surrounds it and linear filtering never samples a neighbour or old pixels.
+//! A raster takes the smallest block at least as large as its edge, from the block's corner.
+//! Its outermost pixel ring is made transparent and its whole block is uploaded with the rest
+//! transparent, so linear filtering at its edge never samples a neighbour or old pixels.
 use egui::{ColorImage, Context, TextureHandle};
 use std::collections::BTreeSet;
 
@@ -19,9 +20,9 @@ fn block(order: usize) -> u32 {
 	MIN_BLOCK << order
 }
 
-/// Order of the smallest block holding an `edge` raster and its one-pixel guard.
+/// Order of the smallest block holding an `edge` raster.
 fn order(edge: u32) -> usize {
-	let size = (edge + 2).max(MIN_BLOCK).next_power_of_two();
+	let size = edge.max(MIN_BLOCK).next_power_of_two();
 	(size.trailing_zeros() - MIN_BLOCK.trailing_zeros()) as usize
 }
 
@@ -29,6 +30,20 @@ fn order(edge: u32) -> usize {
 pub(super) fn block_bytes(edge: u32) -> usize {
 	let size = block(order(edge)) as usize;
 	size * size * 4
+}
+
+/// `image` at the corner of a transparent `size` block, with its own outermost pixel ring
+/// cleared so filtering at its edge blends only with transparency.
+fn framed(image: &ColorImage, size: usize) -> ColorImage {
+	let mut block = ColorImage::filled([size, size], egui::Color32::TRANSPARENT);
+	let [width, height] = image.resolution();
+	let (width, height) = (width.min(size), height.min(size));
+	for row in 1..height.saturating_sub(1) {
+		let source = &image.pixels()[row * image.width() + 1..row * image.width() + width - 1];
+		let start = row * size + 1;
+		block.pixels_mut()[start..start + source.len()].copy_from_slice(source);
+	}
+	block
 }
 
 /// Free blocks by order, as top-left corners; ordered sets keep allocation deterministic.
@@ -98,7 +113,7 @@ impl Slot {
 	pub(super) fn uv(&self) -> egui::Rect {
 		let page = PAGE as f32;
 		egui::Rect::from_min_size(
-			egui::pos2((self.x + 1) as f32 / page, (self.y + 1) as f32 / page),
+			egui::pos2(self.x as f32 / page, self.y as f32 / page),
 			egui::Vec2::splat(self.edge as f32 / page),
 		)
 	}
@@ -152,17 +167,9 @@ impl Pages {
 		let Some(page) = &mut self.pages[slot.page] else {
 			return;
 		};
-		let size = block(slot.order) as usize;
-		let mut padded = ColorImage::filled([size, size], egui::Color32::TRANSPARENT);
-		let [width, height] = image.resolution();
-		for row in 0..height.min(size - 2) {
-			let source = &image.pixels()[row * width..row * width + width.min(size - 2)];
-			let start = (row + 1) * size + 1;
-			padded.pixels_mut()[start..start + source.len()].copy_from_slice(source);
-		}
 		page.texture.set_partial(
 			[slot.x as usize, slot.y as usize],
-			padded,
+			framed(image, block(slot.order) as usize),
 			egui::TextureOptions::LINEAR,
 		);
 	}
@@ -241,8 +248,8 @@ mod tests {
 	fn pages_are_bounded_and_released_when_empty() {
 		let ctx = Context::default();
 		let mut pages = Pages::default();
-		// A 254 px raster and its guard fill a 256 px block: 16 per page.
-		let slots: Vec<_> = std::iter::from_fn(|| pages.alloc(&ctx, 254)).collect();
+		// A 256 px raster fills a 256 px block: 16 per page.
+		let slots: Vec<_> = std::iter::from_fn(|| pages.alloc(&ctx, 256)).collect();
 		assert_eq!(slots.len(), PAGES * 16);
 		assert_eq!(pages.count(), PAGES);
 		assert!(pages.alloc(&ctx, 16).is_none());
@@ -262,14 +269,29 @@ mod tests {
 	fn a_raster_maps_to_exactly_its_pixels_inside_its_block() {
 		let ctx = Context::default();
 		let mut pages = Pages::default();
-		for edge in [16, 30, 31, 37, 64, 254, 256] {
+		for (edge, size) in [(16, 16), (37, 64), (64, 64), (256, 256)] {
 			let slot = pages.alloc(&ctx, edge).unwrap();
-			let size = block(slot.order);
+			assert_eq!(block(slot.order), size, "{edge} px fits the smallest block");
 			let pixels = slot.uv().size() * PAGE as f32;
 			assert_eq!(pixels, egui::Vec2::splat(edge as f32));
 			let min = slot.uv().min * PAGE as f32;
-			assert_eq!(min, egui::pos2((slot.x + 1) as f32, (slot.y + 1) as f32));
-			assert!(edge + 2 <= size, "a guard pixel surrounds the raster");
+			assert_eq!(min, egui::pos2(slot.x as f32, slot.y as f32));
 		}
+	}
+
+	/// Linear filtering at a raster's edge reads its outer ring and the block around it; both
+	/// are transparent whatever the backend drew.
+	#[test]
+	fn uploads_clear_the_outer_ring_and_the_rest_of_the_block() {
+		let image = ColorImage::filled([37, 37], egui::Color32::RED);
+		let block = framed(&image, 64);
+		let at = |x: usize, y: usize| block.pixels()[y * 64 + x];
+		for i in 0..64 {
+			for (x, y) in [(i, 0), (0, i), (36, i), (i, 36), (i, 63), (63, i)] {
+				assert_eq!(at(x, y), egui::Color32::TRANSPARENT, "({x}, {y})");
+			}
+		}
+		assert_eq!(at(1, 1), egui::Color32::RED);
+		assert_eq!(at(35, 35), egui::Color32::RED);
 	}
 }

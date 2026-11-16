@@ -1027,8 +1027,9 @@ a full queue drops its oldest job, and painted jobs not requested in the current
 previous frame are skipped. Finished rasters wait in a queue of at most 1,024 items /
 16 MiB. They are packed into shared 1,024×1,024 RGBA texture pages (4 MiB each, at most
 four, created on demand), each divided by a buddy allocator into power-of-two square blocks
-of 16 to 512 pixels; a raster takes the smallest block that fits it with a one-pixel
-transparent guard, and its whole block is uploaded, at most 4 MiB of blocks per frame. At
+of 16 to 256 pixels; a raster takes the smallest block at least its edge, its outermost pixel
+ring is made transparent, and its whole block is uploaded with the rest transparent, at most
+4 MiB of blocks per frame. At
 most 1,024 rasters are kept. When no block is free and four pages exist, the least recently
 drawn rasters are evicted, undrawn prefetches first, but never rasters drawn in the current or
 previous frame: a painted raster that does not fit beside them stays an empty slot, without
