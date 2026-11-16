@@ -1725,7 +1725,8 @@ characters / 512 UTF-8 bytes. Live member rows win only when they carry a
 nickname. Missing membership keeps the stored nick or the usual name.
 
 Custom emoji artwork shares the existing account-isolated image disk cache
-(4,096 files / 1 GiB, 90-day inactivity retention). Its GPU working set is separate
+(4,096 files / 1 GiB, 90-day inactivity retention), one file per requested 32 to 256 px
+rendition (at most four per emoji). Its GPU working set is separate
 from avatars and media, bounded to 1,024 textures / 16 MiB with least-recently-used
 eviction. Evicted textures reload from disk when available.
 

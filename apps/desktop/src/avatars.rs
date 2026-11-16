@@ -86,9 +86,27 @@ fn media_encoded(rendition: &Rendition) -> usize {
 		}
 	}
 }
+/// Custom emoji artwork key: `emoji-{id}@{size}`, where `size` is the power-of-two CDN rendition
+/// (32 to 256) covering the drawn edge. Keys without a size predate it and mean 64.
+fn custom_emoji(key: &str) -> Option<(Id, u32)> {
+	let value = key.strip_prefix("emoji-")?;
+	let (id, size) = match value.split_once('@') {
+		Some((id, raw)) => {
+			let size = raw.parse::<u32>().ok().filter(|size| {
+				size.is_power_of_two() && (32..=256).contains(size) && size.to_string() == raw
+			})?;
+			(id, size)
+		}
+		None => (value, 64),
+	};
+	Some((id.parse().ok()?, size))
+}
 fn decode_edge(key: &str) -> u32 {
-	// Animated emoji fall through to the still emoji edge, which keeps their frames small.
-	if (key.starts_with("anim:") && !key.starts_with("anim:emoji-"))
+	if let Some((_, size)) = custom_emoji(key.strip_prefix("anim:").unwrap_or(key)) {
+		// Emoji decode no larger than their rendition, which keeps animated frames small.
+		return size.max(128);
+	}
+	if key.starts_with("anim:")
 		|| key.starts_with("embed:")
 		|| key.starts_with("gif:")
 		|| key.starts_with("spotify-")
@@ -718,16 +736,15 @@ fn cdn_url(key: &str) -> Option<String> {
 			"https://cdn.discordapp.com/app-assets/{application}/{asset}.png?size=128"
 		));
 	}
-	if let Some(id) = key.strip_prefix("emoji-") {
-		let id: Id = id.parse().ok()?;
+	if let Some((id, size)) = custom_emoji(key) {
 		return Some(format!(
-			"https://cdn.discordapp.com/emojis/{id}.png?size=64"
+			"https://cdn.discordapp.com/emojis/{id}.png?size={size}"
 		));
 	}
 	// Animated custom emoji; GIF is a documented custom emoji format in the CDN reference.
-	if let Some(id) = key.strip_prefix("anim:emoji-") {
-		let id: Id = id.parse().ok()?;
-		return (id.0 != 0).then(|| format!("https://cdn.discordapp.com/emojis/{id}.gif?size=64"));
+	if let Some((id, size)) = key.strip_prefix("anim:").and_then(custom_emoji) {
+		return (id.0 != 0)
+			.then(|| format!("https://cdn.discordapp.com/emojis/{id}.gif?size={size}"));
 	}
 	if let Some(value) = key.strip_prefix("banner-") {
 		let (id, hash) = value.split_once('-')?;
@@ -2890,26 +2907,37 @@ mod tests {
 				super::cdn_url("emoji-9001").as_deref(),
 				Some("https://cdn.discordapp.com/emojis/9001.png?size=64")
 			);
+			assert_eq!(
+				super::cdn_url("emoji-9001@256").as_deref(),
+				Some("https://cdn.discordapp.com/emojis/9001.png?size=256")
+			);
+			assert_eq!(super::decode_edge("emoji-9001@256"), 256);
 			for key in [
 				"emoji-0",
 				"emoji-../9001",
 				"emoji-9001?size=8192",
 				"emoji-https://example.com",
 				"emoji-9001/foo",
+				"emoji-9001@8192",
+				"emoji-9001@48",
+				"emoji-9001@064",
+				"emoji-9001@+64",
+				"emoji-9001@64@64",
 			] {
-				assert!(super::cdn_url(key).is_none());
+				assert!(super::cdn_url(key).is_none(), "{key}");
 			}
 			assert_eq!(
-				super::cdn_url("anim:emoji-9001").as_deref(),
-				Some("https://cdn.discordapp.com/emojis/9001.gif?size=64")
+				super::cdn_url("anim:emoji-9001@32").as_deref(),
+				Some("https://cdn.discordapp.com/emojis/9001.gif?size=32")
 			);
-			assert!(super::is_animated_key("anim:emoji-9001"));
+			assert!(super::is_animated_key("anim:emoji-9001@32"));
 			assert_eq!(super::decode_edge("anim:emoji-9001"), 128);
 			assert!(super::budget("anim:emoji-9001").frames.is_some());
 			for key in [
 				"anim:emoji-0",
 				"anim:emoji-../9001",
 				"anim:emoji-9001?size=8192",
+				"anim:emoji-9001@16",
 				"anim:emoji-https://example.com/x.gif",
 			] {
 				assert!(super::cdn_url(key).is_none(), "{key}");
@@ -3030,7 +3058,7 @@ mod tests {
 	fn shared_artwork_has_its_own_budget_and_is_adopted_once() {
 		use model::CachePartition::{Artwork, Media};
 		for key in [
-			"emoji-41771983423143937",
+			"emoji-41771983423143937@128",
 			"badge-0123456789abcdef0123456789abcdef",
 			"clan-7-0123456789abcdef0123456789abcdef",
 			"role-icon-7-0123456789abcdef0123456789abcdef",

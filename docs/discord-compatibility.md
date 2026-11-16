@@ -1461,8 +1461,14 @@ unsupported behavior. Missing catalogs are displayed as unavailable rather than 
 
 Formatted message/profile/embed text renders `<:name:id>` as a static CDN image, using the
 documented [custom emoji CDN endpoint](https://docs.discord.com/developers/reference#image-formatting-cdn-endpoints).
+Artwork is requested at the smallest power-of-two `size` (32 to 256 px; the reference documents
+power-of-two sizes from 16 to 4096) that covers the drawn edge in physical pixels; a larger
+rendition one step up that is already cached is reused instead of fetching a smaller one, and
+a still larger one is shown only until the drawn size loads. Composer and copied
+artwork links keep their `?size=64` text. Which `size` values the emoji endpoint actually
+serves is unverified against a live CDN.
 With GIF animation enabled, `<a:name:id>` (and animated named artwork links) loads the same
-endpoint's documented GIF format at 64px and plays through the existing bounded off-UI decoder
+endpoint's documented GIF format at that size and plays through the existing bounded off-UI decoder
 and animation pool, falling back to the still PNG when animation is off or the GIF fails.
 Reactions do not carry an animated flag in Serein's model and stay static. Custom reactions
 use the same bounded media worker. Deleted/failing previews have a fixed

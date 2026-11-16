@@ -403,7 +403,7 @@ impl Layout {
 			}
 			if let Some(asset) = inline.asset {
 				// Only visible slots may request or refresh artwork, even on a cache hit.
-				avatars.touch_share_image(ui.ctx(), asset, self.demo);
+				avatars.touch_share_image(ui.ctx(), asset, emoji::inline_size(ui), self.demo);
 			}
 			if let Some(label) = &inline.label {
 				painter.rect_filled(rect, 3, inline.background);

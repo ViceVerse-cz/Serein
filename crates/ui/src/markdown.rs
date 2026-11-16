@@ -6526,7 +6526,7 @@ mod tests {
 			assert_eq!(
 				images.take_requests(),
 				if visible {
-					vec!["emoji-90001".to_string()]
+					vec!["emoji-90001@32".to_string()]
 				} else {
 					Vec::new()
 				},

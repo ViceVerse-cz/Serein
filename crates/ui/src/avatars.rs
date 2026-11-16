@@ -197,9 +197,21 @@ pub(crate) fn cover_uv(source: egui::Vec2, size: egui::Vec2) -> egui::Rect {
 	egui::Rect::from_center_size(egui::pos2(0.5, 0.5), size / (source * scale))
 }
 
+/// Power-of-two CDN renditions requested for custom emoji (Discord documents 16 to 4096).
+const CUSTOM_EMOJI_EDGES: [u32; 4] = [32, 64, 128, 256];
+
+/// Smallest custom emoji rendition covering `size` points at `pixels_per_point`.
+pub(crate) fn custom_emoji_edge(size: f32, pixels_per_point: f32) -> u32 {
+	let physical = size * pixels_per_point;
+	if !physical.is_finite() {
+		return 64;
+	}
+	(physical.ceil().clamp(32.0, 256.0) as u32).next_power_of_two()
+}
+
 /// Playback key for an animated custom emoji, or `None` when it should show its still.
-fn animated_emoji_key(id: model::Id, play: bool) -> Option<String> {
-	(play && id.0 != 0).then(|| format!("anim:emoji-{id}"))
+fn animated_emoji_key(id: model::Id, edge: u32, play: bool) -> Option<String> {
+	(play && id.0 != 0).then(|| format!("anim:emoji-{id}@{edge}"))
 }
 
 fn is_animated_profile_or_avatar_key(key: &str) -> bool {
@@ -637,7 +649,7 @@ impl Avatars {
 			|| key.starts_with("member-banner-")
 		{
 			EMBED_EDGE as usize
-		} else if key.starts_with("emoji-unicode-") {
+		} else if key.starts_with("emoji-") {
 			256
 		} else {
 			128
@@ -709,7 +721,16 @@ impl Avatars {
 	}
 	/// Read-only admission hint; this never queues an image request or changes recency.
 	pub(crate) fn custom_image_cached(&self, id: model::Id) -> bool {
-		self.emoji_textures.contains_key(&format!("emoji-{id}"))
+		self.cached_custom(id, 0).is_some()
+	}
+	/// The cached still rendition that draws custom emoji `id` at `edge` pixels: that size, or
+	/// else the smallest larger one, so a rendition already loaded is not fetched again smaller.
+	fn cached_custom(&self, id: model::Id, edge: u32) -> Option<(String, u32)> {
+		CUSTOM_EMOJI_EDGES
+			.into_iter()
+			.filter(|cached| *cached >= edge)
+			.map(|cached| (format!("emoji-{id}@{cached}"), cached))
+			.find(|(key, _)| self.emoji_textures.contains_key(key))
 	}
 	pub(crate) fn unicode_image(
 		&mut self,
@@ -744,9 +765,10 @@ impl Avatars {
 		size: f32,
 		demo: bool,
 	) -> Option<egui::Image<'static>> {
-		let key = format!("emoji-{id}");
+		let edge = custom_emoji_edge(size, _ctx.pixels_per_point());
+		let key = format!("emoji-{id}@{edge}");
 		#[cfg(any(test, feature = "demo"))]
-		if demo && matches!(id.0, 9001 | 9002) && !self.emoji_textures.contains_key(&key) {
+		if demo && matches!(id.0, 9001 | 9002) && self.cached_custom(id, edge).is_none() {
 			let mut image = ColorImage::filled([32, 32], egui::Color32::TRANSPARENT);
 			for y in 3..29 {
 				for x in 3..29 {
@@ -762,7 +784,12 @@ impl Avatars {
 			self.attempts.insert(key.clone(), (Instant::now(), false));
 			self.accept(_ctx, key.clone(), Some(image));
 		}
-		if let Some(entry) = self.emoji_textures.get_mut(&key) {
+		if let Some((cached, cached_edge)) = self.cached_custom(id, edge) {
+			// GPU minification of more than one step aliases; it only bridges the exact size.
+			if cached_edge > edge * 2 && !demo {
+				self.request(key);
+			}
+			let entry = self.emoji_textures.get_mut(&cached).expect("cached emoji");
 			entry.0 = Instant::now();
 			let image = egui::Image::new(&entry.1).fit_to_exact_size(egui::Vec2::splat(size));
 			Some(image)
@@ -784,7 +811,8 @@ impl Avatars {
 		size: f32,
 		demo: bool,
 	) -> Option<egui::Image<'static>> {
-		if let Some(key) = animated_emoji_key(id, animated && self.animate_gifs && !demo)
+		let edge = custom_emoji_edge(size, ctx.pixels_per_point());
+		if let Some(key) = animated_emoji_key(id, edge, animated && self.animate_gifs && !demo)
 			&& !self.no_animations.contains(&key)
 		{
 			let frame = self.advance_animation(ctx, &key, false);
@@ -805,13 +833,11 @@ impl Avatars {
 			}
 			self.request(key);
 			// A still cached earlier bridges the download without fetching it as well.
-			return self
-				.emoji_textures
-				.get_mut(&format!("emoji-{id}"))
-				.map(|entry| {
-					entry.0 = Instant::now();
-					egui::Image::new(&entry.1).fit_to_exact_size(egui::Vec2::splat(size))
-				});
+			let (still, _) = self.cached_custom(id, edge)?;
+			return self.emoji_textures.get_mut(&still).map(|entry| {
+				entry.0 = Instant::now();
+				egui::Image::new(&entry.1).fit_to_exact_size(egui::Vec2::splat(size))
+			});
 		}
 		self.custom_image(ctx, id, size, demo)
 	}
@@ -909,7 +935,11 @@ impl Avatars {
 			return self.share_image(ctx, asset, size, true);
 		}
 		let texture = match asset {
-			model::ImageShare::Emoji { id, .. } => self.emoji_textures.get(&format!("emoji-{id}")),
+			model::ImageShare::Emoji { id, .. } => {
+				let edge = custom_emoji_edge(size, ctx.pixels_per_point());
+				self.cached_custom(id, edge)
+					.and_then(|(key, _)| self.emoji_textures.get(&key))
+			}
 			model::ImageShare::Sticker { id, format_type } => {
 				let key = self.sticker_key(ctx, id, format_type, false);
 				self.textures.get(&key)
@@ -925,22 +955,32 @@ impl Avatars {
 		&mut self,
 		ctx: &egui::Context,
 		asset: model::ImageShare,
+		size: f32,
 		demo: bool,
 	) {
-		let (key, emoji) = match asset {
-			model::ImageShare::Emoji { id, .. } => (format!("emoji-{id}"), true),
+		let (key, cached) = match asset {
+			model::ImageShare::Emoji { id, .. } => {
+				let edge = custom_emoji_edge(size, ctx.pixels_per_point());
+				let cached = self.cached_custom(id, edge);
+				if let Some((cached, _)) = &cached
+					&& let Some((used, _)) = self.emoji_textures.get_mut(cached)
+				{
+					*used = Instant::now();
+				}
+				// A much larger rendition only bridges until the drawn size arrives.
+				let exact = cached.is_some_and(|(_, cached)| cached <= edge * 2);
+				(format!("emoji-{id}@{edge}"), exact)
+			}
 			model::ImageShare::Sticker { id, format_type } => {
-				(self.sticker_key(ctx, id, format_type, false), false)
+				let key = self.sticker_key(ctx, id, format_type, false);
+				let cached = self
+					.textures
+					.get_mut(&key)
+					.map(|(used, _)| *used = Instant::now());
+				(key, cached.is_some())
 			}
 		};
-		let textures = if emoji {
-			&mut self.emoji_textures
-		} else {
-			&mut self.textures
-		};
-		if let Some((used, _)) = textures.get_mut(&key) {
-			*used = Instant::now();
-		} else if !demo {
+		if !cached && !demo {
 			if let Some((attempted, failed)) = self.attempts.get(&key)
 				&& *failed
 			{
@@ -1969,7 +2009,7 @@ mod tests {
 	fn idle_artwork_expires_without_evicting_visible_images_and_reloads() {
 		let ctx = egui::Context::default();
 		let mut avatars = Avatars::default();
-		for key in ["visible", "hidden", "emoji-1", "emoji-2"] {
+		for key in ["visible", "hidden", "emoji-1@32", "emoji-2@32"] {
 			avatars.request(key.into());
 			avatars.take_requests();
 			avatars.accept(
@@ -2003,9 +2043,9 @@ mod tests {
 		);
 		avatars.release_idle(now);
 		assert!(avatars.texture_id("visible").is_some());
-		assert!(avatars.texture_id("emoji-1").is_some());
+		assert!(avatars.texture_id("emoji-1@32").is_some());
 		assert!(avatars.texture_id("hidden").is_none());
-		assert!(avatars.texture_id("emoji-2").is_none());
+		assert!(avatars.texture_id("emoji-2@32").is_none());
 		assert_eq!(avatars.bytes, 64 * 64 * 4);
 		assert_eq!(avatars.emoji_bytes, 64 * 64 * 4);
 		assert!(avatars.next_release().unwrap() > now);
@@ -2023,10 +2063,10 @@ mod tests {
 	fn cached_composer_artwork_refreshes_when_painted() {
 		let ctx = egui::Context::default();
 		let mut avatars = Avatars::default();
-		avatars.request("emoji-1".into());
+		avatars.request("emoji-1@32".into());
 		avatars.accept(
 			&ctx,
-			"emoji-1".into(),
+			"emoji-1@32".into(),
 			Some(ColorImage::filled([64, 64], egui::Color32::WHITE)),
 		);
 		let mut layout = crate::composer_text::Layout::default();
@@ -2077,14 +2117,14 @@ mod tests {
 			let edit = egui::TextEdit::multiline(&mut text)
 				.layouter(&mut layouter)
 				.show(ui);
-			avatars.emoji_textures.get_mut("emoji-1").unwrap().0 = now - IDLE_TEXTURES;
+			avatars.emoji_textures.get_mut("emoji-1@32").unwrap().0 = now - IDLE_TEXTURES;
 			avatars.textures.get_mut("anim:sticker-2-4").unwrap().0 = now - IDLE_TEXTURES;
 			layout.paint(ui, &edit, &mut avatars);
 		})
 		.drop_without_applying_deltas();
 		assert_eq!(avatars.animations["anim:sticker-2-4"].played, played);
 		avatars.release_idle(now);
-		assert!(avatars.texture_id("emoji-1").is_some());
+		assert!(avatars.texture_id("emoji-1@32").is_some());
 		assert!(avatars.texture_id("anim:sticker-2-4").is_some());
 		assert!(!avatars.animations.contains_key("anim:sticker-2-4"));
 		assert!(avatars.take_requests().is_empty());
@@ -2094,7 +2134,7 @@ mod tests {
 	fn clipped_composer_rebuilds_neither_refresh_nor_reload_artwork() {
 		let ctx = egui::Context::default();
 		let mut avatars = Avatars::default();
-		for key in ["emoji-1", "embed:sticker-2-1"] {
+		for key in ["emoji-1@32", "embed:sticker-2-1"] {
 			avatars.request(key.into());
 			avatars.take_requests();
 			avatars.accept(
@@ -2167,13 +2207,13 @@ mod tests {
 		.drop_without_applying_deltas();
 		let mut requests = avatars.take_requests();
 		requests.sort();
-		assert_eq!(requests, ["embed:sticker-2-1", "emoji-1"]);
+		assert_eq!(requests, ["embed:sticker-2-1", "emoji-1@32"]);
 	}
 
 	#[test]
 	fn clipped_timeline_artwork_expires_without_reloading() {
 		for (text, key) in [
-			("<:synthetic:1>", "emoji-1".to_owned()),
+			("<:synthetic:1>", "emoji-1@64".to_owned()),
 			(
 				"[sticker](https://cdn.discordapp.com/stickers/2.png)",
 				"embed:sticker-2-1".to_owned(),
@@ -2260,11 +2300,11 @@ mod tests {
 		let ctx = egui::Context::default();
 		let id = model::Id(42);
 		assert_eq!(
-			animated_emoji_key(id, true).as_deref(),
-			Some("anim:emoji-42")
+			animated_emoji_key(id, 32, true).as_deref(),
+			Some("anim:emoji-42@32")
 		);
-		assert_eq!(animated_emoji_key(id, false), None);
-		assert_eq!(animated_emoji_key(model::Id(0), true), None);
+		assert_eq!(animated_emoji_key(id, 32, false), None);
+		assert_eq!(animated_emoji_key(model::Id(0), 32, true), None);
 		let mut images = Avatars::default();
 		// Static emoji, and animated ones with GIF animation off, use the still artwork.
 		for (still, animated, enabled) in [(41, false, true), (42, true, false)] {
@@ -2275,30 +2315,30 @@ mod tests {
 					.custom_emoji(&ctx, still, animated, 20.0, false)
 					.is_none()
 			);
-			assert_eq!(images.take_requests(), vec![format!("emoji-{still}")]);
+			assert_eq!(images.take_requests(), vec![format!("emoji-{still}@32")]);
 		}
 		images.accept(
 			&ctx,
-			"emoji-42".into(),
-			Some(ColorImage::filled([64, 64], egui::Color32::WHITE)),
+			"emoji-42@32".into(),
+			Some(ColorImage::filled([32, 32], egui::Color32::WHITE)),
 		);
 		images.set_animation(true);
 		// The cached still bridges the animated download without another still request.
-		let still = images.texture_id("emoji-42");
+		let still = images.texture_id("emoji-42@32");
 		let image = images.custom_emoji(&ctx, id, true, 20.0, false).unwrap();
 		let texture = |image: &egui::Image<'_>, ctx: &egui::Context| match image.source(ctx) {
 			egui::ImageSource::Texture(texture) => Some(texture.id),
 			_ => None,
 		};
 		assert_eq!(texture(&image, &ctx), still);
-		assert_eq!(images.take_requests(), vec!["anim:emoji-42"]);
+		assert_eq!(images.take_requests(), vec!["anim:emoji-42@32"]);
 		images.accept(
 			&ctx,
-			"anim:emoji-42".into(),
+			"anim:emoji-42@32".into(),
 			Some(ColorImage::filled([64, 64], egui::Color32::RED)),
 		);
 		images.accept_animation(
-			"anim:emoji-42".into(),
+			"anim:emoji-42@32".into(),
 			vec![
 				(
 					Duration::from_millis(100),
@@ -2310,7 +2350,7 @@ mod tests {
 				),
 			],
 		);
-		assert!(images.animations.contains_key("anim:emoji-42"));
+		assert!(images.animations.contains_key("anim:emoji-42@32"));
 		let mut played = None;
 		ctx.run_ui(
 			egui::RawInput {
@@ -2324,16 +2364,16 @@ mod tests {
 			},
 		)
 		.drop_without_applying_deltas();
-		let frames = images.animations["anim:emoji-42"]
+		let frames = images.animations["anim:emoji-42@32"]
 			.texture
 			.as_ref()
 			.map(|t| t.id());
 		assert!(played.is_some() && played == frames);
 		assert!(images.take_requests().is_empty());
 		// Frames evicted by the shared pool are fetched again while the emoji stays visible.
-		images.animations.remove("anim:emoji-42");
+		images.animations.remove("anim:emoji-42@32");
 		assert!(images.custom_emoji(&ctx, id, true, 20.0, false).is_some());
-		assert_eq!(images.take_requests(), vec!["anim:emoji-42"]);
+		assert_eq!(images.take_requests(), vec!["anim:emoji-42@32"]);
 
 		// A failed animated download shows the still instead of retrying the GIF.
 		let other = model::Id(43);
@@ -2342,14 +2382,14 @@ mod tests {
 				.custom_emoji(&ctx, other, true, 20.0, false)
 				.is_none()
 		);
-		assert_eq!(images.take_requests(), vec!["anim:emoji-43"]);
-		images.accept(&ctx, "anim:emoji-43".into(), None);
+		assert_eq!(images.take_requests(), vec!["anim:emoji-43@32"]);
+		images.accept(&ctx, "anim:emoji-43@32".into(), None);
 		assert!(
 			images
 				.custom_emoji(&ctx, other, true, 20.0, false)
 				.is_none()
 		);
-		assert_eq!(images.take_requests(), vec!["emoji-43"]);
+		assert_eq!(images.take_requests(), vec!["emoji-43@32"]);
 
 		// Demo artwork stays local.
 		let mut demo = Avatars::default();
@@ -3309,14 +3349,14 @@ mod tests {
 			Some(ColorImage::filled([128, 128], egui::Color32::WHITE)),
 		);
 		assert_eq!(avatars.textures.len(), TEXTURES);
-		avatars.request("emoji-9001".into());
+		avatars.request("emoji-9001@64".into());
 		avatars.take_requests();
 		avatars.accept(
 			&ctx,
-			"emoji-9001".into(),
+			"emoji-9001@64".into(),
 			Some(ColorImage::filled([64, 64], egui::Color32::WHITE)),
 		);
-		let emoji_texture = avatars.texture_id("emoji-9001").unwrap();
+		let emoji_texture = avatars.texture_id("emoji-9001@64").unwrap();
 		for index in 0..80 {
 			let key = format!("embed:synthetic-{index}");
 			avatars.request(key.clone());
@@ -3327,7 +3367,7 @@ mod tests {
 			);
 		}
 		assert_eq!(avatars.textures.len(), 64);
-		assert_eq!(avatars.texture_id("emoji-9001"), Some(emoji_texture));
+		assert_eq!(avatars.texture_id("emoji-9001@64"), Some(emoji_texture));
 		assert_eq!(avatars.emoji_bytes, 64 * 64 * 4);
 		avatars.take_requests();
 		assert!(
@@ -3335,7 +3375,14 @@ mod tests {
 				.custom_image(&ctx, model::Id(9001), 20.0, false)
 				.is_some()
 		);
+		// The cached 64 px rendition draws the 32 px slot instead of fetching it again smaller.
 		assert!(avatars.take_requests().is_empty());
+		// Renditions are the smallest power of two covering the physical edge, 32 to 256 px.
+		for (size, scale, edge) in [(10.0, 1.0, 32), (24.0, 1.5, 64), (52.0, 2.0, 128)] {
+			assert_eq!(custom_emoji_edge(size, scale), edge);
+		}
+		assert_eq!(custom_emoji_edge(400.0, 2.0), 256);
+		assert_eq!(custom_emoji_edge(f32::NAN, 1.0), 64);
 		assert_eq!(
 			avatars
 				.textures
