@@ -147,6 +147,7 @@ pub enum Event {
 		request: u64,
 		result: Result<Vec<model::Gif>, auth::Failure>,
 	},
+	GifFavoritesChanged,
 	ReactionPreferences {
 		request: u64,
 		result: Result<Vec<String>, auth::Failure>,

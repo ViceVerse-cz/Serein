@@ -472,6 +472,10 @@ impl State {
 				self.apply_gif_favorites(request, result);
 				Ok(())
 			}
+			Event::GifFavoritesChanged => {
+				self.invalidate_gif_favorites();
+				Ok(())
+			}
 			Event::ReadState(event) => self.apply_read_state(event),
 			Event::ChannelPreferences(event) => self.finish_channel_preferences(event),
 			Event::NotificationPreferences(event) => self.apply_notification_preferences(event),
@@ -1212,6 +1216,17 @@ impl State {
 										} else {
 											Patch::Value(member.roles.clone())
 										},
+										departed: false,
+									});
+								} else if let Some(guild) = list.guild {
+									self.timeline.apply_author_identity(&model::MemberIdentity {
+										global_name: model::GlobalNameUpdate::Set,
+										guild,
+										user: member.user.id,
+										profile: Some(member.user.clone()),
+										avatar: Patch::Absent,
+										nick: member.nick.clone().map_or(Patch::Null, Patch::Value),
+										roles: Patch::Value(member.roles.clone()),
 										departed: false,
 									});
 								} else {

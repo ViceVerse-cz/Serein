@@ -215,12 +215,18 @@ impl Heartbeat {
 			.front()
 			.is_some_and(|(_, sent)| now.saturating_duration_since(*sent) >= interval)
 	}
-	fn collect(&mut self, writer: &outgoing::Outgoing) -> bool {
+	fn collect(&mut self, writer: &outgoing::Outgoing, probe_requested: &mut Option<u64>) -> bool {
 		while let Some(receipt) = writer.take_heartbeat() {
+			if receipt.acknowledged {
+				if *probe_requested == Some(receipt.ticket) {
+					*probe_requested = None;
+				}
+				continue;
+			}
 			if self.pending.len() == outgoing::PACKETS {
 				return false;
 			}
-			self.pending.push_back(receipt);
+			self.pending.push_back((receipt.ticket, receipt.sent));
 		}
 		true
 	}
@@ -232,6 +238,9 @@ impl Heartbeat {
 	}
 	fn ack(&mut self) -> Option<u64> {
 		self.pending.pop_front().map(|(ticket, _)| ticket)
+	}
+	fn acknowledge(&mut self, writer: &outgoing::Outgoing) -> Option<u64> {
+		self.ack().or_else(|| writer.acknowledge_heartbeat())
 	}
 }
 fn next_attempt(attempt: u32, ready_for: Option<Duration>) -> u32 {
@@ -1938,7 +1947,7 @@ async fn run_observed_inner(
 			if watches_open && member_watches.has_changed().unwrap_or(false) {
 				writer.clear_queries(queries.watch(&member_watches.borrow_and_update()));
 			}
-			if !heartbeat.collect(&writer) {
+			if !heartbeat.collect(&writer, &mut probe_requested) {
 				record(
 					ConnectionReason::LocalCapacity,
 					None,
@@ -2343,10 +2352,9 @@ async fn run_observed_inner(
 							let admitted_sequence=(packet.op==0).then_some(packet.s).flatten();
 							match packet.op {
 								11 => {
-									// Read all actual send receipts before interpreting this ACK, even if the
-									// writer's watch notifications coalesced or raced socket readiness.
-									if !heartbeat.collect(&writer) {record(ConnectionReason::LocalCapacity,None,attempt,writer.occupancy());break;}
-									if heartbeat.ack().zip(probe_requested).is_some_and(|(acked,probe)|acked>=probe) {probe_requested=None;}
+									// Drain receipts first; the writer reconciles ACKs that precede flush completion.
+									if !heartbeat.collect(&writer, &mut probe_requested) {record(ConnectionReason::LocalCapacity,None,attempt,writer.occupancy());break;}
+									if heartbeat.acknowledge(&writer).zip(probe_requested).is_some_and(|(acked,probe)|acked==probe) {probe_requested=None;}
 									priority_reads=0;overdue_started=None;
 								}
 								1 => {
@@ -2634,8 +2642,12 @@ async fn run_observed_inner(
 									// Status, appearance and server folders live here. Channel and guild
 									// mutes live on user guild settings, so this event must not clear them.
 									"USER_SETTINGS_PROTO_UPDATE" => {
-										if discord_protocol::settings_update::reactions_changed(packet.d.get().as_bytes()).unwrap_or(true) {
+										let frecency = discord_protocol::settings_update::decode_frecency(packet.d.get().as_bytes());
+										if frecency.as_ref().map_or(true, |touched| touched.reactions) {
 											emit(Event::ReactionPreferencesChanged)?;
+										}
+										if frecency.is_ok_and(|touched| touched.favorites) {
+											emit(Event::GifFavoritesChanged)?;
 										}
 										if let Some(touched) = discord_protocol::settings_update::decode(packet.d.get().as_bytes()).unwrap_or(Some(discord_protocol::settings_update::Touched { status: true, folders: true }))
 											&& (touched.status || touched.folders)
@@ -3058,6 +3070,103 @@ mod tests {
 			"user":{"id":"1","username":"synthetic"}, "session_id":session,
 			"resume_gateway_url":"wss://gateway.discord.gg/", "guilds":[], "private_channels":[]
 		}})
+	}
+
+	#[tokio::test]
+	async fn favorite_settings_notifications_reach_core_without_invalidating_unrelated_updates() {
+		timeout(Duration::from_secs(10), async {
+			let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+			let endpoint = format!("ws://{}/", listener.local_addr().unwrap());
+			let (client_finished, terminal_observed) = tokio::sync::oneshot::channel();
+			let state = Mutex::new(client_core::State {
+				auth: client_core::auth::AuthState::Authenticated,
+				gateway_connected: true,
+				..Default::default()
+			});
+			{
+				let mut state = state.lock().unwrap();
+				let Some(client_core::Command::GifFavorites { request, .. }) =
+					state.request_gif_favorites_if_needed()
+				else {
+					panic!("initial favorites read");
+				};
+				state.apply_gif_favorites(request, Ok(vec![]));
+			}
+			let favorites_changed = Mutex::new(0);
+			let server = async {
+				let (stream, _) = listener.accept().await.unwrap();
+				let mut socket = accept_async(stream).await.unwrap();
+				send(
+					&mut socket,
+					json!({"op":10,"d":{"heartbeat_interval":1000}}),
+				)
+				.await;
+				assert_eq!(packet(&mut socket).await["op"], 2);
+				send(&mut socket, ready(1, "synthetic-favorite-settings")).await;
+				for (sequence, update) in (2_u64..).zip([
+					json!({"settings":{"type":2,"proto":"agA="},"partial":true}),
+					json!({"settings":{"type":1,"proto":"EgA="},"partial":true}),
+					json!({"settings":{"type":2,"proto":"!"},"partial":false}),
+					json!({"settings":{"type":2,"proto":"EgA="},"partial":true}),
+					json!({"settings":{"type":2,"proto":""},"partial":false}),
+				]) {
+					send(
+						&mut socket,
+						json!({"op":0,"t":"USER_SETTINGS_PROTO_UPDATE","s":sequence,"d":update}),
+					)
+					.await;
+				}
+				socket
+					.send(Frame::Close(Some(CloseFrame {
+						code: CloseCode::Library(4004),
+						reason: "synthetic stop".into(),
+					})))
+					.await
+					.unwrap();
+				terminal_observed.await.unwrap();
+			};
+			let client = async {
+				let result = run_inner(
+					Arc::new(
+						SessionSecret::from_owner_input("synthetic-owner-session".into()).unwrap(),
+					),
+					"wss://gateway.discord.gg/".into(),
+					watch::channel(None).1,
+					mpsc::channel(1).1,
+					None,
+					|event| {
+						if !matches!(&event, Event::GifFavoritesChanged) {
+							return Ok(());
+						}
+						let mut state = state.lock().unwrap();
+						let generation = state.generation;
+						state.apply(client_core::Envelope { generation, event });
+						assert!(state.gifs.sync_ready);
+						let Some(client_core::Command::GifFavorites {
+							request,
+							change: None,
+						}) = state.request_gif_favorites_if_needed()
+						else {
+							panic!("remote update must refresh an already loaded list");
+						};
+						state.apply_gif_favorites(request, Ok(vec![]));
+						assert!(state.gifs.sync_ready);
+						assert!(state.request_gif_favorites_if_needed().is_none());
+						*favorites_changed.lock().unwrap() += 1;
+						Ok(())
+					},
+					Some(&endpoint),
+				)
+				.await;
+				let _ = client_finished.send(());
+				result
+			};
+			let ((), result) = tokio::join!(server, client);
+			assert_eq!(result, Err(Failure::Expired));
+			assert_eq!(*favorites_changed.lock().unwrap(), 2);
+		})
+		.await
+		.unwrap();
 	}
 
 	#[tokio::test]
