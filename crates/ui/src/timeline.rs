@@ -5257,7 +5257,10 @@ impl TimelineView {
 				|| (was_following && !user_scrolled_up && !dragged_up && !selection_scrolled_up)
 				|| self.present_scroll.is_some()
 				|| (at_bottom && !self.left_live_edge));
-		if self.following
+		// A Present glide follows before it arrives. Messages below it are not seen until it
+		// lands, and a wheel can still cancel it short of them.
+		let arrived = self.following && self.present_scroll.is_none();
+		if arrived
 			&& self.at_current_latest
 			&& !state.history_targeted
 			&& state.history_after.is_none()
@@ -5272,7 +5275,7 @@ impl TimelineView {
 				self.unread_dismissed = Some(channel_latest);
 			}
 		}
-		if self.following
+		if arrived
 			&& !self.hold_read_ack
 			&& ui.is_enabled()
 			&& self.mark_unread.is_none()
@@ -5312,7 +5315,12 @@ impl TimelineView {
 			self.consecutive_reflows = self.consecutive_reflows.saturating_add(1);
 			self.revision = u64::MAX;
 			let user_scrolling = scroll_delta != 0.0 || session.holding();
-			if was_following && !user_scrolling && !self.left_live_edge {
+			// The glide already aims at this frame's live edge; a jump would cut it short.
+			if was_following
+				&& !user_scrolling
+				&& !self.left_live_edge
+				&& self.present_scroll.is_none()
+			{
 				self.following = true;
 				self.jump = true;
 				// An anchored reader keeps this frame's places. The next frame
@@ -9848,10 +9856,27 @@ mod tests {
 
 	#[test]
 	fn wheel_during_jump_to_present_keeps_the_current_place() {
+		let channel = |last: u64| model::Channel {
+			id: Id(20),
+			guild: None,
+			parent_id: None,
+			position: 0,
+			name: "Synthetic glide conversation".into(),
+			kind: 1,
+			recipients: vec![],
+			member_list_id: None,
+			tags: None,
+			message_count: None,
+			icon: None,
+			last_message: Some(Id(last)),
+		};
 		let mut state = State {
+			auth: client_core::auth::AuthState::Authenticated,
+			gateway_connected: true,
+			freshness: model::Freshness::Fresh,
 			selected: Some(Id(20)),
+			channels: vec![channel(200)],
 			revision: 1,
-			demo: true,
 			..Default::default()
 		};
 		for id in 1..=200 {
@@ -9865,7 +9890,7 @@ mod tests {
 		let mut view = TimelineView::default();
 		let mut avatars = crate::avatars::Avatars::default();
 		let mut frame_number = 0;
-		let mut frame = |view: &mut TimelineView, events: Vec<egui::Event>| {
+		let mut frame = |view: &mut TimelineView, state: &mut State, events: Vec<egui::Event>| {
 			frame_number += 1;
 			let output = ctx.run_ui(
 				egui::RawInput {
@@ -9884,7 +9909,7 @@ mod tests {
 					);
 					view.show(
 						ui,
-						&mut state,
+						state,
 						&mut None,
 						&mut None,
 						(
@@ -9899,9 +9924,17 @@ mod tests {
 			view.scroll_offset
 		};
 		for _ in 0..8 {
-			frame(&mut view, vec![]);
+			frame(&mut view, &mut state, vec![]);
 		}
 		assert!(view.following);
+		assert_eq!(view.mark_read.take(), Some(Id(200)));
+		state
+			.apply_read_state(client_core::read_state::Event::Snapshot {
+				entries: Some(vec![(Id(20), Some(Id(200)), 0)]),
+				version: Some(1),
+				partial: false,
+			})
+			.unwrap();
 		let live_edge = view.scroll_offset;
 		let away = view.rows.iter().map(|(_, height)| height).sum::<f32>() - 600.0 - 4_200.0;
 		let (index, _, top) = visible_range(&view.rows, away.max(0.0), away.max(0.0));
@@ -9910,16 +9943,22 @@ mod tests {
 		view.jump = false;
 		view.anchor = Some((view.rows[index].0, away.max(0.0) - top));
 		view.revision = u64::MAX;
-		let parked = frame(&mut view, vec![]);
+		let parked = frame(&mut view, &mut state, vec![]);
 		assert!(!view.following);
 		assert!(
 			live_edge - parked > 1_000.0,
 			"parked {parked} should sit well above the live edge {live_edge}"
 		);
+		// A message arrives below the parked reader. Starting the glide is not reading it.
+		state
+			.timeline
+			.insert(text_message(201), false, false)
+			.unwrap();
+		state.channels = vec![channel(201)];
 		view.left_live_edge = false;
 		view.target_browsing = false;
 		view.present_scroll = Some((view.scroll_offset, 0.0));
-		let gliding = frame(&mut view, vec![]);
+		let gliding = frame(&mut view, &mut state, vec![]);
 		assert!(view.present_scroll.is_some() && view.following);
 		assert!(
 			gliding < live_edge - 500.0,
@@ -9929,6 +9968,7 @@ mod tests {
 		// at the timeline and must not stop the glide.
 		frame(
 			&mut view,
+			&mut state,
 			vec![
 				egui::Event::PointerGone,
 				egui::Event::MouseWheel {
@@ -9942,11 +9982,13 @@ mod tests {
 		);
 		frame(
 			&mut view,
+			&mut state,
 			vec![egui::Event::PointerMoved(egui::pos2(150.0, 200.0))],
 		);
 		assert!(view.present_scroll.is_some() && view.following);
 		let interrupted = frame(
 			&mut view,
+			&mut state,
 			vec![
 				egui::Event::PointerMoved(egui::pos2(150.0, 200.0)),
 				egui::Event::MouseWheel {
@@ -9963,13 +10005,18 @@ mod tests {
 			interrupted < live_edge - 500.0,
 			"the wheel jumped to the live edge: {interrupted} vs {live_edge}"
 		);
+		assert!(
+			view.mark_read.is_none() && view.seen_latest != Some(Id(201)),
+			"an interrupted glide acknowledged a message it never showed"
+		);
 		// Pressing the scrollbar track above the thumb mid-glide leaves the live edge too.
 		view.present_scroll = Some((view.scroll_offset, 0.0));
-		frame(&mut view, vec![]);
+		frame(&mut view, &mut state, vec![]);
 		assert!(view.present_scroll.is_some() && view.following);
 		let track = egui::pos2(895.0, 120.0);
 		let pressed = frame(
 			&mut view,
+			&mut state,
 			vec![
 				egui::Event::PointerMoved(track),
 				egui::Event::PointerButton {
@@ -9981,11 +10028,55 @@ mod tests {
 			],
 		);
 		assert!(!view.following && view.present_scroll.is_none());
-		let idle = frame(&mut view, vec![]);
+		let idle = frame(&mut view, &mut state, vec![]);
 		assert!(
 			(idle - pressed).abs() < 1.0,
 			"the glide pulled the reader back: {idle} vs {pressed}"
 		);
+		// An uninterrupted glide crosses rows it has not measured yet. Measuring them must not
+		// turn the rest of the glide into a jump, and it reads the latest message on arrival.
+		let mut previous = frame(
+			&mut view,
+			&mut state,
+			vec![egui::Event::PointerButton {
+				pos: track,
+				button: egui::PointerButton::Primary,
+				pressed: false,
+				modifiers: egui::Modifiers::NONE,
+			}],
+		);
+		// Let the earlier wheel's smoothing settle so nothing but the glide moves the view.
+		for _ in 0..30 {
+			previous = frame(&mut view, &mut state, vec![]);
+		}
+		// Forget the rows below the view so the glide measures them as it passes.
+		let below = view.anchor.map(|(id, _)| id);
+		view.heights.retain(|id, _| Some(*id) <= below);
+		view.measured_rows.retain(|id| Some(*id) <= below);
+		view.left_live_edge = false;
+		view.present_scroll = Some((previous, 0.0));
+		let mut glide_frames = 0;
+		while view.present_scroll.is_some() {
+			assert!(
+				view.mark_read.is_none(),
+				"acknowledged before the glide arrived"
+			);
+			let next = frame(&mut view, &mut state, vec![]);
+			glide_frames += 1;
+			assert!(glide_frames < 60, "the glide never finished");
+			assert!(
+				next >= previous - 1.0,
+				"the glide moved up: {next} vs {previous}"
+			);
+			previous = next;
+		}
+		assert!(
+			glide_frames >= 10,
+			"the glide ended after {glide_frames} frames, so it jumped to the live edge"
+		);
+		frame(&mut view, &mut state, vec![]);
+		assert!(view.following);
+		assert_eq!(view.mark_read.take(), Some(Id(201)));
 	}
 
 	fn message_texts(shape: &egui::Shape, labels: &mut Vec<(String, egui::Rect)>) {
