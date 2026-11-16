@@ -219,70 +219,75 @@ fn instant_wheel_delta(
 	time: f64,
 	latch: &mut WheelLatch,
 ) -> egui::Vec2 {
-	events
-		.iter()
-		.filter_map(|event| {
-			let egui::Event::MouseWheel {
-				unit,
-				delta,
-				phase,
-				modifiers,
-				source,
-			} = event
-			else {
-				return None;
-			};
-			// A gesture whose `End` never arrives times out like egui's (resting finger or not).
-			if let Some((last, touch_source)) = latch.touch {
-				let timeout = if touch_source == egui::MouseWheelSource::Trackpad {
-					1.0
-				} else {
-					0.15
-				};
-				if time - last > timeout {
-					*latch = WheelLatch::default();
-				}
-			}
-			match phase {
-				egui::TouchPhase::Start => {
-					*latch = WheelLatch {
-						modifiers: *modifiers,
-						touch: Some((time, *source)),
-					};
-					return None;
-				}
-				egui::TouchPhase::End | egui::TouchPhase::Cancel => {
-					*latch = WheelLatch::default();
-					return None;
-				}
-				egui::TouchPhase::Move => {}
-			}
-			if let Some(touch) = &mut latch.touch {
-				*touch = (time, *source);
-				latch.modifiers |= *modifiers;
+	let mut total = egui::Vec2::ZERO;
+	for event in events {
+		let egui::Event::MouseWheel {
+			unit,
+			delta,
+			phase,
+			modifiers,
+			source,
+		} = event
+		else {
+			continue;
+		};
+		// A gesture whose `End` never arrives times out like egui's (resting finger or not).
+		if let Some((last, touch_source)) = latch.touch {
+			let timeout = if touch_source == egui::MouseWheelSource::Trackpad {
+				1.0
 			} else {
-				latch.modifiers = *modifiers;
-			}
-			let modifiers = latch.modifiers;
-			if modifiers.matches_any(options.zoom_modifier) {
-				return None;
-			}
-			let mut delta = match unit {
-				egui::MouseWheelUnit::Point => *delta,
-				egui::MouseWheelUnit::Line => options.line_scroll_speed * *delta,
-				egui::MouseWheelUnit::Page => page_height * *delta,
+				0.15
 			};
-			let horizontal = modifiers.matches_any(options.horizontal_scroll_modifier);
-			let vertical = modifiers.matches_any(options.vertical_scroll_modifier);
-			if horizontal && !vertical {
-				delta = egui::vec2(delta.x + delta.y, 0.0);
+			if time - last > timeout {
+				*latch = WheelLatch::default();
 			}
-			if !horizontal && vertical {
-				delta = egui::vec2(0.0, delta.x + delta.y);
+		}
+		match phase {
+			egui::TouchPhase::Start => {
+				*latch = WheelLatch {
+					modifiers: *modifiers,
+					touch: Some((time, *source)),
+				};
+				continue;
 			}
-			Some(delta)
-		})
-		.fold(egui::Vec2::ZERO, |total, delta| total + delta)
+			egui::TouchPhase::End => {
+				*latch = WheelLatch::default();
+				continue;
+			}
+			egui::TouchPhase::Cancel => {
+				// egui drops the cancelled gesture's movement, including this frame's.
+				*latch = WheelLatch::default();
+				total = egui::Vec2::ZERO;
+				continue;
+			}
+			egui::TouchPhase::Move => {}
+		}
+		if let Some(touch) = &mut latch.touch {
+			*touch = (time, *source);
+			latch.modifiers |= *modifiers;
+		} else {
+			latch.modifiers = *modifiers;
+		}
+		let modifiers = latch.modifiers;
+		if modifiers.matches_any(options.zoom_modifier) {
+			continue;
+		}
+		let mut delta = match unit {
+			egui::MouseWheelUnit::Point => *delta,
+			egui::MouseWheelUnit::Line => options.line_scroll_speed * *delta,
+			egui::MouseWheelUnit::Page => page_height * *delta,
+		};
+		let horizontal = modifiers.matches_any(options.horizontal_scroll_modifier);
+		let vertical = modifiers.matches_any(options.vertical_scroll_modifier);
+		if horizontal && !vertical {
+			delta = egui::vec2(delta.x + delta.y, 0.0);
+		}
+		if !horizontal && vertical {
+			delta = egui::vec2(0.0, delta.x + delta.y);
+		}
+		total += delta;
+	}
+	total
 }
 
 fn zoom_gesture(latch: &WheelLatch, options: egui::InputOptions, events: &[egui::Event]) -> bool {
@@ -969,7 +974,16 @@ mod tests {
 			phase: egui::TouchPhase::Cancel,
 			source: egui::MouseWheelSource::Unknown,
 		}];
-		for interrupt in [zoom_start, cancel] {
+		// A swipe cancelled in the frame it moved must not restart the queue either.
+		let mut moved_then_cancelled = vec![egui::Event::MouseWheel {
+			unit: egui::MouseWheelUnit::Line,
+			delta: egui::vec2(0.0, 10.25),
+			modifiers: egui::Modifiers::NONE,
+			phase: egui::TouchPhase::Move,
+			source: egui::MouseWheelSource::Unknown,
+		}];
+		moved_then_cancelled.extend(cancel.clone());
+		for interrupt in [zoom_start, cancel, moved_then_cancelled] {
 			queued_swipe_stops_after(interrupt);
 		}
 	}
