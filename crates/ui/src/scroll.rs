@@ -116,14 +116,16 @@ pub fn apply_preferences(ctx: &egui::Context, preferences: model::ReadingPrefere
 		state.accumulator = egui::Vec2::ZERO;
 	}
 	let hover = ctx.input(|i| i.pointer.hover_pos());
-	if incoming != egui::Vec2::ZERO {
-		state.origin = hover;
-	} else if !match (hover, state.origin) {
+	if !match (hover, state.origin) {
 		(Some(hover), Some(origin)) => hover.distance(origin) <= QUEUE_ORIGIN_SLOP,
 		(hover, origin) => hover == origin,
 	} {
-		// The pointer moved to what may be another scroll area; it must not get this swipe.
+		// The pointer moved to what may be another scroll area. Neither it nor a new swipe
+		// there may receive the old swipe's remaining movement.
 		state.accumulator = egui::Vec2::ZERO;
+	}
+	if incoming != egui::Vec2::ZERO {
+		state.origin = hover;
 	}
 
 	let speed = f32::from(preferences.scroll_speed_percent) / 100.0;
@@ -983,12 +985,28 @@ mod tests {
 			source: egui::MouseWheelSource::Unknown,
 		}];
 		moved_then_cancelled.extend(cancel.clone());
-		for interrupt in [zoom_start, cancel, moved_then_cancelled] {
-			queued_swipe_stops_after(interrupt);
+		// A new swipe over another scroll area gets only its own movement.
+		let elsewhere = vec![
+			egui::Event::PointerMoved(egui::pos2(700.0, 300.0)),
+			egui::Event::MouseWheel {
+				unit: egui::MouseWheelUnit::Point,
+				delta: egui::vec2(0.0, 10.0),
+				modifiers: egui::Modifiers::NONE,
+				phase: egui::TouchPhase::Move,
+				source: egui::MouseWheelSource::Unknown,
+			},
+		];
+		for (interrupt, expected) in [
+			(zoom_start, egui::Vec2::ZERO),
+			(cancel, egui::Vec2::ZERO),
+			(moved_then_cancelled, egui::Vec2::ZERO),
+			(elsewhere, egui::vec2(0.0, 10.0)),
+		] {
+			queued_swipe_stops_after(interrupt, expected);
 		}
 	}
 
-	fn queued_swipe_stops_after(interrupt: Vec<egui::Event>) {
+	fn queued_swipe_stops_after(interrupt: Vec<egui::Event>, expected: egui::Vec2) {
 		let ctx = egui::Context::default();
 		crate::design::apply(&ctx);
 		let frame = |time: f64, events: Vec<egui::Event>| {
@@ -1024,7 +1042,7 @@ mod tests {
 			"the swipe must leave a queue, moved {}",
 			swipe.y
 		);
-		assert_eq!(frame(0.12, interrupt), egui::Vec2::ZERO);
+		assert_eq!(frame(0.12, interrupt), expected);
 		let idle = frame(0.14, vec![]);
 		assert_eq!(idle, egui::Vec2::ZERO);
 	}
