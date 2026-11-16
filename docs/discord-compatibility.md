@@ -1744,7 +1744,7 @@ colors survive READY, role updates and role catalog reconciliation. Chat authors
 member names, profile names and role labels render static two-stop gradients or three-stop
 holographic colors. Equal positions favor the lower role ID, consistent with
 [discord.py role comparison](https://github.com/Rapptz/discord.py/blob/master/discord/role.py).
-Names retain hue when readable; the theme adjusts insufficient contrast, including hover.
+Names keep their role hue. A color short of WCAG AA is lightened or darkened along that hue, and desaturated only if the extreme value still fails, including on hover.
 Profile name colors and role chips prefer current self/member assignments, including empty
 assignments, and fall back to fetched profile roles when current membership is unavailable.
 Profile chips list those assignments from the top of the hierarchy: higher `position` first,

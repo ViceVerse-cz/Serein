@@ -255,6 +255,48 @@ impl eframe::App for Preview {
 	}
 }
 
+/// The desktop binary owns `--demo-loading`. This example includes the same
+/// server-settings fixture, which asks the crate root whether loads stay pending.
+fn demo_loading() -> bool {
+	std::env::args().any(|arg| arg == "--demo-loading" || arg == "--demo-loading=partial")
+}
+
+/// Two synthetic roles on the demo conversation. Author 1 has both, so the higher
+/// dark red role colors that name. Author 2 has only the pink role.
+fn prime_name_colors(state: &mut client_core::State) {
+	let guild = model::Id(10);
+	let red = model::Id(201);
+	let pink = model::Id(202);
+	for (id, name, color, position) in [
+		(red, "Synthetic operative", 0xBD_202A_u32, 8_i32),
+		(pink, "Synthetic personnel", 0xFF_7C7C_u32, 2),
+	] {
+		state.apply(client_core::Envelope {
+			generation: state.generation,
+			event: client_core::Event::Permissions(client_core::permissions::Event::Role {
+				guild,
+				role: model::permissions::Role {
+					id,
+					name: name.into(),
+					bits: 0,
+					color,
+					secondary_color: None,
+					tertiary_color: None,
+					position,
+					hoist: false,
+					managed: false,
+				},
+			}),
+		});
+	}
+	state
+		.timeline
+		.apply_author_membership(model::Id(1), &[red, pink], None);
+	state
+		.timeline
+		.apply_author_membership(model::Id(2), &[pink], None);
+}
+
 fn prime_profile(state: &mut client_core::State) {
 	if let Some(client_core::Command::EditProfile { user, request, .. }) = state.load_own_profile()
 	{
@@ -762,7 +804,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let args: Vec<_> = std::env::args().skip(1).collect();
 	let value = |prefix: &str| args.iter().find_map(|arg| arg.strip_prefix(prefix));
 	if !args.iter().any(|arg| arg == "--demo") {
-		return Err("Usage: profile_preview --demo [--output=PATH.png | --smoke | --interactive] [--page=stickers|slash-commands|slash-command-search|slash-command-options|profile|markdown|embeds|channel-links|channel-link-replies|profile-card|collectibles|member-tags|dm-tags|account|appearance|storage|updates|general|chat|language|notifications|keybinds|extensions|server|server-engagement|server-safety|server-emoji|server-stickers|server-members|server-roles|server-invites|server-integrations|server-audit-log] [--command=help|weather] [--themes] [--extension=ID] [--thumbnail] [--proxy-artwork] [--width=1120] [--height=760] [--scroll=PIXELS] [--toolbar-hover=normal|shift] [--close-settings] [--keybinds-custom] [--light] [--toasts] [--compact] [--transparency=0..100]".into());
+		return Err("Usage: profile_preview --demo [--output=PATH.png | --smoke | --interactive] [--page=stickers|slash-commands|slash-command-search|slash-command-options|profile|markdown|embeds|channel-links|channel-link-replies|profile-card|collectibles|member-tags|dm-tags|account|appearance|storage|updates|general|chat|language|notifications|keybinds|extensions|server|server-engagement|server-safety|server-emoji|server-stickers|server-members|server-roles|server-invites|server-integrations|server-audit-log] [--command=help|weather] [--themes] [--extension=ID] [--thumbnail] [--proxy-artwork] [--width=1120] [--height=760] [--scroll=PIXELS] [--toolbar-hover=normal|shift] [--close-settings] [--name-colors] [--keybinds-custom] [--light] [--toasts] [--compact] [--transparency=0..100]".into());
 	}
 	let smoke = args.iter().any(|arg| arg == "--smoke");
 	let interactive = args.iter().any(|arg| arg == "--interactive");
@@ -842,8 +884,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	if toolbar_hover.is_some() {
 		page = "chat".into();
 	}
+	let name_colors = args.iter().any(|arg| arg == "--name-colors");
 	let close_settings =
-		toolbar_hover.is_some() || args.iter().any(|arg| arg == "--close-settings");
+		toolbar_hover.is_some() || name_colors || args.iter().any(|arg| arg == "--close-settings");
 	let forum_tags: Vec<_> = value("--tags=")
 		.map(|list| {
 			list.split(',')
@@ -917,6 +960,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			};
 			if toolbar_hover.is_some() || close_settings {
 				state = test_support::chat_demo_state();
+			}
+			if name_colors {
+				prime_name_colors(&mut state);
 			}
 			if activities {
 				prime_activities(&mut state, proxy_artwork);
