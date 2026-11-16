@@ -10,7 +10,7 @@ Squashed from https://github.com/emilk/egui/pull/8710 at 9aa14dfced51.
  1 file changed, 23 insertions(+), 1 deletion(-)
 
 diff --git a/crates/egui-winit/src/lib.rs b/crates/egui-winit/src/lib.rs
-index 019de9886..7d4594055 100644
+index 639a0926..9562a225 100644
 --- a/crates/egui-winit/src/lib.rs
 +++ b/crates/egui-winit/src/lib.rs
 @@ -101,6 +101,24 @@ pub struct State {

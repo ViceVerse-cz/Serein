@@ -12,7 +12,7 @@ egui#5180 checks secondary_down(), the button state after the pass, so a right-c
  create mode 100644 crates/egui/tests/text_edit_right_click.rs
 
 diff --git a/crates/egui/src/text_selection/text_cursor_state.rs b/crates/egui/src/text_selection/text_cursor_state.rs
-index d6bb04a4a..7a5e325f2 100644
+index c40a84c1..471430ef 100644
 --- a/crates/egui/src/text_selection/text_cursor_state.rs
 +++ b/crates/egui/src/text_selection/text_cursor_state.rs
 @@ -160,8 +160,9 @@ impl TextCursorState {
@@ -29,7 +29,7 @@ index d6bb04a4a..7a5e325f2 100644
  
 diff --git a/crates/egui/tests/text_edit_right_click.rs b/crates/egui/tests/text_edit_right_click.rs
 new file mode 100644
-index 000000000..6e36b34f8
+index 00000000..6e36b34f
 --- /dev/null
 +++ b/crates/egui/tests/text_edit_right_click.rs
 @@ -0,0 +1,58 @@

@@ -12,10 +12,10 @@ Squashed from https://github.com/emilk/egui/pull/8705 at 76c31c71c4ba (demo snap
  create mode 100644 crates/egui/tests/area_sizing.rs
 
 diff --git a/crates/egui/src/ui.rs b/crates/egui/src/ui.rs
-index 3e23bf9d1..fc010aa9a 100644
+index 43bf67c6..c2250cdd 100644
 --- a/crates/egui/src/ui.rs
 +++ b/crates/egui/src/ui.rs
-@@ -1667,8 +1667,16 @@ impl Ui {
+@@ -1666,8 +1666,16 @@ impl Ui {
          //
          // Make sure we keep the same main direction since it changes e.g. how text is wrapped:
          let layout = Layout::centered_and_justified(self.layout().main_dir());
@@ -36,7 +36,7 @@ index 3e23bf9d1..fc010aa9a 100644
      /// Add a [`Widget`] to this [`Ui`] at a specific location (manual layout) without
 diff --git a/crates/egui/tests/area_sizing.rs b/crates/egui/tests/area_sizing.rs
 new file mode 100644
-index 000000000..f9c332ff8
+index 00000000..f9c332ff
 --- /dev/null
 +++ b/crates/egui/tests/area_sizing.rs
 @@ -0,0 +1,95 @@

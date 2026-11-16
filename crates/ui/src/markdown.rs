@@ -7,6 +7,8 @@ use unicode_segmentation::UnicodeSegmentation;
 
 /// Maximum rendered source bytes; metadata fingerprints use the same boundary.
 pub(crate) const MAX_INPUT: usize = 8192;
+/// Corners of the plate behind inline code, timestamps, mentions and revealed spoilers.
+pub(crate) const INLINE_PLATE_RADIUS: egui::CornerRadius = egui::CornerRadius::same(4);
 const MAX_EVENTS: usize = 512;
 const MAX_DEPTH: usize = 16;
 const MAX_LINKS: usize = 16;
@@ -2108,7 +2110,7 @@ impl Formatted {
 				ui.set_width(width);
 				ui.add_space(4.0);
 				let frame = egui::Frame::new()
-					.fill(card_surface.fill(ui, ui.visuals().code_bg_color))
+					.fill(card_surface.fill(ui, ui.visuals().code.bg_color))
 					.stroke(Stroke::new(1.0, colors.border))
 					.corner_radius(6)
 					.inner_margin(egui::Margin::symmetric(10, 8));
@@ -3128,6 +3130,7 @@ impl Formatted {
 			font_id: FontId::proportional(PREVIEW_TEXT_SIZE),
 			color: colors.mention_text,
 			background: colors.mention_bg,
+			background_corner_radius: INLINE_PLATE_RADIUS,
 			..Default::default()
 		};
 		let mut remaining: usize = 120;
@@ -3457,10 +3460,11 @@ impl Formatted {
 				// Only revealed spoilers reach the formatter.
 				colors.muted.gamma_multiply(0.15)
 			} else if style.timestamp.is_some() || style.code {
-				visuals.code_bg_color
+				visuals.code.bg_color
 			} else {
 				egui::Color32::TRANSPARENT
 			},
+			background_corner_radius: INLINE_PLATE_RADIUS,
 			italics: style.italic,
 			strikethrough: if style.strike {
 				Stroke::new(1.0, color)

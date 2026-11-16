@@ -93,7 +93,7 @@ name = "egui_winit"
 path = "src/lib.rs"
 
 [dependencies.accesskit_winit]
-version = "0.34.1"
+version = "0.34.2"
 optional = true
 
 [dependencies.bytemuck]
@@ -106,12 +106,12 @@ optional = true
 
 [dependencies.egui]
 git = "https://github.com/emilk/egui"
-rev = "cd5caec79c9e6683dd793e25b4e7b287ccdd7061"
+rev = "c61b45f6570465f6445d6fc4251d1395db440223"
 version = "0.37.0"
 default-features = false
 
 [dependencies.log]
-version = "0.4.34"
+version = "0.4.35"
 features = ["std"]
 
 [dependencies.profiling]
@@ -331,11 +331,21 @@ level = "warn"
 priority = -1
 
 [lints.rust]
+ambiguous_negative_literals = "warn"
+deprecated_in_future = "warn"
+impl_trait_redundant_captures = "warn"
+macro_use_extern_crate = "warn"
+meta_variable_misuse = "warn"
+redundant_imports = "warn"
+redundant_lifetimes = "warn"
 trivial_casts = "allow"
 trivial_numeric_casts = "warn"
+unit_bindings = "warn"
+unnameable_types = "warn"
 unsafe_code = "deny"
 unused_import_braces = "warn"
 unused_lifetimes = "warn"
+unused_macro_rules = "warn"
 unused_qualifications = "allow"
 
 [lints.rust.future_incompatible]

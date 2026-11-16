@@ -10,7 +10,7 @@ Squashed from https://github.com/emilk/egui/pull/8849 at d4a882215ee7.
  1 file changed, 101 insertions(+), 26 deletions(-)
 
 diff --git a/crates/egui_system_font_provider/src/lib.rs b/crates/egui_system_font_provider/src/lib.rs
-index 8f3ae417d..bc3321a80 100644
+index 8f3ae417..bc3321a8 100644
 --- a/crates/egui_system_font_provider/src/lib.rs
 +++ b/crates/egui_system_font_provider/src/lib.rs
 @@ -116,37 +116,45 @@ impl FontProvider for SystemFontProvider {

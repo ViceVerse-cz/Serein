@@ -11,10 +11,10 @@ Squashed from https://github.com/emilk/egui/pull/8785 at d4b803b8ff96.
  2 files changed, 28 insertions(+)
 
 diff --git a/crates/egui/src/context.rs b/crates/egui/src/context.rs
-index 443170ef2..123e2f050 100644
+index 36508900..5745ff7d 100644
 --- a/crates/egui/src/context.rs
 +++ b/crates/egui/src/context.rs
-@@ -565,6 +565,11 @@ impl ContextImpl {
+@@ -572,6 +572,11 @@ impl ContextImpl {
              let mut root_node = accesskit::Node::new(accesskit::Role::Window);
              let pixels_per_point = viewport.input.pixels_per_point();
              root_node.set_transform(accesskit::Affine::scale(pixels_per_point.into()));
@@ -27,7 +27,7 @@ index 443170ef2..123e2f050 100644
              nodes.insert(id, root_node);
              viewport.this_pass.accesskit_state = Some(AccessKitPassState {
 diff --git a/crates/egui_kittest/tests/accesskit.rs b/crates/egui_kittest/tests/accesskit.rs
-index 31d1b852e..59ca1d6b5 100644
+index 31d1b852..59ca1d6b 100644
 --- a/crates/egui_kittest/tests/accesskit.rs
 +++ b/crates/egui_kittest/tests/accesskit.rs
 @@ -41,6 +41,29 @@ fn empty_ui_should_return_tree_with_only_root_window() {

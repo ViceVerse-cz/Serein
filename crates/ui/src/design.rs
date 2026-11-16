@@ -1175,7 +1175,7 @@ pub fn apply(ctx: &egui::Context) {
 		style.visuals.hyperlink_color = p.link;
 		style.visuals.extreme_bg_color = p.raised;
 		style.visuals.text_edit_bg_color = Some(p.raised);
-		style.visuals.code_bg_color = p.raised;
+		style.visuals.code.bg_color = p.raised;
 		style.visuals.faint_bg_color = p.hover;
 		style.visuals.selection.bg_fill = p.accent.gamma_multiply(0.35);
 		style.visuals.selection.stroke = Stroke::new(1.0, p.accent);
