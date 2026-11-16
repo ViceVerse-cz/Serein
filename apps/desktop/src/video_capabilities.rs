@@ -5,7 +5,7 @@ use model::voice_settings::{
 };
 use std::{
 	ffi::OsString,
-	io::Read,
+	io::{Read, Write},
 	path::Path,
 	process::{Child, Command, Stdio},
 	sync::{
@@ -22,6 +22,11 @@ const TEST_ARGUMENT: &str = "--test-video-encoder";
 const ADAPTER_ARGUMENT: &str = "--adapter";
 const HELPER_TIMEOUT: Duration = Duration::from_secs(10);
 const POLL_INTERVAL: Duration = Duration::from_millis(25);
+const MAX_HELPER_ERRORS: usize = 4096;
+#[cfg(unix)]
+use std::os::fd::AsRawFd as PipeHandle;
+#[cfg(windows)]
+use std::os::windows::io::AsRawHandle as PipeHandle;
 const UNKNOWN: HardwareSupport = HardwareSupport {
 	camera: ProbeResult::Failed,
 	screen: ProbeResult::Failed,
@@ -118,7 +123,9 @@ pub fn probe_command() -> Option<i32> {
 						"{}",
 						serde_json::json!({"presets":presets.map(EncoderPresets::bits)})
 					);
-					if ordinary == ProbeResult::Unavailable {
+					if ordinary == ProbeResult::RuntimeUnavailable {
+						10
+					} else if ordinary == ProbeResult::Unavailable {
 						0
 					} else if ordinary != ProbeResult::Available {
 						2
@@ -160,6 +167,7 @@ fn decode_query(exit: Exit) -> ProbeResult {
 	match exit {
 		Exit::Code(Some(1 | 5 | 9)) => ProbeResult::Available,
 		Exit::Code(Some(0)) => ProbeResult::Unavailable,
+		Exit::Code(Some(10)) => ProbeResult::RuntimeUnavailable,
 		Exit::TimedOut => ProbeResult::TimedOut,
 		_ => ProbeResult::Failed,
 	}
@@ -220,15 +228,14 @@ fn decode_presets(bytes: &[u8]) -> Option<EncoderPresets> {
 		.map(EncoderPresets::from_bits)
 }
 
-#[allow(unsafe_code)] // Bounded reads from the owned native helper pipe.
-fn helper_report(stdout: &mut std::process::ChildStdout) -> Option<EncoderPresets> {
+#[allow(unsafe_code)] // Nonblocking reads from owned stdout/stderr pipes.
+fn helper_bytes(pipe: &mut (impl Read + PipeHandle), bytes: &mut [u8]) -> Option<usize> {
 	// A driver may leave an inherited pipe handle open after the owned helper
 	// exits. Never let reading its tiny report bypass cancellation/deadlines.
 	#[cfg(unix)]
 	{
-		use std::os::fd::AsRawFd;
-		let fd = stdout.as_raw_fd();
-		// SAFETY: stdout owns this live descriptor; only this thread reads it.
+		let fd = pipe.as_raw_fd();
+		// SAFETY: pipe owns this live descriptor; only this thread reads it.
 		let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
 		if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
 			return None;
@@ -236,7 +243,6 @@ fn helper_report(stdout: &mut std::process::ChildStdout) -> Option<EncoderPreset
 	}
 	#[cfg(windows)]
 	{
-		use std::os::windows::io::AsRawHandle;
 		#[link(name = "kernel32")]
 		unsafe extern "system" {
 			fn PeekNamedPipe(
@@ -252,7 +258,7 @@ fn helper_report(stdout: &mut std::process::ChildStdout) -> Option<EncoderPreset
 		// SAFETY: a live owned pipe, no destination buffer, one valid output.
 		if unsafe {
 			PeekNamedPipe(
-				stdout.as_raw_handle(),
+				pipe.as_raw_handle(),
 				std::ptr::null_mut(),
 				0,
 				std::ptr::null_mut(),
@@ -260,14 +266,43 @@ fn helper_report(stdout: &mut std::process::ChildStdout) -> Option<EncoderPreset
 				std::ptr::null_mut(),
 			)
 		} == 0 || available == 0
-			|| available > 128
 		{
 			return None;
 		}
 	}
+	pipe.read(bytes).ok()
+}
+
+fn helper_report(stdout: &mut std::process::ChildStdout) -> Option<EncoderPresets> {
 	let mut bytes = [0u8; 129];
-	let length = stdout.read(&mut bytes).ok()?;
+	let length = helper_bytes(stdout, &mut bytes)?;
 	decode_presets(&bytes[..length])
+}
+
+#[derive(Default)]
+struct HelperErrors {
+	emitted: usize,
+	truncated: bool,
+}
+
+impl HelperErrors {
+	fn drain(&mut self, pipe: &mut std::process::ChildStderr, output: &mut impl Write) {
+		let mut bytes = [0u8; MAX_HELPER_ERRORS];
+		// Keep draining after the print limit so driver output cannot fill its
+		// pipe, while bounding work between cancellation/deadline checks.
+		for _ in 0..4 {
+			let Some(length) = helper_bytes(pipe, &mut bytes).filter(|length| *length != 0) else {
+				break;
+			};
+			let kept = length.min(MAX_HELPER_ERRORS - self.emitted);
+			let _ = output.write_all(&bytes[..kept]);
+			self.emitted += kept;
+			if kept < length && !self.truncated {
+				let _ = output.write_all(b"\n[NuSerein] Further video driver output omitted.\n");
+				self.truncated = true;
+			}
+		}
+	}
 }
 
 fn wait_for_helper(
@@ -282,18 +317,25 @@ fn wait_for_helper(
 	command
 		.stdin(Stdio::null())
 		.stdout(Stdio::piped())
-		.stderr(Stdio::null());
+		.stderr(Stdio::piped());
 	let Ok(child) = command.spawn() else {
 		return Exit::Failed;
 	};
 	let mut child = ProbeChild(child);
+	let mut errors = HelperErrors::default();
 	let started = Instant::now();
 	loop {
 		if stop.load(Ordering::Acquire) {
 			return Exit::Failed;
 		}
+		if let Some(pipe) = &mut child.0.stderr {
+			errors.drain(pipe, &mut std::io::stderr());
+		}
 		match child.0.try_wait() {
 			Ok(Some(status)) => {
+				if let Some(pipe) = &mut child.0.stderr {
+					errors.drain(pipe, &mut std::io::stderr());
+				}
 				*presets = child.0.stdout.as_mut().and_then(helper_report);
 				return Exit::Code(status.code());
 			}
@@ -410,6 +452,17 @@ fn scan(
 			let exit = wait_for_helper(&mut command, stop, HELPER_TIMEOUT, &mut presets);
 			if stop.load(Ordering::Acquire) {
 				return;
+			}
+			let failed = match operation {
+				Operation::Discover => !matches!(exit, Exit::Code(Some(0 | 1 | 5 | 9 | 10))),
+				Operation::Test(..) => !matches!(exit, Exit::Code(Some(0..=3))),
+			};
+			if failed {
+				eprintln!(
+					"[NuSerein] Video probe {} {}: {exit:?}; selected adapter: {adapter:?}",
+					backend.key(),
+					codec.key(),
+				);
 			}
 			let update = match operation {
 				Operation::Discover => Update::Driver(
@@ -997,6 +1050,10 @@ mod tests {
 	fn driver_and_encode_statuses_are_separate_and_errors_stay_unknown() {
 		assert_eq!(decode_query(Exit::Code(Some(1))), ProbeResult::Available);
 		assert_eq!(decode_query(Exit::Code(Some(0))), ProbeResult::Unavailable);
+		assert_eq!(
+			decode_query(Exit::Code(Some(10))),
+			ProbeResult::RuntimeUnavailable
+		);
 		assert_eq!(decode_query(Exit::Code(Some(2))), ProbeResult::Failed);
 		assert_eq!(
 			decode_test(Exit::Code(Some(1))),
@@ -1055,6 +1112,39 @@ mod tests {
 		ui.video_capabilities_refresh = true;
 		detector.poll_with(false, &mut ui, &ctx, |_, _, _, _| panic!("collapsed"));
 		assert!(!ui.video_capabilities_refresh);
+	}
+
+	#[cfg(unix)]
+	#[test]
+	fn helper_errors_are_visible_bounded_and_keep_draining() {
+		let mut command = Command::new("/bin/sh");
+		command.args([
+			"-c",
+			"printf 'AMF Vulkan initialization failed (result=1).\\n' >&2; dd if=/dev/zero bs=4096 count=32 >&2 2>/dev/null",
+		]);
+		let mut child = ProbeChild(
+			command
+				.stdout(Stdio::null())
+				.stderr(Stdio::piped())
+				.spawn()
+				.unwrap(),
+		);
+		let mut errors = HelperErrors::default();
+		let mut output = Vec::new();
+		let started = Instant::now();
+		loop {
+			errors.drain(child.0.stderr.as_mut().unwrap(), &mut output);
+			if child.0.try_wait().unwrap().is_some() {
+				errors.drain(child.0.stderr.as_mut().unwrap(), &mut output);
+				break;
+			}
+			assert!(started.elapsed() < Duration::from_secs(3));
+			std::thread::sleep(Duration::from_millis(1));
+		}
+		assert!(output.starts_with(b"AMF Vulkan initialization failed (result=1)."));
+		assert_eq!(errors.emitted, MAX_HELPER_ERRORS);
+		assert!(errors.truncated);
+		assert!(output.len() <= MAX_HELPER_ERRORS + 64);
 	}
 
 	#[cfg(unix)]

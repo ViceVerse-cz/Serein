@@ -50,6 +50,35 @@ jobs:
         run: nix build --print-build-logs --show-trace .#serein
       - name: Verify installed binary
         run: test -x result/bin/serein
+      - name: Verify Linux development toolchain
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          version=$(sed -n 's/^channel = "\([^"]*\)"/\1/p' rust-toolchain.toml)
+          test -n "$version"
+          nix develop --command sh -c '
+            set -eu
+            rustc --version | grep -F "rustc $1 "
+            cargo --version | grep -F "cargo $1 "
+            cargo fmt --version
+            cargo clippy --version
+          ' _ "$version"
+      - name: Verify source overrides use their own lockfile
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          fixture=$(mktemp -d)
+          trap 'rm -f "$fixture/Cargo.lock"; rmdir "$fixture"' EXIT
+          printf 'version = 4\n[[package]]\nname = "synthetic"\nversion = "0.0.0"\n' > "$fixture/Cargo.lock"
+          result=$(SEREIN_FIXTURE_SRC="$fixture" nix eval --raw --impure --expr '
+            let
+              flake = builtins.getFlake (toString ./.);
+              src = builtins.path { path = builtins.getEnv "SEREIN_FIXTURE_SRC"; name = "serein-lockfile-fixture"; };
+              app = flake.packages.x86_64-linux.serein.overrideAttrs (_: { inherit src; });
+            in if builtins.readFile app.cargoDeps.lockFile == builtins.readFile (src + "/Cargo.lock")
+              then "ok" else throw "Source override used the wrong Cargo.lock"
+          ')
+          test "$result" = ok
       - name: Verify packaged speech runtime (offline)
         run: result/bin/serein --self-test-lavasr
       - name: Verify bundled notices and corresponding source
@@ -80,6 +109,21 @@ jobs:
         run: |
           test -f result/share/applications/cz.viceverse.serein.desktop
           test -f result/share/icons/hicolor/256x256/apps/serein.png
+      - name: Report Linux Nix output and closure sizes
+        if: runner.os == 'Linux'
+        run: |
+          nix path-info -sh "$(readlink -f result)"
+          nix path-info -Sh "$(readlink -f result)"
+      - name: Verify Linux AMD runtime search
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          debug=$(mktemp)
+          status=0
+          env -u LD_LIBRARY_PATH LD_DEBUG=libs result/bin/serein --query-video-codec amf av1 > /dev/null 2> "$debug" || status=$?
+          case "$status" in 0|1|2|5|9|10) ;; *) cat "$debug"; exit "$status" ;; esac
+          grep -qF '/run/opengl-driver/lib' "$debug"
+          rm "$debug"
       - name: Verify macOS app bundle
         if: runner.os == 'macOS'
         run: |

@@ -51,8 +51,11 @@ extern "C" void *__wrap_dlopen(const char *name, int flags) {
     return __real_dlopen(std::getenv("SEREIN_AMF_TEST_RUNTIME"), flags);
 }
 
-extern "C" void *__wrap_serein_video_vulkan_device(const SereinVideoAdapter *target) {
+extern "C" void *__wrap_serein_video_vulkan_device(const SereinVideoAdapter *target, const char *extensions) {
     assert(target && target->vendor_id == 0x1002);
+    assert(extensions && std::strstr(extensions, "VK_KHR_swapchain+VK_KHR_synchronization2+"));
+    assert(std::strstr(extensions, "+VK_AMD_device_coherent_memory+"));
+    assert(std::strstr(extensions, "+VK_EXT_pci_bus_info+"));
     if (target->bus != 1 && target->bus != 2)
         return nullptr;
     AVBufferRef *ref = new AVBufferRef{};
@@ -110,12 +113,25 @@ int main() {
             assert(serein_query_amf_on_adapter(codec, &target) == test.expected);
     }
     assert(setenv("AMF_MOCK_MODE", "scoped", 1) == 0);
+    AVBufferRef *encoding_device = static_cast<AVBufferRef *>(serein_video_amf_device(&target));
+    assert(encoding_device);
+    av_buffer_unref(&encoding_device);
+    const int previous = devices;
+    const char *invalid_extensions[] = {"extensions-error", "extensions-too-many", "extensions-invalid",
+                                        "extensions-null", "extensions-growing"};
+    for (const char *mode : invalid_extensions) {
+        assert(setenv("AMF_MOCK_MODE", mode, 1) == 0);
+        assert(serein_query_amf_on_adapter(2, &target) == -1);
+        assert(!serein_video_amf_device(&target));
+        assert(devices == previous);
+    }
+    assert(setenv("AMF_MOCK_MODE", "scoped", 1) == 0);
     target.bus = 3;
     assert(serein_query_amf_on_adapter(2, &target) == -1);
     target.identity = SEREIN_GPU_UNIDENTIFIED;
     assert(serein_query_amf_on_adapter(2, &target) == -1);
     assert(devices == released);
-    assert(devices == 36);
+    assert(devices == 37);
 }
 
 #elif !defined(SEREIN_AMF_SCOPED_FIXTURE)

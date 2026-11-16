@@ -390,6 +390,7 @@ pub enum ProbeResult {
 	Pending,
 	Available,
 	Unavailable,
+	RuntimeUnavailable,
 	Failed,
 	TimedOut,
 }
@@ -453,7 +454,7 @@ impl DriverCapabilities {
 		self.support[codec.index()][backend.index()] = value;
 	}
 
-	/// Only complete negative driver reports disable a codec. Query failures stay unknown.
+	/// A negative report requires every backend to confirm it is unavailable.
 	pub fn confirmed_unavailable(&self, codec: VideoCodec) -> bool {
 		self.codec(codec)
 			.iter()

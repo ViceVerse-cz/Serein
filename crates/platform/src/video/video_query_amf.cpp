@@ -1,4 +1,6 @@
 #include "video_encode_ffmpeg.h"
+#include <cstdio>
+#include <cstring>
 /* AMD driver capability discovery. This creates a device context and reads
  * AMF caps, but never initializes an encoder or submits pictures. */
 #if (defined(_WIN32) || defined(__linux__)) && __has_include(<AMF/core/Factory.h>)
@@ -11,7 +13,6 @@
 #include <d3d11.h>
 #include <dxgi.h>
 #else
-#include <cstring>
 #include <dlfcn.h>
 #endif
 
@@ -57,11 +58,7 @@ public:
     }
 #else
     explicit Library(const char *name) : handle_(dlopen(name, RTLD_NOW | RTLD_LOCAL)) {
-        if (!handle_) {
-            const char *error = dlerror();
-            if (error && std::strstr(error, "No such file or directory"))
-                failure_ = 0;
-        }
+        if (!handle_) failure_ = -2;
     }
     ~Library() { if (handle_) dlclose(handle_); }
     void *symbol(const char *name) const {
@@ -89,6 +86,88 @@ public:
     ~Context() { if (value) value->Terminate(); }
 };
 
+int failed(const char *stage, AMF_RESULT result) {
+    std::fprintf(stderr, "[NuSerein] AMD AMF: %s failed (AMF result=%d).\n", stage, result);
+    return -1;
+}
+
+amf::AMFFactory *load_factory(const Library &runtime) {
+    const auto initialize = reinterpret_cast<AMFInit_Fn>(runtime.symbol(AMF_INIT_FUNCTION_NAME));
+    if (!initialize) {
+        failed("runtime entry point", AMF_NOT_FOUND);
+        return nullptr;
+    }
+    amf::AMFFactory *factory = nullptr;
+    const AMF_RESULT result = initialize(AMF_FULL_VERSION, &factory);
+    if (result != AMF_OK || !factory) {
+        failed("runtime initialization", result);
+        return nullptr;
+    }
+    const auto version_query = reinterpret_cast<AMFQueryVersion_Fn>(
+        runtime.symbol(AMF_QUERY_VERSION_FUNCTION_NAME));
+    amf_uint64 version = 0;
+    if (version_query && version_query(&version) == AMF_OK)
+        std::fprintf(stderr, "[NuSerein] AMD AMF runtime %u.%u.%u.%u.\n",
+            static_cast<unsigned>(AMF_GET_MAJOR_VERSION(version)),
+            static_cast<unsigned>(AMF_GET_MINOR_VERSION(version)),
+            static_cast<unsigned>(AMF_GET_SUBMINOR_VERSION(version)),
+            static_cast<unsigned>(AMF_GET_BUILD_VERSION(version)));
+    return factory;
+}
+
+#if defined(__linux__) && defined(SEREIN_HAVE_VULKAN_GPU) && SEREIN_HAVE_VULKAN_GPU
+bool device_extensions(amf::AMFContext1 *context, char *names, size_t capacity) {
+    size_t written = 0;
+    if (!names || !capacity) return false;
+    names[0] = '\0';
+    amf_size count = 0;
+    AMF_RESULT result = context->GetVulkanDeviceExtensions(&count, nullptr);
+    if (result != AMF_OK || count > 64) {
+        failed("Vulkan extension count", result);
+        return false;
+    }
+    const char *extensions[64] = {};
+    if (count) {
+        const amf_size capacity = count;
+        result = context->GetVulkanDeviceExtensions(&count, extensions);
+        if (result != AMF_OK || count > capacity) {
+            failed("Vulkan extension list", result);
+            return false;
+        }
+    }
+    for (amf_size i = 0; i < count; ++i) {
+        const char *name = extensions[i];
+        if (!name) {
+            failed("Vulkan extension name", AMF_INVALID_ARG);
+            return false;
+        }
+        size_t length = 0;
+        for (; length < 256 && name[length]; ++length) {
+            const char c = name[length];
+            if (!(c == '_' || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+                  (c >= '0' && c <= '9'))) {
+                failed("Vulkan extension name", AMF_INVALID_ARG);
+                return false;
+            }
+        }
+        if (length < 4 || length >= 256 || std::strncmp(name, "VK_", 3)) {
+            failed("Vulkan extension name", AMF_INVALID_ARG);
+            return false;
+        }
+        const size_t separator = written != 0;
+        if (length + separator >= capacity - written) {
+            failed("Vulkan extension list size", AMF_INVALID_ARG);
+            return false;
+        }
+        if (separator) names[written++] = '+';
+        std::memcpy(names + written, name, length);
+        written += length;
+        names[written] = '\0';
+    }
+    return true;
+}
+#endif
+
 bool unavailable(AMF_RESULT result) {
     return result == AMF_NOT_SUPPORTED || result == AMF_NO_DEVICE ||
            result == AMF_CODEC_NOT_SUPPORTED || result == AMF_ENCODER_NOT_PRESENT ||
@@ -105,14 +184,14 @@ int query_caps(amf::AMFFactory *factory, amf::AMFContext *context, int codec) {
     amf::AMFComponentPtr component;
     AMF_RESULT result = factory->CreateComponent(context, components[codec], &component);
     if (result != AMF_OK)
-        return unavailable(result) ? 0 : -1;
+        return unavailable(result) ? 0 : failed("codec creation", result);
     if (!component)
         return -1;
 
     amf::AMFCapsPtr caps;
     result = component->GetCaps(&caps);
     if (result != AMF_OK || !caps)
-        return -1;
+        return failed("codec capability query", result);
     switch (caps->GetAccelerationType()) {
     case amf::AMF_ACCEL_NOT_SUPPORTED:
     case amf::AMF_ACCEL_GPU:
@@ -259,9 +338,21 @@ int query_devices(amf::AMFFactory *factory, int codec, const SereinVideoAdapter 
         AVBufferRef *value = nullptr;
         ~Device() { av_buffer_unref(&value); }
     } device;
+#endif
+    Context context;
+    AMF_RESULT result = factory->CreateContext(&context.value);
+    if (result != AMF_OK || !context.value)
+        return failed("context creation", result);
+    amf::AMFContext1Ptr vulkan(context.value);
+    if (!vulkan)
+        return failed("Vulkan context interface", AMF_NO_INTERFACE);
+#if defined(SEREIN_HAVE_VULKAN_GPU) && SEREIN_HAVE_VULKAN_GPU
     amf::AMFVulkanDevice selected = {};
     if (target) {
-        device.value = static_cast<AVBufferRef *>(serein_video_vulkan_device(target));
+        char extensions[16384];
+        if (!device_extensions(vulkan, extensions, sizeof(extensions)))
+            return -1;
+        device.value = static_cast<AVBufferRef *>(serein_video_vulkan_device(target, extensions));
         if (!device.value)
             return -1;
         const AVHWDeviceContext *gpu = reinterpret_cast<const AVHWDeviceContext *>(device.value->data);
@@ -279,14 +370,7 @@ int query_devices(amf::AMFFactory *factory, int codec, const SereinVideoAdapter 
     if (target)
         return -1;
 #endif
-    Context context;
-    if (factory->CreateContext(&context.value) != AMF_OK || !context.value)
-        return -1;
-    amf::AMFContext1Ptr vulkan(context.value);
-    if (!vulkan)
-        return -1;
-    /* FFmpeg's Linux AMF encoder uses this same runtime-selected Vulkan
-     * device. AMF owns its device; no Vulkan header or link dependency needed. */
+    /* The selected device remains alive until the AMF context terminates. */
     const AMF_RESULT initialized = vulkan->InitVulkan(
 #if defined(SEREIN_HAVE_VULKAN_GPU) && SEREIN_HAVE_VULKAN_GPU
         target ? &selected : nullptr
@@ -294,8 +378,10 @@ int query_devices(amf::AMFFactory *factory, int codec, const SereinVideoAdapter 
         nullptr
 #endif
     );
-    if (initialized != AMF_OK)
+    if (initialized != AMF_OK) {
+        failed("Vulkan initialization", initialized);
         return unavailable(initialized) ? 0 : -1;
+    }
     return query_caps(factory, context.value, codec);
 }
 #endif
@@ -310,15 +396,41 @@ static int query_amf(int codec, const SereinVideoAdapter *target) {
 #else
     Library runtime(AMF_DLL_NAMEA);
 #endif
-    if (!runtime.loaded())
+    if (!runtime.loaded()) {
+        std::fprintf(stderr, "[NuSerein] AMD AMF: the runtime could not be loaded.\n");
         return runtime.failure_result();
-    const auto initialize = reinterpret_cast<AMFInit_Fn>(runtime.symbol(AMF_INIT_FUNCTION_NAME));
-    if (!initialize)
-        return -1;
-    amf::AMFFactory *factory = nullptr;
-    if (initialize(AMF_FULL_VERSION, &factory) != AMF_OK || !factory)
-        return -1;
+    }
+    amf::AMFFactory *factory = load_factory(runtime);
+    if (!factory) return -1;
     return query_devices(factory, codec, target);
+}
+
+extern "C" void *serein_video_amf_device(const SereinVideoAdapter *target) {
+#if defined(__linux__) && defined(SEREIN_HAVE_VULKAN_GPU) && SEREIN_HAVE_VULKAN_GPU
+    if (!serein_video_adapter_valid(target) || target->vendor_id != 0x1002)
+        return nullptr;
+    Library runtime(AMF_DLL_NAMEA);
+    if (!runtime.loaded()) {
+        std::fprintf(stderr, "[NuSerein] AMD AMF: the runtime could not be loaded.\n");
+        return nullptr;
+    }
+    amf::AMFFactory *factory = load_factory(runtime);
+    if (!factory) return nullptr;
+    Context context;
+    const AMF_RESULT result = factory->CreateContext(&context.value);
+    if (result != AMF_OK || !context.value) {
+        failed("context creation", result);
+        return nullptr;
+    }
+    amf::AMFContext1Ptr vulkan(context.value);
+    if (!vulkan) return nullptr;
+    char extensions[16384];
+    if (!device_extensions(vulkan, extensions, sizeof(extensions))) return nullptr;
+    return serein_video_vulkan_device(target, extensions);
+#else
+    (void)target;
+    return nullptr;
+#endif
 }
 extern "C" int serein_query_amf(int codec) { return codec < 0 || codec > 2 ? -1 : query_amf(codec, nullptr); }
 extern "C" int serein_query_amf_on_adapter(int codec, const SereinVideoAdapter *target) {
@@ -342,5 +454,9 @@ extern "C" int serein_query_amf(int codec) {
 extern "C" int serein_query_amf_on_adapter(int codec, const SereinVideoAdapter *target) {
     (void)codec; (void)target;
     return -1;
+}
+extern "C" void *serein_video_amf_device(const SereinVideoAdapter *target) {
+    (void)target;
+    return nullptr;
 }
 #endif
