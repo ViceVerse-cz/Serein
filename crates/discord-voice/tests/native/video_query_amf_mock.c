@@ -47,6 +47,29 @@ static AMF_RESULT context_vulkan(AMFContext1 *self, void *device) {
     if(is("no-device")) return AMF_NO_DEVICE;
     return AMF_OK;
 }
+static AMF_RESULT context_extensions(AMFContext1 *self, amf_size *count, const char **out) {
+    (void)self;
+    /* Captured from the NixOS-packaged AMF 1.4.37 runtime without opening a GPU. */
+    static const char *names[] = {
+        "VK_KHR_swapchain", "VK_KHR_synchronization2", "VK_KHR_external_memory",
+        "VK_KHR_external_memory_fd", "VK_KHR_external_semaphore",
+        "VK_KHR_external_semaphore_fd", "VK_EXT_external_memory_dma_buf",
+        "VK_AMD_device_coherent_memory", "VK_EXT_image_drm_format_modifier",
+        "VK_EXT_pci_bus_info", "VK_KHR_video_queue", "VK_KHR_video_decode_queue",
+        "VK_KHR_video_decode_h264", "VK_KHR_video_decode_h265"
+    };
+    if (is("extensions-error")) return AMF_FAIL;
+    if (!out) {
+        *count = is("extensions-too-many") ? 65 : sizeof(names) / sizeof(names[0]);
+        return AMF_OK;
+    }
+    assert(*count >= sizeof(names) / sizeof(names[0]));
+    for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); ++i) out[i] = names[i];
+    if (is("extensions-invalid")) out[0] = "VK_bad+injected";
+    if (is("extensions-null")) out[0] = NULL;
+    if (is("extensions-growing")) ++*count;
+    return AMF_OK;
+}
 static amf_long component_release(AMFComponent *self) { (void)self; assert(caps_refs == 0 && input_refs == 0); return --component_refs; }
 static AMF_RESULT component_init(AMFComponent *self, AMF_SURFACE_FORMAT fmt, amf_int32 w, amf_int32 h) {
     (void)self; (void)fmt; (void)w; (void)h; ++encoder_init; return AMF_FAIL;
@@ -109,7 +132,8 @@ static AMF_RESULT component_set_property(AMFComponent *self, const wchar_t *name
 }
 static const AMFContext1Vtbl context_vtable = {
     .Acquire=context_acquire, .Release=context_release, .QueryInterface=context_query,
-    .Terminate=context_terminate, .InitVulkan=context_vulkan
+    .Terminate=context_terminate, .InitVulkan=context_vulkan,
+    .GetVulkanDeviceExtensions=context_extensions
 };
 static const AMFComponentVtbl component_vtable = {
     .Release=component_release, .SetProperty=component_set_property, .GetPropertyInfo=component_property_info, .Init=component_init, .SubmitInput=component_submit, .GetCaps=component_caps

@@ -145,7 +145,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           python3 crates/discord-voice/tests/native/test_video_queries.py --suite encoding --prefix "$FFMPEG_DIR"
-          python3 crates/discord-voice/tests/native/test_video_queries.py --suite patch --archive "$FFMPEG_DIR/share/serein-ffmpeg/source/ffmpeg-7.1.5.tar.xz"
+          python3 crates/discord-voice/tests/native/test_video_queries.py --suite patch --prefix "$FFMPEG_DIR" --archive "$FFMPEG_DIR/share/serein-ffmpeg/source/ffmpeg-7.1.5.tar.xz"
       - name: Make encoder DLLs available to offline tests
         if: runner.os == 'Windows'
         shell: pwsh

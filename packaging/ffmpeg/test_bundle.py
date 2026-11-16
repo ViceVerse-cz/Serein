@@ -403,7 +403,23 @@ class BundleTest(unittest.TestCase):
             (root / "libavutil/hwcontext_vulkan.c").write_text(
                 "        dev_select.drm_major = major(drm_node_info.st_dev);\n"
                 "        dev_select.drm_minor = minor(drm_node_info.st_dev);\n"
-                "    if (select->has_uuid) {\n")
+                """/* Finds a device */
+    int err = 0, choice = -1;
+    if (p->vkctx.extensions & FF_VK_EXT_DEVICE_DRM) {
+        drm_prop = av_calloc(num, sizeof(*drm_prop));
+        if (p->vkctx.extensions & FF_VK_EXT_DEVICE_DRM) {
+            drm_prop[i].sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRM_PROPERTIES_EXT;
+            idp[i].pNext = &drm_prop[i];
+        }
+    } else if ((p->vkctx.extensions & FF_VK_EXT_DEVICE_DRM) && select->has_drm) {
+            if ((select->drm_major == drm_prop[i].primaryMajor &&
+                 select->drm_minor == drm_prop[i].primaryMinor) ||
+                (select->drm_major == drm_prop[i].renderMajor &&
+                 select->drm_minor == drm_prop[i].renderMinor)) {
+        av_log(ctx, AV_LOG_ERROR, "Unable to find device by given DRM node numbers %i:%i!\\n",
+               select->drm_major, select->drm_minor);
+        err = AVERROR(ENODEV);
+""")
             for directory, version in [("libavformat", "LIBAVFORMAT"), ("libavfilter", "LIBAVFILTER"), ("libswscale", "LIBSWSCALE"), ("libswresample", "LIBSWRESAMPLE")]:
                 (root / directory).mkdir()
                 (root / directory / (directory + ".v")).write_text(version + "_MAJOR { global: av*; sw*; local: *; };\n")
@@ -416,7 +432,7 @@ class BundleTest(unittest.TestCase):
             # The runtime AMF fixture exercises these replacements against the
             # complete pinned source. Here only materialize missing anchors for
             # this synthetic recipe/fail-closed fixture.
-            for relative, old, _ in builder.amf_control_patches():
+            for relative, old, _ in builder.amf_control_patches() + builder.amf_vulkan_patches():
                 path = root / relative
                 current = path.read_text() if path.exists() else ""
                 if old not in current:

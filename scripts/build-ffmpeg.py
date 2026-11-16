@@ -533,6 +533,71 @@ def hardware_options(system, backends):
     return options
 
 
+def amf_vulkan_patches():
+    source = "libavutil/hwcontext_vulkan.c"
+    return [
+        (source, "    FFVkQueueFamilyCtx transfer_qf;\n",
+         "    FFVkQueueFamilyCtx transfer_qf;\n"
+         "    VkPhysicalDeviceCoherentMemoryFeaturesAMD serein_amf_coherent;\n"),
+        (source, "static int vulkan_device_create_internal(AVHWDeviceContext *ctx,\n",
+         """/* Match AMF's external-device feature contract, using supported values only.
+ * Keep the extension feature in the device owner, not a temporary pNext node. */
+static void serein_vk_amf_features(AVHWDeviceContext *ctx,
+                                   const VkPhysicalDeviceFeatures2 *supported,
+                                   const VkPhysicalDeviceVulkan12Features *supported12)
+{
+    VulkanDevicePriv *p = ctx->hwctx;
+    AVVulkanDeviceContext *hwctx = &p->p;
+    FFVulkanFunctions *vk = &p->vkctx.vkfn;
+    hwctx->device_features.features = supported->features;
+#define AMF_COPY_FEATURE(name) p->device_features_1_2.name = supported12->name
+    AMF_COPY_FEATURE(descriptorIndexing);
+    AMF_COPY_FEATURE(descriptorBindingUniformBufferUpdateAfterBind);
+    AMF_COPY_FEATURE(descriptorBindingSampledImageUpdateAfterBind);
+    AMF_COPY_FEATURE(descriptorBindingStorageImageUpdateAfterBind);
+    AMF_COPY_FEATURE(descriptorBindingStorageBufferUpdateAfterBind);
+    AMF_COPY_FEATURE(descriptorBindingUniformTexelBufferUpdateAfterBind);
+    AMF_COPY_FEATURE(descriptorBindingStorageTexelBufferUpdateAfterBind);
+#undef AMF_COPY_FEATURE
+    for (int i = 0; i < hwctx->nb_enabled_dev_extensions; i++) {
+        if (!strcmp(hwctx->enabled_dev_extensions[i], VK_AMD_DEVICE_COHERENT_MEMORY_EXTENSION_NAME)) {
+            VkPhysicalDeviceFeatures2 features = {
+                .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+                .pNext = &p->serein_amf_coherent,
+            };
+            p->serein_amf_coherent.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COHERENT_MEMORY_FEATURES_AMD;
+            vk->GetPhysicalDeviceFeatures2(hwctx->phys_dev, &features);
+            if (p->serein_amf_coherent.deviceCoherentMemory)
+                ff_vk_link_struct(hwctx->device_features.pNext, &p->serein_amf_coherent);
+            break;
+        }
+    }
+}
+
+static int vulkan_device_create_internal(AVHWDeviceContext *ctx,
+"""),
+        (source, "    /* Add the enabled features into the pnext chain of device creation */\n",
+         """    if (av_dict_get(opts, "serein_amf", NULL, 0)) {
+        /* Make the actual enabled list available to the AMF feature query. */
+        hwctx->enabled_dev_extensions = dev_info.ppEnabledExtensionNames;
+        hwctx->nb_enabled_dev_extensions = dev_info.enabledExtensionCount;
+        serein_vk_amf_features(ctx, &dev_features, &dev_features_1_2);
+        hwctx->enabled_dev_extensions = NULL;
+        hwctx->nb_enabled_dev_extensions = 0;
+    }
+
+    /* Add the enabled features into the pnext chain of device creation */
+"""),
+        (source, """                ADD_VAL_TO_LIST(extension_names, extensions_found, token);
+""", """                int duplicate = 0;
+                for (int i = 0; i < extensions_found; i++)
+                    duplicate |= !strcmp(extension_names[i], token);
+                if (!duplicate)
+                    ADD_VAL_TO_LIST(extension_names, extensions_found, token);
+"""),
+    ]
+
+
 def patch_ffmpeg(tree):
     patches = []
     originals = {}
@@ -683,6 +748,8 @@ def patch_ffmpeg(tree):
          "    device.hDevice = hwctx->act_dev;\n"
          "    result = context1->pVtbl->InitVulkan(context1, &device);\n"
          "    context1->pVtbl->Release(context1);\n"
+         "    if (result != AMF_OK)\n"
+         "        av_log(avctx, AV_LOG_ERROR, \"AMF initialization on the selected Vulkan device failed (result=%d).\\n\", result);\n"
          "    return result == AMF_OK ? 0 : AVERROR(ENODEV);\n"
          "}\n#endif\n\n"
          "#if CONFIG_D3D11VA\nstatic int amf_init_from_d3d11_device"),
@@ -699,14 +766,96 @@ def patch_ffmpeg(tree):
          "        dev_select.drm_major = major(drm_node_info.st_rdev);\n"),
         ("libavutil/hwcontext_vulkan.c", "        dev_select.drm_minor = minor(drm_node_info.st_dev);\n",
          "        dev_select.drm_minor = minor(drm_node_info.st_rdev);\n"),
-        ("libavutil/hwcontext_vulkan.c", "    if (select->has_uuid) {\n",
-         "    /* Explicit DRM selection may never fall through to vendor/model matching. */\n"
-         "    if (select->has_drm && !(p->vkctx.extensions & FF_VK_EXT_DEVICE_DRM)) {\n"
-         "        av_log(ctx, AV_LOG_ERROR, \"Exact DRM adapter selection requires VK_EXT_physical_device_drm.\\n\");\n"
-         "        err = AVERROR(ENOSYS);\n"
-         "        goto end;\n"
-         "    }\n\n"
-         "    if (select->has_uuid) {\n"),
+        ("libavutil/hwcontext_vulkan.c", "/* Finds a device */\n",
+         """/* Device extensions are known only after a device is selected. Query each
+ * physical device here instead of testing the as-yet-unset device flag. */
+static int serein_vk_has_drm_extension(AVHWDeviceContext *ctx, VkPhysicalDevice device)
+{
+    VulkanDevicePriv *p = ctx->hwctx;
+    FFVulkanFunctions *vk = &p->vkctx.vkfn;
+
+    for (int attempt = 0; attempt < 3; attempt++) {
+        VkExtensionProperties *extensions;
+        uint32_t count = 0;
+        VkResult ret = vk->EnumerateDeviceExtensionProperties(device, NULL, &count, NULL);
+        if (ret != VK_SUCCESS)
+            return AVERROR_EXTERNAL;
+        if (!count)
+            return 0;
+        if (count > 4096)
+            return AVERROR(E2BIG);
+        extensions = av_malloc_array(count, sizeof(*extensions));
+        if (!extensions)
+            return AVERROR(ENOMEM);
+        ret = vk->EnumerateDeviceExtensionProperties(device, NULL, &count, extensions);
+        if (ret == VK_INCOMPLETE) {
+            av_free(extensions);
+            continue;
+        }
+        if (ret != VK_SUCCESS) {
+            av_free(extensions);
+            return AVERROR_EXTERNAL;
+        }
+        for (uint32_t i = 0; i < count; i++) {
+            if (!strcmp(extensions[i].extensionName, VK_EXT_PHYSICAL_DEVICE_DRM_EXTENSION_NAME)) {
+                av_free(extensions);
+                return 1;
+            }
+        }
+        av_free(extensions);
+        return 0;
+    }
+    return AVERROR_EXTERNAL;
+}
+
+/* Finds a device */
+"""),
+        ("libavutil/hwcontext_vulkan.c", "    int err = 0, choice = -1;\n",
+         "    int err = 0, choice = -1, drm_query_error = 0;\n"),
+        ("libavutil/hwcontext_vulkan.c",
+         "    if (p->vkctx.extensions & FF_VK_EXT_DEVICE_DRM) {\n        drm_prop = av_calloc(num, sizeof(*drm_prop));\n",
+         "    if (select->has_drm) {\n        drm_prop = av_calloc(num, sizeof(*drm_prop));\n"),
+        ("libavutil/hwcontext_vulkan.c",
+         """        if (p->vkctx.extensions & FF_VK_EXT_DEVICE_DRM) {
+            drm_prop[i].sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRM_PROPERTIES_EXT;
+            idp[i].pNext = &drm_prop[i];
+        }
+""",
+         """        if (drm_prop) {
+            int supported = serein_vk_has_drm_extension(ctx, devices[i]);
+            if (supported < 0) {
+                av_log(ctx, AV_LOG_ERROR, "Unable to query Vulkan device extensions for GPU %d.\\n", i);
+                if (!drm_query_error)
+                    drm_query_error = supported;
+            } else if (supported) {
+                drm_prop[i].sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRM_PROPERTIES_EXT;
+                idp[i].pNext = &drm_prop[i];
+            }
+        }
+"""),
+        ("libavutil/hwcontext_vulkan.c",
+         "    } else if ((p->vkctx.extensions & FF_VK_EXT_DEVICE_DRM) && select->has_drm) {\n",
+         "    } else if (select->has_drm) {\n"),
+        ("libavutil/hwcontext_vulkan.c",
+         """            if ((select->drm_major == drm_prop[i].primaryMajor &&
+                 select->drm_minor == drm_prop[i].primaryMinor) ||
+                (select->drm_major == drm_prop[i].renderMajor &&
+                 select->drm_minor == drm_prop[i].renderMinor)) {
+""",
+         """            if ((drm_prop[i].hasPrimary && select->drm_major == drm_prop[i].primaryMajor &&
+                 select->drm_minor == drm_prop[i].primaryMinor) ||
+                (drm_prop[i].hasRender && select->drm_major == drm_prop[i].renderMajor &&
+                 select->drm_minor == drm_prop[i].renderMinor)) {
+"""),
+        ("libavutil/hwcontext_vulkan.c",
+         """        av_log(ctx, AV_LOG_ERROR, "Unable to find device by given DRM node numbers %i:%i!\\n",
+               select->drm_major, select->drm_minor);
+        err = AVERROR(ENODEV);
+""",
+         """        av_log(ctx, AV_LOG_ERROR, "Unable to find device by given DRM node numbers %i:%i!\\n",
+               select->drm_major, select->drm_minor);
+        err = drm_query_error ? drm_query_error : AVERROR(ENODEV);
+"""),
         ("libavcodec/qsvenc.c", "    ret = MFXVideoENCODE_QueryIOSurf(q->session, &q->param, &q->req);\n",
          "    /* Never silently add reordered pictures or drop requested quality features.\n"
          "     * Startup can retry conservative settings on this same physical adapter. */\n"
@@ -744,6 +893,7 @@ def patch_ffmpeg(tree):
          "    dump_video_av1_param(avctx, q, ext_buffers);\n"),
     ]
     replacements += amf_control_patches()
+    replacements += amf_vulkan_patches()
     for relative, old, new in replacements:
         path = tree / relative
         before = path.read_text()

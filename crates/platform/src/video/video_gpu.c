@@ -423,23 +423,40 @@ void *serein_video_vt_specification(const SereinVideoAdapter *a)
 #endif
 }
 
-void *serein_video_vulkan_device(const SereinVideoAdapter *a)
+void *serein_video_vulkan_device(const SereinVideoAdapter *a, const char *extensions)
 {
 #if defined(__linux__) && defined(SEREIN_HAVE_VULKAN_GPU) && SEREIN_HAVE_VULKAN_GPU
     AVBufferRef *drm = NULL, *vulkan = NULL;
+    AVDictionary *options = NULL;
     char path[80];
-    if (!serein_video_drm_device(a, path, sizeof(path)) ||
-        av_hwdevice_ctx_create(&drm, AV_HWDEVICE_TYPE_DRM, path, NULL, 0) < 0)
+    if (!extensions || strlen(extensions) > 16384 ||
+        !serein_video_drm_device(a, path, sizeof(path))) {
+        fprintf(stderr, "[NuSerein] AMD AMF: selected GPU render node is unavailable.\n");
         return NULL;
-    const int created = av_hwdevice_ctx_create_derived(&vulkan, AV_HWDEVICE_TYPE_VULKAN, drm, 0);
+    }
+    if (av_hwdevice_ctx_create(&drm, AV_HWDEVICE_TYPE_DRM, path, NULL, 0) < 0) {
+        fprintf(stderr, "[NuSerein] AMD AMF: opening the selected GPU render node failed.\n");
+        return NULL;
+    }
+    /* AMF requests its device extensions before InitVulkan. Swapchain support
+     * also requires the instance surface extension, even without a surface. */
+    int created = av_dict_set(&options, "device_extensions", extensions, 0);
+    if (created >= 0)
+        created = av_dict_set(&options, "instance_extensions", "VK_KHR_surface", 0);
+    if (created >= 0)
+        created = av_dict_set(&options, "serein_amf", "1", 0);
+    if (created >= 0)
+        created = av_hwdevice_ctx_create_derived_opts(&vulkan, AV_HWDEVICE_TYPE_VULKAN, drm, options, 0);
+    av_dict_free(&options);
     av_buffer_unref(&drm);
     if (created < 0) {
+        fprintf(stderr, "[NuSerein] AMD AMF: Vulkan device creation failed (FFmpeg result=%d).\n", created);
         av_buffer_unref(&vulkan);
         return NULL;
     }
     return vulkan;
 #else
-    (void)a;
+    (void)a; (void)extensions;
     return NULL;
 #endif
 }
@@ -473,8 +490,12 @@ int serein_video_bind_adapter(AVCodecContext *codec, int backend, const SereinVi
     }
 #elif defined(__linux__)
     if (backend == 3 && a->vendor_id == 0x1002) {
-        codec->hw_device_ctx = (AVBufferRef *)serein_video_vulkan_device(a);
+#if defined(SEREIN_HAVE_AMF_QUERY) && SEREIN_HAVE_AMF_QUERY
+        codec->hw_device_ctx = (AVBufferRef *)serein_video_amf_device(a);
         return codec->hw_device_ctx != NULL;
+#else
+        return 0;
+#endif
     }
     if (backend == 4 && a->vendor_id == 0x8086 && serein_video_drm_device(a, device, sizeof(device)))
         type = AV_HWDEVICE_TYPE_VAAPI;

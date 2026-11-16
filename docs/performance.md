@@ -4662,3 +4662,32 @@ fixture also had the account/guild recency index. This measures SQLite and
 row retrieval only, not total channel-opening time. UI responsiveness, native
 screenshots, installed/compressed package sizes and real server synchronization
 were not measured in this environment.
+
+### Nix source-build toolchain
+
+On Linux x86-64, Nix 2.20.6 compared PR baseline `c3a5b9fa` with a local
+candidate using the same locked nixpkgs and Rust 1.98.1. Both `nix build
+--dry-run` evaluations used the same otherwise empty temporary store; this is
+a dependency-transfer estimate, not a timed run or installed-size measurement.
+The candidate's `flake.nix` SHA-256 was
+`02f5275ed05eabe79d0abf526c3cf76ffd1c074322ee215f4174ad28224b53d4` and its
+`flake.lock` SHA-256 was
+`b8819d82ce1060dd5a09f704b5448aa1dfea6ee30327bc8721f924478eef787f`.
+The `nix/package.nix` SHA-256 was
+`23441ab6a92293f4b97ebaa8a88b4b80958035875cd78b9fa1a078ff51c19da9`.
+
+| Cold-store download estimate | Baseline | Candidate | Difference |
+| --- | ---: | ---: | ---: |
+| Nix binary-cache paths | 1,133.68 MiB | 671.28 MiB | −462.40 MiB |
+| Additional official Rust archives | 0 MiB | 116.45 MiB | +116.45 MiB |
+| Additional rust-overlay archive | 0 MiB | 16.47 MiB | +16.47 MiB |
+| Estimated net difference | — | — | −329.48 MiB |
+
+The Nix dry run lists the three Rust archives as downloads performed by
+fixed-output builders rather than binary-cache transfers, so their measured
+archive sizes are added above. Other source downloads common to both builds
+are excluded. Existing store paths or another substituter change the actual
+network transfer. No full application build, installed closure, compressed
+package size or application performance was measured in this environment.
+The official Rust archive hashes matched Rust's 1.98.1 channel manifest; a
+Nix-built release smoke program and development Clippy/rustfmt checks passed.

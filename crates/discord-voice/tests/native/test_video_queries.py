@@ -73,7 +73,7 @@ def run_queries(prefix):
                         "-o", str(executable)], check=True)
         subprocess.run([str(executable)], check=True)
         executable = out / "gpu-binding-test"
-        subprocess.run([*compiler, *flags, "-DSEREIN_HAVE_VULKAN_GPU=1",
+        subprocess.run([*compiler, *flags, "-DSEREIN_HAVE_VULKAN_GPU=1", "-DSEREIN_HAVE_AMF_QUERY=1",
                         str(here / "video_gpu_binding_test.c"), str(source / "video_gpu.c"),
                         "-Wl,--wrap=readlink", "-o", str(executable)], check=True)
         subprocess.run([str(executable)], check=True)
@@ -155,6 +155,15 @@ def run_amf(include_path):
                     check=True,
                     timeout=5,
                 )
+        for mode in ("init-failed", "no-device"):
+            diagnostic = subprocess.run(
+                [str(executable), "0", str(modes[mode])],
+                env={**environment, "AMF_MOCK_MODE": mode},
+                capture_output=True,
+                check=True,
+                timeout=5,
+            )
+            assert b"Vulkan initialization failed (AMF result=" in diagnostic.stderr, mode
         for codec in [-1, 3]:
             subprocess.run(
                 [str(executable), str(codec), "-1"],
@@ -164,7 +173,7 @@ def run_amf(include_path):
             )
         missing_library = directory / "absent-amf.so"
         subprocess.run(
-            [str(executable), "0", "0"],
+            [str(executable), "0", "-2"],
             env={**environment, "SEREIN_AMF_TEST_RUNTIME": str(missing_library)},
             check=True,
             timeout=5,
@@ -172,7 +181,7 @@ def run_amf(include_path):
         invalid_library = directory / "invalid-amf.so"
         invalid_library.write_text("This fixture is deliberately not a shared library.\n")
         subprocess.run(
-            [str(executable), "0", "-1"],
+            [str(executable), "0", "-2"],
             env={**environment, "SEREIN_AMF_TEST_RUNTIME": str(invalid_library)},
             check=True,
             timeout=5,
@@ -426,7 +435,7 @@ def run_amf_control(prefix, archive):
         subprocess.run([str(executable)], check=True, timeout=10)
 
 
-def run_patch(archive):
+def run_patch(archive, prefix=None):
     repository = Path(__file__).resolve().parents[4]
     spec = importlib.util.spec_from_file_location("ffmpeg_recipe", repository / "scripts/build-ffmpeg.py")
     recipe = importlib.util.module_from_spec(spec)
@@ -448,6 +457,23 @@ def run_patch(archive):
                     (tree / path).parent.mkdir(parents=True, exist_ok=True)
                     (tree / path).write_bytes(content)
         patch = recipe.patch_ffmpeg(modified)
+        if prefix:
+            vulkan = (modified / "libavutil/hwcontext_vulkan.c").read_text()
+            start = vulkan.index("typedef struct VulkanDeviceSelection {")
+            end = vulkan.index("/* Picks the least used qf", start)
+            (root / "vulkan_device_selection.inc").write_text(vulkan[start:end])
+            start = vulkan.index("static void serein_vk_amf_features(")
+            end = vulkan.index("static int vulkan_device_create_internal(", start)
+            (root / "vulkan_amf_features.inc").write_text(vulkan[start:end])
+            executable = root / "vulkan-selection-test"
+            subprocess.run([
+                *shlex.split(os.environ.get("CC", "cc")), "-std=c11", "-Wall", "-Wextra",
+                "-Werror", "-Wno-sign-compare", "-Wno-pointer-sign",
+                "-I" + str(prefix / "include"), "-I" + str(root),
+                str(Path(__file__).with_name("video_vulkan_selection_test.c")),
+                "-o", str(executable),
+            ], check=True)
+            subprocess.run([str(executable)], check=True, timeout=10)
         subprocess.run(["patch", "--batch", "--fuzz=0", "-p1"], input=patch, text=True,
                        cwd=reproduced, stdout=subprocess.DEVNULL, check=True)
         original_paths = paths.copy()
@@ -491,4 +517,4 @@ if __name__ == "__main__":
     if args.suite == "amf-control":
         run_amf_control(args.prefix.resolve(), args.archive.resolve())
     if args.suite in ["patch", "all"]:
-        run_patch(args.archive.resolve())
+        run_patch(args.archive.resolve(), args.prefix.resolve() if args.prefix else None)

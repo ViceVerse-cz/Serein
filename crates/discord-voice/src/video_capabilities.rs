@@ -27,17 +27,22 @@ pub fn query_on_adapter(
 	codec: VideoCodec,
 	adapter: Option<model::VideoAdapter>,
 ) -> ProbeResult {
-	let backend = match backend {
+	let native_backend = match backend {
 		HardwareBackend::Nvenc => 1,
 		HardwareBackend::VideoToolbox => 2,
 		HardwareBackend::Amf => 3,
 		HardwareBackend::Qsv => 4,
 	};
 	// The bridge owns all driver resources. Only fixed enum values cross the ABI.
-	query_result(match adapter {
-		Some(adapter) => crate::video_gpu::query_on_adapter(backend, codec.index() as i32, adapter),
-		None => unsafe { serein_video_query(backend, codec.index() as i32) },
-	})
+	query_result(
+		backend,
+		match adapter {
+			Some(adapter) => {
+				crate::video_gpu::query_on_adapter(native_backend, codec.index() as i32, adapter)
+			}
+			None => unsafe { serein_video_query(native_backend, codec.index() as i32) },
+		},
+	)
 }
 
 /// Independent profile query on the selected GPU; no capture or synthetic encode.
@@ -46,23 +51,23 @@ pub fn query_ten_bit(
 	codec: VideoCodec,
 	adapter: model::VideoAdapter,
 ) -> ProbeResult {
-	let backend = match backend {
+	let native_backend = match backend {
 		HardwareBackend::Nvenc => 1,
 		HardwareBackend::VideoToolbox => 2,
 		HardwareBackend::Amf => 3,
 		HardwareBackend::Qsv => 4,
 	};
-	query_result(crate::video_gpu::query_ten_bit(
+	query_result(
 		backend,
-		codec.index() as i32,
-		adapter,
-	))
+		crate::video_gpu::query_ten_bit(native_backend, codec.index() as i32, adapter),
+	)
 }
 
-fn query_result(result: i32) -> ProbeResult {
-	match result {
-		1 => ProbeResult::Available,
-		0 => ProbeResult::Unavailable,
+fn query_result(backend: HardwareBackend, result: i32) -> ProbeResult {
+	match (backend, result) {
+		(_, 1) => ProbeResult::Available,
+		(_, 0) => ProbeResult::Unavailable,
+		(HardwareBackend::Amf, -2) => ProbeResult::RuntimeUnavailable,
 		_ => ProbeResult::Failed,
 	}
 }
@@ -173,15 +178,26 @@ fn probe_profile<E: ProbeEncoder>(
 	backend: HardwareBackend,
 	open: &mut impl FnMut(Config, HardwareBackend) -> Result<E, &'static str>,
 ) -> ProbeResult {
-	let Ok(mut encoder) = open(config, backend) else {
-		return ProbeResult::Unavailable;
+	let mut encoder = match open(config, backend) {
+		Ok(encoder) => encoder,
+		Err(reason) => {
+			eprintln!(
+				"[NuSerein] Video encoder test {backend:?} {:?} {}x{}: {reason}",
+				config.codec, config.width, config.height,
+			);
+			return ProbeResult::Unavailable;
+		}
 	};
 	let luma = config.width as usize * config.height as usize;
 	let mut picture = vec![128; luma * 3 / 2];
 	picture[..luma].fill(16);
 	for index in 0..MAX_PROBE_FRAMES {
-		let Ok((data, keyframe)) = encoder.encode(&picture, index == 0) else {
-			return ProbeResult::Unavailable;
+		let (data, keyframe) = match encoder.encode(&picture, index == 0) {
+			Ok(output) => output,
+			Err(reason) => {
+				eprintln!("[NuSerein] Video encoder test {backend:?} output: {reason}");
+				return ProbeResult::Unavailable;
+			}
 		};
 		if data.is_empty() {
 			continue;
@@ -207,10 +223,27 @@ mod tests {
 
 	#[test]
 	fn driver_errors_are_inconclusive_instead_of_unsupported() {
-		assert_eq!(query_result(1), ProbeResult::Available);
-		assert_eq!(query_result(0), ProbeResult::Unavailable);
+		assert_eq!(
+			query_result(HardwareBackend::Amf, 1),
+			ProbeResult::Available
+		);
+		assert_eq!(
+			query_result(HardwareBackend::Amf, 0),
+			ProbeResult::Unavailable
+		);
+		assert_eq!(
+			query_result(HardwareBackend::Amf, -2),
+			ProbeResult::RuntimeUnavailable
+		);
+		assert_eq!(
+			query_result(HardwareBackend::Nvenc, -2),
+			ProbeResult::Failed
+		);
 		for result in [-1, -2, 2, i32::MAX] {
-			assert_eq!(query_result(result), ProbeResult::Failed);
+			assert_eq!(
+				query_result(HardwareBackend::Qsv, result),
+				ProbeResult::Failed
+			);
 		}
 	}
 

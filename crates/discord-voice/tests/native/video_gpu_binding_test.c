@@ -67,7 +67,39 @@ static void check_identity(void)
 #endif
 
 static int created, derived, released, missing, last_type;
+static int option_failure, derive_failure, option_blocks;
 static char last_path[80];
+struct AVDictionary { int extensions, surface, amf; };
+
+int av_dict_set(AVDictionary **options, const char *key, const char *value, int flags)
+{
+    assert(!flags);
+    if (!*options) { *options = calloc(1, sizeof(**options)); option_blocks++; }
+    assert(*options);
+    if (option_failure) return -12;
+    if (!strcmp(key, "device_extensions")) {
+        assert(!strcmp(value, "VK_KHR_external_memory+VK_AMD_device_coherent_memory"));
+        (*options)->extensions = 1;
+    } else if (!strcmp(key, "instance_extensions")) {
+        assert(!strcmp(value, "VK_KHR_surface"));
+        (*options)->surface = 1;
+    } else {
+        assert(!strcmp(key, "serein_amf") && !strcmp(value, "1"));
+        (*options)->amf = 1;
+    }
+    return 0;
+}
+
+void av_dict_free(AVDictionary **options) {
+    if (*options) option_blocks--;
+    free(*options); *options = NULL;
+}
+
+void *serein_video_amf_device(const SereinVideoAdapter *target)
+{
+    return serein_video_vulkan_device(target,
+        "VK_KHR_external_memory+VK_AMD_device_coherent_memory");
+}
 
 ssize_t __wrap_readlink(const char *path, char *output, size_t capacity)
 {
@@ -118,6 +150,15 @@ int av_hwdevice_ctx_create_derived(AVBufferRef **output, enum AVHWDeviceType typ
     return 0;
 }
 
+int av_hwdevice_ctx_create_derived_opts(AVBufferRef **output, enum AVHWDeviceType type,
+    AVBufferRef *source, AVDictionary *options, int flags)
+{
+    assert(type == AV_HWDEVICE_TYPE_VULKAN);
+    assert(options && options->extensions && options->surface && options->amf);
+    const int result = av_hwdevice_ctx_create_derived(output, type, source, flags);
+    return derive_failure ? -5 : result;
+}
+
 void av_buffer_unref(AVBufferRef **ref)
 {
     if (*ref) {
@@ -150,6 +191,14 @@ int main(void)
     assert(serein_video_bind_adapter(&codec, 3, &target));
     assert(!strcmp(last_path, "/dev/dri/renderD128"));
     av_buffer_unref(&codec.hw_device_ctx);
+    option_failure = 1;
+    assert(!serein_video_bind_adapter(&codec, 3, &target));
+    option_failure = 0;
+    assert(!codec.hw_device_ctx && option_blocks == 0 && created + derived == released);
+    derive_failure = 1;
+    assert(!serein_video_bind_adapter(&codec, 3, &target));
+    derive_failure = 0;
+    assert(!codec.hw_device_ctx && option_blocks == 0 && created + derived == released);
     /* Intel must derive QSV from the selected GPU's explicit VA child node. */
     target.vendor_id = 0x8086;
     target.bus = 2;
@@ -165,6 +214,6 @@ int main(void)
     target.identity = SEREIN_GPU_UNIDENTIFIED;
     assert(!serein_video_bind_adapter(&codec, 4, &target));
     assert(!serein_video_bind_adapter(&codec, 4, NULL));
-    assert(created == previous && created + derived == released);
+    assert(created == previous && created + derived == released && option_blocks == 0);
     puts("Exact GPU binding: identical AMD/Intel models use selected render node; missing identities fail closed; all contexts released");
 }

@@ -5717,6 +5717,9 @@ fn hardware_driver_label(
 	if !available.is_empty() {
 		return available.join(", ");
 	}
+	if support[HardwareBackend::Amf.index()] == ProbeResult::RuntimeUnavailable {
+		return crate::i18n::translate("voice-video-hardware-amf-runtime-unavailable");
+	}
 	if support
 		.iter()
 		.any(|result| *result != ProbeResult::Unavailable)
@@ -6562,6 +6565,31 @@ mod tests {
 					assert!(!messaging.camera_test_requested && !messaging.voice_refresh_devices);
 				}
 			}
+		}
+	}
+
+	#[test]
+	fn missing_amf_runtime_is_explained_without_enabling_untested_codecs() {
+		use model::voice_settings::{HardwareBackend, ProbeResult, VideoCodec, VideoSettings};
+		let ctx = egui::Context::default();
+		let mut caps = no_video_hardware();
+		for codec in [VideoCodec::H265, VideoCodec::Av1] {
+			caps.support[codec.index()][HardwareBackend::Amf.index()] =
+				ProbeResult::RuntimeUnavailable;
+		}
+		let mut messaging = MessagingUi {
+			video_settings: VideoSettings::default(),
+			video_capabilities: Some(caps),
+			..Default::default()
+		};
+		let text = video_controls_frame(&ctx, &mut messaging, 320.0, vec![]);
+		assert!(
+			text.iter()
+				.any(|(label, _)| label.contains("AMD AMF could not load"))
+		);
+		for (label, codec) in [("H.265", VideoCodec::H265), ("AV1", VideoCodec::Av1)] {
+			video_controls_click(&ctx, &mut messaging, 320.0, label);
+			assert_ne!(messaging.video_settings.codec, codec);
 		}
 	}
 

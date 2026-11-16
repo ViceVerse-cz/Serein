@@ -232,7 +232,7 @@ in
         src = ../.;
 
         cargoLock = {
-            lockFile = "${finalAttrs.src}/Cargo.lock";
+            lockFile = finalAttrs.src + "/Cargo.lock";
             allowBuiltinFetchGit = true;
         };
 
@@ -289,6 +289,7 @@ in
               --prefix GST_PLUGIN_SYSTEM_PATH_1_0 : "${
                 lib.makeSearchPathOutput "lib" "lib/gstreamer-1.0" gstPlugins
             }"
+              --suffix LD_LIBRARY_PATH : /run/opengl-driver/lib
             )
         '';
 

@@ -32,6 +32,22 @@ though VA-API is used for supported decoding and Quick Sync device setup.
 The package retains the vendor source and notices for the same offline rebuild
 recipe as native distributions.
 
+AMD encoding requires a compatible AMF runtime and its dependencies. On NixOS,
+the launcher searches `/run/opengl-driver/lib`; `pkgs.amf` can be added to
+`hardware.graphics.extraPackages` when available in the system's nixpkgs. AMF and
+its `amdenc` dependency are unfree and need the corresponding nixpkgs permission.
+The runtime, Vulkan driver and GPU must also be compatible. If the probe reaches
+AMF and cannot load it, Video encoding settings show that result instead of
+claiming the GPU is unsupported.
+
+A first source build may fetch a Rust toolchain and other build dependencies.
+The installed closure and fresh-build download are different sizes; use
+`nix path-info -Sh .#serein` after building to measure the closure, including
+paths already shared with other packages.
+Nix builds use the minimal official Rust toolchain pinned in
+`rust-toolchain.toml`. The development shell adds that file's Clippy and
+rustfmt components.
+
 The package version is the Cargo workspace version, as with `cargo build`. Nix
 installations are updated through Nix; the in-app updater does not replace store
 paths. The macOS bundle is not Developer ID signed or notarized.
