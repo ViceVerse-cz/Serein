@@ -4389,7 +4389,15 @@ impl MessagingUi {
                             && self.slash_commands.can_submit(state, channel);
                         if (send || slash_run) && !cancel_edit {
                             if let Some((edit_channel, message, content)) = &editing {
-                                if state.freshness == Freshness::Fresh
+                                // Like the official client, saving an emptied edit asks to delete the
+                                // message. Attachments would outlive the text, so those keep the edit.
+                                if content.trim().is_empty()
+                                    && state.timeline.get(*message).is_some_and(|target| {
+                                        target.channel == *edit_channel && target.attachments.is_empty()
+                                    })
+                                {
+                                    self.deleting = Some((*edit_channel, *message));
+                                } else if state.freshness == Freshness::Fresh
                                     && let Some(command) = state.prepare_edit(*edit_channel, *message,
                                         if self.convert_emoticons { emoticons::convert(content) } else { content.clone() })
                                 {
@@ -6333,6 +6341,13 @@ impl MessagingUi {
 				Some(dialog::Choice::Confirmed) => {
 					if let Some(command) = state.prepare_delete(channel, message) {
 						commands.push(command);
+						// An emptied edit has nothing left to keep once its message goes.
+						if self.editing.as_ref().is_some_and(|(c, id, text)| {
+							*c == channel && *id == message && text.trim().is_empty()
+						}) {
+							self.editing = None;
+							self.edit_sent = None;
+						}
 					}
 					self.deleting = None;
 				}
@@ -7031,6 +7046,28 @@ mod composer_tests {
 				}
 			}
 		}
+	}
+
+	#[test]
+	fn saving_an_emptied_edit_asks_to_delete_and_keeps_the_edit_open() {
+		let mut state = edit_state();
+		let mut view = MessagingUi {
+			editing: Some((Id(10), Id(20), String::new())),
+			..Default::default()
+		};
+		let ctx = egui::Context::default();
+		edit_frame(&ctx, &mut view, &mut state, vec![]);
+		let commands = edit_frame(
+			&ctx,
+			&mut view,
+			&mut state,
+			vec![edit_key(egui::Key::Enter)],
+		);
+		// Nothing leaves before the confirmation, and declining it must not lose the edit.
+		assert!(commands.is_empty());
+		assert_eq!(view.deleting, Some((Id(10), Id(20))));
+		assert!(view.has_edit());
+		assert_eq!(state.timeline.get(Id(20)).unwrap().content, "Original");
 	}
 
 	#[test]
