@@ -66,6 +66,40 @@ fn pointer(pos: egui::Pos2, button: PointerButton, pressed: bool) -> Vec<InputEv
 
 #[cfg(target_os = "windows")]
 #[test]
+fn settings_modal_allows_dragging_from_the_app_caption() {
+	let ctx = egui::Context::default();
+	let mut view = MessagingUi::default();
+	let mut state = test_support::demo_state();
+	view.settings.open = true;
+	let caption = egui::pos2(550.0, 16.0);
+	for events in [vec![], pointer(caption, PointerButton::Primary, true)] {
+		let press = !events.is_empty();
+		let output = ctx.run_ui(
+			egui::RawInput {
+				screen_rect: Some(egui::Rect::from_min_size(
+					egui::Pos2::ZERO,
+					egui::vec2(1120.0, 760.0),
+				)),
+				focused: true,
+				events,
+				..Default::default()
+			},
+			|ui| {
+				view.show(ui, &mut state);
+			},
+		);
+		assert_eq!(
+			output.viewport_output[&egui::ViewportId::ROOT]
+				.commands
+				.contains(&ViewportCommand::StartDrag),
+			press,
+		);
+		output.drop_without_applying_deltas();
+	}
+}
+
+#[cfg(target_os = "windows")]
+#[test]
 fn hidden_title_strip_does_not_start_window_drag() {
 	let ctx = egui::Context::default();
 	let mut view = MessagingUi::default();

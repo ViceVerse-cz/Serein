@@ -12,7 +12,7 @@ use std::{
 const LADDER: [u32; 12] = [
 	32, 64, 128, 256, 368, 512, 720, 1024, 1440, 2048, 2880, 4096,
 ];
-pub(crate) const MEDIA_MAX_WIDTH: f32 = 550.0;
+pub(crate) const MEDIA_MAX_WIDTH: f32 = 440.0;
 pub(crate) const MEDIA_MAX_HEIGHT: f32 = 350.0;
 const MAX_SOURCE: usize = 2048;
 pub const MAX_FRAMES: usize = 240;

@@ -2991,7 +2991,7 @@ pub fn radio_row(
 	let text_width = (width - 44.0).max(80.0);
 	let title = ui.painter().layout(
 		label.to_owned(),
-		FontId::new(15.0, medium_family(ui.ctx())),
+		egui::TextStyle::Body.resolve(ui.style()),
 		p.text_strong,
 		text_width,
 	);
@@ -3005,7 +3005,7 @@ pub fn radio_row(
 	});
 	let text_height = title.size().y + detail.as_ref().map_or(0.0, |d| d.size().y + 2.0);
 	let (rect, response) = ui.allocate_exact_size(
-		egui::vec2(width, text_height.max(20.0) + 16.0),
+		egui::vec2(width, text_height.max(20.0) + 12.0),
 		egui::Sense::click(),
 	);
 	response.widget_info(|| {
@@ -3017,7 +3017,7 @@ pub fn radio_row(
 	if hot {
 		painter.rect_filled(rect.expand2(egui::vec2(8.0, 0.0)), 8, p.hover);
 	}
-	let marker = egui::pos2(rect.left() + 10.0, rect.top() + 8.0 + title.size().y * 0.5);
+	let marker = egui::pos2(rect.left() + 10.0, rect.top() + 6.0 + title.size().y * 0.5);
 	let ring = if selected {
 		p.accent
 	} else if hot {
@@ -3042,7 +3042,7 @@ pub fn radio_row(
 	} else {
 		p.text_strong.gamma_multiply(0.5)
 	};
-	let mut y = rect.top() + 8.0;
+	let mut y = rect.top() + 6.0;
 	painter.galley(egui::pos2(rect.left() + 32.0, y), title.clone(), text_color);
 	y += title.size().y + 2.0;
 	if let Some(detail) = detail {

@@ -426,7 +426,7 @@ const GROUPED_ROW_SAVINGS: f32 = 52.0;
 
 /// Space above a new message group: cozy by default, tighter when compact spacing is on.
 pub(crate) fn group_gap(compact_messages: bool) -> i8 {
-	if compact_messages { 4 } else { 16 }
+	if compact_messages { 4 } else { 14 }
 }
 
 fn reserved_chrome(ui: &egui::Ui, message: &Message, width: f32) -> f32 {
@@ -1415,7 +1415,7 @@ fn row_height_key(
 fn divider(ui: &mut egui::Ui, label: String, unread: bool, compact: bool) {
 	let colors = crate::design::palette(ui);
 	let color = if unread { colors.danger } else { colors.muted };
-	ui.add_space(if compact { 8.0 } else { 16.0 });
+	ui.add_space(if compact { 8.0 } else { 12.0 });
 	// `horizontal` would take the theme's taller control height.
 	ui.allocate_ui_with_layout(
 		egui::vec2(ui.available_width(), 20.0),
@@ -3204,6 +3204,7 @@ impl TimelineView {
 
 				let compact =
 					self.compact_messages || grouped(previous, message, self.unread_boundary);
+				let call_event = message.kind == 3;
 				let new_day = previous
 					.is_none_or(|previous| timestamp(previous.id).date() != timestamp(id).date());
 				let response = ui.scope_builder(egui::UiBuilder::new().scope_id(row_id), |ui| {
@@ -3224,6 +3225,8 @@ impl TimelineView {
 					// a divider already separates the group.
 					let group_lift = if compact || new_day || unread_boundary {
 						0
+					} else if call_event {
+						4
 					} else {
 						group_gap(false) - 2
 					};
@@ -3250,8 +3253,11 @@ impl TimelineView {
 						})
 						.show(ui, |ui| {
 							let mut surface = crate::select::Surface::new(ui, "row");
+							if call_event {
+								ui.spacing_mut().interact_size.y = MESSAGE_LINE;
+							}
 							ui.spacing_mut().item_spacing =
-								egui::vec2(16.0, if self.compact_messages { 2.0 } else { 4.0 });
+								egui::vec2(16.0, if self.compact_messages { 2.0 } else { 6.0 });
 							if let Some(interaction) = message
 								.interaction
 								.as_deref()
@@ -3835,11 +3841,11 @@ impl TimelineView {
 											let mut media = before.1;
 											let content_shown =
 												system.as_ref().is_some_and(|s| s.content_shown);
-											if !content_shown
-												&& !(self.hide_media_links
-													&& crate::embeds::standalone_media_links(
-														message,
-													)) {
+											if !(call_event
+												&& !deleted && message.content.is_empty())
+												&& !content_shown && !(self.hide_media_links
+												&& crate::embeds::standalone_media_links(message))
+											{
 												let jumbo = formatted.jumbo();
 												text_line = ui
 													.scope(|ui| {

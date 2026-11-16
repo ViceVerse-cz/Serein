@@ -426,7 +426,7 @@ impl MessagingUi {
 		let (rect, response) = ui
 			.push_id(channel.id, |ui| {
 				ui.allocate_exact_size(
-					egui::vec2(ui.available_width(), 34.0),
+					egui::vec2(ui.available_width(), channel_marks::ROW_HEIGHT),
 					if viewable {
 						if draggable {
 							egui::Sense::click_and_drag()
@@ -501,7 +501,7 @@ impl MessagingUi {
 			(row.width() - 40.0 - limit_width - elapsed_width - badge_width - marks).max(10.0);
 		let mut name_job = egui::text::LayoutJob::simple_singleline(
 			channel.name.clone(),
-			egui::FontId::new(15.0, design::medium_family(ui.ctx())),
+			egui::FontId::new(15.0, family),
 			text_color,
 		);
 		name_job.wrap.max_width = name_width;
@@ -612,7 +612,7 @@ impl MessagingUi {
 						VoiceChange::Move(None),
 					);
 				let (rect, row) = ui.allocate_exact_size(
-					egui::vec2(ui.available_width(), 34.0),
+					egui::vec2(ui.available_width(), channel_marks::ROW_HEIGHT),
 					if draggable {
 						egui::Sense::click_and_drag()
 					} else {
