@@ -272,11 +272,24 @@ fn write_symbolic_icon(icon_name: &str) -> Option<String> {
 		.mode(0o700)
 		.create(&directory)
 		.ok()?;
-	// Symbolic icons are recolored from this placeholder foreground.
-	let svg = include_str!("../../../../assets/brand/serein-mark.svg")
-		.replace("fill=\"#fff\"", "fill=\"#bebebe\"");
+	let svg = recolorable_svg(include_str!("../../../../assets/brand/serein-mark.svg"));
 	std::fs::write(directory.join(format!("{icon_name}.svg")), svg).ok()?;
 	directory.to_str().map(str::to_owned)
+}
+
+/// GTK hosts recolor any `-symbolic` icon. Plasma only rewrites this stylesheet, and paints
+/// the fill as authored otherwise, which left a dark mark on a dark panel. The grey is what
+/// hosts that recolor nothing show.
+fn recolorable_svg(mark: &str) -> String {
+	mark.replace(
+		"fill=\"#fff\"",
+		"fill=\"currentColor\" class=\"ColorScheme-Text\"",
+	)
+	.replacen(
+		"<path",
+		"<style id=\"current-color-scheme\" type=\"text/css\">.ColorScheme-Text { color: #bebebe; }</style>\n<path",
+		1,
+	)
 }
 
 struct Item {
