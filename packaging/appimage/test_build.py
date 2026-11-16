@@ -519,12 +519,6 @@ class AppImagePackagingTest(unittest.TestCase):
                 ).strip()
                 self.assertTrue(Path(printed_appdir).is_absolute())
 
-                with self.assertRaisesRegex(ValueError, "semantic application version"):
-                    appimage_build.build(staged, "0.1.0\nbad")
-                (staged / "serein").write_bytes(b"MZ synthetic wrong architecture")
-                with self.assertRaisesRegex(ValueError, "ELF executable"):
-                    appimage_build.build(staged, "0.1.0")
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

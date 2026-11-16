@@ -255,9 +255,11 @@ def prune_broken_gstreamer_plugins(appdir, require_gstreamer, require_pipewire):
         )
 
 
-def prune_broken_glycin_loaders(appdir):
+def prune_broken_glycin_loaders(appdir, require_glycin=False):
     glycin_conf_root = appdir / "share/glycin-loaders"
     if not glycin_conf_root.is_dir():
+        if require_glycin:
+            raise ValueError("libglycin is linked but quick-sharun deployed no Glycin loaders")
         return
     conf_files = sorted(
         p for p in glycin_conf_root.rglob("*.conf") if p.parent.name == "conf.d"
@@ -610,7 +612,7 @@ def build(root, version):
 
         ensure_multiarch_loader_symlink(appdir)
         prune_broken_gstreamer_plugins(appdir, require_gstreamer, deploy_pipewire)
-        prune_broken_glycin_loaders(appdir)
+        prune_broken_glycin_loaders(appdir, "libglycin" in libraries)
         subprocess.run([str(appdir / "sharun"), "-g"], check=True, cwd=temporary)
         stage_docs_and_icons(appdir, payload_stage, tools, libraries)
         verify_appdir_invariants(appdir)
