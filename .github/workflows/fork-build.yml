@@ -27,7 +27,7 @@ jobs:
           # The changelog needs the release tags and the commits between them.
           fetch-depth: 0
 
-      - uses: dtolnay/rust-toolchain@1.98.1
+      - uses: dtolnay/rust-toolchain@1.99.1
         with:
           components: rustfmt, clippy
 

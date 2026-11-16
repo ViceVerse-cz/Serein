@@ -92,6 +92,7 @@ function Get-PreviousTag {
 function Split-Commit {
     param([string]$Line)
     $hash, $subject = $Line -split "`t", 2
+    $subject = $subject.Trim()
     $type = 'other'
     $scope = $null
     $text = $subject
@@ -153,10 +154,10 @@ $lines += ('')
 $featureCount = $buckets['feat'].Count
 $fixCount = $buckets['fix'].Count
 $summary = @()
-if ($featureCount -gt 0) { $summary += "$featureCount новых возможностей" }
-if ($fixCount -gt 0) { $summary += "$fixCount исправлений" }
+if ($featureCount -gt 0) { $summary += "Новых возможностей: $featureCount" }
+if ($fixCount -gt 0) { $summary += "Исправлений: $fixCount" }
 if ($summary.Count -gt 0) {
-    $lines += ("В этом выпуске: $($summary -join ', ').")
+    $lines += ($summary -join ' · ')
     $lines += ('')
 }
 
