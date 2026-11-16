@@ -158,22 +158,28 @@ impl Settings {
 		use crate::design;
 		use crate::icons::{Icon, paint};
 		const ROW: f32 = 32.0;
+		const SELECT: f32 = design::SELECT_HEIGHT;
 		let colors = design::palette(ui);
+		ui.add_space(4.0);
 		let Some(families) = &self.families else {
-			ui.horizontal(|ui| {
-				ui.spinner();
-				ui.label(
-					egui::RichText::new(crate::i18n::translate("fonts-show-loading"))
-						.color(colors.muted),
-				);
-			});
+			// The family list opens from this select, so the select is what stands in for it.
+			crate::skeleton::custom(
+				ui,
+				&crate::i18n::translate("fonts-show-loading"),
+				egui::vec2(ui.available_width(), SELECT),
+				|painter, rect, fill| {
+					// Field-shaped, like the select it stands in for.
+					crate::skeleton::control(painter, fill, rect, crate::skeleton::CONTROL_RADIUS);
+				},
+			);
 			return;
 		};
 		let default = crate::i18n::translate("fonts-show-inter-default");
 		let current = self.name.clone().unwrap_or_else(|| default.clone());
-		ui.add_space(4.0);
-		let (rect, button) =
-			ui.allocate_exact_size(egui::vec2(ui.available_width(), 40.0), egui::Sense::click());
+		let (rect, button) = ui.allocate_exact_size(
+			egui::vec2(ui.available_width(), SELECT),
+			egui::Sense::click(),
+		);
 		button.widget_info(|| {
 			egui::WidgetInfo::labeled(egui::Role::ComboBox, button.enabled(), &current)
 		});
@@ -654,6 +660,7 @@ fn install_cjk(ctx: &Context, shared: &Mutex<FontDefinitions>) {
 
 fn cjk_index(language: crate::i18n::Language) -> u32 {
 	match language.resolved() {
+		crate::i18n::Language::Korean => 1,
 		crate::i18n::Language::ChineseSimplified => 2,
 		crate::i18n::Language::ChineseTraditional => 3,
 		_ => 0,
@@ -922,6 +929,17 @@ mod tests {
 			assert_eq!(cjk_index(language), index);
 			let face = skrifa::FontRef::from_index(&collection, index).unwrap();
 			assert_eq!(face.charmap().map('骨'), Some(skrifa::GlyphId::new(glyph)));
+		}
+		let korean_index = cjk_index(crate::i18n::Language::Korean);
+		assert_eq!(korean_index, 1);
+		let korean_face = skrifa::FontRef::from_index(&collection, korean_index).unwrap();
+		for character in "한국어".chars() {
+			assert!(
+				korean_face
+					.charmap()
+					.map(character)
+					.is_some_and(|id| id != skrifa::GlyphId::NOTDEF)
+			);
 		}
 		let definitions = definitions(true);
 		for family in [FontFamily::Proportional, FontFamily::Monospace] {

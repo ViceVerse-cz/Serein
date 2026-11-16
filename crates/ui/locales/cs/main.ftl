@@ -72,6 +72,11 @@ general-gpu-restart = Projeví se při příštím spuštění Sereinu.
 general-gpu-current-prefix = Aktuálně vykresluje
 general-steady-refresh-rate = Stálá obnovovací frekvence
 general-steady-refresh-rate-description = Dokud je Serein aktivním oknem, vykresluje na obnovovací frekvenci displeje, takže monitory s proměnlivou obnovovací frekvencí (VRR, G-SYNC, FreeSync) mohou držet jednu frekvenci a neblikat. Spotřebovává více energie.
+steady-refresh-prompt-title = Zjištěn displej s G-SYNC
+steady-refresh-prompt-body = Serein překresluje jen tehdy, když se něco změní, a displej s G-SYNC proto může blikat, dokud je Serein aktivním oknem. Stálá obnovovací frekvence tomu zabrání vykreslováním na obnovovací frekvenci displeje, spotřebuje ale více energie. Zapnout ji?
+steady-refresh-prompt-turn-on = Zapnout
+steady-refresh-prompt-keep-off = Ne, děkuji
+steady-refresh-prompt-settings = Později to můžete změnit v Nastavení v části { $page } > { $group }.
 gpu-automatic = Automaticky
 gpu-high-performance = Vysoký výkon
 gpu-power-saving = Úspora energie
@@ -419,6 +424,15 @@ message-request-title = Žádost o zprávu
 ## crates/ui/src/channel_menu.rs
 # Context: context
 channel-menu-context-add-to-favorites = Přidat do oblíbených
+channel-menu-context-remove-from-channel-list = Odebrat ze seznamu kanálů
+channel-menu-context-add-to-channel-list = Přidat do seznamu kanálů
+channel-browser-title = Procházet kanály
+channel-browser-subtitle = Vyber, které kanály se zobrazí v seznamu kanálů.
+channel-browser-show-all-channels = Zobrazit všechny kanály
+channel-browser-search = Hledat kanály
+channel-browser-follow-category = Sledovat kategorii
+channel-browser-saving = Ukládání…
+channel-browser-unavailable = Nastavení seznamu kanálů teď není k dispozici.
 # Context: context
 channel-menu-context-copy-channel-id = Kopírovat ID kanálu
 # Context: context
@@ -2436,8 +2450,6 @@ search-pane-hide-matching-text-highlight = Skrýt zvýraznění shodného textu
 # Context: pane
 search-pane-indexing-is-incomplete-results-may-be-missing = Indexování je neúplné; výsledky mohou chybět.
 # Context: pane
-search-pane-looking-for-matching-messages = Hledání odpovídajících zpráv.
-# Context: pane
 search-pane-messages-are-unavailable-while-disconnected-or-without-channel-access = Zprávy nejsou dostupné, pokud jste odpojeni nebo nemáte přístup ke kanálu.
 # Context: pane
 search-pane-newest-first = Nejdříve nejnovější
@@ -3559,9 +3571,6 @@ settings-storage-page-removes-cached-messages-and-media-drafts-and-your-login-st
 settings-storage-page-serein-does-not-collect-telemetry-or-upload-diagnostics-discord-retains = Serein neshromažďuje telemetrii ani nenahrává diagnostiku. Discord uchovává data na straně služeb podle svých vlastních zásad.
 # Context: storage_page
 settings-storage-page-your-privacy = Vaše soukromí
-settings-storage-page-saved-login = Uložené přihlášení
-settings-storage-page-plaintext-login = Ukládat přihlášení jako prostý text bez klíčenky
-settings-storage-page-plaintext-login-description = Použije se jen tehdy, když nefunguje žádná klíčenka systému (GNOME Keyring, KWallet, Klíčenka ani Správce přihlašovacích údajů). Token se uloží nešifrovaně do soukromého souboru ve složce dat Sereinu, kde ho může přečíst kdokoli s přístupem k vašemu uživatelskému účtu. Vypnutím se tyto soubory smažou.
 # Context: cosmetic_settings
 settings-cosmetics = Kosmetika profilu
 # Context: cosmetic_settings
@@ -3633,6 +3642,8 @@ slash-commands-composer-choose-a-different-command = zvolte jiný příkaz
 slash-commands-composer-command-unavailable-your-arguments-are-kept = Příkaz nedostupný. Vaše argumenty jsou zachovány.
 # Context: footer
 slash-commands-footer-refresh-application-commands = Obnovit příkazy aplikace
+# Context: list
+slash-commands-list-loading-application-commands = Načítání příkazů aplikací…
 
 ## crates/ui/src/stickers.rs
 # Context: message
@@ -3960,6 +3971,8 @@ timeline-show-with-scroll-loading-messages = Načítání zpráv…
 # Context: show_with_scroll
 timeline-show-with-scroll-message-deleted = Zpráva smazána
 # Context: show_with_scroll
+timeline-show-with-scroll-message-blocked = Blokovaná zpráva
+# Context: show_with_scroll
 timeline-show-with-scroll-message-history-is-unavailable-with-current-permission-information = Historie zpráv není s aktuálními informacemi o oprávnění k dispozici.
 # Context: show_with_scroll
 timeline-show-with-scroll-no-messages-yet-start-the-conversation-below = Zatím žádné zprávy. Začněte konverzaci níže.
@@ -4131,6 +4144,10 @@ verification-show-one-quick-check = Jedna rychlá kontrola
 verification-show-verification-required = Vyžaduje se ověření
 # Context: show
 verification-show-verify = Ověřte
+# Context: show
+verification-show-safer-in-the-official-discord-app = Bezpečnější je dokončit tuto kontrolu v oficiální aplikaci Discord. Po kontrole vyřešené v Sereinu může Discord u novějších účtů vyžadovat ověření telefonního čísla.
+# Context: show
+verification-show-open-discord = Otevřít Discord
 
 ## crates/ui/src/video.rs
 # Context: show_player
@@ -4611,6 +4628,7 @@ public-upload-error-conversation = Před veřejným nahráním se vraťte do pů
 public-upload-error-selection = Výběr se změnil; před veřejným nahráním znovu zkontrolujte soubor
 public-upload-error-missing = Před veřejným nahráním znovu vyberte soubor
 
+message-preview-limit = Tato zpráva překračuje limit nativního rozvržení textu.
 voice-call-moved-to-another-client = Relace hovoru na tomto zařízení byla nahrazena
 
 # Synchronizované oblíbené GIFy (neoficiální nastavení účtu).
@@ -4716,6 +4734,11 @@ profiles-board-empty = No games on this board yet.
 profiles-board-show-more = Show more
 profiles-board-show-less = Show less
 profiles-activity-empty = Žádná sdílená aktivita.
+profiles-in-voice-server = na serveru { $server }
+profiles-in-voice-join = Připojit se
+profiles-in-voice-joined = V tomto hlasovém kanálu už jste.
+profiles-in-voice-failed = Nejprve zavřete neúspěšný hovor a pak se připojte znovu.
+profiles-in-voice-unavailable = K tomuto hlasovému kanálu se teď nemůžete připojit.
 profiles-mutuals-empty = Nothing to show here.
 
 reading-double-click-reaction = Double-click reaction
@@ -5018,3 +5041,33 @@ timestamp-style-full = Úplné datum a čas
 timestamp-style-relative = Relativní čas
 timestamp-style-short-date-time = Krátké datum a čas
 timestamp-style-short-date-seconds = Krátké datum a čas se sekundami
+# Context: moderation
+moderation-menu-timeout = Oddechový čas pro { $name }
+# Context: moderation
+moderation-menu-kick = Vyhodit { $name }
+# Context: moderation
+moderation-menu-ban = Zabanovat { $name }
+# Context: moderation
+moderation-timeout-detail = Do konce oddechového času nemůže psát zprávy, reagovat ani se připojovat k hlasovým kanálům.
+# Context: moderation
+moderation-kick-detail = Může se znovu připojit pomocí nové pozvánky.
+# Context: moderation
+moderation-ban-detail = Nemůže se znovu připojit, dokud ban nezrušíte.
+# Context: moderation
+moderation-duration-60-seconds = 60 sekund
+# Context: moderation
+moderation-remove-timeout = Zrušit oddechový čas
+# Context: moderation
+moderation-delete-history = Smazat historii zpráv
+# Context: moderation
+moderation-delete-none = Nic nemazat
+# Context: moderation
+moderation-delete-hour = Poslední hodina
+# Context: moderation
+moderation-delete-day = Posledních 24 hodin
+# Context: moderation
+moderation-delete-week = Posledních 7 dní
+# Context: moderation
+moderation-confirm-timeout = Oddechový čas
+# Context: moderation
+moderation-confirm-ban = Zabanovat

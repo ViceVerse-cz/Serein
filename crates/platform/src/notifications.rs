@@ -388,7 +388,7 @@ fn worker(
 
 fn publish(status: &AtomicU64, generation: u64, outcome: Status) {
 	// An OS result must not overwrite the next session/dismissal's state.
-	let _ = status.fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
+	let _ = status.try_update(Ordering::AcqRel, Ordering::Acquire, |current| {
 		(current >> 8 == generation).then_some(encoded(generation, outcome))
 	});
 }

@@ -118,11 +118,7 @@ pub fn decode(hash: &[u8]) -> Option<ColorImage> {
 			));
 		}
 	}
-	Some(ColorImage {
-		size: [w, h],
-		source_size: egui::vec2(w as f32, h as f32),
-		pixels,
-	})
+	Some(ColorImage::new([w, h], pixels))
 }
 
 #[cfg(test)]
@@ -139,8 +135,8 @@ mod tests {
 	#[test]
 	fn decodes_reference_hash_to_portrait_image() {
 		let image = decode(&SUNSET).expect("valid hash");
-		assert_eq!(image.size, [23, 32]);
-		assert_eq!(image.pixels.len(), 23 * 32);
+		assert_eq!(image.resolution(), [23, 32]);
+		assert_eq!(image.pixels().len(), 23 * 32);
 		for ((x, y), expected) in [
 			((0, 0), [64u8, 78, 113]),
 			((22, 0), [85, 109, 139]),
@@ -148,7 +144,7 @@ mod tests {
 			((22, 31), [0, 4, 40]),
 			((11, 16), [140, 110, 89]),
 		] {
-			let pixel = image.pixels[y * 23 + x];
+			let pixel = image.pixels()[y * 23 + x];
 			assert_eq!(pixel.a(), 255);
 			for (actual, expected) in [pixel.r(), pixel.g(), pixel.b()].into_iter().zip(expected) {
 				assert!(

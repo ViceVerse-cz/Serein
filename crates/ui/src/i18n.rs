@@ -15,6 +15,7 @@ static RUSSIAN: LazyLock<LanguageIdentifier> = LazyLock::new(|| "ru".parse().unw
 static PORTUGUESE_BRAZIL: LazyLock<LanguageIdentifier> = LazyLock::new(|| "pt-BR".parse().unwrap());
 static TURKISH: LazyLock<LanguageIdentifier> = LazyLock::new(|| "tr".parse().unwrap());
 static JAPANESE: LazyLock<LanguageIdentifier> = LazyLock::new(|| "ja".parse().unwrap());
+static KOREAN: LazyLock<LanguageIdentifier> = LazyLock::new(|| "ko".parse().unwrap());
 static POLISH: LazyLock<LanguageIdentifier> = LazyLock::new(|| "pl".parse().unwrap());
 static ITALIAN: LazyLock<LanguageIdentifier> = LazyLock::new(|| "it".parse().unwrap());
 static CZECH: LazyLock<LanguageIdentifier> = LazyLock::new(|| "cs".parse().unwrap());
@@ -60,10 +61,11 @@ pub enum Language {
 	Czech,
 	ChineseTraditional,
 	ChineseSimplified,
+	Korean,
 }
 
 impl Language {
-	pub const ALL: [Self; 14] = [
+	pub const ALL: [Self; 15] = [
 		Self::System,
 		Self::English,
 		Self::Spanish,
@@ -78,6 +80,7 @@ impl Language {
 		Self::Czech,
 		Self::ChineseTraditional,
 		Self::ChineseSimplified,
+		Self::Korean,
 	];
 
 	pub fn from_preference(value: Option<&str>) -> Self {
@@ -90,6 +93,7 @@ impl Language {
 			Some("pt-BR") => Self::PortugueseBrazil,
 			Some("tr") => Self::Turkish,
 			Some("ja") => Self::Japanese,
+			Some("ko") => Self::Korean,
 			Some("pl") => Self::Polish,
 			Some("it") => Self::Italian,
 			Some("cs") => Self::Czech,
@@ -110,6 +114,7 @@ impl Language {
 			Self::PortugueseBrazil => Some("pt-BR"),
 			Self::Turkish => Some("tr"),
 			Self::Japanese => Some("ja"),
+			Self::Korean => Some("ko"),
 			Self::Polish => Some("pl"),
 			Self::Italian => Some("it"),
 			Self::Czech => Some("cs"),
@@ -160,6 +165,7 @@ impl Language {
 			Self::PortugueseBrazil => "Portugu\u{00ea}s (Brasil)".into(),
 			Self::Turkish => "T\u{00fc}rk\u{00e7}e".into(),
 			Self::Japanese => "\u{65e5}\u{672c}\u{8a9e}".into(),
+			Self::Korean => "한국어".into(),
 			Self::Polish => "Polski".into(),
 			Self::Italian => "Italiano".into(),
 			Self::Czech => "Čeština".into(),
@@ -184,6 +190,7 @@ impl Language {
 			Self::PortugueseBrazil => include_str!("../locales/pt-BR/main.ftl"),
 			Self::Turkish => include_str!("../locales/tr/main.ftl"),
 			Self::Japanese => include_str!("../locales/ja/main.ftl"),
+			Self::Korean => include_str!("../locales/ko/main.ftl"),
 			Self::Polish => include_str!("../locales/pl/main.ftl"),
 			Self::Italian => include_str!("../locales/it/main.ftl"),
 			Self::Czech => include_str!("../locales/cs/main.ftl"),
@@ -260,6 +267,7 @@ impl Language {
 			Self::PortugueseBrazil => &PORTUGUESE_BRAZIL,
 			Self::Turkish => &TURKISH,
 			Self::Japanese => &JAPANESE,
+			Self::Korean => &KOREAN,
 			Self::Polish => &POLISH,
 			Self::Italian => &ITALIAN,
 			Self::Czech => &CZECH,
@@ -379,6 +387,7 @@ fn language_from_tag(tag: &str) -> Language {
 		"pt" => Language::PortugueseBrazil,
 		"tr" => Language::Turkish,
 		"ja" => Language::Japanese,
+		"ko" => Language::Korean,
 		"pl" => Language::Polish,
 		"it" => Language::Italian,
 		"cs" => Language::Czech,
@@ -397,7 +406,10 @@ mod tests {
 		assert_eq!(language_from_tag("es-MX"), Language::Spanish);
 		assert_eq!(language_from_tag("pt-PT"), Language::PortugueseBrazil);
 		assert_eq!(language_from_tag("de-DE"), Language::German);
-		assert_eq!(language_from_tag("ko-KR"), Language::English);
+		for tag in ["ko", "ko-KR", "ko_KR.UTF-8", "KO-kr"] {
+			assert_eq!(language_from_tag(tag), Language::Korean);
+		}
+		assert_eq!(language_from_tag("unknown"), Language::English);
 		assert_eq!(language_from_tag("zh-TW"), Language::ChineseTraditional);
 		assert_eq!(
 			language_from_tag("zh_TW.UTF-8"),
@@ -463,6 +475,29 @@ mod tests {
 	}
 
 	#[test]
+	fn rtl_preview_limit_resolves_in_every_supported_catalog() {
+		for language in Language::ALL {
+			let notice = language.try_text("message-preview-limit");
+			assert!(
+				notice.is_some_and(|value| !value.trim().is_empty()),
+				"{language:?}: missing native layout limit notice"
+			);
+			assert!(
+				!language
+					.text("message-preview-limit")
+					.contains("Unknown localization key")
+			);
+			if !matches!(language, Language::System | Language::English) {
+				assert_ne!(
+					language.text("message-preview-limit"),
+					Language::English.text("message-preview-limit"),
+					"{language:?}: untranslated native layout limit notice"
+				);
+			}
+		}
+	}
+
+	#[test]
 	fn system_messages_keep_styled_names_in_every_catalog() {
 		let mut message = test_support::message(1, model::Id(2));
 		message.author.name = "m.artin".into();
@@ -512,12 +547,55 @@ mod tests {
 	}
 
 	#[test]
+	fn korean_catalog_formats_every_english_message_without_fallback() {
+		let english = Language::English.source();
+		let korean = Language::Korean.load();
+		let mut args = FluentArgs::new();
+		for variable in english.split('$').skip(1) {
+			let name = variable
+				.split(|c: char| !c.is_ascii_alphanumeric() && c != '_' && c != '-')
+				.next()
+				.unwrap();
+			args.set(name, "test");
+		}
+		for count in [0, 1, 2, 100] {
+			args.set("count", count);
+			for key in english.lines().filter_map(|line| {
+				(!line.starts_with(['#', ' ', '\t']))
+					.then(|| line.split_once('=').map(|(key, _)| key.trim_end()))
+					.flatten()
+			}) {
+				assert!(
+					Language::lookup_in_bundle(&korean.bundle, key, Some(&args))
+						.is_some_and(|text| !text.trim().is_empty()),
+					"Korean catalog cannot format {key} with count {count}"
+				);
+			}
+			// Count-driven UI must use the Korean catalog, not valid-but-untranslated
+			// English select expressions. Check behavior rather than pinning copy.
+			for key in [
+				"settings-image-cache-days",
+				"timeline-present-control-new-messages",
+				"timeline-unread-banner-new-since",
+				"timeline-unread-banner-new-since-more",
+				"settings-idle-after-minutes",
+			] {
+				assert_ne!(
+					Language::lookup_in_bundle(&korean.bundle, key, Some(&args)),
+					Language::English.lookup(key, Some(&args)),
+					"Korean count message remains English: {key}"
+				);
+			}
+		}
+	}
+
+	#[test]
 	fn missing_keys_fall_back_to_english() {
 		set_current(Language::German);
 		assert_eq!(translate("settings-chat-box"), "Chatfenster");
 		assert_eq!(
-			translate("settings-storage-page-saved-login"),
-			"Gespeicherte Anmeldung"
+			translate("settings-storage-page-your-privacy"),
+			"Ihre Privatsphäre"
 		);
 		assert_eq!(translate("embeds-poll-result-no-votes"), "No one voted");
 	}

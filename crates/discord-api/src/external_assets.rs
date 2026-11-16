@@ -3,8 +3,8 @@
 use crate::{DiscordApi, Failure};
 use discord_protocol::rpc::MAX_ASSET_KEY;
 use model::Id;
-use reqwest::Method;
 use serde::Deserialize;
+use wreq::Method;
 
 /// Two images per activity, each a bounded proxy path.
 const MAX_RESPONSE: usize = 8 * 1024;

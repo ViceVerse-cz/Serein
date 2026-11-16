@@ -1,0 +1,326 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: x <x@x>
+Date: Mon, 9 Nov 2026 13:03:12 +0100
+Subject: [PATCH] egui#8810: Give child viewports an AccessKit adapter in
+ eframe
+
+Squashed from https://github.com/emilk/egui/pull/8810 at e2728d9ca000.
+---
+ crates/eframe/src/native/glow_integration.rs | 51 +++++++++++++++++---
+ crates/eframe/src/native/wgpu_integration.rs | 46 +++++++++++++++++-
+ 2 files changed, 89 insertions(+), 8 deletions(-)
+
+diff --git a/crates/eframe/src/native/glow_integration.rs b/crates/eframe/src/native/glow_integration.rs
+index 59567badd..e3d4a51d0 100644
+--- a/crates/eframe/src/native/glow_integration.rs
++++ b/crates/eframe/src/native/glow_integration.rs
+@@ -111,6 +111,10 @@ struct GlutinWindowContext {
+     /// Passed on to each [`egui_winit::State`]. See [`NativeOptions::clipboard_shortcuts`].
+     clipboard_shortcuts: bool,
+ 
++    /// Passed on to [`egui_winit::State::init_accesskit`] for child viewports.
++    #[cfg(feature = "accesskit")]
++    event_loop_proxy: EventLoopProxy<UserEvent>,
++
+     current_gl_context: Option<glutin::context::PossiblyCurrentContext>,
+     not_current_gl_context: Option<glutin::context::NotCurrentContext>,
+ 
+@@ -151,6 +155,9 @@ struct Viewport {
+     gl_surface: Option<glutin::surface::Surface<glutin::surface::WindowSurface>>,
+     window: Option<Arc<Window>>,
+     egui_winit: Option<egui_winit::State>,
++
++    /// Child windows start hidden, and are shown once they have painted their first frame.
++    show_after_first_paint: bool,
+ }
+ 
+ impl Viewport {
+@@ -260,6 +267,7 @@ impl<'app> GlowWinitApp<'app> {
+         event_loop: &ActiveEventLoop,
+         storage: Option<&dyn Storage>,
+         native_options: &mut NativeOptions,
++        #[cfg(feature = "accesskit")] event_loop_proxy: EventLoopProxy<UserEvent>,
+     ) -> Result<(GlutinWindowContext, egui_glow::Painter)> {
+         profiling::function_scope!();
+         let mut window_settings = epi_integration::load_window_settings(storage);
+@@ -273,7 +281,14 @@ impl<'app> GlowWinitApp<'app> {
+         .with_visible(false); // Start hidden until we render the first frame to fix white flash on startup (https://github.com/emilk/egui/pull/3631)
+ 
+         let mut glutin_window_context = unsafe {
+-            GlutinWindowContext::new(egui_ctx, winit_window_builder, native_options, event_loop)?
++            GlutinWindowContext::new(
++                egui_ctx,
++                winit_window_builder,
++                native_options,
++                event_loop,
++                #[cfg(feature = "accesskit")]
++                event_loop_proxy,
++            )?
+         };
+ 
+         // Creates the window - must come before we create our glow context
+@@ -333,6 +348,8 @@ impl<'app> GlowWinitApp<'app> {
+             event_loop,
+             storage.as_deref(),
+             &mut self.native_options,
++            #[cfg(feature = "accesskit")]
++            self.repaint_proxy.lock().clone(),
+         )?;
+         let gl = Arc::clone(painter.gl());
+ 
+@@ -951,6 +968,9 @@ impl GlowWinitRunning<'_> {
+                 }
+ 
+                 integration.post_rendering(&window);
++                if core::mem::take(&mut viewport.show_after_first_paint) {
++                    window.set_visible(true);
++                }
+             }
+ 
+             {
+@@ -1198,6 +1218,7 @@ impl GlutinWindowContext {
+         viewport_builder: ViewportBuilder,
+         native_options: &NativeOptions,
+         event_loop: &ActiveEventLoop,
++        #[cfg(feature = "accesskit")] event_loop_proxy: EventLoopProxy<UserEvent>,
+     ) -> Result<Self> {
+         profiling::function_scope!();
+ 
+@@ -1350,6 +1371,7 @@ impl GlutinWindowContext {
+                 gl_surface: None,
+                 window: window.map(Arc::new),
+                 egui_winit: None,
++                show_after_first_paint: false,
+             },
+         );
+ 
+@@ -1369,6 +1391,8 @@ impl GlutinWindowContext {
+             viewport_from_window,
+             max_texture_side: None,
+             clipboard_shortcuts: native_options.clipboard_shortcuts,
++            #[cfg(feature = "accesskit")]
++            event_loop_proxy,
+             window_from_viewport,
+             focused_viewport: Some(ViewportId::ROOT),
+         };
+@@ -1406,17 +1430,22 @@ impl GlutinWindowContext {
+             .viewports
+             .get_mut(&viewport_id)
+             .expect("viewport doesn't exist");
++        let is_child = viewport_id != ViewportId::ROOT;
+ 
+         let window = if let Some(window) = &mut viewport.window {
+             window
+         } else {
+             log::debug!("Creating a window for viewport {viewport_id:?}");
+-            let (window, viewport_info) = create_window_for_viewport(
+-                &self.egui_ctx,
+-                &self.gl_config,
+-                &viewport.builder,
+-                event_loop,
+-            )?;
++            // Like the root, start hidden until we render the first frame (https://github.com/emilk/egui/pull/3631).
++            // AccessKit requires this too: its adapter must be created before the window is shown.
++            let builder = if is_child {
++                viewport.builder.clone().with_visible(false)
++            } else {
++                viewport.builder.clone()
++            };
++            viewport.show_after_first_paint = is_child && viewport.builder.visible != Some(false);
++            let (window, viewport_info) =
++                create_window_for_viewport(&self.egui_ctx, &self.gl_config, &builder, event_loop)?;
+             viewport.info = viewport_info;
+             viewport.window.insert(window)
+         };
+@@ -1432,6 +1461,10 @@ impl GlutinWindowContext {
+                 self.max_texture_side,
+             );
+             egui_winit.set_clipboard_shortcuts(self.clipboard_shortcuts);
++            #[cfg(feature = "accesskit")]
++            if is_child {
++                egui_winit.init_accesskit(event_loop, window, self.event_loop_proxy.clone());
++            }
+             egui_winit
+         });
+ 
+@@ -1675,6 +1708,7 @@ fn initialize_or_update_viewport<'a>(
+                 window: None,
+                 egui_winit: None,
+                 gl_surface: None,
++                show_after_first_paint: false,
+             })
+         }
+ 
+@@ -1879,6 +1913,9 @@ fn render_immediate_viewport(
+             log::error!("swap_buffers failed: {err}");
+         }
+     }
++    if core::mem::take(&mut viewport.show_after_first_paint) {
++        window.set_visible(true);
++    }
+ 
+     egui_winit.handle_platform_output(window, platform_output);
+ 
+diff --git a/crates/eframe/src/native/wgpu_integration.rs b/crates/eframe/src/native/wgpu_integration.rs
+index f58f30755..2476e79d2 100644
+--- a/crates/eframe/src/native/wgpu_integration.rs
++++ b/crates/eframe/src/native/wgpu_integration.rs
+@@ -93,6 +93,10 @@ pub struct SharedState {
+ 
+     /// Passed on to each [`egui_winit::State`]. See [`NativeOptions::clipboard_shortcuts`].
+     clipboard_shortcuts: bool,
++
++    /// Passed on to [`egui_winit::State::init_accesskit`] for child viewports.
++    #[cfg(feature = "accesskit")]
++    event_loop_proxy: EventLoopProxy<UserEvent>,
+ }
+ 
+ pub type Viewports = egui::OrderedViewportIdMap<Viewport>;
+@@ -117,6 +121,9 @@ pub struct Viewport {
+ 
+     /// `window` and `egui_winit` are initialized together.
+     egui_winit: Option<egui_winit::State>,
++
++    /// Child windows start hidden, and are shown once they have painted their first frame.
++    show_after_first_paint: bool,
+ }
+ 
+ impl Drop for Viewport {
+@@ -165,6 +172,8 @@ impl<'app> WgpuWinitApp<'app> {
+             painter,
+             viewport_from_window,
+             clipboard_shortcuts,
++            #[cfg(feature = "accesskit")]
++            event_loop_proxy,
+             ..
+         } = &mut *shared;
+ 
+@@ -175,6 +184,8 @@ impl<'app> WgpuWinitApp<'app> {
+                 viewport_from_window,
+                 painter,
+                 *clipboard_shortcuts,
++                #[cfg(feature = "accesskit")]
++                event_loop_proxy,
+             );
+         }
+     }
+@@ -187,6 +198,8 @@ impl<'app> WgpuWinitApp<'app> {
+             viewport_from_window,
+             painter,
+             clipboard_shortcuts,
++            #[cfg(feature = "accesskit")]
++            event_loop_proxy,
+             ..
+         } = &mut *running.shared.borrow_mut();
+ 
+@@ -204,6 +217,8 @@ impl<'app> WgpuWinitApp<'app> {
+             viewport_from_window,
+             painter,
+             *clipboard_shortcuts,
++            #[cfg(feature = "accesskit")]
++            event_loop_proxy,
+         );
+     }
+ 
+@@ -373,6 +388,7 @@ impl<'app> WgpuWinitApp<'app> {
+                 window: Some(window),
+                 egui_winit: Some(egui_winit),
+                 pending_delta: Default::default(),
++                show_after_first_paint: false,
+             },
+         );
+ 
+@@ -384,6 +400,8 @@ impl<'app> WgpuWinitApp<'app> {
+             focused_viewport: Some(ViewportId::ROOT),
+             resized_viewport: None,
+             clipboard_shortcuts: self.native_options.clipboard_shortcuts,
++            #[cfg(feature = "accesskit")]
++            event_loop_proxy: self.repaint_proxy.lock().clone(),
+         }));
+ 
+         {
+@@ -884,6 +902,9 @@ impl WgpuWinitRunning<'_> {
+             }
+ 
+             integration.post_rendering(window);
++            if core::mem::take(&mut viewport.show_after_first_paint) {
++                window.set_visible(true);
++            }
+ 
+             vsync_secs
+         } else {
+@@ -1135,6 +1156,7 @@ impl Viewport {
+         windows_id: &mut HashMap<WindowId, ViewportId>,
+         painter: &mut egui_wgpu::winit::Painter,
+         clipboard_shortcuts: bool,
++        #[cfg(feature = "accesskit")] event_loop_proxy: &EventLoopProxy<UserEvent>,
+     ) {
+         if self.window.is_some() {
+             return; // we already have one
+@@ -1143,8 +1165,18 @@ impl Viewport {
+         profiling::function_scope!();
+ 
+         let viewport_id = self.ids.this;
++        let is_child = viewport_id != ViewportId::ROOT;
+ 
+-        match egui_winit::create_window(egui_ctx, event_loop, &self.builder) {
++        // Like the root, start hidden until we render the first frame (https://github.com/emilk/egui/pull/3631).
++        // AccessKit requires this too: its adapter must be created before the window is shown.
++        let builder = if is_child {
++            self.builder.clone().with_visible(false)
++        } else {
++            self.builder.clone()
++        };
++        self.show_after_first_paint = is_child && self.builder.visible != Some(false);
++
++        match egui_winit::create_window(egui_ctx, event_loop, &builder) {
+             Ok(window) => {
+                 windows_id.insert(window.id(), viewport_id);
+ 
+@@ -1165,6 +1197,10 @@ impl Viewport {
+                     painter.max_texture_side(),
+                 );
+                 egui_winit.set_clipboard_shortcuts(clipboard_shortcuts);
++                #[cfg(feature = "accesskit")]
++                if is_child {
++                    egui_winit.init_accesskit(event_loop, &window, event_loop_proxy.clone());
++                }
+                 self.egui_winit = Some(egui_winit);
+ 
+                 egui_winit::update_viewport_info(&mut self.info, egui_ctx, &window, true);
+@@ -1238,6 +1274,8 @@ fn render_immediate_viewport(
+             painter,
+             viewport_from_window,
+             clipboard_shortcuts,
++            #[cfg(feature = "accesskit")]
++            event_loop_proxy,
+             ..
+         } = &mut *shared.borrow_mut();
+ 
+@@ -1257,6 +1295,8 @@ fn render_immediate_viewport(
+                     viewport_from_window,
+                     painter,
+                     *clipboard_shortcuts,
++                    #[cfg(feature = "accesskit")]
++                    event_loop_proxy,
+                 );
+             });
+         }
+@@ -1333,6 +1373,9 @@ fn render_immediate_viewport(
+         vec![],
+         window,
+     );
++    if core::mem::take(&mut viewport.show_after_first_paint) {
++        window.set_visible(true);
++    }
+ 
+     egui_winit.handle_platform_output(window, platform_output);
+ 
+@@ -1442,6 +1485,7 @@ fn initialize_or_update_viewport<'a>(
+                 window: None,
+                 egui_winit: None,
+                 pending_delta: Default::default(),
++                show_after_first_paint: false,
+             })
+         }
+ 

@@ -6,3 +6,5 @@ replay = "run --release -p replay-bench --"
 # The local store uses plain tables only; drop libsqlite3-sys' default full-text, R-tree,
 # dbstat, soundex and STAT4 extensions from the bundled SQLite.
 LIBSQLITE3_FLAGS = "-USQLITE_ENABLE_FTS3 -USQLITE_ENABLE_FTS3_PARENTHESIS -USQLITE_ENABLE_FTS5 -USQLITE_ENABLE_RTREE -USQLITE_ENABLE_DBSTAT_VTAB -USQLITE_ENABLE_STAT4 -USQLITE_SOUNDEX"
+# BoringSSL's ARM64 assembly cannot be assembled by MSBuild; see the toolchain file.
+CMAKE_TOOLCHAIN_FILE_aarch64_pc_windows_msvc = { value = "packaging/windows/boringssl-arm64-msvc.cmake", relative = true }

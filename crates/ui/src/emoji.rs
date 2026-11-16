@@ -77,7 +77,7 @@ fn decode_atlas() -> Result<egui::ColorImage, image::ImageError> {
 		egui::Color32::TRANSPARENT,
 	);
 	decoder.read_image(image.as_raw_mut())?;
-	for pixel in &mut image.pixels {
+	for pixel in image.pixels_mut() {
 		let [r, g, b, a] = pixel.to_array();
 		*pixel = egui::Color32::from_rgba_unmultiplied(r, g, b, a);
 	}
@@ -139,6 +139,28 @@ pub(crate) fn lookup(text: &str) -> Option<usize> {
 		.binary_search_by_key(&key, |(name, _)| *name)
 		.ok()
 		.map(|index| entries()[index].1)
+}
+
+/// Mark text-default symbols that Twemoji draws as emoji (✌, ❤) with U+FE0F, so font fallback
+/// colours them in plain-text names as messages do. Emoji-default and explicit text forms stay.
+pub(crate) fn presentation(text: &str) -> std::borrow::Cow<'_, str> {
+	use unicode_segmentation::UnicodeSegmentation as _;
+	let bare = |grapheme: &str| {
+		grapheme.chars().nth(1).is_none()
+			&& !egui::epaint::text::has_emoji_presentation(grapheme)
+			&& lookup(grapheme).is_some()
+	};
+	if text.is_ascii() || !text.graphemes(true).any(bare) {
+		return std::borrow::Cow::Borrowed(text);
+	}
+	let mut marked = String::with_capacity(text.len() + 3);
+	for grapheme in text.graphemes(true) {
+		marked.push_str(grapheme);
+		if bare(grapheme) {
+			marked.push('\u{fe0f}');
+		}
+	}
+	std::borrow::Cow::Owned(marked)
 }
 
 pub(crate) fn image(ctx: &Context, text: &str, size: f32) -> Option<Image<'static>> {
@@ -213,6 +235,15 @@ pub(crate) fn custom_prefix(text: &str) -> Option<(model::Id, usize)> {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	/// Plain-text names colour ✌ like Discord does, without touching emoji or text forms.
+	#[test]
+	fn names_mark_text_default_twemoji_for_colour() {
+		assert_eq!(presentation("✌ oznámení"), "✌\u{fe0f} oznámení");
+		for unchanged in ["🛒-bazar", "✌\u{fe0f}", "✌\u{fe0e}", "✌🏻", "plain", "→ x"] {
+			assert_eq!(presentation(unchanged), unchanged);
+		}
+	}
 	#[test]
 	fn animated_custom_markup_is_recognized() {
 		assert!(custom_animated("<a:wave_animated:1169784511555452928>"));

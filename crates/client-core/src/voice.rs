@@ -7,6 +7,10 @@ use crate::{
 use model::{Id, Member};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 pub const MAX_PARTICIPANTS: usize = 64;
+/// Why a join into a room already holding [`MAX_PARTICIPANTS`] people is refused.
+pub const CALL_FULL: &str = "Voice channel exceeds the 64 participant limit";
+/// Why a join into a guild channel at its user limit is refused.
+pub const CHANNEL_FULL: &str = "This voice channel is full";
 pub const MAX_DM_CALLS: usize = 64;
 pub const MAX_DM_CALL_BYTES: usize = MAX_DM_CALLS * size_of::<Id>();
 pub const MAX_ROSTER: usize = 4096;
@@ -158,6 +162,9 @@ pub struct State {
 	pub active: Option<Call>,
 	/// Last released local request: service departure or local-only abandonment.
 	pub departed: Option<(Id, u64)>,
+	/// A hangup the gateway stopped waiting for. Discord never confirmed it, but nothing
+	/// blocks the next join any more, so a pending call switch may go ahead.
+	pub abandoned: Option<(Id, u64)>,
 	pub incoming: Option<Id>,
 	/// One explicit outgoing attempt, confirmed only by service ringing recipients.
 	outgoing: Option<(Id, u64, bool)>,
@@ -513,6 +520,35 @@ impl ClientState {
 			&& self.gateway_connected
 			&& self.has_voice_access(channel)
 	}
+	/// Why `channel` has no room for this account, if it is full: the most people a call can
+	/// hold, or a guild channel's user limit, which members allowed to move others bypass.
+	pub fn call_full(&self, channel: Id) -> Option<&'static str> {
+		let own = self.user.as_ref().map(|user| user.id);
+		let (count, present) = match self.channel(channel) {
+			Some(c) if c.guild.is_some() => {
+				let mut users = self
+					.voice
+					.roster
+					.iter()
+					.filter(|r| r.channel == channel)
+					.map(|r| r.participant.user);
+				let count = users.clone().count();
+				(count, users.any(|user| Some(user) == own))
+			}
+			Some(_) => (self.voice.dm_participants(channel).len(), false),
+			None => (0, false),
+		};
+		if count >= MAX_PARTICIPANTS {
+			return Some(CALL_FULL);
+		}
+		let limit = self.channel(channel).and_then(|c| c.user_limit)?;
+		// Being in the channel already, from another device, takes no extra place, even when a
+		// moderator moved people in past the limit or it was lowered.
+		(!present
+			&& count >= usize::from(limit)
+			&& self.permission(channel, model::permissions::MOVE_MEMBERS) != Some(true))
+		.then_some(CHANNEL_FULL)
+	}
 	pub(crate) fn has_voice_access(&self, channel: Id) -> bool {
 		self.permission(
 			channel,
@@ -555,8 +591,20 @@ impl ClientState {
 		muted: bool,
 		deafened: bool,
 	) -> Option<crate::Command> {
+		self.try_start_call(channel, ring, muted, deafened).ok()
+	}
+	/// [`Self::start_call_with_mute`] with the reason a join was refused, for callers that
+	/// report it. A full room also leaves its reason in the status line.
+	pub fn try_start_call(
+		&mut self,
+		channel: Id,
+		ring: bool,
+		muted: bool,
+		deafened: bool,
+	) -> Result<crate::Command, &'static str> {
+		const UNAVAILABLE: &str = "Joining this call is no longer available";
 		if !self.can_call(channel) {
-			return None;
+			return Err(UNAVAILABLE);
 		}
 		// A failed call is not a live one: joining again replaces it instead of being refused.
 		if self
@@ -565,9 +613,13 @@ impl ClientState {
 			.as_ref()
 			.is_some_and(|call| call.phase != Phase::Failed)
 		{
-			return None;
+			return Err("You are already in another call");
 		}
-		let guild = self.channel(channel)?.guild;
+		let guild = self.channel(channel).ok_or(UNAVAILABLE)?.guild;
+		if let Some(full) = self.call_full(channel) {
+			self.status = full;
+			return Err(full);
+		}
 		let ring = ring && guild.is_none() && !self.voice.has_dm_call(channel);
 		let participants: Vec<_> = if guild.is_some() {
 			self.voice
@@ -579,10 +631,6 @@ impl ClientState {
 		} else {
 			self.voice.dm_participants(channel).to_vec()
 		};
-		if participants.len() >= MAX_PARTICIPANTS {
-			self.status = "Voice channel exceeds the 64 participant limit";
-			return None;
-		}
 		let own = participants
 			.iter()
 			.find(|p| self.user.as_ref().is_some_and(|u| u.id == p.user));
@@ -595,6 +643,7 @@ impl ClientState {
 		self.voice.ring_error = None;
 		// A join puts this account back in the channel; an older departure must not outlive it.
 		self.voice.departed = None;
+		self.voice.abandoned = None;
 		self.voice.active = Some(Call {
 			channel,
 			guild,
@@ -615,7 +664,7 @@ impl ClientState {
 		if self.voice.incoming == Some(channel) {
 			self.voice.incoming = None;
 		}
-		Some(crate::Command::Voice(Command::Join {
+		Ok(crate::Command::Voice(Command::Join {
 			channel,
 			request,
 			ring,
@@ -1175,6 +1224,15 @@ impl ClientState {
 				if request == 0 || self.voice.active.is_none() {
 					self.status = message;
 				}
+				if request != 0
+					&& self
+						.voice
+						.active
+						.as_ref()
+						.is_none_or(|call| (call.channel, call.request) != (channel, request))
+				{
+					self.voice.abandoned = Some((channel, request));
+				}
 				if let Some(call) = &mut self.voice.active
 					&& call.channel == channel
 					&& call.request == request
@@ -1349,6 +1407,7 @@ mod tests {
 				stickers: None,
 			}],
 			channels: vec![Channel {
+				user_limit: None,
 				id: Id(20),
 				guild: Some(Id(10)),
 				kind: 2,
@@ -1586,6 +1645,7 @@ mod tests {
 				channels: [20, 21]
 					.into_iter()
 					.map(|id| Channel {
+						user_limit: None,
 						id: Id(id),
 						guild: Some(Id(10)),
 						kind: 2,
@@ -1865,6 +1925,7 @@ mod tests {
 				channels: [20, 21]
 					.into_iter()
 					.map(|id| Channel {
+						user_limit: None,
 						id: Id(id),
 						guild: Some(Id(10)),
 						kind: 2,
@@ -2000,6 +2061,7 @@ mod tests {
 				discriminator: 0,
 			}),
 			channels: vec![Channel {
+				user_limit: None,
 				last_message: None,
 				id: Id(2),
 				name: "DM".into(),
@@ -2291,6 +2353,7 @@ mod tests {
 					discriminator: 0,
 				}),
 				channels: vec![Channel {
+					user_limit: None,
 					last_message: None,
 					id: Id(2),
 					name: "DM".into(),

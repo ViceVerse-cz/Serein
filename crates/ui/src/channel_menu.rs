@@ -20,6 +20,8 @@ enum Intent {
 	Read,
 	Dialog(Kind),
 	Write(Action),
+	/// Add the channel or category to the opt-in channel list, or remove it.
+	List(bool),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -50,6 +52,9 @@ struct Dialog {
 pub(super) struct ChannelMenu {
 	posts: crate::post_menu::PostMenu,
 	pub invite_requested: Option<(Id, Id)>,
+	/// Browse Channels was chosen for this server.
+	pub browse_requested: Option<Id>,
+	list_requested: Option<(Id, client_core::channel_list::Change)>,
 	pub shortcut_requested: Option<crate::shortcuts::Intent>,
 	requested: Option<(Id, Intent)>,
 	dialog: Option<Dialog>,
@@ -159,6 +164,23 @@ impl ChannelMenu {
 				self.shortcut_requested = Some(view.toggle(Shortcut::Favorite, channel.id));
 				self.generation = state.generation;
 				ui.close();
+			}
+			if state.channel_list_opt_in(guild).is_some() {
+				let followed = state.channel_followed(channel);
+				if row(
+					ui,
+					if followed {
+						"channel-menu-context-remove-from-channel-list"
+					} else {
+						"channel-menu-context-add-to-channel-list"
+					},
+					state.can_change_channel_list(guild) && state.can_view(channel.id),
+					false,
+				)
+				.clicked()
+				{
+					intent = Some(Intent::List(!followed));
+				}
 			}
 			ui.separator();
 			if state.can_create_server_invite(guild, channel.id)
@@ -330,6 +352,23 @@ impl ChannelMenu {
 			{
 				ui.close();
 			}
+			if let Some(opt_in) = state.channel_list_opt_in(guild) {
+				let mut show_all = !opt_in;
+				ui.add_enabled_ui(state.can_change_channel_list(guild), |ui| {
+					if toggle_row(ui, "channel-browser-show-all-channels", &mut show_all).changed()
+					{
+						self.list_requested =
+							Some((guild, client_core::channel_list::Change::ShowAll(show_all)));
+						self.generation = state.generation;
+						ui.close();
+					}
+				});
+				if row(ui, "channel-browser-title", true, false).clicked() {
+					self.browse_requested = Some(guild);
+					self.generation = state.generation;
+					ui.close();
+				}
+			}
 			ui.separator();
 			let available =
 				(state.demo || state.gateway_connected) && !state.channel_action_pending();
@@ -380,6 +419,12 @@ impl ChannelMenu {
 			return;
 		}
 		self.posts.show(ctx, state, active, commands);
+		if let Some((guild, change)) = self.list_requested.take()
+			&& Some(guild) == active
+			&& let Some(command) = state.change_channel_list(guild, change)
+		{
+			commands.push(command);
+		}
 		if let Some((id, intent)) = self.requested.take()
 			&& let Some(channel) = state.channel(id)
 			&& let Some(guild) = channel.guild.filter(|g| Some(*g) == active)
@@ -387,6 +432,17 @@ impl ChannelMenu {
 			match intent {
 				Intent::Read => {
 					if let Some(command) = state.prepare_mark_channel_read(id) {
+						commands.push(command);
+					}
+				}
+				Intent::List(listed) => {
+					if let Some(command) = state.change_channel_list(
+						guild,
+						client_core::channel_list::Change::List {
+							channel: id,
+							listed,
+						},
+					) {
 						commands.push(command);
 					}
 				}
@@ -901,7 +957,7 @@ impl Dialog {
 						"channel-menu-overview-let-everyone-know-how-to-use-this-channel",
 					))
 					.char_limit(1024)
-					.desired_rows(3),
+					.desired_rows(TOPIC_ROWS),
 			)
 			.labelled_by(label.id);
 			if topic.changed() {
@@ -1002,12 +1058,7 @@ impl Dialog {
 		}
 		if !self.loaded {
 			if pending {
-				ui.horizontal(|ui| {
-					ui.spinner();
-					ui.label(crate::i18n::translate(
-						"channel-menu-show-loading-channel-settings",
-					));
-				});
+				self.pending_page(ui, state);
 			} else {
 				dialog::notice(
 					ui,
@@ -1051,6 +1102,88 @@ impl Dialog {
 			{
 				commands.push(command);
 				self.loaded = false;
+			}
+		}
+	}
+
+	/// The selected settings page while the channel's settings load: its real headings and
+	/// labels, with placeholders for the controls sized from the loaded ones.
+	fn pending_page(&self, ui: &mut egui::Ui, state: &State) {
+		use crate::skeleton::form as pending;
+		let label = crate::i18n::translate("channel-menu-show-loading-channel-settings");
+		let kind = state.channel(self.channel).map(|channel| channel.kind);
+		let category = kind == Some(4);
+		match self.page {
+			Page::Overview => {
+				design::page_title(ui, "channel-menu-editor-overview");
+				dialog::label(
+					ui,
+					if category {
+						"channel-menu-overview-category-name"
+					} else {
+						"channel-menu-overview-channel-name"
+					},
+				);
+				pending::input(ui, &label, None, 1);
+				if matches!(kind, Some(0 | 5)) {
+					ui.add_space(14.0);
+					dialog::label(ui, "channel-menu-overview-topic");
+					pending::input(ui, "", None, TOPIC_ROWS);
+					ui.add_space(14.0);
+					dialog::label(ui, "channel-menu-overview-slowmode");
+					// The slowmode picker is at most 560px wide.
+					let width = ui.available_width().min(560.0);
+					pending::controls(ui, "", &[width], design::SELECT_HEIGHT);
+					dialog::hint(
+						ui,
+						"channel-menu-overview-members-will-be-restricted-to-one-message-in-this-interval",
+					);
+					ui.add_space(6.0);
+					pending::switch(
+						ui,
+						"",
+						"channel-menu-overview-age-restricted-channel",
+						Some(
+							"channel-menu-overview-members-must-confirm-they-are-of-age-before-viewing",
+						),
+					);
+				}
+			}
+			Page::Permissions => {
+				design::page_title(ui, "server-roles-editor-permissions");
+				let colors = design::palette(ui);
+				// The private-channel card, framed as the loaded page frames it.
+				egui::Frame::new()
+					.fill(colors.raised)
+					.stroke(egui::Stroke::new(1.0, colors.border))
+					.corner_radius(12)
+					.inner_margin(16)
+					.show(ui, |ui| {
+						let (title, detail) = if category {
+							(
+								"channel-permissions-show-private-category",
+								"channel-permissions-show-only-selected-members-and-roles-can-view-this-category-synced",
+							)
+						} else {
+							(
+								"channel-permissions-show-private-channel",
+								"channel-permissions-show-only-selected-members-and-roles-can-view-this-channel-administrators",
+							)
+						};
+						pending::switch(ui, &label, title, Some(detail));
+					});
+			}
+			Page::Integrations => {
+				ui.set_max_width(ui.available_width().min(720.0));
+				design::page_header(
+					ui,
+					"server-integrations-show-integrations-2",
+					Some(
+						"server-integrations-overview-manage-webhooks-and-followed-channels-posting-to-this-channel",
+					),
+					|_| {},
+				);
+				crate::server_integrations::pending_summary(ui, &label);
 			}
 		}
 	}
@@ -1187,7 +1320,10 @@ impl Dialog {
 	}
 }
 
-fn toggle_row(ui: &mut egui::Ui, label: &str, value: &mut bool) -> egui::Response {
+/// Text rows the topic field shows.
+const TOPIC_ROWS: usize = 3;
+
+pub(super) fn toggle_row(ui: &mut egui::Ui, label: &str, value: &mut bool) -> egui::Response {
 	let mut response = row(ui, label, true, false);
 	if response.clicked() {
 		*value = !*value;

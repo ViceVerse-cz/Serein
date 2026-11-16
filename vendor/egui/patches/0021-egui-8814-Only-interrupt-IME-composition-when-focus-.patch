@@ -1,0 +1,124 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: x <x@x>
+Date: Mon, 9 Nov 2026 13:03:25 +0100
+Subject: [PATCH] egui#8814: Only interrupt IME composition when focus moves to
+ another widget
+
+Squashed from https://github.com/emilk/egui/pull/8814 at 8a1d34137bee.
+---
+ crates/egui/src/memory/mod.rs                | 12 ++++--
+ crates/egui/src/widgets/text_edit/builder.rs | 12 +++++-
+ crates/egui/tests/ime_focus.rs               | 43 ++++++++++++++++++++
+ 3 files changed, 62 insertions(+), 5 deletions(-)
+ create mode 100644 crates/egui/tests/ime_focus.rs
+
+diff --git a/crates/egui/src/memory/mod.rs b/crates/egui/src/memory/mod.rs
+index 8d8c854fc..8d3826388 100644
+--- a/crates/egui/src/memory/mod.rs
++++ b/crates/egui/src/memory/mod.rs
+@@ -918,17 +918,23 @@ impl Memory {
+     /// Give keyboard focus to a specific widget.
+     /// See also [`crate::Response::request_focus`].
+     ///
+-    /// Calling this will interrupt IME composition.
++    /// Moving focus to a different widget interrupts IME composition.
++    /// Requesting focus for the widget that already has it does not,
++    /// so this can be called every frame.
+     #[inline(always)]
+     pub fn request_focus(&mut self, id: Id) {
++        if self.focused() != Some(id) {
++            self.interrupt_ime();
++        }
+         self.focus_mut().focused_widget = Some(FocusWidget::new(id));
+-        self.interrupt_ime();
+     }
+ 
+     /// Defer focus until the next pass so an already rendered widget sees `gained_focus`.
+     pub(crate) fn request_focus_next_frame(&mut self, id: Id) {
++        if self.focused() != Some(id) {
++            self.interrupt_ime();
++        }
+         self.focus_mut().id_next_frame = Some(id);
+-        self.interrupt_ime();
+     }
+ 
+     /// Surrender keyboard focus for a specific widget.
+diff --git a/crates/egui/src/widgets/text_edit/builder.rs b/crates/egui/src/widgets/text_edit/builder.rs
+index 44236a69e..89bfdfb8d 100644
+--- a/crates/egui/src/widgets/text_edit/builder.rs
++++ b/crates/egui/src/widgets/text_edit/builder.rs
+@@ -878,7 +878,12 @@ impl<'t> TextEdit<'t> {
+             );
+ 
+             if did_interact || response.clicked() {
+-                ui.memory_mut(|mem| mem.request_focus(response.id));
++                // The caret moves, so a composition in progress must end even
++                // when this field already has focus.
++                ui.memory_mut(|mem| {
++                    mem.request_focus(response.id);
++                    mem.interrupt_ime();
++                });
+                 state.cursor_purpose = TextEditCursorPurpose::Selection;
+ 
+                 state.last_interaction_time = ui.input(|i| i.time);
+@@ -918,7 +923,10 @@ impl<'t> TextEdit<'t> {
+                 .set_char_range(Some(CCursorRange::one(ccursor)));
+             state.cursor_purpose = TextEditCursorPurpose::Selection;
+             state.last_interaction_time = ui.input(|i| i.time);
+-            ui.memory_mut(|mem| mem.request_focus(id));
++            ui.memory_mut(|mem| {
++                mem.request_focus(id);
++                mem.interrupt_ime();
++            });
+ 
+             text_changed = true;
+             ui.ctx().request_repaint(); // The galley is now stale
+diff --git a/crates/egui/tests/ime_focus.rs b/crates/egui/tests/ime_focus.rs
+new file mode 100644
+index 000000000..9206393dc
+--- /dev/null
++++ b/crates/egui/tests/ime_focus.rs
+@@ -0,0 +1,43 @@
++use egui::{Context, Id, RawInput, Rect, TextEdit, pos2, vec2};
++
++/// Runs one pass with text fields `a` and `b`, requesting focus for `focus` first,
++/// and returns whether the pass asked the integration to interrupt the IME.
++fn pass(ctx: &Context, [a, b]: [Id; 2], focus: Id) -> bool {
++    let mut text_a = String::new();
++    let mut text_b = String::new();
++    let mut output = ctx.run_ui(
++        RawInput {
++            screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), vec2(400.0, 300.0))),
++            ..Default::default()
++        },
++        |ui| {
++            ui.memory_mut(|mem| mem.request_focus(focus));
++            ui.add(TextEdit::singleline(&mut text_a).id(a));
++            ui.add(TextEdit::singleline(&mut text_b).id(b));
++        },
++    );
++    output.textures_delta.clear();
++    output
++        .platform_output
++        .ime
++        .expect("the focused text field sets IME output")
++        .should_interrupt_composition
++}
++
++#[test]
++fn request_focus_interrupts_ime_only_when_focus_moves() {
++    let ctx = Context::default();
++    let ids @ [a, b] = [Id::unique("a"), Id::unique("b")];
++
++    assert!(pass(&ctx, ids, a), "focusing a field interrupts");
++    assert!(
++        !pass(&ctx, ids, a),
++        "re-requesting focus each frame keeps composition"
++    );
++    assert!(!pass(&ctx, ids, a));
++    assert!(
++        pass(&ctx, ids, b),
++        "moving focus to another field interrupts"
++    );
++    assert!(!pass(&ctx, ids, b));
++}

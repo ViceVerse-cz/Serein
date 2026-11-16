@@ -1030,7 +1030,7 @@ impl ThemeEditor {
 		if self.cover_thumbnail.is_none()
 			&& let Some(image) = &self.cover
 			&& image
-				.size
+				.resolution()
 				.iter()
 				.all(|side| *side <= ui.ctx().input(|input| input.max_texture_side))
 		{
@@ -1123,7 +1123,7 @@ impl ThemeEditor {
 		if self.thumbnail.is_none()
 			&& let Some(image) = &self.image
 			&& image
-				.size
+				.resolution()
 				.iter()
 				.all(|side| *side <= ui.ctx().input(|input| input.max_texture_side))
 		{
@@ -1174,8 +1174,8 @@ impl ThemeEditor {
 							ui,
 							&format!(
 								"{} × {} {}",
-								image.size[0],
-								image.size[1],
+								image.resolution()[0],
+								image.resolution()[1],
 								crate::i18n::translate("theme-editor-image-card-pixels")
 							),
 						);

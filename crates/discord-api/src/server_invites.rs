@@ -4,7 +4,7 @@ use model::{
 	Id,
 	server_invites::{Action, Snapshot},
 };
-use reqwest::Method;
+use wreq::Method;
 impl DiscordApi {
 	async fn invite_features(&self, guild: Id) -> Result<Vec<String>, Failure> {
 		let bytes = self

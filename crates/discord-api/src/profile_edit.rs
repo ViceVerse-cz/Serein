@@ -1,7 +1,7 @@
 use crate::{DiscordApi, Failure};
 use discord_protocol::{UserDto, profile};
 use model::{Id, ProfileEdit, UserProfile};
-use reqwest::Method;
+use wreq::Method;
 
 impl DiscordApi {
 	/// Read-only optional enrichment in the existing cancellable profile worker.

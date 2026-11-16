@@ -1,6 +1,7 @@
 //! Explicit REST routing. Automatic reads environment proxies, not browser PAC scripts.
-use reqwest::{ClientBuilder, Proxy, Url};
 use serde::{Deserialize, Serialize};
+use url::Url;
+use wreq::{ClientBuilder, Proxy};
 
 #[derive(Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "mode", rename_all = "snake_case", deny_unknown_fields)]
@@ -114,7 +115,7 @@ impl ApiProxy {
 		}
 	}
 
-	/// Explicit proxies have no direct fallback. Automatic retains reqwest's NO_PROXY handling.
+	/// Explicit proxies have no direct fallback. Automatic retains wreq's NO_PROXY handling.
 	pub fn client_builder(&self, builder: ClientBuilder) -> Result<ClientBuilder, &'static str> {
 		self.validate()?;
 		Ok(match self {

@@ -51,6 +51,11 @@ pub const FRAME_EDGE: u32 = 1024;
 pub const EFFECT_EDGE: u32 = 1024;
 const REQUESTS: usize = 128;
 const RETRY: Duration = Duration::from_secs(5);
+/// A load unanswered for this long (beyond the 15 s HTTP timeout plus 5 s connect) is treated as
+/// failed for painting, so a stranded request shows fallback art rather than loading forever.
+const STALLED: Duration = Duration::from_secs(30);
+/// Most image loads tracked at once; [`Avatars::request`] refuses new keys beyond it.
+const ATTEMPTS: usize = 2048;
 
 struct Fit {
 	edge: u32,
@@ -72,6 +77,9 @@ pub(crate) struct Avatars {
 	/// Hidden cosmetics are neither painted nor requested.
 	pub cosmetics: model::CosmeticPreferences,
 	avatar_animation: bool,
+	/// `--demo-loading`: synthetic artwork is withheld, so demo images stay in their loading state.
+	#[cfg(any(test, feature = "demo"))]
+	pub hold_demo_images: bool,
 	animations: HashMap<String, Animation>,
 	no_animations: HashSet<String>,
 	/// Animated keys whose frames were released or declined; they reload only when they would play.
@@ -96,6 +104,9 @@ pub(crate) struct Avatars {
 	bytes: usize,
 	pub revision: u64,
 	attempts: HashMap<String, (Instant, bool)>,
+	/// Keys whose last load failed. Their fallback art stays up through retries instead of
+	/// flickering back to the loading placeholder; a successful load clears the mark.
+	failed: HashSet<String>,
 	requests: Vec<String>,
 	media: media::MediaLibrary,
 }
@@ -157,7 +168,7 @@ fn paint_texture(
 	tint: egui::Color32,
 ) -> egui::Rect {
 	let rect = rect.round_to_pixels(ui.pixels_per_point());
-	let source = texture.size_vec2();
+	let source = texture.resolution_vec2();
 	let image = egui::Image::new(texture).tint(tint);
 	if cover {
 		let scale = (rect.width() / source.x).max(rect.height() / source.y);
@@ -296,7 +307,7 @@ impl Avatars {
 			return;
 		}
 		// Reserve the playback texture too; the shared still stays unchanged for other widgets.
-		let frame_bytes = || frames.iter().map(|(_, image)| image.pixels.len() * 4);
+		let frame_bytes = || frames.iter().map(|(_, image)| image.pixels().len() * 4);
 		let bytes = frame_bytes().sum::<usize>() + frame_bytes().max().unwrap_or(0);
 		let edge = if key.starts_with("effect-") {
 			EFFECT_EDGE as usize
@@ -305,7 +316,9 @@ impl Avatars {
 		};
 		if bytes > ANIMATION_BYTES
 			|| frames.iter().any(|(delay, image)| {
-				*delay < Duration::from_millis(20) || image.size[0] > edge || image.size[1] > edge
+				*delay < Duration::from_millis(20)
+					|| image.resolution()[0] > edge
+					|| image.resolution()[1] > edge
 			}) {
 			return;
 		}
@@ -377,7 +390,7 @@ impl Avatars {
 				self.released.remove(key);
 				self.wanted.remove(key);
 				if let Some(image) = self.sources.remove(key) {
-					self.source_bytes = self.source_bytes.saturating_sub(image.pixels.len() * 4);
+					self.source_bytes = self.source_bytes.saturating_sub(image.pixels().len() * 4);
 				}
 				if let Some(fits) = self.fits.remove(key) {
 					for fit in fits {
@@ -389,8 +402,10 @@ impl Avatars {
 		}
 		self.media.release_idle(now);
 	}
-	/// Next idle frame/artwork release; the host wakes then to trim an idle window.
+	/// Next idle frame/artwork release or request stall; the host wakes then to trim an idle
+	/// window, or to swap a stalled image's loading placeholder for its fallback art.
 	pub fn next_release(&self) -> Option<Instant> {
+		let now = Instant::now();
 		self.animations
 			.values()
 			.map(|animation| animation.played + IDLE_FRAMES)
@@ -401,6 +416,13 @@ impl Avatars {
 					.chain(self.emoji_textures.values())
 					.map(|(used, _)| *used + IDLE_TEXTURES),
 			)
+			.chain(
+				self.attempts
+					.values()
+					.filter(|(_, failed)| !failed)
+					.map(|(at, _)| *at + STALLED)
+					.filter(|stall| *stall > now),
+			)
 			.min()
 	}
 	fn request(&mut self, key: String) {
@@ -408,7 +430,7 @@ impl Avatars {
 		self.attempts
 			.retain(|_, (at, failed)| !*failed || now.duration_since(*at) < RETRY);
 		if key.len() <= 2054
-			&& self.attempts.len() < 2048
+			&& self.attempts.len() < ATTEMPTS
 			&& self.requests.len() < REQUESTS
 			&& self
 				.attempts
@@ -419,9 +441,48 @@ impl Avatars {
 			self.requests.push(key);
 		}
 	}
+	/// Whether `key`'s image is still on its way: not loaded (in `textures`; emoji textures are not
+	/// consulted), not failed, and either requested within [`STALLED`] or about to be requested.
+	/// Image paths paint a neutral placeholder meanwhile, since fallback art would claim there is
+	/// no image. [`Self::next_release`] wakes the host when a request stalls, as nothing else may
+	/// repaint by then.
+	fn awaiting_image(&self, key: &str) -> bool {
+		if self.textures.contains_key(key) || self.failed.contains(key) {
+			return false;
+		}
+		match self.attempts.get(key) {
+			Some((at, false)) => at.elapsed() < STALLED,
+			Some((_, true)) => false,
+			// `request` refuses new keys while every slot is taken, so this one would never load.
+			None => self.attempts.len() < ATTEMPTS,
+		}
+	}
+	/// Whether demo artwork is withheld, so `demo` images show their loading state too.
+	fn holding_demo_images(&self) -> bool {
+		#[cfg(any(test, feature = "demo"))]
+		return self.hold_demo_images;
+		#[cfg(not(any(test, feature = "demo")))]
+		false
+	}
+	/// Paints the loading shape while `key`'s image is on its way; false when fallback art should
+	/// paint instead.
+	fn paint_loading(
+		&self,
+		ui: &egui::Ui,
+		key: &str,
+		demo: bool,
+		rect: egui::Rect,
+		radius: f32,
+	) -> bool {
+		let loading = (!demo || self.holding_demo_images()) && self.awaiting_image(key);
+		if loading {
+			crate::skeleton::block(ui.painter(), crate::skeleton::fill(ui), rect, radius);
+		}
+		loading
+	}
 	fn forget_raster(&mut self, key: &str) {
 		if let Some(image) = self.sources.remove(key) {
-			self.source_bytes = self.source_bytes.saturating_sub(image.pixels.len() * 4);
+			self.source_bytes = self.source_bytes.saturating_sub(image.pixels().len() * 4);
 		}
 		if let Some(fits) = self.fits.remove(key) {
 			for fit in fits {
@@ -430,13 +491,13 @@ impl Avatars {
 		}
 	}
 	fn remember_source(&mut self, key: &str, image: &ColorImage) {
-		let edge = image.size[0].max(image.size[1]);
+		let edge = image.resolution()[0].max(image.resolution()[1]);
 		if key.starts_with("emoji-") || edge == 0 || edge > SOURCE_EDGE {
 			return;
 		}
-		let bytes = image.pixels.len() * 4;
+		let bytes = image.pixels().len() * 4;
 		if let Some(old) = self.sources.insert(key.to_owned(), Arc::new(image.clone())) {
-			self.source_bytes = self.source_bytes.saturating_sub(old.pixels.len() * 4);
+			self.source_bytes = self.source_bytes.saturating_sub(old.pixels().len() * 4);
 		}
 		self.source_bytes += bytes;
 		while self.source_bytes > SOURCE_BYTES {
@@ -449,7 +510,7 @@ impl Avatars {
 				break;
 			};
 			if let Some(old) = self.sources.remove(&drop_key) {
-				self.source_bytes = self.source_bytes.saturating_sub(old.pixels.len() * 4);
+				self.source_bytes = self.source_bytes.saturating_sub(old.pixels().len() * 4);
 			}
 		}
 	}
@@ -472,7 +533,7 @@ impl Avatars {
 		rect: egui::Rect,
 	) -> TextureHandle {
 		let physical = rect.width().max(rect.height()) * ctx.pixels_per_point();
-		let source = full.size()[0].max(full.size()[1]) as u32;
+		let source = full.resolution()[0].max(full.resolution()[1]) as u32;
 		let Some(edge) = crate::resample::fitted_edge(source, physical) else {
 			return full.clone();
 		};
@@ -576,17 +637,21 @@ impl Avatars {
 			128
 		};
 		let Some(image) = image.filter(|image| {
-			image.size[0] > 0
-				&& image.size[1] > 0
-				&& image.size[0] <= limit
-				&& image.size[1] <= limit
-				&& image.pixels.len() == image.size[0] * image.size[1]
+			image.resolution()[0] > 0
+				&& image.resolution()[1] > 0
+				&& image.resolution()[0] <= limit
+				&& image.resolution()[1] <= limit
+				&& image.pixels().len() == image.resolution()[0] * image.resolution()[1]
 		}) else {
 			// A failed or rejected load ends any decode an effect layer was waiting for.
 			self.effect_decoding.remove(&key);
 			if let Some(attempt) = self.attempts.get_mut(&key) {
 				*attempt = (Instant::now(), true);
 			}
+			if self.failed.len() >= ATTEMPTS {
+				self.failed.clear();
+			}
+			self.failed.insert(key.clone());
 			if self.no_animations.len() >= 2048 {
 				self.no_animations.clear();
 			}
@@ -594,6 +659,7 @@ impl Avatars {
 			return;
 		};
 		self.attempts.remove(&key);
+		self.failed.remove(&key);
 		self.forget_raster(&key);
 		self.remember_source(&key, &image);
 		let (textures, bytes, limit, byte_limit) = if key.starts_with("emoji-") {
@@ -609,7 +675,7 @@ impl Avatars {
 		if let Some((_, old)) = textures.remove(&key) {
 			*bytes -= old.byte_size();
 		}
-		while textures.len() >= limit || *bytes + image.pixels.len() * 4 > byte_limit {
+		while textures.len() >= limit || *bytes + image.pixels().len() * 4 > byte_limit {
 			let oldest = textures
 				.iter()
 				.min_by_key(|(_, (age, _))| *age)
@@ -617,7 +683,7 @@ impl Avatars {
 				.expect("texture cache over budget");
 			self.animations.remove(&oldest);
 			if let Some(image) = self.sources.remove(&oldest) {
-				self.source_bytes = self.source_bytes.saturating_sub(image.pixels.len() * 4);
+				self.source_bytes = self.source_bytes.saturating_sub(image.pixels().len() * 4);
 			}
 			if let Some(fits) = self.fits.remove(&oldest) {
 				for fit in fits {
@@ -634,6 +700,10 @@ impl Avatars {
 		*bytes += texture.byte_size();
 		self.revision += 1;
 		textures.insert(key, (Instant::now(), texture));
+	}
+	/// Read-only admission hint; this never queues an image request or changes recency.
+	pub(crate) fn custom_image_cached(&self, id: model::Id) -> bool {
+		self.emoji_textures.contains_key(&format!("emoji-{id}"))
 	}
 	pub(crate) fn unicode_image(
 		&mut self,
@@ -675,7 +745,7 @@ impl Avatars {
 			for y in 3..29 {
 				for x in 3..29 {
 					if (x + y + id.0 as usize) % 10 < 7 {
-						image.pixels[y * 32 + x] = if id.0 == 9001 {
+						image.pixels_mut()[y * 32 + x] = if id.0 == 9001 {
 							egui::Color32::from_rgb(55, 180, 165)
 						} else {
 							egui::Color32::from_rgb(240, 150, 70)
@@ -770,7 +840,7 @@ impl Avatars {
 						let eye = (x - 47).pow(2) + (y - 59).pow(2) < 5 * 5
 							|| (x - 81).pow(2) + (y - 59).pow(2) < 5 * 5;
 						let smile = (52..=76).contains(&x) && (80..=84).contains(&y);
-						image.pixels[(y * 128 + x) as usize] = if eye || smile {
+						image.pixels_mut()[(y * 128 + x) as usize] = if eye || smile {
 							egui::Color32::from_rgb(35, 39, 48)
 						} else {
 							tint
@@ -984,7 +1054,7 @@ impl Avatars {
 		if let Some(entry) = self.textures.get_mut(&key) {
 			entry.0 = Instant::now();
 			let texture = animated_texture.as_ref().unwrap_or(&entry.1);
-			let texture = (texture.id(), texture.size());
+			let texture = (texture.id(), texture.resolution());
 			Some(texture)
 		} else {
 			if !demo {
@@ -1003,16 +1073,24 @@ impl Avatars {
 		demo: bool,
 	) {
 		// A profile theme decides the banner, as on Discord; the legacy accent is a fallback.
-		let color = profile
-			.theme_colors
+		let color = crate::profiles::shown_theme_colors(ui.ctx(), profile)
 			.map(crate::profiles::Theme::banner)
 			.or(profile
 				.accent_color
 				.map(|rgb| egui::Color32::from_rgb((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8)))
 			.unwrap_or(crate::design::palette(ui).accent.gamma_multiply(0.4));
-		ui.painter().rect_filled(rect, corner, color);
+		let key = profile.banner_key();
+		// The colour is the banner of profiles without an image, not of one still loading.
+		let backdrop = if (!demo || self.holding_demo_images())
+			&& key.as_ref().is_some_and(|key| self.awaiting_image(key))
+		{
+			crate::skeleton::fill(ui)
+		} else {
+			color
+		};
+		ui.painter().rect_filled(rect, corner, backdrop);
 		if ui.is_rect_visible(rect)
-			&& let Some(key) = profile.banner_key()
+			&& let Some(key) = key
 		{
 			let is_animated = is_animated_profile_or_avatar_key(&key);
 			if self.animate_gifs
@@ -1026,13 +1104,13 @@ impl Avatars {
 			}
 			let animated_texture = self.advance_animation(ui.ctx(), &key, true);
 			#[cfg(any(test, feature = "demo"))]
-			if demo && !self.textures.contains_key(&key) {
+			if demo && !self.hold_demo_images && !self.textures.contains_key(&key) {
 				let mut image = ColorImage::filled([128, 48], color);
 				let stripe = color.lerp_to_gamma(egui::Color32::WHITE, 0.16);
 				for y in 0..48 {
 					for x in 0..128 {
 						if (x + y) % 48 < 12 {
-							image.pixels[y * 128 + x] = stripe;
+							image.pixels_mut()[y * 128 + x] = stripe;
 						}
 					}
 				}
@@ -1042,7 +1120,7 @@ impl Avatars {
 			if let Some(entry) = self.textures.get_mut(&key) {
 				entry.0 = Instant::now();
 				let texture = animated_texture.as_ref().unwrap_or(&entry.1);
-				let source = texture.size_vec2();
+				let source = texture.resolution_vec2();
 				let scale = (rect.width() / source.x).max(rect.height() / source.y);
 				let uv_size = rect.size() / (source * scale);
 				let uv = egui::Rect::from_center_size(egui::pos2(0.5, 0.5), uv_size);
@@ -1055,7 +1133,8 @@ impl Avatars {
 			}
 		}
 	}
-	/// Small square artwork (badge or server tag). Falls back to a neutral disc until loaded.
+	/// Small square artwork (badge or server tag). Paints a loading disc while the image is in
+	/// flight, and a raised disc when there is no image or it failed or stalled.
 	pub fn show_icon(
 		&mut self,
 		ui: &mut egui::Ui,
@@ -1070,7 +1149,7 @@ impl Avatars {
 			let colors = crate::design::palette(ui);
 			if let Some(key) = key {
 				#[cfg(any(test, feature = "demo"))]
-				if demo && !self.textures.contains_key(&key) {
+				if demo && !self.hold_demo_images && !self.textures.contains_key(&key) {
 					// Original synthetic emblem; never bundled third-party badge artwork.
 					let seed = key
 						.bytes()
@@ -1085,7 +1164,7 @@ impl Avatars {
 						for x in 0..32_i32 {
 							let d = (x - 16).pow(2) + (y - 16).pow(2);
 							if d < 196 {
-								image.pixels[(y * 32 + x) as usize] =
+								image.pixels_mut()[(y * 32 + x) as usize] =
 									if d < 36 { egui::Color32::WHITE } else { tint };
 							}
 						}
@@ -1094,8 +1173,12 @@ impl Avatars {
 					self.accept(ui.ctx(), key.clone(), Some(image));
 				}
 				if !self.paint(ui, &key, rect, (size * 0.25) as u8) {
-					ui.painter()
-						.circle_filled(rect.center(), size * 0.4, colors.raised);
+					let disc =
+						egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(size * 0.8));
+					if !self.paint_loading(ui, &key, demo, disc, size * 0.4) {
+						ui.painter()
+							.circle_filled(rect.center(), size * 0.4, colors.raised);
+					}
 					if !demo {
 						self.request(key);
 					}
@@ -1128,6 +1211,7 @@ impl Avatars {
 			let colors = crate::design::palette(ui);
 			#[cfg(any(test, feature = "demo"))]
 			if demo
+				&& !self.hold_demo_images
 				&& let Some(key) = &key
 				&& !self.textures.contains_key(key)
 			{
@@ -1144,7 +1228,7 @@ impl Avatars {
 				for y in 0..32 {
 					let shade = top.lerp_to_gamma(egui::Color32::BLACK, y as f32 / 48.0);
 					for x in 0..24 {
-						image.pixels[y * 24 + x] = shade;
+						image.pixels_mut()[y * 24 + x] = shade;
 					}
 				}
 				self.attempts.insert(key.clone(), (Instant::now(), false));
@@ -1154,13 +1238,19 @@ impl Avatars {
 				.as_ref()
 				.is_some_and(|key| self.paint_fitted(ui, key, rect, 8, true))
 			{
-				ui.painter().rect_filled(rect, 8, colors.hover);
-				crate::icons::paint(
-					ui.painter(),
-					crate::icons::Icon::GameController,
-					egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(28.0)),
-					colors.muted,
-				);
+				// The controller glyph marks a game without cover art, not one still loading.
+				if !key
+					.as_ref()
+					.is_some_and(|key| self.paint_loading(ui, key, demo, rect, 8.0))
+				{
+					ui.painter().rect_filled(rect, 8, colors.hover);
+					crate::icons::paint(
+						ui.painter(),
+						crate::icons::Icon::GameController,
+						egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(28.0)),
+						colors.muted,
+					);
+				}
 				if let Some(key) = key
 					&& !demo
 				{
@@ -1187,7 +1277,7 @@ impl Avatars {
 		if ui.is_rect_visible(response.rect) {
 			let key = profile.avatar_key();
 			#[cfg(any(test, feature = "demo"))]
-			if demo && !self.textures.contains_key(&key) {
+			if demo && !self.hold_demo_images && !self.textures.contains_key(&key) {
 				let image = ColorImage::filled([32, 32], crate::design::palette(ui).accent);
 				self.attempts.insert(key.clone(), (Instant::now(), false));
 				self.accept(ui.ctx(), key.clone(), Some(image));
@@ -1196,7 +1286,9 @@ impl Avatars {
 				.layout()
 				.align_size_within_rect(egui::Vec2::splat(size), response.rect);
 			if !self.paint(ui, &key, rect, (size * 0.5) as u8) {
-				crate::design::paint_avatar(ui, &profile.user.name, size, response.rect);
+				if !self.paint_loading(ui, &key, demo, rect, size * 0.5) {
+					crate::design::paint_avatar(ui, &profile.user.name, size, response.rect);
+				}
 				if !demo {
 					self.request(key);
 				}
@@ -1345,8 +1437,12 @@ impl Avatars {
 		{
 			let key = format!("group-icon-{}-{hash}", channel.id);
 			painted = self.paint(ui, &key, rect, (size / 2.0) as u8);
-			if !painted && !demo {
-				self.request(key);
+			if !painted {
+				// The generic group icon would claim the group has no picture of its own.
+				painted = self.paint_loading(ui, &key, demo, rect, size / 2.0);
+				if !demo {
+					self.request(key);
+				}
 			}
 		}
 		if !painted && channel.icon.is_none() && !channel.recipients.is_empty() {
@@ -1505,7 +1601,7 @@ impl Avatars {
 		let mut painted = false;
 		if let Some(key) = guild.icon_key() {
 			#[cfg(any(test, feature = "demo"))]
-			if demo && !self.textures.contains_key(&key) {
+			if demo && !self.hold_demo_images && !self.textures.contains_key(&key) {
 				let seed = key
 					.bytes()
 					.fold(0u32, |h, b| h.wrapping_mul(31).wrapping_add(b as u32));
@@ -1518,7 +1614,7 @@ impl Avatars {
 				for row in [8, 14, 20] {
 					for y in row..row + 3 {
 						for x in 7..25 {
-							image.pixels[y * 32 + x] = egui::Color32::WHITE;
+							image.pixels_mut()[y * 32 + x] = egui::Color32::WHITE;
 						}
 					}
 				}
@@ -1526,8 +1622,12 @@ impl Avatars {
 				self.accept(ui.ctx(), key.clone(), Some(image));
 			}
 			painted = self.paint(ui, &key, rect, radius);
-			if !painted && !demo {
-				self.request(key);
+			if !painted {
+				// Initials are the look of servers without an icon, not of one still loading.
+				painted = self.paint_loading(ui, &key, demo, rect, radius.into());
+				if !demo {
+					self.request(key);
+				}
 			}
 		}
 		if !painted {
@@ -1680,7 +1780,7 @@ impl Avatars {
 			entry.used = self.clock;
 			let key = entry.key.clone();
 			#[cfg(any(test, feature = "demo"))]
-			if demo && !self.textures.contains_key(key.as_ref()) {
+			if demo && !self.hold_demo_images && !self.textures.contains_key(key.as_ref()) {
 				// Original, synthetic silhouettes exercise the image path without network or assets.
 				let background = if user.id.0.is_multiple_of(2) {
 					egui::Color32::from_rgb(63, 99, 111)
@@ -1694,7 +1794,7 @@ impl Avatars {
 						if (x - 16).pow(2) + (y - 11).pow(2) < 36
 							|| (x - 16).pow(2) + (y - 31).pow(2) < 121
 						{
-							image.pixels[(y * 32 + x) as usize] = foreground;
+							image.pixels_mut()[(y * 32 + x) as usize] = foreground;
 						}
 					}
 				}
@@ -1703,7 +1803,10 @@ impl Avatars {
 				self.accept(ui.ctx(), key.to_string(), Some(image));
 			}
 			if !self.paint(ui, &key, rect, (size * 0.5) as u8) {
-				crate::design::paint_avatar(ui, &user.name, size, rect);
+				// Initials stand in only once the picture (custom or default) failed or stalled.
+				if !self.paint_loading(ui, &key, demo, rect, size * 0.5) {
+					crate::design::paint_avatar(ui, &user.name, size, rect);
+				}
 				if !demo {
 					self.request(key.to_string());
 				}
@@ -1817,7 +1920,7 @@ fn synthetic_gif(gif: &model::Gif) -> ColorImage {
 			let d = ((u - cx).powi(2) + ((v - cy) * height as f32 / width as f32).powi(2)).sqrt();
 			let glow = (1.0 - d / 0.5).clamp(0.0, 1.0).powi(2) * 0.3;
 			let band = (((u * 3.0 - v * 2.0) * std::f32::consts::PI).sin() * 0.5 + 0.5) * 0.06;
-			image.pixels[y * width + x] = egui::Color32::from_rgb(
+			image.pixels_mut()[y * width + x] = egui::Color32::from_rgb(
 				((rgb[0] + glow + band) * 255.0).min(255.0) as u8,
 				((rgb[1] + glow + band) * 255.0).min(255.0) as u8,
 				((rgb[2] + glow + band) * 255.0).min(255.0) as u8,
@@ -2292,7 +2395,7 @@ mod tests {
 		output.textures_delta.clear();
 		let key = "thumb:d507121d0467878f77578748878797875878909508";
 		assert!(images.texture_id(key).is_some());
-		assert_eq!(images.textures[key].1.size(), [23, 32]);
+		assert_eq!(images.textures[key].1.resolution(), [23, 32]);
 		// The real rendition is still requested; the placeholder only fills the wait.
 		let requests = images.take_requests();
 		assert!(
@@ -2320,6 +2423,96 @@ mod tests {
 		}
 		assert_eq!(images.textures.len(), 1);
 		assert!(images.attempts["thumb:ffffffffffff"].1);
+	}
+	#[test]
+	fn avatars_and_server_icons_show_initials_only_without_or_after_failing_their_image() {
+		let ctx = egui::Context::default();
+		let mut images = Avatars::default();
+		let hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+		let user = |id, avatar: Option<&str>| User {
+			id: model::Id(id),
+			name: "Synthetic Person".into(),
+			avatar: avatar.map(Into::into),
+			webhook: false,
+			kind: Default::default(),
+			discriminator: 0,
+			primary_guild: None,
+			cosmetics: None,
+		};
+		let (pictured, plain) = (user(1, Some(hash)), user(2, None));
+		let guild = model::Guild {
+			default_message_notifications: None,
+			stickers: None,
+			emojis: None,
+			id: model::Id(10),
+			name: "Synthetic server".into(),
+			icon: Some(hash.into()),
+		};
+		let initials = |images: &mut Avatars, paint: &dyn Fn(&mut Avatars, &mut egui::Ui)| {
+			let output = ctx.run_ui(Default::default(), |ui| paint(images, ui));
+			let painted = output
+				.shapes
+				.iter()
+				.any(|shape| matches!(shape.shape, egui::Shape::Text(_)));
+			output.drop_without_applying_deltas();
+			painted
+		};
+		let person = |user: &User| {
+			let user = user.clone();
+			move |images: &mut Avatars, ui: &mut egui::Ui| {
+				images.show_quiet(ui, &user, 32.0, false);
+			}
+		};
+		let server = |images: &mut Avatars, ui: &mut egui::Ui| {
+			images.show_guild_sized(ui, &guild, false, false, 48.0);
+		};
+		// While a picture downloads, custom or default, nothing claims a look it may not have.
+		assert!(!initials(&mut images, &person(&pictured)));
+		assert!(!initials(&mut images, &person(&plain)));
+		assert!(!initials(&mut images, &server));
+		let requests = images.take_requests();
+		let default = plain.avatar_key();
+		assert!(requests.contains(&pictured.avatar_key()));
+		assert!(requests.contains(&default));
+		assert!(requests.contains(&guild.icon_key().unwrap()));
+		// Nothing else may repaint, so the host is woken when the requests would stall.
+		assert!(
+			images
+				.next_release()
+				.is_some_and(|at| at <= Instant::now() + STALLED)
+		);
+		// A failed download, even while it is retried, falls back to initials.
+		for key in requests.into_iter().filter(|key| *key != default) {
+			images.accept(&ctx, key, None);
+		}
+		images
+			.attempts
+			.values_mut()
+			.for_each(|(at, _)| *at -= RETRY + Duration::from_secs(1));
+		assert!(initials(&mut images, &person(&pictured)));
+		assert!(initials(&mut images, &server));
+		assert!(!images.take_requests().is_empty());
+		assert!(initials(&mut images, &person(&pictured)));
+		// A load that is never answered stops counting as loading; a late answer still shows.
+		assert!(!initials(&mut images, &person(&plain)));
+		images.attempts.get_mut(&default).unwrap().0 -= STALLED;
+		assert!(initials(&mut images, &person(&plain)));
+		images.accept(
+			&ctx,
+			default,
+			Some(ColorImage::filled([32, 32], egui::Color32::WHITE)),
+		);
+		assert!(!initials(&mut images, &person(&plain)));
+		// With every load slot held by an unanswered request, a new picture is never requested,
+		// so it shows initials instead of waiting forever.
+		for index in 0..ATTEMPTS - images.attempts.len() {
+			images
+				.attempts
+				.insert(format!("stranded:{index}"), (Instant::now(), false));
+		}
+		let newcomer = user(3, Some("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"));
+		assert!(initials(&mut images, &person(&newcomer)));
+		assert!(!images.take_requests().contains(&newcomer.avatar_key()));
 	}
 	#[test]
 	fn favorited_attachment_gif_plays_from_the_embeds_signed_link() {
@@ -3133,7 +3326,7 @@ mod tests {
 		assert!(preview.take_requests().is_empty());
 		assert_eq!(preview.textures.len(), 1);
 		assert_eq!(
-			preview.textures[&guild.icon_key().unwrap()].1.size(),
+			preview.textures[&guild.icon_key().unwrap()].1.resolution(),
 			[32, 32]
 		);
 		avatars.request("x".repeat(2055));

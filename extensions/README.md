@@ -56,7 +56,7 @@ package bytes and change only with a new package version.
 
 ## Imported plugin build evidence
 
-The remaining original plugin builds from the locked extension workspace with Rust 1.98.1 for `wasm32-unknown-unknown`.
+The remaining original plugin builds from the locked extension workspace with Rust 1.99.1 for `wasm32-unknown-unknown`.
 Emoji & Sticker Images has been retired; its behavior is built into the client.
 The imported Message delete protector contains 115,250 bytes of Wasm; the current source/SDK builds 70,629 bytes and does not reproduce that older artifact byte-for-byte.
 The existing distributed package is intentionally preserved. A future release should review and version a rebuilt artifact together with its source; this import is not a claim of reproducibility for that older package.

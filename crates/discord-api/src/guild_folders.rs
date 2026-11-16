@@ -1,7 +1,7 @@
 use crate::{DiscordApi, Failure};
 use discord_protocol::guild_folders::{self, Decoded, MAX_SETTINGS_RESPONSE};
 use model::guild_folders::Settings;
-use reqwest::Method;
+use wreq::Method;
 
 impl DiscordApi {
 	async fn read_guild_folders(&self) -> Result<Decoded, Failure> {

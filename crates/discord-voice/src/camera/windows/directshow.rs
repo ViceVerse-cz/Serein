@@ -1,7 +1,7 @@
 //! Compatibility path for virtual cameras registered only with DirectShow.
 #![allow(non_snake_case)] // Custom COM interfaces preserve the Qedit.h method names.
 use super::super::format;
-use super::{FRAME_INTERVAL, HEIGHT, INVALID, Shared, TIMEOUT, UNAVAILABLE, WIDTH};
+use super::{FrameGate, HEIGHT, INVALID, Shared, TIMEOUT, UNAVAILABLE, WIDTH};
 use std::{
 	ffi::c_void,
 	mem::ManuallyDrop,
@@ -48,7 +48,7 @@ unsafe trait ISampleGrabberCB: IUnknown {
 #[implement(ISampleGrabberCB)]
 struct Callback {
 	send: mpsc::SyncSender<Result<Vec<u8>, &'static str>>,
-	last: Mutex<(Instant, bool)>,
+	last: Mutex<(FrameGate, bool)>,
 	bytes: usize,
 	dimensions: (usize, usize, bool),
 }
@@ -57,6 +57,7 @@ impl ISampleGrabberCB_Impl for Callback_Impl {
 		let Ok(mut last) = self.last.try_lock() else {
 			return HRESULT(0);
 		};
+		let now = Instant::now();
 		// SAFETY: Borrowed sample stays valid until this callback returns. Never
 		// retain COM samples or encode on the native streaming thread.
 		let result = unsafe {
@@ -81,10 +82,9 @@ impl ISampleGrabberCB_Impl for Callback_Impl {
 						return Err("Camera changed its video format; restart the camera");
 					}
 				}
-				if last.0.elapsed() < FRAME_INTERVAL {
+				if !last.0.ready(now) {
 					return Ok(None);
 				}
-				last.0 = Instant::now();
 				let pointer = sample.GetPointer().map_err(|_| INVALID)?;
 				if pointer.is_null() {
 					return Err(INVALID);
@@ -97,7 +97,10 @@ impl ISampleGrabberCB_Impl for Callback_Impl {
 		// Exactly one frame, at most MAX_BYTES, waits for the worker.
 		match result {
 			Ok(Some(bytes)) => {
-				let _ = self.send.try_send(Ok(bytes));
+				// A picture the busy worker cannot take does not use up its slot.
+				if self.send.try_send(Ok(bytes)).is_ok() {
+					last.0.commit(now);
+				}
 			}
 			Ok(None) => {}
 			Err(error) => {
@@ -264,7 +267,11 @@ fn rgb_dimensions(media: &AM_MEDIA_TYPE) -> Result<(usize, usize, bool), &'stati
 	Ok(dimensions)
 }
 
-fn configure(builder: &ICaptureGraphBuilder2, source: &IBaseFilter) -> Result<(), &'static str> {
+fn configure(
+	builder: &ICaptureGraphBuilder2,
+	source: &IBaseFilter,
+	rate: u32,
+) -> Result<(), &'static str> {
 	// SAFETY: Owned worker graph, only bounded native formats may be selected.
 	unsafe {
 		let mut pointer = std::ptr::null_mut();
@@ -317,9 +324,10 @@ fn configure(builder: &ICaptureGraphBuilder2, source: &IBaseFilter) -> Result<()
 						.as_ptr()
 						.cast::<VIDEO_STREAM_CONFIG_CAPS>()
 						.read_unaligned();
-					if let Some(fps) = format::nearest_fps(
+					if let Some(fps) = format::nearest_fps_for(
 						10_000_000.0 / caps.MaxFrameInterval as f64,
 						10_000_000.0 / caps.MinFrameInterval as f64,
+						rate,
 					) {
 						interval.write_unaligned(
 							((10_000_000.0 / fps).round() as i64)
@@ -329,12 +337,13 @@ fn configure(builder: &ICaptureGraphBuilder2, source: &IBaseFilter) -> Result<()
 				}
 				let duration = interval.read_unaligned();
 				let fps = (duration > 0).then(|| 10_000_000.0 / duration as f64);
-				if let Some(mut rank) = format::rank_with_ceiling(
+				if let Some(mut rank) = format::rank_with_ceiling_for(
 					width,
 					height,
-					fps.unwrap_or(f64::from(format::FPS)),
+					fps.unwrap_or(f64::from(rate)),
 					MAX_WIDTH,
 					MAX_HEIGHT,
+					rate,
 				) {
 					// Preserve the existing bounded fallback when the driver omits timing.
 					// Unknown rates follow measured ones at the same native resolution.
@@ -396,7 +405,7 @@ pub(super) fn run(
 		graph
 			.AddFilter(&source, w!("Camera"))
 			.map_err(|_| UNAVAILABLE)?;
-		configure(&builder, &source)?;
+		configure(&builder, &source, shared.rate.fps())?;
 		let filter: IBaseFilter = CoCreateInstance(&SAMPLE_GRABBER, None, CLSCTX_INPROC_SERVER)
 			.map_err(|_| UNAVAILABLE)?;
 		let grabber: ISampleGrabber = filter.cast().map_err(|_| UNAVAILABLE)?;
@@ -476,7 +485,7 @@ pub(super) fn run(
 		let (send, receive) = mpsc::sync_channel(1);
 		let callback: ISampleGrabberCB = Callback {
 			send,
-			last: Mutex::new((Instant::now() - FRAME_INTERVAL, false)),
+			last: Mutex::new((FrameGate::new(shared.rate), false)),
 			bytes,
 			dimensions: (width, height, bottom_up),
 		}
@@ -586,12 +595,21 @@ mod tests {
 		let end = (HEIGHT - 1) * WIDTH * 3 + center;
 		assert_eq!(&top[end..end + 3], &[6, 5, 4]);
 		assert_eq!(&top[..3], &[0, 0, 0]);
+		// 16:9 input fills the 16:9 encoder exactly.
 		let wide = rgb_frame(&vec![255; 16 * 3 * 9], 16, 9, false).unwrap();
-		assert_eq!(&wide[..WIDTH * 60 * 3], &vec![0; WIDTH * 60 * 3]);
-		assert_eq!(
-			&wide[WIDTH * 60 * 3..WIDTH * 420 * 3],
-			&vec![255; WIDTH * 360 * 3]
-		);
+		assert_eq!(wide, vec![255; WIDTH * HEIGHT * 3]);
+		// 4:3 input is pillarboxed: 960 pixels centered, with black bars left and right.
+		let square = rgb_frame(&[255; 4 * 3 * 3], 4, 3, false).unwrap();
+		let bar = (WIDTH - HEIGHT * 4 / 3) / 2;
+		for row in [0, HEIGHT / 2, HEIGHT - 1] {
+			let row = &square[row * WIDTH * 3..(row + 1) * WIDTH * 3];
+			assert_eq!(&row[..bar * 3], &vec![0; bar * 3]);
+			assert_eq!(
+				&row[bar * 3..(WIDTH - bar) * 3],
+				&vec![255; (WIDTH - 2 * bar) * 3]
+			);
+			assert_eq!(&row[(WIDTH - bar) * 3..], &vec![0; bar * 3]);
+		}
 		for (width, height) in [(0, 2), (1, 0), (1921, 1), (1, 1081), (usize::MAX, 1)] {
 			assert!(rgb_frame(&bytes, width, height, false).is_err());
 		}

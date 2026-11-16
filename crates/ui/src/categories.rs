@@ -271,7 +271,10 @@ fn rows_at<'a>(
 	let category_ids: BTreeSet<_> = categories.iter().map(|c| c.id).collect();
 	let mut groups: BTreeMap<Option<Id>, Vec<&Channel>> = BTreeMap::new();
 	let admitted = |c: &Channel| {
-		scope.admits(c, state) && (show_hidden || state.can_view(c.id)) && !roster.lifted(c.id)
+		scope.admits(c, state)
+			&& (show_hidden || state.can_view(c.id))
+			&& !roster.lifted(c.id)
+			&& state.channel_listed(c)
 	};
 	// Threads appear only beneath their parents, following Discord's relevance rules.
 	let mut threads = guild.map_or_else(BTreeMap::new, |guild| {
@@ -343,7 +346,8 @@ fn rows_at<'a>(
 	}
 	for category in categories {
 		let children = groups.remove(&Some(category.id)).unwrap_or_default();
-		if !show_hidden && children.is_empty() {
+		// Opt-in mode drops a category with nothing listed even while showing hidden ones.
+		if children.is_empty() && (!show_hidden || !state.channel_listed(category)) {
 			continue;
 		}
 		tree.push(Row::Category(category, count(&children)));
@@ -369,7 +373,8 @@ fn category_header(
 	ui: &mut egui::Ui,
 	id: impl egui::AsIdSalt,
 	name: &str,
-	count: usize,
+	// `None` leaves the count out of the tooltip and accessible label.
+	count: Option<usize>,
 	collapsed: bool,
 	row_height: f32,
 	draggable: bool,
@@ -406,7 +411,7 @@ fn category_header(
 		color,
 	);
 	let mut job = egui::text::LayoutJob::simple_singleline(
-		name.to_uppercase(),
+		crate::emoji::presentation(name).to_uppercase(),
 		egui::FontId::new(12.0, crate::design::semibold_family(ui.ctx())),
 		color,
 	);
@@ -421,11 +426,19 @@ fn category_header(
 	ui.painter()
 		.with_clip_rect(label_rect)
 		.galley(label_rect.min, label, color);
+	let counted = |separator: &str| {
+		count.map_or_else(String::new, |count| {
+			format!(
+				"{separator}{count} {}",
+				crate::i18n::translate("categories-category-header-channels")
+			)
+		})
+	};
 	let response = response.on_hover_text_with(|| {
 		format!(
-			"{name} {} · {count} {} · {}",
+			"{name} {}{} · {}",
 			crate::i18n::translate("categories-category-header-category"),
-			crate::i18n::translate("categories-category-header-channels"),
+			counted(" · "),
 			crate::i18n::translate_if_key(if collapsed {
 				"categories-category-header-expand"
 			} else {
@@ -438,14 +451,14 @@ fn category_header(
 			egui::Role::Button,
 			true,
 			format!(
-				"{name} {}, {}, {count} {}",
+				"{name} {}, {}{}",
 				crate::i18n::translate("categories-category-header-category"),
 				crate::i18n::translate_if_key(if collapsed {
 					"categories-category-header-collapsed"
 				} else {
 					"categories-category-header-expanded"
 				}),
-				crate::i18n::translate("categories-category-header-channels")
+				counted(", ")
 			),
 		)
 	});
@@ -576,6 +589,8 @@ fn kind_label(kind: u8) -> &'static str {
 }
 
 impl MessagingUi {
+	/// Draws the conversation or channel sidebar for the current server or Home, with its
+	/// categories, request groups and voice participants, and returns a channel to open.
 	pub(super) fn channel_list(&mut self, ui: &mut egui::Ui, state: &mut State) -> Option<Id> {
 		let voice_users = crate::profiles::voice_users(state);
 		let language = self.language;
@@ -709,6 +724,41 @@ impl MessagingUi {
 		}
 		let colors = design::palette(ui);
 		let mut selected = None;
+		if let Some(guild) = self.guild
+			&& state.channel_list_opt_in(guild) == Some(true)
+		{
+			let response = ui
+				.scope(|ui| {
+					ui.spacing_mut().button_padding = egui::vec2(36.0, 8.0);
+					ui.add(
+						egui::Button::new(())
+							.left_text(
+								design::medium(
+									ui,
+									crate::i18n::translate("channel-browser-title"),
+									15.0,
+								)
+								.color(colors.muted),
+							)
+							.min_size(egui::vec2(ui.available_width(), 34.0))
+							.frame_when_inactive(false)
+							.corner_radius(4),
+					)
+				})
+				.inner;
+			crate::icons::paint(
+				ui.painter(),
+				crate::icons::Icon::Search,
+				egui::Rect::from_center_size(
+					egui::pos2(response.rect.left() + 18.0, response.rect.center().y),
+					egui::Vec2::splat(18.0),
+				),
+				colors.muted,
+			);
+			if response.clicked() {
+				self.channel_browser.open(state, guild);
+			}
+		}
 		if self.guild.is_some() && self.channel_cache.rows.is_empty() {
 			ui.label(RichText::new(language.text("no-conversations")).color(colors.muted));
 		}
@@ -753,25 +803,33 @@ impl MessagingUi {
 							}
 						}
 						CachedRow::Requests(count, collapsed) => {
+							// A plugin may hide request counts: badge, tooltip and label alike.
+							let hidden = crate::interface_tweaks::on(
+								ui.ctx(),
+								extensions::InterfaceTweak::HiddenRequestCounts,
+							);
 							let response = category_header(
 								ui,
 								"message-requests",
 								&crate::i18n::translate(Heading::MessageRequests.key()),
-								count,
+								(!hidden).then_some(count),
 								collapsed,
 								row_height,
 								false,
 							);
-							// The count stays visible while folded, so a hidden list still reports.
-							crate::notifications::badge(
-								ui,
-								egui::pos2(
-									response.rect.right() - 16.0,
-									response.rect.bottom() - 13.0,
-								),
-								u32::try_from(count).unwrap_or(u32::MAX),
-								colors.sidebar,
-							);
+							// The count stays visible while folded, so a hidden list still reports,
+							// unless a plugin hides request counts.
+							if !hidden {
+								crate::notifications::badge(
+									ui,
+									egui::pos2(
+										response.rect.right() - 16.0,
+										response.rect.bottom() - 13.0,
+									),
+									u32::try_from(count).unwrap_or(u32::MAX),
+									colors.sidebar,
+								);
+							}
 							if response.clicked() {
 								self.message_requests_collapsed = !collapsed;
 								self.channel_cache.key = None;
@@ -801,7 +859,7 @@ impl MessagingUi {
 								ui,
 								category.id,
 								&category.name,
-								count,
+								Some(count),
 								collapsed,
 								row_height,
 								draggable,
@@ -1169,7 +1227,9 @@ impl MessagingUi {
 									),
 								);
 							}
-							let mut label = String::from(state.conversation_name(channel));
+							let mut label =
+								crate::emoji::presentation(state.conversation_name(channel))
+									.into_owned();
 							if !enabled && visible {
 								label.push_str(" · unavailable");
 							}
@@ -1794,6 +1854,23 @@ mod tests {
 				!matches!(row, Row::Channel(c, Slot::Tree, _) if matches!(c.id, Id(7) | Id(9)))
 			}));
 		}
+		// Favorites follow the opt-in channel list like the rest of the sidebar.
+		state
+			.apply_notification_preferences(client_core::notifications::Event::Settings {
+				entries: vec![client_core::notifications::Setting {
+					overrides_known: true,
+					guild: Some(Id(100)),
+					channels: vec![(Id(7), None, None)],
+					flags: Some(client_core::channel_list::OPT_IN_CHANNELS_ON),
+					channel_flags: vec![(Id(7), client_core::channel_list::OPT_IN_ENABLED)],
+					..Default::default()
+				}],
+				replace: true,
+			})
+			.unwrap();
+		let roster = Roster::build(&state, &preferences, scope, false);
+		assert_eq!(roster.sections()[0].channels.len(), 1);
+		assert!(!roster.lifted(Id(9)));
 		state.permissions = Default::default();
 		assert!(
 			Roster::build(&state, &preferences, scope, false)
@@ -1803,6 +1880,7 @@ mod tests {
 	}
 	fn channel(id: u64, kind: u8, position: i32, parent_id: Option<Id>) -> Channel {
 		Channel {
+			user_limit: None,
 			last_message: None,
 			id: Id(id),
 			guild: Some(Id(100)),
@@ -2702,6 +2780,65 @@ mod tests {
 	}
 
 	#[test]
+	fn long_voice_channel_names_use_one_elided_row() {
+		fn find<'a>(shape: &'a egui::Shape, text: &str) -> Option<&'a egui::Galley> {
+			match shape {
+				egui::Shape::Text(text_shape) if text_shape.galley.job.text == text => {
+					Some(text_shape.galley.as_ref())
+				}
+				egui::Shape::Vec(children) => children.iter().find_map(|shape| find(shape, text)),
+				_ => None,
+			}
+		}
+
+		let long = "Quiet room with a deliberately long name that must not wrap";
+		let mut state = test_support::voice_demo_state();
+		state
+			.channels
+			.iter_mut()
+			.find(|c| c.id == Id(25))
+			.unwrap()
+			.name = long.into();
+		state.invalidate_navigation();
+		let mut view = MessagingUi {
+			guild: Some(Id(10)),
+			..Default::default()
+		};
+		let ctx = egui::Context::default();
+		let output = ctx.run_ui(
+			egui::RawInput {
+				screen_rect: Some(egui::Rect::from_min_size(
+					egui::Pos2::ZERO,
+					egui::vec2(180.0, 1600.0),
+				)),
+				..Default::default()
+			},
+			|ui| {
+				view.channel_list(ui, &mut state);
+			},
+		);
+		let galley = output
+			.shapes
+			.iter()
+			.find_map(|shape| find(&shape.shape, long))
+			.unwrap_or_else(|| {
+				let texts: Vec<_> = output
+					.shapes
+					.iter()
+					.filter_map(|shape| match &shape.shape {
+						egui::Shape::Text(text) => Some(text.galley.job.text.clone()),
+						_ => None,
+					})
+					.collect();
+				panic!("voice channel name missing; texts: {texts:?}");
+			});
+		let (elided, rows) = (galley.elided, galley.rows.len());
+		output.drop_without_applying_deltas();
+		assert!(elided, "long voice channel names should end in an ellipsis");
+		assert_eq!(rows, 1, "voice channel rows hold a single line");
+	}
+
+	#[test]
 	fn double_clicking_voice_row_joins_through_call_request() {
 		fn walk(shape: &egui::Shape, rows: &mut BTreeMap<String, egui::Pos2>) {
 			match shape {
@@ -2718,6 +2855,13 @@ mod tests {
 		let mut state = test_support::voice_demo_state();
 		state.demo = false;
 		state.gateway_connected = true;
+		// The fixture reuses id 26 for its quiet room, so every row with that id is set.
+		let limit = |state: &mut State, limit| {
+			for channel in state.channels.iter_mut().filter(|c| c.id == Id(26)) {
+				channel.user_limit = limit;
+			}
+		};
+		limit(&mut state, None);
 		let mut view = MessagingUi {
 			guild: Some(Id(10)),
 			voice_available: true,
@@ -2787,6 +2931,12 @@ mod tests {
 		assert_eq!(picked, Some(Id(26)));
 		assert!(commands.is_empty() && view.voice_switch.is_some());
 		view.voice_switch = None;
+
+		// A full room refuses before any switch would leave the current call.
+		limit(&mut state, Some(2));
+		let (_, commands) = click(&mut view, &mut state, "Quiet room", 2);
+		assert!(commands.is_empty() && view.voice_switch.is_none());
+		limit(&mut state, None);
 
 		// Double-clicking the current call's channel is a no-op.
 		let (_, commands) = click(&mut view, &mut state, "Room 3,5", 2);

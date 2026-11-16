@@ -452,7 +452,7 @@ impl State {
 	) -> (Option<&p::Role>, Option<&p::Role>) {
 		self.display_roles(guild, &member.roles)
 	}
-	/// Known roles for a server, retained in the service's hierarchy order.
+	/// Known roles for a server, in the order the gateway delivered them.
 	pub fn guild_roles(&self, guild: Id) -> Option<&[p::Role]> {
 		self.permissions
 			.guilds
@@ -471,6 +471,28 @@ impl State {
 					.and_then(|channel| self.live_member_roles(member.guild, channel, user))
 			})
 			.unwrap_or(&member.roles)
+	}
+	/// Roles shown on a profile, highest hierarchy position first.
+	/// Equal positions keep the lower role ID first. `@everyone` is omitted.
+	pub fn profile_roles<'a>(
+		&'a self,
+		user: Id,
+		member: &'a model::GuildProfile,
+	) -> Vec<&'a p::Role> {
+		let role_ids = self.profile_role_ids(user, member);
+		let Some(roles) = self.guild_roles(member.guild) else {
+			return Vec::new();
+		};
+		if role_ids.len() > p::MAX_MEMBER_ROLES {
+			return Vec::new();
+		}
+		let assigned: BTreeSet<Id> = role_ids.iter().copied().collect();
+		let mut roles: Vec<&p::Role> = roles
+			.iter()
+			.filter(|role| role.id != member.guild && assigned.contains(&role.id))
+			.collect();
+		roles.sort_unstable_by(|left, right| right.cmp_hierarchy(left));
+		roles
 	}
 	pub fn profile_name_colors(
 		&self,

@@ -1,7 +1,7 @@
 // The passcode stays in the main frame until a bounded native query drains it.
 (() => {
   "use strict";
-  const page = "https://serein-captcha.verification.invalid/";
+  const page = "https://discord.com/channels/@me";
   if (window !== window.top || location.href !== page) return;
   const capability = "__SEREIN_CAPTCHA_CAPABILITY__";
   const opened = Date.now();

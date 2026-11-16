@@ -74,6 +74,11 @@ general-gpu-restart = Takes effect the next time Serein starts.
 general-gpu-current-prefix = Currently drawing with
 general-steady-refresh-rate = Steady refresh rate
 general-steady-refresh-rate-description = While Serein is the active window, draw at the display's refresh rate so variable refresh rate (VRR, G-SYNC, FreeSync) displays can hold one rate instead of flickering. Uses more power.
+steady-refresh-prompt-title = G-SYNC display detected
+steady-refresh-prompt-body = Serein only redraws when something changes, which can make a G-SYNC display flicker while Serein is the active window. Steady refresh rate avoids that by drawing at the display's refresh rate, and uses more power. Turn it on?
+steady-refresh-prompt-turn-on = Turn on
+steady-refresh-prompt-keep-off = No thanks
+steady-refresh-prompt-settings = Change it later in Settings > { $page } > { $group }.
 gpu-automatic = Automatic
 gpu-high-performance = High performance
 gpu-power-saving = Power saving
@@ -422,6 +427,15 @@ message-request-title = Message request
 ## crates/ui/src/channel_menu.rs
 # Context: context
 channel-menu-context-add-to-favorites = Add To Favorites
+channel-menu-context-remove-from-channel-list = Remove from Channel List
+channel-menu-context-add-to-channel-list = Add to Channel List
+channel-browser-title = Browse Channels
+channel-browser-subtitle = Choose which channels appear in your channel list.
+channel-browser-show-all-channels = Show All Channels
+channel-browser-search = Search channels
+channel-browser-follow-category = Follow category
+channel-browser-saving = Saving…
+channel-browser-unavailable = Channel list settings are not available right now.
 # Context: context
 channel-menu-context-copy-channel-id = Copy Channel ID
 # Context: context
@@ -937,6 +951,8 @@ extensions-ui-card-body-by = by
 # Context: card_body
 extensions-ui-card-body-cleanup-pending = Cleanup pending
 # Context: card_body
+extensions-ui-card-body-details = Details
+# Context: card_body
 extensions-ui-card-body-enabled = Enabled
 # Context: card_body
 extensions-ui-card-body-finish-removing-this-extension-and-its-local-data = Finish removing this extension and its local data.
@@ -984,6 +1000,34 @@ extensions-ui-consent-modal-unreviewed = Unreviewed
 extensions-ui-consent-modal-unreviewed-package-its-source-has-not-been-reviewed-for-the = Unreviewed package — its source has not been reviewed for the catalog.
 # Context: consent_modal
 extensions-ui-consent-modal-view-source = View source
+# Context: details_modal
+extensions-ui-details-modal-author = Author
+# Context: details_modal
+extensions-ui-details-modal-capabilities = Capabilities
+# Context: details_modal
+extensions-ui-details-modal-disable = Disable extension
+# Context: details_modal
+extensions-ui-details-modal-enable-to-use-tools = Enable this extension to use its settings and tools.
+# Context: details_modal
+extensions-ui-details-modal-license = License
+# Context: details_modal
+extensions-ui-details-modal-no-capabilities = No capabilities requested.
+# Context: details_modal
+extensions-ui-details-modal-no-description = No description provided.
+# Context: details_modal
+extensions-ui-details-modal-no-panel-actions = This extension declares no panel settings or tools.
+# Context: details_modal
+extensions-ui-details-modal-package-information-and-native-tools = Package details and native settings.
+# Context: details_modal
+extensions-ui-details-modal-plugin-id = Plugin ID
+# Context: details_modal
+extensions-ui-details-modal-review-enable = Review & enable
+# Context: details_modal
+extensions-ui-details-modal-retry-cleanup = Retry cleanup
+# Context: details_modal
+extensions-ui-details-modal-settings-and-tools = Settings & tools
+# Context: details_modal
+extensions-ui-details-modal-version = Version
 # Context: preview_image
 extensions-ui-preview-image-preview = Preview
 # Context: preview_image
@@ -2246,6 +2290,14 @@ reading-chat-reading-settings-hide-image-and-gif-links = Hide image and GIF link
 # Context: chat_reading_settings
 reading-chat-reading-settings-hide-standalone-links-when-their-image-or-gif-preview-is = Hide standalone links when their image or GIF preview is shown.
 # Context: chat_reading_settings
+reading-chat-reading-settings-hide-blocked-messages = Hide blocked users' messages
+# Context: chat_reading_settings
+reading-chat-reading-settings-hide-blocked-messages-description = Hide blocked authors from visible chat rows on this device. Messages stay on Discord, and unread/read state does not change.
+# Context: chat_reading_settings
+reading-chat-reading-settings-hide-ignored-messages = Also hide ignored users' messages
+# Context: chat_reading_settings
+reading-chat-reading-settings-hide-ignored-messages-description = Include ignored authors in the local filter. Unknown relationship state never hides a message.
+# Context: chat_reading_settings
 reading-chat-reading-settings-links = Links
 # Context: chat_reading_settings
 reading-chat-reading-settings-messages-and-media = Messages and media
@@ -2445,8 +2497,6 @@ search-pane-close = Close
 search-pane-hide-matching-text-highlight = Hide matching-text highlight
 # Context: pane
 search-pane-indexing-is-incomplete-results-may-be-missing = Indexing is incomplete; results may be missing.
-# Context: pane
-search-pane-looking-for-matching-messages = Looking for matching messages.
 # Context: pane
 search-pane-messages-are-unavailable-while-disconnected-or-without-channel-access = Messages are unavailable while disconnected or without channel access.
 # Context: pane
@@ -3567,9 +3617,6 @@ settings-storage-page-removes-cached-messages-and-media-drafts-and-your-login-st
 settings-storage-page-serein-does-not-collect-telemetry-or-upload-diagnostics-discord-retains = Serein does not collect telemetry or upload diagnostics. Discord retains service-side data according to its own policies.
 # Context: storage_page
 settings-storage-page-your-privacy = Your privacy
-settings-storage-page-saved-login = Saved login
-settings-storage-page-plaintext-login = Save login in plaintext without a keyring
-settings-storage-page-plaintext-login-description = Used only when no OS keyring (GNOME Keyring, KWallet, Keychain or Credential Manager) works. The token is stored unencrypted in a private file in Serein's data folder, where anyone with access to your user account can read it. Turning this off deletes those files.
 # Context: cosmetic_settings
 settings-cosmetics = Profile cosmetics
 # Context: cosmetic_settings
@@ -3640,6 +3687,8 @@ slash-commands-composer-choose-a-different-command = choose a different command
 slash-commands-composer-command-unavailable-your-arguments-are-kept = Command unavailable. Your arguments are kept.
 # Context: footer
 slash-commands-footer-refresh-application-commands = Refresh application commands
+# Context: list
+slash-commands-list-loading-application-commands = Loading application commands…
 
 ## crates/ui/src/stickers.rs
 # Context: message
@@ -3967,6 +4016,8 @@ timeline-show-with-scroll-loading-messages = Loading messages…
 # Context: show_with_scroll
 timeline-show-with-scroll-message-deleted = Message deleted
 # Context: show_with_scroll
+timeline-show-with-scroll-message-blocked = Blocked message
+# Context: show_with_scroll
 timeline-show-with-scroll-message-history-is-unavailable-with-current-permission-information = Message history is unavailable with current permission information.
 # Context: show_with_scroll
 timeline-show-with-scroll-no-messages-yet-start-the-conversation-below = No messages yet. Start the conversation below.
@@ -4138,6 +4189,10 @@ verification-show-one-quick-check = One quick check
 verification-show-verification-required = Verification required
 # Context: show
 verification-show-verify = Verify
+# Context: show
+verification-show-safer-in-the-official-discord-app = Completing this check in the official Discord app is safer. Discord may ask newer accounts to verify a phone number after a check solved in Serein.
+# Context: show
+verification-show-open-discord = Open Discord
 
 ## crates/ui/src/video.rs
 # Context: show_player
@@ -4262,6 +4317,13 @@ voice-voice-card-section-dismiss-call = Dismiss call
 voice-voice-card-section-reconnect-attempt = { $reason } · attempt { $attempt } of { $total }
 # Context: voice_card_section
 voice-voice-card-section-reconnecting = Reconnecting…
+
+voice-connection-title = Connection
+voice-connection-ping-value = { $millis } ms
+voice-connection-ping-pending = Waiting for the first ping…
+voice-connection-average-ping = Average ping: { $value }
+voice-connection-last-ping = Last ping: { $value }
+voice-connection-ping-description = Round-trip time to the voice signaling server.
 # Context: voice_card_section
 voice-voice-card-section-microphone-unavailable-a-still-connected-choose-another-input-in-audio = Microphone unavailable · still connected. Choose another input in Audio settings.
 # Context: voice_channel_button
@@ -4618,6 +4680,7 @@ public-upload-error-conversation = Return to the original conversation and revie
 public-upload-error-selection = Selection changed; review the file again before uploading publicly
 public-upload-error-missing = Select the file again before uploading publicly
 
+message-preview-limit = This message exceeds the native text layout limit.
 voice-call-moved-to-another-client = This device's call session was replaced
 
 # Synchronized favorite GIFs (unofficial account settings).
@@ -4731,6 +4794,11 @@ profiles-board-empty = No games on this board yet.
 profiles-board-show-more = Show more
 profiles-board-show-less = Show less
 profiles-activity-empty = No activity shared.
+profiles-in-voice-server = in { $server }
+profiles-in-voice-join = Join
+profiles-in-voice-joined = You’re in this voice channel.
+profiles-in-voice-failed = Dismiss the failed call first, then join again.
+profiles-in-voice-unavailable = You can’t join this voice channel right now.
 profiles-mutuals-empty = Nothing to show here.
 
 reading-double-click-reaction = Double-click reaction
@@ -5089,3 +5157,33 @@ dpi-bypass-demo = Offline preview: no strategy is started and no traffic leaves 
 dpi-bypass-mode-auto = Auto
 dpi-bypass-mode-manual = Manual
 dpi-bypass-test-all = Test all strategies
+# Context: moderation
+moderation-menu-timeout = Timeout { $name }
+# Context: moderation
+moderation-menu-kick = Kick { $name }
+# Context: moderation
+moderation-menu-ban = Ban { $name }
+# Context: moderation
+moderation-timeout-detail = They cannot send messages, react or join voice channels until the timeout ends.
+# Context: moderation
+moderation-kick-detail = They can rejoin with a new invite.
+# Context: moderation
+moderation-ban-detail = They cannot rejoin until the ban is removed.
+# Context: moderation
+moderation-duration-60-seconds = 60 seconds
+# Context: moderation
+moderation-remove-timeout = Remove timeout
+# Context: moderation
+moderation-delete-history = Delete message history
+# Context: moderation
+moderation-delete-none = Don't delete any
+# Context: moderation
+moderation-delete-hour = Previous hour
+# Context: moderation
+moderation-delete-day = Previous 24 hours
+# Context: moderation
+moderation-delete-week = Previous 7 days
+# Context: moderation
+moderation-confirm-timeout = Timeout
+# Context: moderation
+moderation-confirm-ban = Ban

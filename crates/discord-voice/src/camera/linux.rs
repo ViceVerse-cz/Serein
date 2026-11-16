@@ -1,7 +1,7 @@
 //! Native V4L2 single-plane streaming; no capture helper process or recording.
 #![allow(unsafe_code)]
 
-use super::{DeviceList, FRAME_INTERVAL, HEIGHT, Shared, WIDTH, format};
+use super::{DeviceList, FrameGate, HEIGHT, Shared, WIDTH, format};
 use image::{ImageDecoder, codecs::jpeg::JpegDecoder};
 use std::{
 	fs::{File, OpenOptions},
@@ -169,12 +169,8 @@ impl Drop for Capture {
 }
 
 fn validate_format(pixels: Pixels) -> Result<Pixels, &'static str> {
-	if format::rank(
-		pixels.width as usize,
-		pixels.height as usize,
-		f64::from(format::FPS),
-	)
-	.is_none()
+	if !(1..=format::MAX_WIDTH).contains(&(pixels.width as usize))
+		|| !(1..=format::MAX_HEIGHT).contains(&(pixels.height as usize))
 		|| pixels.field != 1
 		|| pixels.size == 0
 		|| pixels.size as usize > MAX_FRAME_BYTES
@@ -210,13 +206,13 @@ fn capabilities(file: &File) -> Result<Capability, &'static str> {
 }
 
 /// Ask the driver for its closest rate; read its effective interval on fixed-rate devices.
-fn configure_interval(file: &File) -> Result<Option<f64>, &'static str> {
+fn configure_interval(file: &File, rate: u32) -> Result<Option<f64>, &'static str> {
 	let mut timing = StreamParameters {
 		kind: CAPTURE,
 		capability: 0,
 		mode: 0,
 		numerator: 1,
-		denominator: format::FPS,
+		denominator: rate,
 		rest: [0; 46],
 	};
 	if let Err(error) = control(file, 22, &mut timing) {
@@ -236,7 +232,7 @@ fn effective_fps(numerator: u32, denominator: u32) -> Option<f64> {
 	(numerator != 0 && denominator != 0).then(|| f64::from(denominator) / f64::from(numerator))
 }
 
-fn configure(file: File) -> Result<Capture, &'static str> {
+fn configure(file: File, rate: u32) -> Result<Capture, &'static str> {
 	capabilities(&file)?;
 	let mut choices = Vec::with_capacity(2);
 	for format in [YUYV, MJPEG] {
@@ -257,13 +253,16 @@ fn configure(file: File) -> Result<Capture, &'static str> {
 		}
 		// SAFETY: CAPTURE selects the pixels member, including driver adjustments.
 		if let Ok(pixels) = validate_format(unsafe { request.data.pixels }) {
-			let Ok(fps) = configure_interval(&file) else {
+			let Ok(fps) = configure_interval(&file, rate) else {
 				continue;
 			};
-			if let Some(mut rank) = format::rank(
+			if let Some(mut rank) = format::rank_with_ceiling_for(
 				pixels.width as usize,
 				pixels.height as usize,
-				fps.unwrap_or(f64::from(format::FPS)),
+				fps.unwrap_or(f64::from(rate)),
+				format::MAX_WIDTH,
+				format::MAX_HEIGHT,
+				rate,
 			) {
 				// Drivers without interval metadata rank after measured rates at the same size.
 				if fps.is_none() {
@@ -281,7 +280,7 @@ fn configure(file: File) -> Result<Capture, &'static str> {
 			negotiated = validate_format(unsafe { request.data.pixels });
 			if negotiated.is_ok() {
 				// S_FMT may reset timing. A rejected rate invalidates only this candidate.
-				if let Err(error) = configure_interval(&file) {
+				if let Err(error) = configure_interval(&file, rate) {
 					negotiated = Err(error);
 					continue;
 				}
@@ -414,7 +413,9 @@ fn open(shared: &Shared, selected: Option<&str>) -> Result<Option<Capture>, &'st
 		if shared.stopped.load(Ordering::Acquire) {
 			return Ok(None);
 		}
-		match device_file(&format!("/dev/video{index}")).and_then(configure) {
+		match device_file(&format!("/dev/video{index}"))
+			.and_then(|file| configure(file, shared.rate.fps()))
+		{
 			Ok(capture) => return Ok(Some(capture)),
 			Err(reason) if error != DENIED => error = reason,
 			Err(_) => {}
@@ -432,7 +433,7 @@ pub(super) fn run(
 		return Ok(());
 	};
 	let mut last_frame = Instant::now();
-	let mut last_emitted = Instant::now() - FRAME_INTERVAL;
+	let mut gate = FrameGate::new(shared.rate);
 	while !shared.stopped.load(Ordering::Acquire) {
 		if last_frame.elapsed() >= Duration::from_secs(5) {
 			return Err("Camera stopped delivering frames; check the device and try again");
@@ -474,7 +475,9 @@ pub(super) fn run(
 		if used == 0 || used > mapping.length || used > capture.pixels.size as usize {
 			return Err("Camera frame exceeds its native buffer bounds");
 		}
-		let rgb = if buffer.flags & 0x40 == 0 && last_emitted.elapsed() >= FRAME_INTERVAL {
+		// Admission is decided on arrival, before decoding, so decode time cannot push the
+		// next picture outside its slot.
+		let rgb = if buffer.flags & 0x40 == 0 && gate.admit(Instant::now()) {
 			// SAFETY: DQBUF gives exclusive userspace access until QBUF. Length
 			// was checked against the retained mapping; decoding finishes first.
 			let bytes = unsafe { std::slice::from_raw_parts(mapping.address.cast::<u8>(), used) };
@@ -487,7 +490,6 @@ pub(super) fn run(
 		if let Some(rgb) = rgb {
 			last_frame = Instant::now();
 			if !shared.stopped.load(Ordering::Acquire) {
-				last_emitted = Instant::now();
 				emit(rgb)?;
 			}
 		}
@@ -580,6 +582,27 @@ fn fit_rgb(rgb: Vec<u8>, pixels: Pixels) -> Result<Vec<u8>, &'static str> {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use model::voice_settings::CameraFrameRate;
+
+	#[test]
+	fn pacing_handles_jitter_and_stalls() {
+		let start = Instant::now();
+		let admitted = |rate, period_us: u64, count: u64| {
+			let mut gate = FrameGate::new(rate);
+			(0..count)
+				.filter(|index| gate.admit(start + Duration::from_micros(index * period_us)))
+				.count()
+		};
+		assert!(admitted(CameraFrameRate::Fps30, 33_300, 91) >= 89);
+		assert_eq!(admitted(CameraFrameRate::Fps30, 16_666, 60), 30);
+		assert_eq!(admitted(CameraFrameRate::Fps15, 33_333, 60), 30);
+
+		let mut gate = FrameGate::new(CameraFrameRate::Fps15);
+		assert!(gate.admit(start));
+		let after_stall = start + Duration::from_secs(10);
+		assert!(gate.admit(after_stall));
+		assert!(!gate.admit(after_stall + Duration::from_millis(1)));
+	}
 
 	#[test]
 	fn selected_camera_requires_a_canonical_bounded_device_path() {
@@ -676,22 +699,21 @@ mod tests {
 		assert_eq!(effective_fps(0, 15), None);
 		assert_eq!(effective_fps(1, 0), None);
 		let pixels = Pixels {
-			width: 1280,
-			height: 720,
+			width: 640,
+			height: 480,
 			format: MJPEG,
 			field: 1,
 			size: MAX_FRAME_BYTES as u32,
 			..Pixels::default()
 		};
 		assert!(validate_format(pixels).is_ok());
-		let rgb = fit_rgb(vec![255; 1280 * 720 * 3], pixels).unwrap();
+		let rgb = fit_rgb(vec![255; 640 * 480 * 3], pixels).unwrap();
 		assert_eq!(rgb.len(), WIDTH * HEIGHT * 3);
-		// 16:9 input is centered in the 4:3 encoder, keeping black bars above/below.
-		assert_eq!(&rgb[..WIDTH * 3], vec![0; WIDTH * 3]);
-		assert_eq!(
-			&rgb[(HEIGHT / 2) * WIDTH * 3..(HEIGHT / 2 + 1) * WIDTH * 3],
-			vec![255; WIDTH * 3]
-		);
+		// 4:3 input is centered in the 16:9 encoder, keeping black bars left and right.
+		let middle = &rgb[(HEIGHT / 2) * WIDTH * 3..(HEIGHT / 2 + 1) * WIDTH * 3];
+		assert_eq!(&middle[..3], [0; 3]);
+		assert_eq!(&middle[(WIDTH / 2) * 3..(WIDTH / 2 + 1) * 3], [255; 3]);
+		assert_eq!(&middle[(WIDTH - 1) * 3..], [0; 3]);
 	}
 
 	#[test]

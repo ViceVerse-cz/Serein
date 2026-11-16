@@ -1,6 +1,6 @@
 (() => {
   "use strict";
-  if (window !== window.top || !["https://serein-captcha.verification.invalid/", "serein-captcha://verification.invalid/"].includes(location.href)) return;
+  if (window !== window.top || location.href !== "https://discord.com/channels/@me") return;
   const config = __SEREIN_CAPTCHA_CONFIG__;
   let finished = false;
   document.addEventListener("keydown", event => {
@@ -49,7 +49,7 @@
       } catch (_) { fail(); }
     };
     const script = document.createElement("script");
-    script.src = `https://js.hcaptcha.com/1/api.js?onload=sereinCaptchaLoaded&render=explicit&recaptchacompat=off&host=${config.sitekey}.react-native.hcaptcha.com`;
+    script.src = `https://js.hcaptcha.com/1/api.js?onload=sereinCaptchaLoaded&render=explicit&recaptchacompat=off`;
     script.async = true;
     script.onerror = fail;
     document.head.appendChild(script);

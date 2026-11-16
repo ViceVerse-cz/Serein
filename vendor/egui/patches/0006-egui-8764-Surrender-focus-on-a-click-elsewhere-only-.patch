@@ -1,0 +1,161 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: x <x@x>
+Date: Mon, 9 Nov 2026 12:43:56 +0100
+Subject: [PATCH] egui#8764: Surrender focus on a click elsewhere only when the
+ widget is shown
+
+Squashed from https://github.com/emilk/egui/pull/8764 at 6eb460a2a6d5.
+---
+ crates/egui/src/context.rs                    | 41 +++++++-----
+ .../tests/test_text_edit_click_away.rs        | 67 +++++++++++++++++++
+ 2 files changed, 91 insertions(+), 17 deletions(-)
+ create mode 100644 tests/egui_tests/tests/test_text_edit_click_away.rs
+
+diff --git a/crates/egui/src/context.rs b/crates/egui/src/context.rs
+index 997a128b2..443170ef2 100644
+--- a/crates/egui/src/context.rs
++++ b/crates/egui/src/context.rs
+@@ -1552,6 +1552,12 @@ impl Context {
+         #[allow(clippy::allow_attributes, clippy::let_and_return)]
+         let res = self.get_response(w);
+ 
++        // Only when the widget itself is shown, not in `get_response`:
++        // `read_response` and `Ui::widget_style` read a response before the widget runs,
++        // and a `TextEdit` that lost focus there would drop its selection
++        // before the widget that was clicked could use it.
++        self.surrender_focus_if_clicked_elsewhere(&res);
++
+         #[cfg(debug_assertions)]
+         if res.contains_pointer() {
+             let plugins = self.read(|ctx| ctx.plugins.ordered_plugins());
+@@ -1710,6 +1716,23 @@ impl Context {
+         })
+     }
+ 
++    /// A press or click elsewhere takes the keyboard focus from this widget,
++    /// according to [`crate::InputOptions::surrender_focus_on`].
++    fn surrender_focus_if_clicked_elsewhere(&self, res: &Response) {
++        self.write(|ctx| {
++            let surrender_focus_on = ctx.memory.options.input_options.surrender_focus_on;
++            let pointer = &ctx.viewport().input.pointer;
++            let should_surrender_focus = match surrender_focus_on {
++                SurrenderFocusOn::Presses => pointer.any_pressed(),
++                SurrenderFocusOn::Clicks => pointer.any_click(),
++                SurrenderFocusOn::Never => false,
++            };
++            if should_surrender_focus && !res.hovered() && ctx.memory.has_focus(res.id) {
++                ctx.memory.surrender_focus(res.id);
++            }
++        });
++    }
++
+     /// Do all interaction for an existing widget, without (re-)registering it.
+     pub(crate) fn get_response(&self, widget_rect: WidgetRect) -> Response {
+         use response::Flags;
+@@ -1804,14 +1827,9 @@ impl Context {
+             }
+ 
+             let clicked = Some(id) == viewport.interact_widgets.clicked;
+-            let mut any_press = false;
+-
+             for pointer_event in &input.pointer.pointer_events {
+                 match pointer_event {
+-                    PointerEvent::Moved(_) => {}
+-                    PointerEvent::Pressed { .. } => {
+-                        any_press = true;
+-                    }
++                    PointerEvent::Moved(_) | PointerEvent::Pressed { .. } => {}
+                     PointerEvent::Released { click, .. } => {
+                         if enabled && sense.senses_click() && clicked && click.is_some() {
+                             res.flags.set(Flags::CLICKED, true);
+@@ -1840,17 +1858,6 @@ impl Context {
+                 // We don't hover widgets while interacting with *other* widgets:
+                 res.flags.set(Flags::HOVERED, false);
+             }
+-
+-            let should_surrender_focus = match memory.options.input_options.surrender_focus_on {
+-                SurrenderFocusOn::Presses => any_press,
+-                SurrenderFocusOn::Clicks => input.pointer.any_click(),
+-                SurrenderFocusOn::Never => false,
+-            };
+-
+-            let pointer_clicked_elsewhere = should_surrender_focus && !res.hovered();
+-            if pointer_clicked_elsewhere && memory.has_focus(id) {
+-                memory.surrender_focus(id);
+-            }
+         });
+ 
+         res
+diff --git a/tests/egui_tests/tests/test_text_edit_click_away.rs b/tests/egui_tests/tests/test_text_edit_click_away.rs
+new file mode 100644
+index 000000000..126ef1ffc
+--- /dev/null
++++ b/tests/egui_tests/tests/test_text_edit_click_away.rs
+@@ -0,0 +1,67 @@
++//! A click outside a focused [`TextEdit`] must not drop its selection before
++//! the widget that was clicked has run.
++
++use egui::text::{CCursor, CCursorRange};
++use egui::{Context, Event, Id, PointerButton, Pos2, RawInput, Rect, TextEdit, pos2, vec2};
++
++const BUTTON: Pos2 = pos2(30.0, 130.0);
++
++/// Runs a pass with a text field above a button, and returns the field's
++/// selection as the button saw it, if the button was clicked.
++fn pass(ctx: &Context, text: &mut String, events: Vec<Event>) -> Option<(usize, usize)> {
++    let field = Id::unique("field");
++    let mut seen = None;
++    let mut output = ctx.run_ui(
++        RawInput {
++            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(400.0, 300.0))),
++            events,
++            ..Default::default()
++        },
++        |ui| {
++            ui.add(TextEdit::singleline(text).id(field));
++            ui.add_space(100.0);
++            if ui.button("Cut").clicked() {
++                let range =
++                    TextEdit::load_state(ui.ctx(), field).and_then(|s| s.cursor.char_range());
++                seen = range.map(|r| (r.secondary.index.0, r.primary.index.0));
++            }
++        },
++    );
++    output.textures_delta.clear();
++    seen
++}
++
++#[test]
++fn clicking_away_keeps_the_selection_until_the_clicked_widget_has_run() {
++    let ctx = Context::default();
++    let field = Id::unique("field");
++    let mut text = "hello world".to_owned();
++    pass(&ctx, &mut text, vec![]);
++    ctx.memory_mut(|m| m.request_focus(field));
++    pass(&ctx, &mut text, vec![]);
++    let mut state = TextEdit::load_state(&ctx, field).expect("text edit state");
++    state
++        .cursor
++        .set_char_range(Some(CCursorRange::two(CCursor::new(0), CCursor::new(11))));
++    state.store(&ctx, field);
++    pass(&ctx, &mut text, vec![]);
++
++    let button = |pressed| Event::PointerButton {
++        pos: BUTTON,
++        button: PointerButton::Primary,
++        pressed,
++        modifiers: Default::default(),
++    };
++    pass(
++        &ctx,
++        &mut text,
++        vec![Event::PointerMoved(BUTTON), button(true)],
++    );
++    let seen = pass(&ctx, &mut text, vec![button(false)]);
++
++    assert_eq!(seen, Some((0, 11)), "the button saw the selection");
++    assert!(
++        !ctx.memory(|m| m.has_focus(field)),
++        "the click away still took the focus"
++    );
++}

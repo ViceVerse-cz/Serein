@@ -1,6 +1,24 @@
 //! Device-local microphone processing. Profiles leave the user's custom settings intact.
 use serde::{Deserialize, Serialize};
 
+/// Session-local frame-rate target for native camera capture and encoding.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CameraFrameRate {
+	Fps15,
+	#[default]
+	Fps30,
+}
+
+impl CameraFrameRate {
+	/// Return the selected target in frames per second.
+	pub const fn fps(self) -> u32 {
+		match self {
+			Self::Fps15 => 15,
+			Self::Fps30 => 30,
+		}
+	}
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum InputProfile {
 	#[default]

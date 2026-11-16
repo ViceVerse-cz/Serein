@@ -25,7 +25,7 @@ pub fn validated_link(host: Host, value: &[u8]) -> Result<String, Error> {
 	if !value.starts_with(prefix) || value.chars().any(|c| c.is_control() || c.is_whitespace()) {
 		return Err(Error::InvalidLink);
 	}
-	let url = reqwest::Url::parse(value).map_err(|_| Error::InvalidLink)?;
+	let url = url::Url::parse(value).map_err(|_| Error::InvalidLink)?;
 	let filename = value.strip_prefix(prefix).unwrap_or_default();
 	if url.scheme() != "https"
 		|| url.host_str()
@@ -59,12 +59,12 @@ pub async fn upload(
 	if *cancel.borrow() {
 		return Err(Error::Cancelled);
 	}
-	let client = reqwest::Client::builder()
+	let client = wreq::Client::builder()
 		.user_agent(concat!("Serein/", env!("CARGO_PKG_VERSION")))
 		.https_only(true)
 		.no_proxy()
-		.redirect(reqwest::redirect::Policy::none())
-		.retry(reqwest::retry::never())
+		.redirect(wreq::redirect::Policy::none())
+		.retry(wreq::retry::Policy::never())
 		.no_gzip()
 		.connect_timeout(Duration::from_secs(10))
 		.read_timeout(Duration::from_secs(30))
@@ -75,7 +75,7 @@ pub async fn upload(
 }
 
 async fn attempt(
-	client: &reqwest::Client,
+	client: &wreq::Client,
 	endpoint: &str,
 	host: Host,
 	source: Source,
@@ -90,7 +90,7 @@ async fn attempt(
 }
 
 async fn transfer(
-	client: &reqwest::Client,
+	client: &wreq::Client,
 	endpoint: &str,
 	host: Host,
 	source: Source,
@@ -185,14 +185,14 @@ async fn transfer(
 			}
 		},
 	);
-	let mut response = client
+	let response = client
 		.post(endpoint)
 		.header(
-			reqwest::header::CONTENT_TYPE,
+			wreq::header::CONTENT_TYPE,
 			format!("multipart/form-data; boundary={boundary}"),
 		)
-		.header(reqwest::header::CONTENT_LENGTH, body_size)
-		.body(reqwest::Body::wrap_stream(stream))
+		.header(wreq::header::CONTENT_LENGTH, body_size)
+		.body(wreq::Body::wrap_stream(stream))
 		.send()
 		.await
 		// A refused or unreachable host received nothing, unlike a transfer cut midway.
@@ -203,7 +203,7 @@ async fn transfer(
 				Error::Failed
 			}
 		})?;
-	if response.status() == reqwest::StatusCode::SERVICE_UNAVAILABLE {
+	if response.status() == wreq::StatusCode::SERVICE_UNAVAILABLE {
 		return Err(Error::Unavailable);
 	}
 	if !response.status().is_success() {
@@ -221,7 +221,12 @@ async fn transfer(
 		return Err(Error::ResponseLimit);
 	}
 	let mut bytes = Vec::new();
-	while let Some(chunk) = response.chunk().await.map_err(|_| Error::Interrupted)? {
+	let mut body = std::pin::pin!(response.bytes_stream());
+	while let Some(chunk) = futures_util::StreamExt::next(&mut body)
+		.await
+		.transpose()
+		.map_err(|_| Error::Interrupted)?
+	{
 		if chunk.len() > RESPONSE_BYTES - bytes.len() {
 			return Err(Error::ResponseLimit);
 		}
@@ -345,10 +350,10 @@ mod tests {
 
 	#[tokio::test]
 	async fn rejection_redirect_and_response_limits_do_not_return_links() {
-		let client = reqwest::Client::builder()
+		let client = wreq::Client::builder()
 			.no_proxy()
-			.redirect(reqwest::redirect::Policy::none())
-			.retry(reqwest::retry::never())
+			.redirect(wreq::redirect::Policy::none())
+			.retry(wreq::retry::Policy::never())
 			.build()
 			.unwrap();
 		let rejected = Error::Rejected;
@@ -405,7 +410,7 @@ mod tests {
 			let _ = ready.send(());
 			let _ = socket.read(&mut bytes).await;
 		});
-		let client = reqwest::Client::builder().no_proxy().build().unwrap();
+		let client = wreq::Client::builder().no_proxy().build().unwrap();
 		let (progress, _) = watch::channel(Status::Preparing);
 		let (cancel, mut cancellation) = watch::channel(false);
 		let task = tokio::spawn(async move {
@@ -444,7 +449,7 @@ mod tests {
 		let (progress, _) = watch::channel(Status::Preparing);
 		assert_eq!(
 			transfer(
-				&reqwest::Client::new(),
+				&wreq::Client::new(),
 				"http://127.0.0.1:1/",
 				Host::Catbox,
 				source,
@@ -491,7 +496,7 @@ mod tests {
 		});
 		let (progress, _) = watch::channel(Status::Preparing);
 		let result = transfer(
-			&reqwest::Client::builder().no_proxy().build().unwrap(),
+			&wreq::Client::builder().no_proxy().build().unwrap(),
 			&endpoint,
 			Host::Catbox,
 			source,
@@ -545,9 +550,9 @@ mod tests {
 				.unwrap();
 		});
 		let (progress, _) = watch::channel(Status::Preparing);
-		let client = reqwest::Client::builder()
+		let client = wreq::Client::builder()
 			.no_proxy()
-			.redirect(reqwest::redirect::Policy::none())
+			.redirect(wreq::redirect::Policy::none())
 			.build()
 			.unwrap();
 		assert_eq!(

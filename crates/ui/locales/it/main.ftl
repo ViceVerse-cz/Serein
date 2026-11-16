@@ -69,6 +69,11 @@ general-gpu-restart = Ha effetto al successivo avvio di Serein.
 general-gpu-current-prefix = Attualmente disegno con
 general-steady-refresh-rate = Frequenza di aggiornamento costante
 general-steady-refresh-rate-description = Finché Serein è la finestra attiva, disegna alla frequenza di aggiornamento del display, così i display a frequenza di aggiornamento variabile (VRR, G-SYNC, FreeSync) possono mantenere una sola frequenza invece di sfarfallare. Consuma più energia.
+steady-refresh-prompt-title = Rilevato display G-SYNC
+steady-refresh-prompt-body = Serein ridisegna solo quando qualcosa cambia, e questo può far sfarfallare un display G-SYNC finché Serein è la finestra attiva. La frequenza di aggiornamento costante lo evita disegnando alla frequenza di aggiornamento del display, ma consuma più energia. Attivarla?
+steady-refresh-prompt-turn-on = Attiva
+steady-refresh-prompt-keep-off = No, grazie
+steady-refresh-prompt-settings = Puoi cambiare questa scelta più tardi nelle impostazioni, in { $page } > { $group }.
 gpu-automatic = Automatico
 gpu-high-performance = Prestazioni elevate
 gpu-power-saving = Risparmio energetico
@@ -402,6 +407,15 @@ message-request-title = Richiesta di messaggio
 ## crates/ui/src/channel_menu.rs
 # Context: context
 channel-menu-context-add-to-favorites = Aggiungi ai preferiti
+channel-menu-context-remove-from-channel-list = Rimuovi dall'elenco dei canali
+channel-menu-context-add-to-channel-list = Aggiungi all'elenco dei canali
+channel-browser-title = Sfoglia canali
+channel-browser-subtitle = Scegli quali canali compaiono nel tuo elenco.
+channel-browser-show-all-channels = Mostra tutti i canali
+channel-browser-search = Cerca canali
+channel-browser-follow-category = Segui categoria
+channel-browser-saving = Salvataggio…
+channel-browser-unavailable = Le impostazioni dell'elenco canali non sono disponibili al momento.
 # Context: context
 channel-menu-context-copy-channel-id = Copia l'ID del canale
 # Context: context
@@ -2408,8 +2422,6 @@ search-pane-hide-matching-text-highlight = Nascondi l'evidenziazione del testo c
 # Context: pane
 search-pane-indexing-is-incomplete-results-may-be-missing = L'indicizzazione è incompleta; i risultati potrebbero mancare.
 # Context: pane
-search-pane-looking-for-matching-messages = Alla ricerca di messaggi corrispondenti.
-# Context: pane
 search-pane-messages-are-unavailable-while-disconnected-or-without-channel-access = I messaggi non sono disponibili quando sei disconnesso o senza accesso al canale.
 # Context: pane
 search-pane-newest-first = Prima il più recente
@@ -3599,6 +3611,8 @@ slash-commands-composer-choose-a-different-command = scegli un comando diverso
 slash-commands-composer-command-unavailable-your-arguments-are-kept = Comando non disponibile. Le tue argomentazioni vengono mantenute.
 # Context: footer
 slash-commands-footer-refresh-application-commands = Aggiorna i comandi dell'applicazione
+# Context: list
+slash-commands-list-loading-application-commands = Caricamento dei comandi delle applicazioni…
 
 ## crates/ui/src/stickers.rs
 # Context: message
@@ -3925,6 +3939,8 @@ timeline-show-with-scroll-loading-messages = Caricamento messaggi...
 # Context: show_with_scroll
 timeline-show-with-scroll-message-deleted = Messaggio eliminato
 # Context: show_with_scroll
+timeline-show-with-scroll-message-blocked = Messaggio bloccato
+# Context: show_with_scroll
 timeline-show-with-scroll-message-history-is-unavailable-with-current-permission-information = La cronologia dei messaggi non è disponibile con le informazioni sulle autorizzazioni correnti.
 # Context: show_with_scroll
 timeline-show-with-scroll-no-messages-yet-start-the-conversation-below = Nessun messaggio ancora. Inizia la conversazione qui sotto.
@@ -4096,6 +4112,10 @@ verification-show-one-quick-check = Un rapido controllo
 verification-show-verification-required = Verifica richiesta
 # Context: show
 verification-show-verify = Verificare
+# Context: show
+verification-show-safer-in-the-official-discord-app = È più sicuro completare questa verifica nell’app ufficiale di Discord. Dopo una verifica risolta in Serein, Discord può chiedere agli account recenti di verificare un numero di telefono.
+# Context: show
+verification-show-open-discord = Apri Discord
 
 ## crates/ui/src/video.rs
 # Context: show_player
@@ -4513,6 +4533,8 @@ voice-recipient-ringing = Sta squillando…
 voice-recipient-not-in-call = Non nella chiamata
 reconnect-now = Riconnetti ora
 
+message-preview-limit = Questo messaggio supera il limite del layout di testo nativo.
+
 voice-call-moved-to-another-client = La sessione di chiamata di questo dispositivo è stata sostituita
 
 server-settings-page-safety = Configurazione sicurezza
@@ -4607,6 +4629,11 @@ profiles-board-empty = No games on this board yet.
 profiles-board-show-more = Show more
 profiles-board-show-less = Show less
 profiles-activity-empty = Nessuna attività condivisa.
+profiles-in-voice-server = in { $server }
+profiles-in-voice-join = Unisciti
+profiles-in-voice-joined = Sei già in questo canale vocale.
+profiles-in-voice-failed = Chiudi prima la chiamata non riuscita, poi unisciti di nuovo.
+profiles-in-voice-unavailable = Al momento non puoi unirti a questo canale vocale.
 profiles-mutuals-empty = Nothing to show here.
 
 reading-double-click-reaction = Double-click reaction
@@ -4886,3 +4913,33 @@ new-message-hint = Aggiungi amici per avviare un messaggio diretto o un gruppo.
 new-message-no-people-found = Nessuno corrisponde a questa ricerca.
 new-message-create = Crea messaggio
 new-message-cancel = Annulla
+# Context: moderation
+moderation-menu-timeout = Metti in timeout { $name }
+# Context: moderation
+moderation-menu-kick = Espelli { $name }
+# Context: moderation
+moderation-menu-ban = Banna { $name }
+# Context: moderation
+moderation-timeout-detail = Non potrà inviare messaggi, reagire o entrare nei canali vocali fino al termine del timeout.
+# Context: moderation
+moderation-kick-detail = Potrà rientrare con un nuovo invito.
+# Context: moderation
+moderation-ban-detail = Non potrà rientrare finché il ban non viene rimosso.
+# Context: moderation
+moderation-duration-60-seconds = 60 secondi
+# Context: moderation
+moderation-remove-timeout = Rimuovi timeout
+# Context: moderation
+moderation-delete-history = Elimina cronologia messaggi
+# Context: moderation
+moderation-delete-none = Non eliminare nulla
+# Context: moderation
+moderation-delete-hour = Ultima ora
+# Context: moderation
+moderation-delete-day = Ultime 24 ore
+# Context: moderation
+moderation-delete-week = Ultimi 7 giorni
+# Context: moderation
+moderation-confirm-timeout = Timeout
+# Context: moderation
+moderation-confirm-ban = Banna

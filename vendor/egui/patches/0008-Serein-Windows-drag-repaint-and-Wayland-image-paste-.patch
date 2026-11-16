@@ -1,0 +1,170 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: x <x@x>
+Date: Mon, 9 Nov 2026 12:39:02 +0100
+Subject: [PATCH] Serein: Windows drag repaint and Wayland image paste
+ (egui-winit)
+
+---
+ crates/egui-winit/Cargo.toml       |  4 +-
+ crates/egui-winit/src/clipboard.rs | 62 +++++++++++++++++++++++++++++-
+ crates/egui-winit/src/lib.rs       | 23 ++++++++++-
+ 3 files changed, 86 insertions(+), 3 deletions(-)
+
+diff --git a/crates/egui-winit/Cargo.toml b/crates/egui-winit/Cargo.toml
+index 150551a41..f2e1f5307 100644
+--- a/crates/egui-winit/Cargo.toml
++++ b/crates/egui-winit/Cargo.toml
+@@ -43,7 +43,7 @@ bytemuck = ["egui/bytemuck", "dep:bytemuck"]
+ 
+ ## Enable cut/copy/paste to OS clipboard.
+ ## If disabled a clipboard will be simulated so you can still copy/paste within the egui app.
+-clipboard = ["arboard", "bytemuck", "smithay-clipboard"]
++clipboard = ["arboard", "bytemuck", "smithay-clipboard", "image"]
+ 
+ ## Enable opening links in a browser when an egui hyperlink is clicked.
+ links = ["webbrowser"]
+@@ -115,6 +115,8 @@ windows-sys = { workspace = true, features = [
+ 
+ [target.'cfg(any(target_os="linux", target_os="dragonfly", target_os="freebsd", target_os="netbsd", target_os="openbsd"))'.dependencies]
+ smithay-clipboard = { workspace = true, optional = true }
++# Serein: decodes `image/png` read through smithay-clipboard; arboard already builds it.
++image = { version = "0.25", default-features = false, features = ["png"], optional = true }
+ 
+ # The wayland-cursor normally selected doesn't properly enable all the features it uses
+ # and thus doesn't compile as it is used in egui-winit. This is fixed upstream, so force
+diff --git a/crates/egui-winit/src/clipboard.rs b/crates/egui-winit/src/clipboard.rs
+index cddfc4e8d..dcafb45cf 100644
+--- a/crates/egui-winit/src/clipboard.rs
++++ b/crates/egui-winit/src/clipboard.rs
+@@ -150,6 +150,29 @@ impl Clipboard {
+         expect(clippy::needless_pass_by_ref_mut, clippy::unused_self)
+     )]
+     pub fn get_image(&mut self) -> Option<egui::ColorImage> {
++        // Serein: read through the focused surface first. arboard needs the privileged
++        // data-control protocol or an Xwayland bridge, which sandboxes and KWin may withhold.
++        #[cfg(all(
++            any(
++                target_os = "linux",
++                target_os = "dragonfly",
++                target_os = "freebsd",
++                target_os = "netbsd",
++                target_os = "openbsd"
++            ),
++            feature = "smithay-clipboard"
++        ))]
++        if let Some(clipboard) = &mut self.smithay {
++            match clipboard.load_mime("image/png", MAX_PNG_BYTES) {
++                Ok(png) => match color_image_from_png(&png) {
++                    Some(image) => return Some(image),
++                    None => log::debug!("smithay paste-image: undecodable PNG"),
++                },
++                Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
++                Err(err) => log::debug!("smithay paste-image error: {err}"),
++            }
++        }
++
+         #[cfg(all(
+             not(any(target_os = "android", target_os = "ios")),
+             feature = "arboard",
+@@ -184,8 +207,9 @@ impl Clipboard {
+         if let Some(clipboard) = &mut self.arboard {
+             if let Err(err) = clipboard.set_image(arboard_from_color_image(image)) {
+                 log::error!("arboard copy/cut error: {err}");
++            } else {
++                log::debug!("Copied image to clipboard");
+             }
+-            log::debug!("Copied image to clipboard");
+             return;
+         }
+ 
+@@ -340,6 +364,42 @@ fn init_arboard() -> Option<arboard::Clipboard> {
+     }
+ }
+ 
++/// Serein: bounds for a pasted `image/png` read through smithay-clipboard.
++#[cfg(all(
++    any(
++        target_os = "linux",
++        target_os = "dragonfly",
++        target_os = "freebsd",
++        target_os = "netbsd",
++        target_os = "openbsd"
++    ),
++    feature = "smithay-clipboard"
++))]
++const MAX_PNG_BYTES: usize = 32 * 1024 * 1024;
++
++#[cfg(all(
++    any(
++        target_os = "linux",
++        target_os = "dragonfly",
++        target_os = "freebsd",
++        target_os = "netbsd",
++        target_os = "openbsd"
++    ),
++    feature = "smithay-clipboard"
++))]
++fn color_image_from_png(png: &[u8]) -> Option<egui::ColorImage> {
++    let mut reader =
++        image::ImageReader::with_format(std::io::Cursor::new(png), image::ImageFormat::Png);
++    let mut limits = image::Limits::default();
++    limits.max_alloc = Some(64 * 1024 * 1024);
++    reader.limits(limits);
++    let image = reader.decode().ok()?.into_rgba8();
++    Some(egui::ColorImage::from_rgba_unmultiplied(
++        [image.width() as usize, image.height() as usize],
++        image.as_raw(),
++    ))
++}
++
+ /// # Safety
+ ///
+ /// The display handle in `raw_display_handle` must remain valid for the
+diff --git a/crates/egui-winit/src/lib.rs b/crates/egui-winit/src/lib.rs
+index 7d4594055..159942407 100644
+--- a/crates/egui-winit/src/lib.rs
++++ b/crates/egui-winit/src/lib.rs
+@@ -592,6 +592,20 @@ impl State {
+                 }
+             }
+ 
++            // Moving a window leaves its contents unchanged. On Windows the move runs in a modal
++            // loop that waits for each synchronous paint and its vsync, so the window trailed the
++            // cursor by a frame per move (Serein patch, see SEREIN-PATCH.md).
++            WindowEvent::Moved(_) if cfg!(target_os = "windows") => {
++                // Sample the final placement/monitor even when no client input follows the move.
++                // Scheduling through egui keeps this out of the synchronous modal paint loop.
++                self.egui_ctx
++                    .request_repaint_after(std::time::Duration::from_millis(500));
++                EventResponse {
++                    repaint: false,
++                    consumed: false,
++                }
++            }
++
+             // Things that may require repaint:
+             WindowEvent::RedrawRequested
+             | WindowEvent::CursorEntered { .. }
+@@ -855,6 +869,13 @@ impl State {
+     ///
+     /// Returns `true` if the event was sent to egui.
+     pub fn on_mouse_motion(&mut self, delta: (f64, f64)) -> bool {
++        // Serein reads no raw motion. On Windows it keeps arriving while the OS moves the window,
++        // and every queued event made the next frame request another one; each of those frames
++        // waited for vsync inside the modal move loop and held the window a refresh behind the
++        // cursor (Serein patch, see SEREIN-PATCH.md).
++        if cfg!(target_os = "windows") {
++            return false;
++        }
+         if !self.is_pointer_in_window() && !self.any_pointer_button_down {
+             return false;
+         }
+@@ -1156,7 +1177,7 @@ impl State {
+                     self.egui_input.events.push(egui::Event::Copy);
+                     return;
+                 } else if is_paste_command(self.modifiers, active_key) {
+-                    if let Some(contents) = self.clipboard.get() {
++                    if let Some(contents) = self.clipboard.get().filter(|text| !text.is_empty()) {
+                         let contents = contents.replace("\r\n", "\n");
+                         if !contents.is_empty() {
+                             self.egui_input.events.push(egui::Event::Paste(contents));

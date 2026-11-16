@@ -1,6 +1,6 @@
 use crate::{DiscordApi, Failure};
 use discord_protocol::activity_sharing::{self, MAX_SETTINGS_RESPONSE, Settings};
-use reqwest::Method;
+use wreq::Method;
 
 impl DiscordApi {
 	async fn read_activity_sharing(&self) -> Result<Settings, Failure> {

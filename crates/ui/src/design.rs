@@ -492,7 +492,7 @@ pub fn set_background_image(ctx: &egui::Context, image: Option<std::sync::Arc<eg
 		let mut current = current.borrow_mut();
 		if let Some(image) = image {
 			if image
-				.size
+				.resolution()
 				.iter()
 				.any(|side| *side > ctx.input(|input| input.max_texture_side))
 			{
@@ -769,7 +769,7 @@ pub fn paint_background_image(
 	if rect.width() <= 0.0 || rect.height() <= 0.0 || background.opacity == 0 {
 		return;
 	}
-	let size = texture.size_vec2();
+	let size = texture.resolution_vec2();
 	let ratio = rect.size() / size;
 	let scale = match background.fit {
 		extensions::BackgroundFit::Cover => ratio.x.max(ratio.y),
@@ -2233,9 +2233,10 @@ pub fn switch(
 	response
 }
 
-/// Height of every inline [`button`].
 /// Height of every [`button`]; dialog footers size their action row from it.
 pub const BUTTON_HEIGHT: f32 = 38.0;
+/// Height of every [`Select`] picker.
+pub const SELECT_HEIGHT: f32 = 40.0;
 
 /// Visual weight of an inline [`button`].
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -2698,7 +2699,6 @@ impl Select {
 		ui: &mut egui::Ui,
 		add_contents: impl FnOnce(&mut egui::Ui) -> R,
 	) -> egui::InnerResponse<Option<R>> {
-		const HEIGHT: f32 = 40.0;
 		let p = palette(ui);
 		let width = self
 			.width
@@ -2706,7 +2706,8 @@ impl Select {
 			.min(ui.available_width())
 			.max(48.0);
 		let id = ui.make_persistent_id(self.id_salt);
-		let (rect, _) = ui.allocate_exact_size(egui::vec2(width, HEIGHT), egui::Sense::hover());
+		let (rect, _) =
+			ui.allocate_exact_size(egui::vec2(width, SELECT_HEIGHT), egui::Sense::hover());
 		let response = ui.interact(rect, id, egui::Sense::click());
 		let label = self.text.text().to_owned();
 		response.widget_info(|| {

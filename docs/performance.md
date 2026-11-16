@@ -1,8 +1,58 @@
 # Performance findings
 
+## Voice connection ping
+
+Compared `5a11f95b` with the voice ping change using locked Rust 1.99.1 release builds
+with `--features demo`. Windows x64 build 26300.9711, Ryzen 7 7800X3D, about 32 GiB RAM,
+DX12 and the same 1120 × 760 demo window. Launch `serein.exe --demo --demo-voice`,
+leave the connection popup closed with the pointer off the controls, warm up for eight
+seconds and sample `WorkingSet64` about every 100 ms for twelve seconds. CPU is process
+CPU time divided by elapsed time, as a percentage of one logical core. Settled working
+set averages the final five samples. Private bytes are read at the end of the run.
+Two runs per revision, in baseline/change/change/baseline order. No child processes
+were present at the end of the runs.
+
+| Metric | Baseline | Voice ping |
+| --- | ---: | ---: |
+| Demo executable | 100,484,608 B | 100,369,920 B |
+| Idle CPU, range | 0.384–0.388% | 0.258–0.647% |
+| Peak working set, range | 145.81–158.10 MiB | 142.33–142.36 MiB |
+| Settled working set, range | 145.81–158.09 MiB | 142.33–142.36 MiB |
+| Settled private bytes, range | 178.90–194.93 MiB | 178.56–180.00 MiB |
+
+The preliminary run, before controlling pointer position, showed the working set moving
+in the opposite direction. The short samples do not establish a memory or CPU improvement.
+The fixture renders synthetic RTT. Actual call CPU, GPU allocations and frame timing were
+not measured. The transport samples existing ACKs without scheduling an extra probe. The
+desktop keeps up to 24 millisecond values per connection.
+
 Recent synthetic/offline measurements are workload-specific. They do not establish live Discord
 performance, universal device results or application-wide memory bounds. The raw PR screenshot,
 log and per-run evidence archive has been removed; the summaries below retain the useful results.
+
+## G-SYNC steady refresh offer — November 10, 2026
+
+Baseline `09bee5a` and this branch were built with the pinned Rust 1.99.1 toolchain and locked
+dependencies on Windows 11 x64 (build 26200). Standard release packages use `cargo xtask package`
+(voice included, demo and development data disabled), each revision from its own worktree.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Release executable | 98,454,528 B | 98,438,144 B | -16,384 B (-0.017%) |
+| `dist/` regular-file payload (233 files) | 102,828,189 B | 102,811,805 B | -16,384 B (-0.017%) |
+| ZIP of `dist/` (`7z a -tzip -mx=9`) | 53,784,480 B | 53,791,915 B | +7,435 B (+0.014%) |
+
+The executable is the only `dist/` file that differs. The smaller executable and larger archive
+are one build each and are not an improvement or a regression.
+
+The G-SYNC check ran on an RTX PRO 6000 (driver 32.0.16.2114) driving one 3440×1440 240 Hz
+display with G-SYNC on. Three concurrent checks in a debug build each reported within 27–28 ms
+of being started, including the worker thread, loading `nvapi64.dll` and unloading it again.
+In a debug `--features demo` build temporarily changed to run the check, the dialog appeared and
+`nvapi64.dll` was no longer among the process modules 8 s after launch. The check runs once per
+launch until the offer is answered or the setting is on, and never afterwards. Demo fixtures skip
+it, so their idle CPU and memory were not sampled; release-build timing, a display with G-SYNC
+off and a computer without an NVIDIA driver were not measured.
 
 ## Discord message toolbar and safe extension ports — November 8, 2026
 
@@ -1376,6 +1426,43 @@ allocation limit) instead of up to the 500 MB upload limit plus a second copy.
 Standard no-default-features macOS packages built from both revisions: executable 68,509,584 B in
 both, installed app 74,547,919 B in both, `ditto` ZIP 48,179,547 vs 48,179,867 B (+320 B).
 
+## Native camera 15/30 fps selection (2026-11-08)
+
+Compared the upstream `21f8870` camera implementation (fixed 15 fps) with this PR's
+selectable-rate implementation using the same Logitech C270 at 640×480 on Nobara Linux 44
+x86-64. The host used Rust 1.98.1, GNOME SDK 51 and an AMD Radeon RX 9070 XT. Each camera
+run lasted eight seconds with a one-second warmup. The local probe counted frames and encoded
+outputs only; it did not save video or connect to a call.
+
+| Camera probe | Baseline | PR head | Change |
+| --- | ---: | ---: | ---: |
+| Selected 15 fps | 10.00 fps (68/69 encoded) | 14.86 fps (103/104 encoded) | +4.86 fps |
+| Selected 30 fps | Not available | 29.66 fps (208/208 encoded) | New mode |
+
+These are single local measurements, not sustained multi-run statistics or a guarantee of
+network delivery. The optional physical probe is `crates/discord-voice/examples/camera_fps_probe.rs`.
+Build it with:
+
+```sh
+cargo build --locked -p discord-voice -p platform --features winit/wayland --example camera_fps_probe
+```
+
+Then explicitly run `target/debug/examples/camera_fps_probe 15` and
+`target/debug/examples/camera_fps_probe 30` on a machine where `/dev/video0` is the camera to
+test. It starts local capture only, counts frames and encoded outputs, and saves or sends nothing.
+It needs direct access to the camera device; Flatpak's default sandbox does not provide it.
+
+Matching standard directory-format release packages were built separately from upstream `21f8870`
+and the PR with `cargo xtask package --format dir`, Rust 1.98.1, GNOME SDK 51 and x86-64:
+
+| Metric | Baseline | PR head | Delta |
+| --- | ---: | ---: | ---: |
+| Release executable | 95,345,224 B | 95,346,760 B | +1,536 B |
+| Installed directory payload | 100,044,456 B | 100,045,992 B | +1,536 B |
+
+Compressed distribution size and camera CPU/RSS were not measured. The physical capture probe
+does not test Discord call signaling or remote presentation; those remain owner-controlled live checks.
+
 ## Camera continuity during Gateway resume (2026-10-29)
 
 Compared clean baseline `d93a8415406f7f36de5dc8b14e12ad0fc7134bb4` with runtime
@@ -1856,3 +1943,49 @@ Native computer use exposed no applications in this session. Native before/after
 screenshots, UI workload warmup/sampling, CPU/RSS, display scale/renderer observation,
 frame latency and live Discord verification remain unavailable. No UI speed or
 memory improvement is established by these package sizes.
+
+## Browser transport identity (PR #904) — November 10, 2026
+
+Baseline `6e6f18b0` (main, reqwest 0.13.5 over rustls/AWS-LC) and source `1ab16ae0`
+(wreq 6.0.0-rc.31 over BoringSSL), each built once with `cargo xtask package` in its own
+worktree and a new target directory. macOS 27.2 arm64, Apple M5 Pro / 24 GiB, Homebrew Rust
+1.99.1, pinned lockfile, standard release profile including voice.
+
+Executable and archive sizes use `stat`; the bundle size is `du -sk dist/Serein.app`; the
+archive is `ditto -c -k --keepParent dist/Serein.app`. No client was launched and nothing
+contacted Discord.
+
+| Metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Executable (bytes) | 76,200,032 | 75,296,368 | −903,664 (−1.19%) |
+| `Serein.app` on disk (KiB) | 81,072 | 80,200 | −872 (−1.08%) |
+| Zipped bundle (bytes) | 52,158,053 | 51,734,674 | −423,379 (−0.81%) |
+| Clean `cargo xtask package` (s, one sample) | 282 | 275 | −7 |
+
+The build times are single samples and other work ran on the machine during the baseline,
+so they show only that the BoringSSL build does not lengthen a clean macOS package build
+noticeably. Linux, Windows and Windows ARM64 (BoringSSL without assembly) sizes were not
+measured. Connection setup time, TLS throughput and memory were not measured.
+
+## REST admission verification — November 12, 2026
+
+Baseline `acccd59e`, Fedora Asahi Remix 44 aarch64, pinned Rust 1.99.1,
+standard voice-inclusive package with no default features. The normal fat-LTO
+release link exceeded the local agent group's 11.45-GiB memory cap, including
+with one Cargo job; kernel logs recorded OOM kills. No repository release-profile
+setting was changed.
+
+One baseline-only `CARGO_BUILD_JOBS=1 CARGO_PROFILE_RELEASE_LTO=false cargo xtask
+package --format dir` completed: executable 89,101,464 bytes, apparent installation
+tree 93,814,166 bytes (`du -sb`), deterministic gzip-6 tar 57,148,868 bytes
+(sorted members, zero timestamps/ownership). These are not standard fat-LTO
+release measurements. The owner stopped further builds before an after package
+was produced, so no package-size, latency, CPU or RSS comparison is available
+and no performance improvement is claimed.
+
+The admission tracker has a compile-time 16-KiB ceiling for its two vector backing
+allocations and at most 128 entries per vector; these are bounds, not process-RSS
+measurements. Same-bucket requests are serialized; exhausted successful responses
+hold only their route/bucket, while 429 responses retain the existing conservative
+shared cooldown. Synthetic regressions cover independent-channel progress,
+queued verification expiry, aliases, major resources, eviction and terminal wakeup.

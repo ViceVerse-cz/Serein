@@ -1,4 +1,4 @@
-Build `cargo xtask package` using Rust 1.98.1 MSVC and Visual Studio C++ build tools. The executable is `dist/serein.exe`; distribute it with the adjacent docs and licenses. The login flow requires WebView2. Source builds require CMake for the built-in voice engine.
+Build `cargo xtask package` using Rust 1.99.1 MSVC and Visual Studio C++ build tools. The executable is `dist/serein.exe`; distribute it with the adjacent docs and licenses. The login flow requires WebView2. Source builds require CMake for the built-in voice engine.
 
 Run `dist/serein.exe --demo` for an offline synthetic preview with no saved-login lookup or account storage. Run without `--demo` only when the owner is ready to operate their account. See [platform support](../../docs/platform-support.md) for the live-test boundary and limitations.
 

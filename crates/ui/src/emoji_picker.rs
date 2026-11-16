@@ -105,7 +105,8 @@ pub(crate) fn complete_shortcode(
 		return None;
 	}
 	let name = &prefix[start + 1..];
-	if !(2..=64).contains(&name.chars().count()) {
+	// Discord's one-letter names (`:x:`, `:v:`, `:m:`) convert like any other.
+	if !(1..=64).contains(&name.chars().count()) {
 		return None;
 	}
 	let emoji =
@@ -2192,16 +2193,16 @@ impl Picker {
 						}
 					}
 					GifMode::Waiting => {
-						status_row(ui, colors, true, "emoji-picker-gif-body-searching-klipy");
+						gif_placeholder(ui, "emoji-picker-gif-body-searching-klipy", None);
 					}
 					GifMode::Remote(query) => {
 						let view = state.gifs.view.as_ref().filter(|view| view.query == *query);
 						match view {
 							Some(view) if view.loading => {
-								status_row(ui, colors, true, "emoji-picker-gif-body-loading-gifs");
+								gif_placeholder(ui, "emoji-picker-gif-body-loading-gifs", None);
 							}
 							Some(view) if view.error.is_some() => {
-								status_row(ui, colors, false, view.error.unwrap_or_default());
+								status_row(ui, colors, view.error.unwrap_or_default());
 								ui.add_space(8.0);
 								if retry_button(ui, state) {
 									action = Some(GifAction::Retry(query.clone()));
@@ -2243,7 +2244,6 @@ impl Picker {
 								status_row(
 									ui,
 									colors,
-									false,
 									"emoji-picker-gif-body-gif-search-needs-a-connected-session",
 								);
 							}
@@ -2260,6 +2260,8 @@ const WIDTH: f32 = 424.0;
 const HEIGHT: f32 = 476.0;
 const TILE_GAP: f32 = 8.0;
 const TILE_HEIGHT: f32 = 92.0;
+/// Category tiles shown while trending loads, a typical category count.
+const CATEGORY_PLACEHOLDERS: usize = 8;
 
 /// Centered retry control under a failed GIF status row.
 fn retry_button(ui: &mut egui::Ui, state: &State) -> bool {
@@ -2273,16 +2275,28 @@ fn retry_button(ui: &mut egui::Ui, state: &State) -> bool {
 	.inner
 }
 
-fn status_row(ui: &mut egui::Ui, colors: &crate::design::Palette, spinner: bool, text: &str) {
+fn status_row(ui: &mut egui::Ui, colors: &crate::design::Palette, text: &str) {
 	let text = crate::i18n::translate_if_key(text);
 	ui.add_space(24.0);
 	ui.vertical_centered(|ui| {
-		if spinner {
-			ui.add(egui::Spinner::new().size(22.0).color(colors.muted));
-			ui.add_space(8.0);
-		}
 		ui.label(egui::RichText::new(text).color(colors.muted));
 	});
+}
+
+/// Placeholder tiles on the two-column grid that [`gif_grid`] and [`gif_home`] share, `count`
+/// of them or the rows that fit the view. Results vary in height, so every placeholder stands
+/// at the home tile height. `label` is a locale key.
+fn gif_placeholder(ui: &mut egui::Ui, label: &str, count: Option<usize>) {
+	let count = count.unwrap_or_else(|| {
+		2 * crate::skeleton::fitting_count(ui.available_height(), TILE_HEIGHT + TILE_GAP, TILE_GAP)
+	});
+	crate::skeleton::tiles(
+		ui,
+		&crate::i18n::translate(label),
+		egui::vec2((ui.available_width() - TILE_GAP) / 2.0, TILE_HEIGHT),
+		TILE_GAP,
+		count,
+	);
 }
 
 /// Object-fit cover: the part of the texture that fills `rect` without distortion.
@@ -2407,12 +2421,14 @@ fn gif_home(
 		.and_then(|gif| avatars.gif_texture(ui.ctx(), gif, demo));
 	let mut chosen = None;
 	let mut retry = false;
-	let rows = 1 + categories.len().div_ceil(2);
 	let failed = trending
 		.filter(|view| !view.loading)
 		.and_then(|view| view.error);
 	let loading = categories.is_empty() && trending.is_some_and(|view| view.loading);
-	let status_row = failed.is_some() || loading;
+	// Placeholder tiles stand in for the categories until they arrive.
+	let placeholders = if loading { CATEGORY_PLACEHOLDERS } else { 0 };
+	let rows = 1 + (categories.len() + placeholders).div_ceil(2);
+	let status_row = failed.is_some();
 	let tiles_height = rows as f32 * TILE_HEIGHT + (rows.saturating_sub(1)) as f32 * TILE_GAP;
 	let total = tiles_height + 8.0 + if status_row { TILE_GAP + 40.0 } else { 0.0 };
 	egui::ScrollArea::vertical()
@@ -2500,25 +2516,17 @@ fn gif_home(
 				);
 			}
 			if loading {
-				let below = egui::Rect::from_min_size(
-					egui::pos2(area.left(), area.top() + tiles_height + TILE_GAP),
-					egui::vec2(width, 40.0),
+				let placeholder = egui::Rect::from_min_max(
+					cell(2).min,
+					egui::pos2(area.right(), area.top() + tiles_height),
 				);
-				ui.scope_builder(
-					egui::UiBuilder::new()
-						.max_rect(below)
-						.layout(egui::Layout::left_to_right(egui::Align::Center)),
-					|ui| {
-						ui.spacing_mut().item_spacing.x = 8.0;
-						ui.add(egui::Spinner::new().size(16.0).color(colors.muted));
-						ui.label(
-							egui::RichText::new(crate::i18n::translate(
-								"emoji-picker-gif-home-loading-trending-categories",
-							))
-							.color(colors.muted),
-						);
-					},
-				);
+				ui.scope_builder(egui::UiBuilder::new().max_rect(placeholder), |ui| {
+					gif_placeholder(
+						ui,
+						"emoji-picker-gif-home-loading-trending-categories",
+						Some(placeholders),
+					);
+				});
 			}
 		});
 	if retry {
@@ -3494,6 +3502,9 @@ mod tests {
 		let cursor = shortcode.chars().count();
 		assert!(complete_shortcode(&mut shortcode, cursor, 64, false).is_some());
 		assert!(shortcode.ends_with("❤️"));
+		let mut single = "no :x:".to_owned();
+		assert!(complete_shortcode(&mut single, 6, 64, false).is_some());
+		assert_eq!(single, "no ❌");
 		assert!(model::message_options::valid(
 			&shortcode,
 			client_core::MAX_CONTENT,
@@ -3599,6 +3610,7 @@ mod tests {
 				),
 			}],
 			channels: vec![model::Channel {
+				user_limit: None,
 				id: Id(2),
 				guild: None,
 				parent_id: None,

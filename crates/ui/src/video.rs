@@ -199,10 +199,12 @@ impl VideoUi {
 		// Reuses the buffer once the previous upload released it; clones only if the
 		// renderer still holds the last frame.
 		let image = std::sync::Arc::make_mut(frame);
-		image.size = [width, height];
-		image.source_size = egui::vec2(width as f32, height as f32);
-		image.pixels.clear();
-		image.pixels.extend_from_slice(video_pixels(rgba));
+		let pixels = video_pixels(rgba);
+		if image.resolution() == [width, height] {
+			image.pixels_mut().copy_from_slice(pixels);
+		} else {
+			*image = egui::ColorImage::new([width, height], pixels.to_vec());
+		}
 		let image = std::sync::Arc::clone(frame);
 		let texture = match &mut self.managed {
 			Some(texture) => {
@@ -254,11 +256,7 @@ impl VideoUi {
 					.collect();
 				ctx.load_texture(
 					"inline-video-shade",
-					egui::ColorImage {
-						size: [1, 16],
-						source_size: egui::vec2(1.0, 16.0),
-						pixels,
-					},
+					egui::ColorImage::new([1, 16], pixels),
 					egui::TextureOptions::LINEAR,
 				)
 			})
@@ -293,11 +291,7 @@ impl VideoUi {
 			};
 			self.evict_poster(&oldest);
 		}
-		let image = egui::ColorImage {
-			size: [width, height],
-			source_size: egui::vec2(width as f32, height as f32),
-			pixels: video_pixels(rgba).to_vec(),
-		};
+		let image = egui::ColorImage::new([width, height], video_pixels(rgba).to_vec());
 		self.posters.insert(
 			id,
 			(
@@ -382,7 +376,7 @@ impl VideoUi {
 		painter.rect_filled(stage, CORNER, egui::Color32::BLACK);
 		if self.texture.as_ref().filter(|_| active).is_none() {
 			if let Some((poster, _)) = self.posters.get(&attachment.id) {
-				let size = poster.size_vec2();
+				let size = poster.resolution_vec2();
 				if size.x > 0.0 && size.y > 0.0 {
 					// Contain, like playback: the decoded aspect can differ
 					// from the attachment metadata, and cover would paint

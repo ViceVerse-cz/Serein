@@ -1,10 +1,13 @@
-// Origin-fixed REST adapter. No cookies, redirects, logging, persistence or bot SDK.
+// Origin-fixed REST adapter. No redirects, logging or bot SDK; the only persistence is the
+// bounded Discord device state in `device`.
 mod activity_sharing;
+mod admission;
 mod archives;
 mod badges;
 mod channel_actions;
 mod collectibles;
 pub mod detectable;
+pub mod device;
 pub mod external_assets;
 mod forum;
 mod gif_favorites;
@@ -15,6 +18,7 @@ mod message_options;
 mod messaging_permissions;
 mod onboarding;
 mod profile_edit;
+mod restrictions;
 #[cfg(debug_assertions)]
 pub use profile_edit::debug_profile_board_request_check;
 pub mod proxy;
@@ -33,24 +37,18 @@ pub mod upload;
 mod user_actions;
 use client_core::{
 	Command, Event, Reply,
-	auth::{AuthProvider, Failure, SessionSecret},
+	auth::{Expiry, ExpirySlot, Failure, SessionSecret},
 };
 use discord_protocol::*;
-use model::{Id, User};
-use reqwest::{
-	Client, Method, StatusCode,
-	header::{AUTHORIZATION, CONTENT_TYPE, HeaderValue},
-};
-use std::{
-	sync::{
-		Arc,
-		atomic::{AtomicBool, Ordering},
-	},
-	time::Duration,
-};
+use model::Id;
+use std::{sync::Arc, time::Duration};
 use tokio::{
 	sync::{Mutex, Semaphore},
 	time::{Instant, sleep_until},
+};
+use wreq::{
+	Client, Method, StatusCode,
+	header::{AUTHORIZATION, CONTENT_TYPE, HeaderValue},
 };
 
 tokio::task_local! {
@@ -62,17 +60,49 @@ const FOREGROUND_PERMITS: usize = 2;
 const READ_RATE_LIMIT_RETRIES: u8 = 2;
 /// Longer JSON limits fail the read at once, so sign-in never stalls silently.
 const MAX_READ_RATE_LIMIT_WAIT: Duration = Duration::from_secs(10);
-const API_ORIGINS: [&str; 2] = [
-	"https://discord.com/api/v10",
-	"https://ptb.discord.com/api/v10",
-];
-static API_ON_TEST_HOST: AtomicBool = AtomicBool::new(false);
+const API_ORIGIN: &str = "https://discord.com/api/v10";
 /// One thread channel, or one message, stays far below this documented read budget.
 const THREAD_PREVIEW_BYTES: usize = 64 * 1024;
 
-/// Later lookups in this process follow a Cloudflare block of discord.com.
+/// `GET /channels/{id}/messages` for a report: digits become `{id}`, and any segment that is not
+/// a lowercase path word becomes `{}`. Codes, emoji and webhook tokens are `{}` even when they
+/// happen to be lowercase words. Bounded by segment count.
+fn route_label(method: &Method, path: &str) -> Box<str> {
+	const MAX_SEGMENTS: usize = 8;
+	const MAX_WORD: usize = 32;
+	let path = path.split('?').next().unwrap_or(path);
+	let mut label = format!("{method} ");
+	let (mut previous, mut before) = ("", "");
+	for (index, part) in path.split('/').filter(|part| !part.is_empty()).enumerate() {
+		if index == MAX_SEGMENTS {
+			label.push_str("/…");
+			break;
+		}
+		label.push('/');
+		let free_form = matches!(
+			previous,
+			"invites" | "templates" | "gift-codes" | "reactions"
+		) || before == "webhooks";
+		(before, previous) = (previous, part);
+		if part.bytes().all(|byte| byte.is_ascii_digit()) {
+			label.push_str("{id}");
+		} else if !free_form
+			&& part.len() <= MAX_WORD
+			&& part
+				.bytes()
+				.all(|byte| byte.is_ascii_lowercase() || matches!(byte, b'-' | b'_' | b'@'))
+		{
+			label.push_str(part);
+		} else {
+			label.push_str("{}");
+		}
+	}
+	label.into()
+}
+
+/// The one REST origin. A block or rate limit never moves requests to another host.
 pub fn api_v10_base() -> &'static str {
-	API_ORIGINS[usize::from(API_ON_TEST_HOST.load(Ordering::Acquire))]
+	API_ORIGIN
 }
 
 pub struct DiscordApi {
@@ -81,22 +111,41 @@ pub struct DiscordApi {
 	client: Client,
 	proxy: Mutex<ProxyState>,
 	upload_client: tokio::sync::OnceCell<Client>,
+	/// At most one attachment send waits on a user-solved challenge.
+	upload_verification: std::sync::Mutex<Option<upload::Waiting>>,
 	secret: Arc<SessionSecret>,
 	cooldown: Mutex<Instant>,
+	admission: admission::Admission,
+	restrictions: std::sync::Mutex<restrictions::Restrictions>,
 	requests: Semaphore,
-	stopped: AtomicBool,
+	terminal: tokio::sync::watch::Sender<Option<Failure>>,
+	expiry: ExpirySlot,
 	catalog: std::sync::Mutex<collectibles::Catalog>,
 	#[cfg(test)]
 	base: String,
-	/// Stands in for the public test host; tests keep the process-wide switch untouched.
-	#[cfg(test)]
-	test_host: Option<(String, AtomicBool)>,
 	#[cfg(test)]
 	upload_origin: Option<std::net::SocketAddr>,
+	/// Test clock for a timeout expiry. Production always uses the wall clock.
+	#[cfg(test)]
+	timeout_clock: std::sync::Mutex<Option<std::sync::Arc<dyn Fn() -> i64 + Send + Sync>>>,
 }
 struct ProxyState {
 	receiver: tokio::sync::watch::Receiver<Option<proxy::ApiProxy>>,
 	cached: Option<(proxy::ApiProxy, Client)>,
+}
+
+/// The typed extras one request may carry. Headers come only from these fields; no caller
+/// can add an arbitrary one.
+#[derive(Default)]
+struct Extras<'a> {
+	/// A user-solved challenge to submit with this attempt.
+	retry: Option<&'a client_core::captcha::Retry>,
+	/// Where a challenge the user can solve is reported instead of ending the session.
+	challenge: Option<&'a mut Option<client_core::captcha::Challenge>>,
+	/// Sent as `X-Context-Properties` on a message create.
+	context: Option<client_core::fingerprint::MessageContext>,
+	/// Builds the JSON body after cooldown and route admission.
+	prepare: Option<&'a mut (dyn FnMut() -> Result<serde_json::Value, Failure> + Send)>,
 }
 
 enum RequestContent {
@@ -104,6 +153,11 @@ enum RequestContent {
 	Multipart { content_type: String, body: Vec<u8> },
 }
 
+fn sample_unix_millis() -> i64 {
+	std::time::SystemTime::now()
+		.duration_since(std::time::UNIX_EPOCH)
+		.map_or(0, |value| value.as_millis().min(i64::MAX as u128) as i64)
+}
 fn stream_preview_url(bytes: &[u8], key: &str) -> Result<String, Failure> {
 	#[derive(serde::Deserialize)]
 	struct Preview {
@@ -174,10 +228,10 @@ fn invite_captcha(bytes: &[u8]) -> Option<client_core::captcha::Challenge> {
 		c.should_serve_invisible,
 	)
 }
-/// Headers Discord's web client sends on every REST call; without them a normal-user
-/// session is classified as automated and quarantined (spam flag, attachment limits).
-fn fingerprint_headers() -> Result<reqwest::header::HeaderMap, Failure> {
-	let mut headers = reqwest::header::HeaderMap::new();
+/// Headers the web client was observed sending on every REST call (unofficial). How the
+/// service weighs them is unverified. Locale and timezone are the operating system's.
+fn fingerprint_headers() -> Result<wreq::header::HeaderMap, Failure> {
+	let mut headers = wreq::header::HeaderMap::new();
 	headers.insert(
 		"x-super-properties",
 		HeaderValue::from_str(&client_core::fingerprint::super_properties())
@@ -185,30 +239,32 @@ fn fingerprint_headers() -> Result<reqwest::header::HeaderMap, Failure> {
 	);
 	headers.insert(
 		"x-discord-locale",
-		HeaderValue::from_static(client_core::fingerprint::LOCALE),
-	);
-	headers.insert("x-discord-timezone", HeaderValue::from_static("UTC"));
-	headers.insert(
-		reqwest::header::ACCEPT_LANGUAGE,
-		HeaderValue::from_static("en-US,en;q=0.9"),
+		HeaderValue::from_static(client_core::fingerprint::discord_locale()),
 	);
 	headers.insert(
-		reqwest::header::ORIGIN,
-		HeaderValue::from_static("https://discord.com"),
+		"x-discord-timezone",
+		HeaderValue::from_str(client_core::fingerprint::timezone())
+			.map_err(|_| Failure::Network)?,
 	);
 	headers.insert(
-		reqwest::header::REFERER,
+		wreq::header::ACCEPT_LANGUAGE,
+		HeaderValue::from_str(client_core::fingerprint::accept_language())
+			.map_err(|_| Failure::Network)?,
+	);
+	headers.insert(
+		wreq::header::REFERER,
 		HeaderValue::from_static("https://discord.com/channels/@me"),
 	);
-	headers.insert(reqwest::header::ACCEPT, HeaderValue::from_static("*/*"));
+	headers.insert(wreq::header::ACCEPT, HeaderValue::from_static("*/*"));
 	headers.insert(
-		reqwest::header::ACCEPT_ENCODING,
+		wreq::header::ACCEPT_ENCODING,
 		HeaderValue::from_static(client_core::fingerprint::accept_encoding()),
 	);
 	headers.insert(
 		"x-debug-options",
 		HeaderValue::from_static("bugReporterEnabled"),
 	);
+	// Same-origin fetch() metadata; the emulation's own headers describe a page navigation.
 	headers.insert("sec-fetch-dest", HeaderValue::from_static("empty"));
 	headers.insert("sec-fetch-mode", HeaderValue::from_static("cors"));
 	headers.insert("sec-fetch-site", HeaderValue::from_static("same-origin"));
@@ -223,29 +279,22 @@ fn fingerprint_headers() -> Result<reqwest::header::HeaderMap, Failure> {
 	}
 	Ok(headers)
 }
-/// Applies the advertised browser's user agent and HTTP/2 flow-control windows. rustls'
-/// TLS handshake cannot be shaped like a browser's, so this covers only what reqwest exposes.
-pub(crate) fn browser_transport(builder: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
-	let (stream, connection) = client_core::fingerprint::http2_windows();
-	let builder = builder
+/// Applies the advertised browser's TLS and HTTP/2 handshake and its user agent. Emulation
+/// resets TLS/HTTP options, so this must wrap the builder before any other option is set.
+pub(crate) fn browser_transport(builder: wreq::ClientBuilder) -> wreq::ClientBuilder {
+	builder
+		.emulation(client_core::fingerprint::emulation())
 		.user_agent(client_core::fingerprint::user_agent())
-		.http2_adaptive_window(false)
-		.http2_initial_stream_window_size(stream)
-		.http2_initial_connection_window_size(connection);
-	match client_core::fingerprint::http2_max_header_list_size() {
-		Some(size) => builder.http2_max_header_list_size(size),
-		None => builder,
-	}
 }
 fn api_client(route: &proxy::ApiProxy) -> Result<Client, Failure> {
-	let builder = Client::builder()
-		.redirect(reqwest::redirect::Policy::none())
+	let builder = browser_transport(Client::builder())
+		.redirect(wreq::redirect::Policy::none())
 		// Keep writes single-attempt, including attachment slot allocation.
-		.retry(reqwest::retry::never())
+		.retry(wreq::retry::Policy::never())
 		.timeout(Duration::from_secs(20))
 		.connect_timeout(Duration::from_secs(10))
-		.default_headers(fingerprint_headers()?);
-	let builder = browser_transport(builder);
+		.default_headers(fingerprint_headers()?)
+		.cookie_provider(device::store().clone());
 	route
 		.client_builder(builder)
 		.map_err(Failure::ProtocolAt)?
@@ -254,7 +303,8 @@ fn api_client(route: &proxy::ApiProxy) -> Result<Client, Failure> {
 }
 /// How long a profile card waits for its optional board-game names and collectible artwork;
 /// a card without them is still complete, so it opens rather than waiting on a slow read.
-const PROFILE_EXTRAS: Duration = Duration::from_millis(600);
+/// Matches the badge catalog wait it runs beside, so it adds no latency of its own.
+const PROFILE_EXTRAS: Duration = Duration::from_secs(2);
 impl DiscordApi {
 	pub fn new(secret: Arc<SessionSecret>) -> Result<Self, Failure> {
 		Self::with_proxy(
@@ -271,6 +321,7 @@ impl DiscordApi {
 		Ok(Self {
 			interaction_session: std::sync::Mutex::new(None),
 			upload_client: tokio::sync::OnceCell::new(),
+			upload_verification: std::sync::Mutex::new(None),
 			ack_token: Mutex::new(zeroize::Zeroizing::new(None)),
 			client,
 			proxy: Mutex::new(ProxyState {
@@ -279,16 +330,74 @@ impl DiscordApi {
 			}),
 			secret,
 			cooldown: Mutex::new(Instant::now()),
+			admission: admission::Admission::default(),
+			restrictions: std::sync::Mutex::default(),
 			requests: Semaphore::new(4),
-			stopped: AtomicBool::new(false),
+			terminal: tokio::sync::watch::channel(None).0,
+			expiry: ExpirySlot::default(),
 			catalog: std::sync::Mutex::default(),
 			#[cfg(test)]
-			base: "https://discord.com/api/v10".into(),
-			#[cfg(test)]
-			test_host: None,
+			base: API_ORIGIN.into(),
 			#[cfg(test)]
 			upload_origin: None,
+			#[cfg(test)]
+			timeout_clock: std::sync::Mutex::new(None),
 		})
+	}
+	/// Asks Discord once for this device's installation ID and keeps it, before the Gateway
+	/// identifies. Unofficial: SakuraCord's desktop sign-in reads it from an unauthenticated
+	/// `GET /apex/experiments?surface=2`. Best effort and bounded; Serein works without it.
+	pub async fn ensure_installation(&self) {
+		#[derive(serde::Deserialize)]
+		struct Apex {
+			installation: String,
+		}
+		// One attempt per process: a reconnect must not wait on an endpoint that gave no ID.
+		static ASKED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+		// Without a route yet the request could only wait; a later connection asks instead.
+		if client_core::fingerprint::installation_id().is_some()
+			|| self.proxy.lock().await.receiver.borrow().is_none()
+			|| ASKED.swap(true, std::sync::atomic::Ordering::Relaxed)
+		{
+			return;
+		}
+		#[cfg(not(test))]
+		let base = API_ORIGIN;
+		#[cfg(test)]
+		let base = self.base.as_str();
+		let fetch = async {
+			let response = self
+				.rest_client()
+				.await
+				.ok()?
+				.get(format!("{base}/apex/experiments?surface=2"))
+				.send()
+				.await
+				.ok()?;
+			if !response.status().is_success()
+				|| response
+					.content_length()
+					.is_some_and(|n| n > MAX_WIRE as u64)
+			{
+				return None;
+			}
+			let mut bytes = Vec::new();
+			let mut body = std::pin::pin!(response.bytes_stream());
+			while let Some(chunk) = futures_util::StreamExt::next(&mut body)
+				.await
+				.transpose()
+				.ok()?
+			{
+				if bytes.len() + chunk.len() > MAX_WIRE {
+					return None;
+				}
+				bytes.extend_from_slice(&chunk);
+			}
+			decode::<Apex>(&bytes).ok()
+		};
+		if let Ok(Some(apex)) = tokio::time::timeout(Duration::from_secs(5), fetch).await {
+			device::set_installation(&apex.installation);
+		}
 	}
 	/// Credential-free client snapshot for Discord REST; authorization is added per request.
 	pub async fn rest_client(&self) -> Result<Client, Failure> {
@@ -320,11 +429,91 @@ impl DiscordApi {
 		state.cached = Some((route, client.clone()));
 		Ok(client)
 	}
+	async fn block_response(&self, retry_after: Option<f64>) -> Failure {
+		let delay = safe_delay(retry_after)
+			.unwrap_or(Duration::from_secs(60))
+			.max(Duration::from_secs(60));
+		let mut next = self.cooldown.lock().await;
+		*next = (*next).max(Instant::now() + delay);
+		self.stop_with(Failure::ServiceBlocked);
+		Failure::ServiceBlocked
+	}
+	async fn wait_cooldown(&self, speculative: bool) -> Result<(), Failure> {
+		let mut terminal = self.terminal.subscribe();
+		loop {
+			if let Some(failure) = self.stop_reason() {
+				return Err(failure);
+			}
+			let next = *self.cooldown.lock().await;
+			if Instant::now() >= next {
+				return Ok(());
+			}
+			if speculative {
+				return Err(Failure::Capacity);
+			}
+			tokio::select! {
+				() = sleep_until(next) => {},
+				_ = terminal.changed() => {},
+			}
+		}
+	}
+	async fn admit_request(
+		&self,
+		method: &Method,
+		path: &str,
+		speculative: bool,
+		verification_expired: impl Fn() -> bool,
+	) -> Result<admission::Ticket<'_>, Failure> {
+		let ticket = tokio::select! {
+			result = self.admission.acquire(method, path, speculative) => result?,
+			failure = self.terminal_failure() => return Err(failure),
+		};
+		self.wait_cooldown(speculative).await?;
+		if verification_expired() {
+			return Err(Failure::ProtocolAt(
+				"Verification expired; start the check again",
+			));
+		}
+		Ok(ticket)
+	}
 	pub fn stop(&self) {
-		self.stopped.store(true, Ordering::Release);
+		self.stop_with(Failure::Expired);
+	}
+	/// Records why the session expired into a slot the app also reads.
+	pub fn reporting_expiry(mut self, slot: ExpirySlot) -> Self {
+		self.expiry = slot;
+		self
+	}
+	/// Keeps the first cause only, so later teardown cannot mask the response that ended it.
+	pub fn note_expiry(&self, source: &'static str, route: Option<Box<str>>) {
+		let _ = self.expiry.set(Expiry { source, route });
+	}
+	fn expire(&self, source: &'static str, method: &Method, path: &str) -> Failure {
+		self.note_expiry(source, Some(route_label(method, path)));
+		self.stop();
+		Failure::Expired
+	}
+	pub fn stop_with(&self, failure: Failure) {
+		self.terminal.send_if_modified(|current| {
+			if current.is_some() {
+				false
+			} else {
+				*current = Some(failure);
+				true
+			}
+		});
+	}
+	pub fn stop_reason(&self) -> Option<Failure> {
+		*self.terminal.borrow()
 	}
 	pub fn stopped(&self) -> bool {
-		self.stopped.load(Ordering::Acquire)
+		self.stop_reason().is_some()
+	}
+	/// Independent of event forwarding: even background reads must stop the whole connection.
+	pub async fn terminal_failure(&self) -> Failure {
+		let mut terminal = self.terminal.subscribe();
+		let _ = terminal.wait_for(Option::is_some).await;
+		(*terminal.borrow()).unwrap_or(Failure::Expired)
 	}
 	async fn request(
 		&self,
@@ -333,6 +522,27 @@ impl DiscordApi {
 		body: Option<serde_json::Value>,
 	) -> Result<Vec<u8>, Failure> {
 		self.request_limited(method, path, body, MAX_WIRE).await
+	}
+	/// Like [`Self::request_limited`], but builds the JSON body after the shared cooldown
+	/// and route admission. A timeout deadline must not be spent while this request waits.
+	async fn request_prepared(
+		&self,
+		method: Method,
+		path: &str,
+		prepare: &mut (dyn FnMut() -> Result<serde_json::Value, Failure> + Send),
+		max_bytes: usize,
+	) -> Result<Vec<u8>, Failure> {
+		self.request_with_content(
+			method,
+			path,
+			None,
+			max_bytes,
+			Extras {
+				prepare: Some(prepare),
+				..Extras::default()
+			},
+		)
+		.await
 	}
 	async fn request_limited(
 		&self,
@@ -346,8 +556,7 @@ impl DiscordApi {
 			path,
 			body.map(RequestContent::Json),
 			max_bytes,
-			None,
-			None,
+			Extras::default(),
 		)
 		.await
 	}
@@ -363,8 +572,7 @@ impl DiscordApi {
 			path,
 			Some(RequestContent::Multipart { content_type, body }),
 			max_bytes,
-			None,
-			None,
+			Extras::default(),
 		)
 		.await
 	}
@@ -383,33 +591,43 @@ impl DiscordApi {
 			path,
 			body.map(RequestContent::Json),
 			max_bytes,
-			retry,
-			challenge,
+			Extras {
+				retry,
+				challenge,
+				context: None,
+				prepare: None,
+			},
 		)
 		.await
 	}
-	/// The REST origin for the next attempt and whether it is still discord.com.
-	#[cfg(not(test))]
-	fn api_origin(&self) -> (&'static str, bool) {
-		let base = api_v10_base();
-		(base, base == API_ORIGINS[0])
-	}
-	/// Without a stand-in test host, a test behaves as if the process already moved.
-	#[cfg(test)]
-	fn api_origin(&self) -> (&str, bool) {
-		match &self.test_host {
-			Some((origin, moved)) if moved.load(Ordering::Acquire) => (origin, false),
-			Some(_) => (&self.base, true),
-			None => (&self.base, false),
+	/// One message create. Unofficial: the web client names where the send started.
+	async fn create_message(
+		&self,
+		channel: model::Id,
+		body: serde_json::Value,
+		context: client_core::fingerprint::MessageContext,
+		retry: Option<&client_core::captcha::Retry>,
+		challenge: Option<&mut Option<client_core::captcha::Challenge>>,
+	) -> Result<model::Message, Failure> {
+		let bytes = self
+			.request_with_content(
+				Method::POST,
+				&format!("/channels/{channel}/messages"),
+				Some(RequestContent::Json(body)),
+				MAX_WIRE,
+				Extras {
+					retry,
+					challenge,
+					context: Some(context),
+					prepare: None,
+				},
+			)
+			.await?;
+		let message = decode::<MessageDto>(&bytes).map_err(|_| Failure::Ambiguous)?;
+		if message.channel_id != channel {
+			return Err(Failure::Ambiguous);
 		}
-	}
-	fn move_to_test_host(&self) {
-		#[cfg(not(test))]
-		API_ON_TEST_HOST.store(true, Ordering::Release);
-		#[cfg(test)]
-		if let Some((_, moved)) = &self.test_host {
-			moved.store(true, Ordering::Release);
-		}
+		Ok(message.into_model())
 	}
 	async fn request_with_content(
 		&self,
@@ -417,9 +635,14 @@ impl DiscordApi {
 		path: &str,
 		body: Option<RequestContent>,
 		max_bytes: usize,
-		retry: Option<&client_core::captcha::Retry>,
-		mut challenge: Option<&mut Option<client_core::captcha::Challenge>>,
+		extras: Extras<'_>,
 	) -> Result<Vec<u8>, Failure> {
+		let Extras {
+			retry,
+			mut challenge,
+			context,
+			mut prepare,
+		} = extras;
 		// Only typed adapter methods construct paths. Never accept a URL or route from UI/content.
 		if !path.starts_with('/')
 			|| path.contains("://")
@@ -428,6 +651,11 @@ impl DiscordApi {
 		{
 			return Err(Failure::Protocol);
 		}
+		// A write Discord put on hold is refused here, before it can reach the service again.
+		self.restrictions
+			.lock()
+			.map_err(|_| Failure::Protocol)?
+			.check(&method, path, Instant::now())?;
 		let speculative = SPECULATIVE.try_with(|()| ()).is_ok();
 		let _permit = if speculative {
 			// A hover preload takes only spare capacity, so it never delays a click.
@@ -443,33 +671,56 @@ impl DiscordApi {
 		};
 		// Four permits bound concurrent REST work. A slow profile body must not hold the
 		// cooldown mutex and delay a message write; only service rate admission is shared.
-		let idempotent = method == Method::GET && body.is_none() && !speculative;
+		let idempotent =
+			method == Method::GET && body.is_none() && prepare.is_none() && !speculative;
 		let mut body = body;
 		let mut rate_limits = 0u8;
 		loop {
-			loop {
-				let next = *self.cooldown.lock().await;
-				if speculative && Instant::now() < next {
-					return Err(Failure::Capacity);
-				}
-				sleep_until(next).await;
-				if Instant::now() >= *self.cooldown.lock().await {
-					break;
-				}
+			self.restrictions
+				.lock()
+				.map_err(|_| Failure::Protocol)?
+				.check(&method, path, Instant::now())?;
+			if let Some(failure) = self.stop_reason() {
+				return Err(failure);
 			}
-			if self.stopped() {
-				return Err(Failure::Expired);
+			self.wait_cooldown(speculative).await?;
+			self.restrictions
+				.lock()
+				.map_err(|_| Failure::Protocol)?
+				.check(&method, path, Instant::now())?;
+			if let Some(failure) = self.stop_reason() {
+				return Err(failure);
 			}
 			let mut authorization = HeaderValue::from_str(self.secret.expose())
 				.map_err(|_| Failure::InvalidCredential)?;
 			authorization.set_sensitive(true);
-			let (base, on_stable) = self.api_origin();
+			#[cfg(not(test))]
+			let base = API_ORIGIN;
+			// Loopback tests point at a stand-in server.
+			#[cfg(test)]
+			let base = self.base.as_str();
 			let write = method != Method::GET;
 			let mut request = self
 				.rest_client()
 				.await?
 				.request(method.clone(), format!("{base}{path}"))
 				.header(AUTHORIZATION, authorization);
+			if write {
+				request = request.header(wreq::header::ORIGIN, "https://discord.com");
+			}
+			if let Some(installation) = client_core::fingerprint::installation_id() {
+				request = request.header(
+					"x-installation-id",
+					HeaderValue::from_str(&installation).map_err(|_| Failure::Protocol)?,
+				);
+			}
+			if let Some(context) = context {
+				request = request.header(
+					"x-context-properties",
+					HeaderValue::from_str(&client_core::fingerprint::context_properties(context))
+						.map_err(|_| Failure::Protocol)?,
+				);
+			}
 			if let Some(retry) = retry {
 				if retry.expired() {
 					return Err(Failure::ProtocolAt(
@@ -500,13 +751,32 @@ impl DiscordApi {
 						.body(body),
 				};
 			}
-			let mut response = request.send().await.map_err(|_| {
+			// Another response can extend the shared cooldown during route/proxy waits.
+			let mut admission = self
+				.admit_request(&method, path, speculative, || {
+					retry.is_some_and(|retry| retry.expired())
+				})
+				.await?;
+			// Proxy configuration and route admission may have awaited. Recheck immediately
+			// before dispatch so a queued request cannot bypass a new security stop.
+			self.restrictions
+				.lock()
+				.map_err(|_| Failure::Protocol)?
+				.check(&method, path, Instant::now())?;
+			if let Some(failure) = self.stop_reason() {
+				return Err(failure);
+			}
+			if let Some(prepare) = &mut prepare {
+				request = request.json(&prepare()?);
+			}
+			let response = request.send().await.map_err(|_| {
 				if write {
 					Failure::Ambiguous
 				} else {
 					Failure::Network
 				}
 			})?;
+			admission.feedback(response.headers());
 			let status = response.status();
 			let exhausted = response
 				.headers()
@@ -523,13 +793,9 @@ impl DiscordApi {
 				.get("retry-after")
 				.and_then(|v| v.to_str().ok())
 				.and_then(|s| s.parse::<f64>().ok());
-			if exhausted && status != StatusCode::TOO_MANY_REQUESTS {
-				let mut next = self.cooldown.lock().await;
-				*next = (*next).max(Instant::now() + safe_delay(reset)?);
-			}
+
 			if status == StatusCode::UNAUTHORIZED {
-				self.stop();
-				return Err(Failure::Expired);
+				return Err(self.expire("REST HTTP 401", &method, path));
 			}
 			let cloudflare_block = response
 				.headers()
@@ -538,29 +804,70 @@ impl DiscordApi {
 				.is_some_and(|value| {
 					value.starts_with("text/html") || value.starts_with("text/plain")
 				});
+			if cloudflare_block
+				&& matches!(
+					status,
+					StatusCode::FORBIDDEN | StatusCode::TOO_MANY_REQUESTS
+				) {
+				return Err(self.block_response(retry_header.or(reset)).await);
+			}
+			if exhausted && status != StatusCode::TOO_MANY_REQUESTS {
+				admission.hold(safe_delay(reset)?);
+			}
 			if response
 				.content_length()
 				.is_some_and(|n| n > max_bytes as u64)
 			{
+				if status == StatusCode::TOO_MANY_REQUESTS {
+					return Err(self.block_response(retry_header.or(reset)).await);
+				}
 				return Err(Failure::Capacity);
 			}
 			let mut bytes = zeroize::Zeroizing::new(Vec::with_capacity(
 				response.content_length().unwrap_or(0).min(max_bytes as u64) as usize,
 			));
-			while let Some(chunk) = response.chunk().await.map_err(|_| {
-				if write {
-					Failure::Ambiguous
-				} else {
-					Failure::Network
-				}
-			})? {
+			let mut body = std::pin::pin!(response.bytes_stream());
+			while let Some(chunk) = futures_util::StreamExt::next(&mut body)
+				.await
+				.transpose()
+				.map_err(|_| {
+					if write {
+						Failure::Ambiguous
+					} else {
+						Failure::Network
+					}
+				})? {
 				if bytes.len() + chunk.len() > max_bytes {
+					if status == StatusCode::TOO_MANY_REQUESTS {
+						return Err(self.block_response(retry_header.or(reset)).await);
+					}
 					return Err(Failure::Capacity);
 				}
 				bytes.extend_from_slice(&chunk);
 			}
 			if !status.is_success() {
 				let error = decode::<ErrorBody>(&bytes).unwrap_or_default();
+				if matches!(error.code, Some(40001)) {
+					return Err(self.expire("REST code 40001", &method, path));
+				}
+
+				if error.code == Some(40012) {
+					return Err(Failure::ProtocolAt(
+						"Discord revoked this connection; reconnect the linked service in the official client",
+					));
+				}
+
+				if matches!(error.code, Some(40002 | 40004)) {
+					let failure = self
+						.restrictions
+						.lock()
+						.map_err(|_| Failure::Protocol)?
+						.rejected(&method, path, error.code, error.retry_after, Instant::now())
+						.unwrap_or(Failure::AccountRestricted);
+					self.stop_with(failure);
+					return Err(failure);
+				}
+
 				if error.captcha_key.is_some() || matches!(error.code, Some(60003 | 50014)) {
 					let auth_challenge = matches!(error.code, Some(60003 | 50014));
 					if !auth_challenge
@@ -585,23 +892,34 @@ impl DiscordApi {
 						));
 					}
 
-					self.stop();
+					self.stop_with(Failure::Challenged);
 					return Err(Failure::Challenged);
 				}
-				if status == StatusCode::TOO_MANY_REQUESTS && cloudflare_block {
-					if on_stable {
-						self.move_to_test_host();
-						if idempotent {
-							continue;
-						}
-						return Err(Failure::RateLimited);
-					}
-					// A block page has no JSON penalty. The short read retry must not run.
-					let delay = safe_delay(retry_header.or(reset).or(Some(60.0)))?;
-					let mut next = self.cooldown.lock().await;
-					*next = (*next).max(Instant::now() + delay);
-					return Err(Failure::RateLimited);
+				if error.code == Some(40333)
+					|| (status == StatusCode::TOO_MANY_REQUESTS
+						&& !error
+							.retry_after
+							.is_some_and(|s| s.is_finite() && s > 0.0 && s <= 86400.0))
+				{
+					return Err(self.block_response(retry_header.or(reset)).await);
 				}
+				// Scoped restriction codes hold back the relevant writes and never reach
+				// the automatic resend of a rate-limited message.
+				let restricted = self
+					.restrictions
+					.lock()
+					.map_err(|_| Failure::Protocol)?
+					.rejected(&method, path, error.code, error.retry_after, Instant::now());
+				if let Some(failure) = restricted {
+					if status == StatusCode::TOO_MANY_REQUESTS {
+						let delay = safe_delay(error.retry_after.or(retry_header).or(reset))
+							.unwrap_or(Duration::from_secs(60));
+						let mut next = self.cooldown.lock().await;
+						*next = (*next).max(Instant::now() + delay);
+					}
+					return Err(failure);
+				}
+
 				if status == StatusCode::TOO_MANY_REQUESTS {
 					// The body is the penalty Discord documents. A missing or shorter reset
 					// header must not send the retry early.
@@ -641,29 +959,6 @@ impl DiscordApi {
 			}
 			return Ok(std::mem::take(&mut *bytes));
 		}
-	}
-	pub async fn gateway_url(&self) -> Result<String, Failure> {
-		let bytes = self
-			.request(Method::GET, "/gateway", None)
-			.await
-			.map_err(|f| f.protocol_at("Gateway discovery: HTTP response rejected"))?;
-		decode::<GatewayLocation>(&bytes)
-			.map(|g| g.url)
-			.map_err(|_| Failure::ProtocolAt("Gateway discovery: response format unsupported"))
-	}
-	pub async fn current_user(&self) -> Result<User, Failure> {
-		let bytes = self
-			.request(Method::GET, "/users/@me", None)
-			.await
-			.map_err(|f| f.protocol_at("Account verification: HTTP response rejected"))?;
-		let user = decode::<UserDto>(&bytes).map_err(|_| {
-			Failure::ProtocolAt("Account verification: user response format unsupported")
-		})?;
-		if user.bot {
-			self.stop();
-			return Err(Failure::InvalidCredential);
-		}
-		Ok(user.into_model())
 	}
 	/// Unofficial normal-user DM endpoint; no retry of ambiguous ringing writes.
 	pub async fn ring_call(
@@ -1019,6 +1314,15 @@ impl DiscordApi {
 					result: self.server_action(action).await,
 				})
 			}
+			Command::ChannelList {
+				request,
+				write,
+				latest,
+			} => Event::ChannelList(client_core::channel_list::Event::Written {
+				guild: write.guild,
+				request,
+				result: self.channel_list_write(&write, &latest).await.map(Box::new),
+			}),
 			Command::UserAction {
 				action,
 				request,
@@ -1615,13 +1919,26 @@ impl DiscordApi {
 					if let Some(guild) = guild {
 						reference["guild_id"] = serde_json::json!(guild);
 					}
-					self.request(Method::POST, &format!("/channels/{channel}/messages"), Some(serde_json::json!({
-						"message_reference":reference,"nonce":nonce,"allowed_mentions":{"parse":[],"replied_user":false}
-					}))).await.and_then(|bytes| {
-						let message = decode::<MessageDto>(&bytes).map_err(|_| Failure::Ambiguous)?;
-						if message.channel_id != channel { return Err(Failure::Ambiguous); }
-						Ok(message.into_model())
-					})
+					// Unofficial: the web client forwards through its ordinary message create, so
+					// the body carries the same fixed fields as a typed message. A captcha stays a
+					// bounded local failure: no challenge slot, so nothing resends this as text.
+					let body = serde_json::json!({
+						"mobile_network_type": "unknown",
+						"content": "",
+						"nonce": nonce,
+						"tts": false,
+						"flags": 0,
+						"message_reference": reference,
+						"allowed_mentions": {"parse":[],"replied_user":false},
+					});
+					self.create_message(
+						channel,
+						body,
+						client_core::fingerprint::MessageContext::Forwarding,
+						None,
+						None,
+					)
+					.await
 				};
 				Event::SendResult { nonce, result }
 			}
@@ -1659,6 +1976,14 @@ impl DiscordApi {
 					}
 				}
 			}
+			// Only `resume_upload` may consume this solution: the files are held by the upload
+			// that was challenged, and a text resend here would post the caption without them.
+			Command::VerifiedUpload { nonce, .. } => Event::SendResult {
+				nonce,
+				result: Err(Failure::ProtocolAt(
+					"Verification expired; retry the message",
+				)),
+			},
 			Command::Edit {
 				request,
 				channel,
@@ -2068,10 +2393,15 @@ impl DiscordApi {
 		if sticker.is_some_and(|id| id.0 == 0) {
 			return Err(Failure::Protocol);
 		}
-		let mut body = serde_json::json!({"content":content,"nonce":nonce,"allowed_mentions":allowed_mentions(content, reply)});
-		if silent {
-			body["flags"] = serde_json::json!(message_options::SUPPRESS_NOTIFICATIONS);
-		}
+		// Unofficial: the web client's message create always carries these three fields.
+		let mut body = serde_json::json!({
+			"mobile_network_type": "unknown",
+			"content": content,
+			"nonce": nonce,
+			"tts": false,
+			"flags": if silent { message_options::SUPPRESS_NOTIFICATIONS } else { 0 },
+			"allowed_mentions": allowed_mentions(content, reply),
+		});
 		if let Some(sticker) = sticker {
 			body["sticker_ids"] = serde_json::json!([sticker]);
 		}
@@ -2083,22 +2413,14 @@ impl DiscordApi {
 			body["attachments"] = serde_json::json!(attachment);
 		}
 		// No enforce_nonce claim until normal-user semantics are live verified. Never auto-retry writes.
-		self.request_with_captcha(
-			Method::POST,
-			&format!("/channels/{channel}/messages"),
-			Some(body),
-			MAX_WIRE,
+		self.create_message(
+			channel,
+			body,
+			client_core::fingerprint::MessageContext::ChatInput,
 			retry,
 			challenge,
 		)
 		.await
-		.and_then(|bytes| {
-			let message = decode::<MessageDto>(&bytes).map_err(|_| Failure::Ambiguous)?;
-			if message.channel_id != channel {
-				return Err(Failure::Ambiguous);
-			}
-			Ok(message.into_model())
-		})
 	}
 }
 impl DiscordApi {
@@ -2157,11 +2479,6 @@ impl DiscordApi {
 			post.name = post.name.chars().take(128).collect();
 			Ok(post)
 		})
-	}
-}
-impl AuthProvider for DiscordApi {
-	async fn authenticate(&mut self) -> Result<User, Failure> {
-		self.current_user().await
 	}
 }
 fn reaction_path(
@@ -3488,6 +3805,97 @@ mod tests {
 		api.ring_call(model::Id(2), None, true).await.unwrap();
 		server.await.unwrap();
 	}
+	/// A forward is an ordinary message create on the wire, and a captcha answer to it fails
+	/// locally: nothing may resend it as a text message without the reference.
+	#[tokio::test]
+	async fn forward_matches_a_message_create_and_a_captcha_never_resends_it() {
+		let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+		let address = listener.local_addr().unwrap();
+		let server = tokio::spawn(async move {
+			let (mut socket, _) = listener.accept().await.unwrap();
+			let mut request = Vec::new();
+			let (header, body) = loop {
+				let mut bytes = [0; 1024];
+				let n = socket.read(&mut bytes).await.unwrap();
+				assert!(n > 0 && request.len() < 8192);
+				request.extend_from_slice(&bytes[..n]);
+				let Some(end) = request.windows(4).position(|w| w == b"\r\n\r\n") else {
+					continue;
+				};
+				let header = String::from_utf8(request[..end].to_vec())
+					.unwrap()
+					.to_ascii_lowercase();
+				let length: usize = header
+					.lines()
+					.find_map(|line| line.strip_prefix("content-length: "))
+					.unwrap()
+					.parse()
+					.unwrap();
+				if request.len() >= end + 4 + length {
+					break (
+						header,
+						serde_json::from_slice::<serde_json::Value>(&request[end + 4..]).unwrap(),
+					);
+				}
+			};
+			let challenge = r#"{"captcha_key":["captcha-required"],"captcha_service":"hcaptcha","captcha_sitekey":"synthetic"}"#;
+			socket
+				.write_all(
+					format!(
+						"HTTP/1.1 400 Bad Request\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{challenge}",
+						challenge.len()
+					)
+					.as_bytes(),
+				)
+				.await
+				.unwrap();
+			// A second request would be the forward resent in some other shape.
+			assert!(
+				tokio::time::timeout(Duration::from_millis(100), listener.accept())
+					.await
+					.is_err()
+			);
+			(header, body)
+		});
+		let mut api = DiscordApi::new(Arc::new(
+			SessionSecret::from_owner_input("SYNTHETIC_SECRET_MARKER".into()).unwrap(),
+		))
+		.unwrap();
+		api.base = format!("http://{address}");
+		let event = api
+			.execute_write(
+				Command::Forward {
+					source: Id(3),
+					message: Id(4),
+					guild: Some(Id(5)),
+					channel: Id(2),
+					nonce: "forward".into(),
+				},
+				|_| panic!("a forward is never resent"),
+			)
+			.await;
+		assert!(matches!(
+			event,
+			Event::SendResult {
+				result: Err(Failure::ProtocolAt(_)),
+				..
+			}
+		));
+		assert!(!api.stopped());
+		let (header, body) = server.await.unwrap();
+		assert!(header.starts_with("post /channels/2/messages http/1.1\r\n"));
+		// base64 of {"location":"forwarding"}
+		assert!(header.contains("x-context-properties: eyjsb2nhdglvbii6imzvcndhcmrpbmcifq==\r\n"));
+		assert_eq!(
+			body,
+			serde_json::json!({
+				"mobile_network_type": "unknown", "content": "", "nonce": "forward", "tts": false,
+				"flags": 0,
+				"message_reference": {"type": 1, "channel_id": "3", "message_id": "4", "guild_id": "5"},
+				"allowed_mentions": {"parse": [], "replied_user": false},
+			})
+		);
+	}
 	/// A message Discord rate-limits is resent with its nonce after the wait, not failed.
 	#[tokio::test]
 	async fn rate_limited_sends_wait_and_resend_with_the_same_nonce() {
@@ -3581,18 +3989,60 @@ mod tests {
 		assert_eq!(server.await.unwrap(), [true, true]);
 	}
 	#[tokio::test]
+	async fn oversized_blocks_stop_before_capacity_can_hide_them() {
+		for (status, kind, chunked) in [
+			("403 Forbidden", "text/html", false),
+			("429 Too Many Requests", "application/json", false),
+			("429 Too Many Requests", "application/json", true),
+		] {
+			let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+			let mut api = DiscordApi::new(Arc::new(
+				SessionSecret::from_owner_input("SYNTHETIC_SECRET_MARKER".into()).unwrap(),
+			))
+			.unwrap();
+			api.base = format!("http://{}", listener.local_addr().unwrap());
+			let server = tokio::spawn(async move {
+				let (mut socket, _) = listener.accept().await.unwrap();
+				let mut request = [0; 4096];
+				assert!(socket.read(&mut request).await.unwrap() > 0);
+				let framing = if chunked {
+					"Transfer-Encoding: chunked".to_owned()
+				} else {
+					"Content-Length: 256".to_owned()
+				};
+				let body = if chunked {
+					format!("100\r\n{}\r\n0\r\n\r\n", "x".repeat(256))
+				} else {
+					"x".repeat(256)
+				};
+				let response = format!(
+					"HTTP/1.1 {status}\r\nContent-Type: {kind}\r\n{framing}\r\nConnection: close\r\n\r\n{body}"
+				);
+				let _ = socket.write_all(response.as_bytes()).await;
+			});
+			assert_eq!(
+				api.request_with_content(
+					Method::POST,
+					"/channels/1/typing",
+					None,
+					8,
+					Extras::default()
+				)
+				.await,
+				Err(Failure::ServiceBlocked)
+			);
+			assert_eq!(api.stop_reason(), Some(Failure::ServiceBlocked));
+			server.await.unwrap();
+		}
+	}
+
+	#[tokio::test]
 	async fn local_http_checks_redirect_expiry_rate_limits_and_response_cap() {
+		async fn read(api: &DiscordApi) -> Result<Vec<u8>, Failure> {
+			api.request(Method::GET, "/users/@me", None).await
+		}
 		for (status, body, expected) in [
-			(
-				"302 Found",
-				"",
-				Failure::ProtocolAt("Account verification: HTTP response rejected"),
-			),
-			(
-				"200 OK",
-				"{\"synthetic_private_field\":\"must-not-appear-in-error\"}",
-				Failure::ProtocolAt("Account verification: user response format unsupported"),
-			),
+			("302 Found", "", Failure::Protocol),
 			("401 Unauthorized", "{}", Failure::Expired),
 			(
 				"403 Forbidden",
@@ -3619,7 +4069,7 @@ mod tests {
 			))
 			.unwrap();
 			api.base = format!("http://{address}");
-			assert_eq!(api.current_user().await.map(|_| ()).unwrap_err(), expected);
+			assert_eq!(read(&api).await.unwrap_err(), expected);
 			if expected.ends_session() {
 				assert!(api.stopped());
 			}
@@ -3652,10 +4102,7 @@ mod tests {
 			))
 			.unwrap();
 			api.base = format!("http://{address}");
-			assert_eq!(
-				api.current_user().await.map(|_| ()).unwrap_err(),
-				Failure::RateLimited
-			);
+			assert_eq!(read(&api).await.unwrap_err(), Failure::RateLimited);
 			assert!(!api.stopped());
 			task.await.unwrap();
 		}
@@ -3668,7 +4115,7 @@ mod tests {
 						"429 Too Many Requests",
 						r#"{"retry_after":0.05,"global":true}"#,
 					),
-					("200 OK", r#"{"id":"42","username":"synthetic"}"#),
+					("200 OK", r#"{"id":"42"}"#),
 				] {
 					let (mut socket, _) = listener.accept().await.unwrap();
 					let mut buffer = [0; 4096];
@@ -3684,63 +4131,74 @@ mod tests {
 			))
 			.unwrap();
 			api.base = format!("http://{address}");
-			assert_eq!(api.current_user().await.unwrap().id, Id(42));
+			assert_eq!(read(&api).await.unwrap(), br#"{"id":"42"}"#);
 			task.await.unwrap();
 		}
-		{
-			// A Cloudflare block page moves reads to the test host for the rest of the process,
-			// and a block page there fails with a cooldown instead of another retry.
-			fn page(status: &str, content_type: &str, body: &str) -> String {
-				format!(
-					"HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-					body.len()
-				)
-			}
-			let blocked = page("429 Too Many Requests", "text/html", "<html>blocked</html>");
-			let user = page(
-				"200 OK",
-				"application/json",
-				r#"{"id":"42","username":"synthetic"}"#,
-			);
-			let serve = |listener: TcpListener, responses: Vec<String>| {
-				tokio::spawn(async move {
-					for response in responses {
-						let (mut socket, _) = listener.accept().await.unwrap();
-						let mut request = Vec::new();
-						while !request.windows(4).any(|w| w == b"\r\n\r\n") {
-							let mut bytes = [0; 1024];
-							let n = socket.read(&mut bytes).await.unwrap();
-							assert!(n > 0 && request.len() < 4096);
-							request.extend_from_slice(&bytes[..n]);
-						}
-						assert!(request.starts_with(b"GET /users/@me HTTP/1.1\r\n"));
-						socket.write_all(response.as_bytes()).await.unwrap();
-					}
-				})
-			};
-			let stable = TcpListener::bind("127.0.0.1:0").await.unwrap();
-			let test = TcpListener::bind("127.0.0.1:0").await.unwrap();
+		for (status, content_type, block_body) in [
+			("429 Too Many Requests", "text/html", "<html>blocked</html>"),
+			("429 Too Many Requests", "application/json", "{}"),
+			("403 Forbidden", "text/html", "<html>blocked</html>"),
+			("403 Forbidden", "application/json", r#"{"code":40333}"#),
+		] {
+			// A Cloudflare block page (an HTML 429) is waited out on the same host: one request,
+			// no immediate retry, and the next call sends nothing while the cooldown runs.
+			let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+			let address = listener.local_addr().unwrap();
+			let (seen, mut requests) = tokio::sync::mpsc::unbounded_channel();
+			let server = tokio::spawn(async move {
+				loop {
+					let (mut socket, _) = listener.accept().await.unwrap();
+					let mut buffer = [0; 4096];
+					let _ = socket.read(&mut buffer).await.unwrap();
+					seen.send(()).unwrap();
+					let body = block_body;
+					socket
+						.write_all(
+							format!(
+								"HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+								body.len()
+							)
+							.as_bytes(),
+						)
+						.await
+						.unwrap();
+				}
+			});
 			let mut api = DiscordApi::new(Arc::new(
 				SessionSecret::from_owner_input("SYNTHETIC_SECRET_MARKER".into()).unwrap(),
 			))
 			.unwrap();
-			api.base = format!("http://{}", stable.local_addr().unwrap());
-			api.test_host = Some((
-				format!("http://{}", test.local_addr().unwrap()),
-				AtomicBool::new(false),
+			api.base = format!("http://{address}");
+			let event = tokio::time::timeout(
+				Duration::from_secs(2),
+				api.execute_write(
+					Command::Send {
+						sticker: None,
+						channel: model::Id(2),
+						content: "synthetic".into(),
+						nonce: "blocked".into(),
+						reply: None,
+					},
+					|_| panic!("block page reached automatic resend"),
+				),
+			)
+			.await
+			.unwrap();
+			assert!(matches!(
+				event,
+				Event::SendResult {
+					result: Err(Failure::ServiceBlocked),
+					..
+				}
 			));
-			let stable = serve(stable, vec![blocked.clone()]);
-			let test = serve(test, vec![user.clone(), user, blocked]);
-			assert_eq!(api.current_user().await.unwrap().id, Id(42));
-			stable.await.unwrap();
-			assert_eq!(api.current_user().await.unwrap().id, Id(42));
-			assert_eq!(
-				api.current_user().await.map(|_| ()).unwrap_err(),
-				Failure::RateLimited
-			);
 			assert!(*api.cooldown.lock().await > Instant::now() + Duration::from_secs(30));
-			assert!(!api.stopped());
-			test.await.unwrap();
+			assert!(api.stopped());
+			assert_eq!(api.stop_reason(), Some(Failure::ServiceBlocked));
+			// The second read fails locally, without releasing queued traffic.
+			assert_eq!(read(&api).await, Err(Failure::ServiceBlocked));
+			server.abort();
+			assert!(requests.recv().await.is_some());
+			assert!(requests.recv().await.is_none(), "a block page was retried");
 		}
 		assert!(safe_delay(Some(f64::NAN)).is_err());
 		assert!(safe_delay(Some(-1.0)).is_err());

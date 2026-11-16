@@ -1,7 +1,7 @@
 use crate::{DiscordApi, Failure};
 use client_core::user_actions::Action;
-use reqwest::Method;
 use serde_json::json;
+use wreq::Method;
 
 impl DiscordApi {
 	/// Opens one DM; a service captcha is reported through `challenge` for the user to solve.

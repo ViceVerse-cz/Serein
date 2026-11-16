@@ -41,8 +41,8 @@ pub(crate) fn covering_edge(physical: f32, edges: &[u32]) -> u32 {
 }
 
 pub(crate) fn downscale(image: &ColorImage, edge: u32) -> ColorImage {
-	let width = image.size[0] as u32;
-	let height = image.size[1] as u32;
+	let width = image.resolution()[0] as u32;
+	let height = image.resolution()[1] as u32;
 	let longest = width.max(height);
 	if edge == 0 || longest <= edge {
 		return image.clone();
@@ -60,18 +60,21 @@ pub(crate) fn downscale_filter(
 	edge: u32,
 	filter: image::imageops::FilterType,
 ) -> ColorImage {
-	let width = image.size[0] as u32;
-	let height = image.size[1] as u32;
+	let width = image.resolution()[0] as u32;
+	let height = image.resolution()[1] as u32;
 	let longest = width.max(height);
-	if edge == 0 || longest <= edge || image.pixels.len() != image.size[0] * image.size[1] {
+	if edge == 0
+		|| longest <= edge
+		|| image.pixels().len() != image.resolution()[0] * image.resolution()[1]
+	{
 		return image.clone();
 	}
 	let nw = ((u64::from(width) * u64::from(edge) + u64::from(longest) / 2) / u64::from(longest))
 		.max(1) as u32;
 	let nh = ((u64::from(height) * u64::from(edge) + u64::from(longest) / 2) / u64::from(longest))
 		.max(1) as u32;
-	let mut raw = Vec::with_capacity(image.pixels.len() * 4);
-	for pixel in &image.pixels {
+	let mut raw = Vec::with_capacity(image.pixels().len() * 4);
+	for pixel in image.pixels() {
 		raw.extend(pixel.to_array());
 	}
 	let Some(buffer) = image::RgbaImage::from_raw(width, height, raw) else {

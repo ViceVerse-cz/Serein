@@ -62,7 +62,8 @@ mod tests {
 					let body: serde_json::Value = serde_json::from_slice(&bytes[end..end + length]).unwrap();
 					let message = if forum { &body["message"] } else { &body };
 					assert_eq!(message["content"], expected);
-					assert_eq!(message["flags"].as_u64(), silent.then_some(4096));
+					// A message always states its flags, like the web client; a forum starter does not.
+					assert_eq!(message["flags"].as_u64(), if silent { Some(4096) } else { (!forum).then_some(0) });
 					assert_eq!(message.get("attachments").is_some(), attachments);
 					assert_eq!(message.get("sticker_ids").is_some(), sticker);
 					if expected.contains("<@7>") {

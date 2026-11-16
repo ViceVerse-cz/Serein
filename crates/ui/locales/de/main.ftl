@@ -69,6 +69,11 @@ general-gpu-restart = Wird beim nächsten Start von Serein wirksam.
 general-gpu-current-prefix = Zeichne derzeit mit
 general-steady-refresh-rate = Konstante Bildwiederholrate
 general-steady-refresh-rate-description = Solange Serein das aktive Fenster ist, wird mit der Bildwiederholrate des Displays gezeichnet, sodass Displays mit variabler Bildwiederholrate (VRR, G-SYNC, FreeSync) eine Rate halten können, statt zu flackern. Verbraucht mehr Energie.
+steady-refresh-prompt-title = G-SYNC-Display erkannt
+steady-refresh-prompt-body = Serein zeichnet nur neu, wenn sich etwas ändert. Dadurch kann ein G-SYNC-Display flackern, solange Serein das aktive Fenster ist. Die konstante Bildwiederholrate verhindert das, indem mit der Bildwiederholrate des Displays gezeichnet wird, verbraucht aber mehr Energie. Einschalten?
+steady-refresh-prompt-turn-on = Einschalten
+steady-refresh-prompt-keep-off = Nein danke
+steady-refresh-prompt-settings = Das lässt sich später in den Einstellungen unter { $page } > { $group } ändern.
 gpu-automatic = Automatisch
 gpu-high-performance = Hohe Leistung
 gpu-power-saving = Energiesparend
@@ -402,6 +407,15 @@ message-request-title = Nachrichtenanfrage
 ## crates/ui/src/channel_menu.rs
 # Context: context
 channel-menu-context-add-to-favorites = Zu Favoriten hinzufügen
+channel-menu-context-remove-from-channel-list = Aus Kanalliste entfernen
+channel-menu-context-add-to-channel-list = Zur Kanalliste hinzufügen
+channel-browser-title = Kanäle durchsuchen
+channel-browser-subtitle = Wähle aus, welche Kanäle in deiner Kanalliste erscheinen.
+channel-browser-show-all-channels = Alle Kanäle anzeigen
+channel-browser-search = Kanäle suchen
+channel-browser-follow-category = Kategorie folgen
+channel-browser-saving = Wird gespeichert …
+channel-browser-unavailable = Die Kanallisten-Einstellungen sind gerade nicht verfügbar.
 # Context: context
 channel-menu-context-copy-channel-id = Kanal-ID kopieren
 # Context: context
@@ -2408,8 +2422,6 @@ search-pane-hide-matching-text-highlight = Hervorhebung des passenden Textes aus
 # Context: pane
 search-pane-indexing-is-incomplete-results-may-be-missing = Die Indizierung ist unvollständig; Möglicherweise fehlen Ergebnisse.
 # Context: pane
-search-pane-looking-for-matching-messages = Auf der Suche nach passenden Nachrichten.
-# Context: pane
 search-pane-messages-are-unavailable-while-disconnected-or-without-channel-access = Bei getrennter Verbindung oder ohne Kanalzugriff sind Nachrichten nicht verfügbar.
 # Context: pane
 search-pane-newest-first = Das Neueste zuerst
@@ -3529,9 +3541,6 @@ settings-storage-page-removes-cached-messages-and-media-drafts-and-your-login-st
 settings-storage-page-serein-does-not-collect-telemetry-or-upload-diagnostics-discord-retains = Serein erfasst keine Telemetriedaten und lädt keine Diagnosedaten hoch. Discord speichert dienstseitige Daten gemäß seinen eigenen Richtlinien.
 # Context: storage_page
 settings-storage-page-your-privacy = Ihre Privatsphäre
-settings-storage-page-saved-login = Gespeicherte Anmeldung
-settings-storage-page-plaintext-login = Anmeldung im Klartext ohne Schlüsselbund speichern
-settings-storage-page-plaintext-login-description = Wird nur verwendet, wenn kein Schlüsselbund des Betriebssystems (GNOME Keyring, KWallet, Keychain oder Credential Manager) funktioniert. Das Token wird unverschlüsselt in einer privaten Datei im Serein-Datenordner gespeichert, wo jeder mit Zugriff auf Ihr Benutzerkonto es lesen kann. Durch Deaktivieren werden diese Dateien gelöscht.
 # Context: cosmetic_settings
 settings-cosmetics = Profil-Kosmetik
 # Context: cosmetic_settings
@@ -3602,6 +3611,8 @@ slash-commands-composer-choose-a-different-command = Wählen Sie einen anderen B
 slash-commands-composer-command-unavailable-your-arguments-are-kept = Befehl nicht verfügbar. Ihre Argumente bleiben erhalten.
 # Context: footer
 slash-commands-footer-refresh-application-commands = Anwendungsbefehle aktualisieren
+# Context: list
+slash-commands-list-loading-application-commands = Anwendungsbefehle werden geladen…
 
 ## crates/ui/src/stickers.rs
 # Context: message
@@ -3928,6 +3939,8 @@ timeline-show-with-scroll-loading-messages = Nachrichten werden geladen…
 # Context: show_with_scroll
 timeline-show-with-scroll-message-deleted = Nachricht gelöscht
 # Context: show_with_scroll
+timeline-show-with-scroll-message-blocked = Blockierte Nachricht
+# Context: show_with_scroll
 timeline-show-with-scroll-message-history-is-unavailable-with-current-permission-information = Der Nachrichtenverlauf ist mit den aktuellen Berechtigungsinformationen nicht verfügbar.
 # Context: show_with_scroll
 timeline-show-with-scroll-no-messages-yet-start-the-conversation-below = Noch keine Nachrichten. Beginnen Sie das Gespräch unten.
@@ -4099,6 +4112,10 @@ verification-show-one-quick-check = Eine kurze Überprüfung
 verification-show-verification-required = Verifizierung erforderlich
 # Context: show
 verification-show-verify = Verifizieren
+# Context: show
+verification-show-safer-in-the-official-discord-app = Es ist sicherer, diese Prüfung in der offiziellen Discord-App abzuschließen. Nach einer in Serein gelösten Prüfung kann Discord neuere Konten zur Bestätigung einer Telefonnummer auffordern.
+# Context: show
+verification-show-open-discord = Discord öffnen
 
 ## crates/ui/src/video.rs
 # Context: show_player
@@ -4516,6 +4533,8 @@ voice-recipient-ringing = Klingelt…
 voice-recipient-not-in-call = Nicht im Anruf
 reconnect-now = Jetzt neu verbinden
 
+message-preview-limit = Diese Nachricht überschreitet das Limit für das native Textlayout.
+
 voice-call-moved-to-another-client = Die Anrufsitzung dieses Geräts wurde ersetzt
 
 server-settings-page-safety = Sicherheitseinstellungen
@@ -4615,6 +4634,11 @@ profiles-board-empty = No games on this board yet.
 profiles-board-show-more = Show more
 profiles-board-show-less = Show less
 profiles-activity-empty = Keine geteilte Aktivität.
+profiles-in-voice-server = in { $server }
+profiles-in-voice-join = Beitreten
+profiles-in-voice-joined = Sie sind bereits in diesem Sprachkanal.
+profiles-in-voice-failed = Schließen Sie zuerst den fehlgeschlagenen Anruf und treten Sie dann erneut bei.
+profiles-in-voice-unavailable = Sie können diesem Sprachkanal gerade nicht beitreten.
 profiles-mutuals-empty = Nothing to show here.
 
 reading-double-click-reaction = Double-click reaction
@@ -4894,3 +4918,33 @@ new-message-hint = Fügen Sie Freunde hinzu, um eine Direktnachricht oder eine G
 new-message-no-people-found = Niemand entspricht dieser Suche.
 new-message-create = Nachricht erstellen
 new-message-cancel = Abbrechen
+# Context: moderation
+moderation-menu-timeout = Timeout für { $name }
+# Context: moderation
+moderation-menu-kick = { $name } kicken
+# Context: moderation
+moderation-menu-ban = { $name } bannen
+# Context: moderation
+moderation-timeout-detail = Bis zum Ende des Timeouts kann das Mitglied keine Nachrichten senden, nicht reagieren und keinen Sprachkanälen beitreten.
+# Context: moderation
+moderation-kick-detail = Mit einer neuen Einladung kann das Mitglied wieder beitreten.
+# Context: moderation
+moderation-ban-detail = Das Mitglied kann erst wieder beitreten, wenn der Bann aufgehoben wird.
+# Context: moderation
+moderation-duration-60-seconds = 60 Sekunden
+# Context: moderation
+moderation-remove-timeout = Timeout aufheben
+# Context: moderation
+moderation-delete-history = Nachrichtenverlauf löschen
+# Context: moderation
+moderation-delete-none = Nichts löschen
+# Context: moderation
+moderation-delete-hour = Letzte Stunde
+# Context: moderation
+moderation-delete-day = Letzte 24 Stunden
+# Context: moderation
+moderation-delete-week = Letzte 7 Tage
+# Context: moderation
+moderation-confirm-timeout = Timeout
+# Context: moderation
+moderation-confirm-ban = Bannen

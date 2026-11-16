@@ -1681,6 +1681,7 @@ mod tests {
 				..State::default()
 			};
 			state.channels.push(model::Channel {
+				user_limit: None,
 				last_message: None,
 				id: Id(1),
 				guild,
@@ -1977,6 +1978,7 @@ mod tests {
 
 	fn channel(id: u64, guild: Option<Id>, kind: u8, name: &str) -> Channel {
 		Channel {
+			user_limit: None,
 			id: Id(id),
 			guild,
 			kind,

@@ -107,6 +107,7 @@ impl<'a> Roster<'a> {
 			if let Some(&(index, position)) = rank.get(&channel.id)
 				&& scope.admits(channel, state)
 				&& (show_hidden || state.can_view(channel.id))
+				&& state.channel_listed(channel)
 			{
 				buckets[index].push((position, channel));
 			}

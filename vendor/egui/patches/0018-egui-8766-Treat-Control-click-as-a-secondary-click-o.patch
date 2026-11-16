@@ -1,0 +1,180 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: x <x@x>
+Date: Mon, 9 Nov 2026 13:03:23 +0100
+Subject: [PATCH] egui#8766: Treat Control-click as a secondary click on macOS
+
+Squashed from https://github.com/emilk/egui/pull/8766 at f3abe4b0b9d2.
+---
+ crates/egui/src/context.rs         |  7 +++++
+ crates/egui/src/input_state/mod.rs | 33 ++++++++++++++++++++
+ crates/egui/src/response.rs        |  3 +-
+ crates/egui_kittest/tests/popup.rs | 49 +++++++++++++++++++++++++++++-
+ 4 files changed, 90 insertions(+), 2 deletions(-)
+
+diff --git a/crates/egui/src/context.rs b/crates/egui/src/context.rs
+index 123e2f050..05a4641fa 100644
+--- a/crates/egui/src/context.rs
++++ b/crates/egui/src/context.rs
+@@ -501,6 +501,13 @@ impl ContextImpl {
+ 
+         self.memory.begin_pass(&new_raw_input, &all_viewport_ids);
+ 
++        if self.os == OperatingSystem::Mac {
++            viewport
++                .input
++                .pointer
++                .ctrl_click_to_secondary(&mut new_raw_input.events);
++        }
++
+         viewport.input = core::mem::take(&mut viewport.input).begin_pass(
+             new_raw_input,
+             viewport.repaint.requested_immediate_repaint_prev_pass(),
+diff --git a/crates/egui/src/input_state/mod.rs b/crates/egui/src/input_state/mod.rs
+index 197318981..a47d6bf4f 100644
+--- a/crates/egui/src/input_state/mod.rs
++++ b/crates/egui/src/input_state/mod.rs
+@@ -1105,6 +1105,11 @@ pub struct PointerState {
+     ///
+     /// This gets copied from `egui::Options` at the start of each frame for convenience.
+     options: InputOptions,
++
++    /// Was the current primary press a Control-click, which on Mac is a secondary click?
++    /// Remembered so its release is secondary too, even if Control is let go first.
++    #[cfg_attr(feature = "serde", serde(skip))]
++    primary_is_ctrl_click: bool,
+ }
+ 
+ impl Default for PointerState {
+@@ -1130,11 +1135,37 @@ impl Default for PointerState {
+             last_move_time: f64::NEG_INFINITY,
+             pointer_events: vec![],
+             options: Default::default(),
++            primary_is_ctrl_click: false,
+         }
+     }
+ }
+ 
+ impl PointerState {
++
++    /// On Mac, Control-click is the standard secondary click (e.g. with a one-button mouse),
++    /// so this turns primary presses made with Control held, and their releases, into secondary ones.
++    pub(crate) fn ctrl_click_to_secondary(&mut self, events: &mut [Event]) {
++        for event in events {
++            if let Event::PointerButton {
++                button: button @ PointerButton::Primary,
++                pressed,
++                modifiers,
++                ..
++            } = event
++            {
++                if *pressed {
++                    self.primary_is_ctrl_click = modifiers.ctrl;
++                }
++                if self.primary_is_ctrl_click {
++                    *button = PointerButton::Secondary;
++                }
++                if !*pressed {
++                    self.primary_is_ctrl_click = false;
++                }
++            }
++        }
++    }
++
+     #[must_use]
+     pub(crate) fn begin_pass(mut self, time: f64, new: &RawInput, options: InputOptions) -> Self {
+         let was_decidedly_dragging = self.is_decidedly_dragging();
+@@ -1737,6 +1768,7 @@ impl PointerState {
+             pointer_events,
+             last_move_time,
+             options: _,
++            primary_is_ctrl_click,
+         } = self;
+ 
+         ui.label(format!("latest_pos: {latest_pos:?}"));
+@@ -1763,5 +1795,6 @@ impl PointerState {
+         ui.label(format!("last_last_click_time: {last_last_click_time:#?}"));
+         ui.label(format!("last_move_time: {last_move_time:#?}"));
+         ui.label(format!("pointer_events: {pointer_events:?}"));
++        ui.label(format!("primary_is_ctrl_click: {primary_is_ctrl_click}"));
+     }
+ }
+diff --git a/crates/egui/src/response.rs b/crates/egui/src/response.rs
+index 5948f2134..c3c81bfdb 100644
+--- a/crates/egui/src/response.rs
++++ b/crates/egui/src/response.rs
+@@ -210,7 +210,8 @@ impl Response {
+     /// Note that the widget must be sensing clicks with [`Sense::click`].
+     /// [`crate::Button`] senses clicks; [`crate::Label`] does not (unless you call [`crate::Label::sense`]).
+     ///
+-    /// This also returns true if the widget was pressed-and-held on a touch screen.
++    /// This also returns true if the widget was pressed-and-held on a touch screen,
++    /// or Control-clicked on Mac.
+     #[inline]
+     pub fn secondary_clicked(&self) -> bool {
+         self.flags.contains(Flags::LONG_TOUCHED) || self.clicked_by(PointerButton::Secondary)
+diff --git a/crates/egui_kittest/tests/popup.rs b/crates/egui_kittest/tests/popup.rs
+index 7452ed5a5..45df6f2d0 100644
+--- a/crates/egui_kittest/tests/popup.rs
++++ b/crates/egui_kittest/tests/popup.rs
+@@ -1,6 +1,6 @@
+ use egui::{
+     Align, Layout, Modifiers, PointerButton, Popup, PopupCloseBehavior, Pos2, Sense,
+-    SetOpenCommand, Vec2,
++    SetOpenCommand, Vec2, os::OperatingSystem,
+ };
+ use egui_kittest::Harness;
+ use kittest::Queryable as _;
+@@ -262,6 +262,53 @@ fn popup_opened_on_press_stays_open_after_release() {
+     }
+ }
+ 
++/// On Mac, Control-click is a secondary click, so it opens context menus.
++#[test]
++fn ctrl_click_opens_context_menu_on_mac() {
++    const TARGET: &str = "Control-click me";
++    const MENU_ITEM: &str = "Menu item";
++
++    for (os, modifiers, opens) in [
++        (OperatingSystem::Mac, Modifiers::CTRL, true),
++        (OperatingSystem::Mac, Modifiers::NONE, false),
++        (OperatingSystem::Windows, Modifiers::CTRL, false),
++    ] {
++        let mut harness = harness_builder().with_os(os).build_ui(|ui| {
++            ui.add(egui::Label::new(TARGET).sense(Sense::click()))
++                .context_menu(|ui| {
++                    ui.label(MENU_ITEM);
++                });
++        });
++        harness.run();
++        let pos = harness.get_by_label(TARGET).rect().center();
++
++        // Press with Control held, then let go of Control before releasing, like a real user.
++        harness.event(egui::Event::PointerMoved(pos));
++        harness.event(egui::Event::ModifiersChanged(modifiers));
++        harness.event(egui::Event::PointerButton {
++            pos,
++            button: PointerButton::Primary,
++            pressed: true,
++            modifiers,
++        });
++        harness.run_steps(3);
++        harness.event(egui::Event::ModifiersChanged(Modifiers::NONE));
++        harness.event(egui::Event::PointerButton {
++            pos,
++            button: PointerButton::Primary,
++            pressed: false,
++            modifiers: Modifiers::NONE,
++        });
++        harness.run();
++
++        assert_eq!(
++            harness.query_by_label(MENU_ITEM).is_some(),
++            opens,
++            "{os:?} with {modifiers:?}"
++        );
++    }
++}
++
+ /// Clicking an item inside a [`PopupCloseBehavior::CloseOnClick`] popup should register the click
+ /// *and* close the popup, also when press and release happen in different frames.
+ #[test]

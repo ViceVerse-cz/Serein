@@ -6,10 +6,9 @@
 //! are built individually, so a machine without the plugin fails at construction and the
 //! caller keeps openh264.
 //!
-//! Every picture is coded as an IDR, matching the software encoder: the camera sender drops to
-//! the latest frame, so inter prediction would freeze a receiver until the next refresh. The
-//! keyframe interval is only a request, so each returned access unit is checked and a backend
-//! that ignores it is rejected.
+//! Pictures are predicted between periodic IDRs. A caller that needs a fresh one (a receiver
+//! or the sender lost a picture) asks for it with a force-key-unit event serialized ahead of
+//! the next picture; the caller classifies each returned access unit itself.
 //!
 //! Property names and types differ between these elements and across their versions, so every
 //! property is matched against its own `ParamSpec` before being set. Setting one blindly, or
@@ -62,8 +61,16 @@ impl Encoder {
 	fn assemble(config: Config, encoder: gst::Element) -> Result<Self, &'static str> {
 		// Both spellings of each knob are offered; only the ones this element declares apply.
 		set_number(&encoder, "bitrate", i64::from(config.bit_rate / 1000));
-		set_number(&encoder, "key-int-max", 1);
-		set_number(&encoder, "gop-size", 1);
+		set_number(
+			&encoder,
+			"key-int-max",
+			i64::from(super::keyframe_interval(config.fps)),
+		);
+		set_number(
+			&encoder,
+			"gop-size",
+			i64::from(super::keyframe_interval(config.fps)),
+		);
 		set_number(&encoder, "b-frames", 0);
 		set_number(&encoder, "bframes", 0);
 		set_number(&encoder, "rc-lookahead", 0);
@@ -115,7 +122,7 @@ impl Encoder {
 
 		let convert = make("videoconvert")?;
 		let parse = make("h264parse")?;
-		// Repeat the parameter sets on every access unit so each picture decodes alone.
+		// Repeat the parameter sets with every IDR so each keyframe restarts a receiver alone.
 		set_number(&parse, "config-interval", -1);
 
 		let pipeline = gst::Pipeline::new();
@@ -143,8 +150,12 @@ impl Encoder {
 	}
 
 	/// Pushes one packed RGB picture and returns the next finished access unit, or `None` while
-	/// the encoder has not produced one yet.
-	pub(super) fn encode(&mut self, rgb: &[u8]) -> Result<Option<Vec<u8>>, &'static str> {
+	/// the encoder has not produced one yet. `keyframe` makes this picture an IDR.
+	pub(super) fn encode(
+		&mut self,
+		rgb: &[u8],
+		keyframe: bool,
+	) -> Result<Option<Vec<u8>>, &'static str> {
 		let expected = (self.config.width as usize)
 			.checked_mul(self.config.height as usize)
 			.and_then(|pixels| pixels.checked_mul(3))
@@ -158,6 +169,16 @@ impl Encoder {
 			return Err(FAILED);
 		}
 		self.pictures += 1;
+		// appsrc queues serialized events in order with its buffers, so this lands on this
+		// picture rather than whichever one the streaming thread is handling.
+		if keyframe
+			&& !self.source.send_event(
+				gstreamer_video::DownstreamForceKeyUnitEvent::builder()
+					.all_headers(true)
+					.build(),
+			) {
+			return Err(FAILED);
+		}
 		let mut buffer = gst::Buffer::from_slice(rgb.to_vec());
 		buffer.get_mut().ok_or(FAILED)?.set_offset(self.pictures);
 		self.source.push_buffer(buffer).map_err(|_| FAILED)?;
@@ -186,14 +207,6 @@ impl Encoder {
 		let map = buffer.map_readable().map_err(|_| FAILED)?;
 		let data = map.to_vec();
 		crate::video::validate_source(&data).map_err(|_| FAILED)?;
-		// The stream must stay independently decodable. A delta picture means the element
-		// ignored the requested keyframe interval, so this backend is unusable.
-		if buffer.flags().contains(gst::BufferFlags::DELTA_UNIT)
-			|| !crate::video_receive::is_keyframe(&data)
-			|| !crate::video_receive::has_parameter_sets(&data)
-		{
-			return Err(FAILED);
-		}
 		Ok(Some(data))
 	}
 }
@@ -240,13 +253,14 @@ fn set_flag(element: &gst::Element, name: &str, value: bool) {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use crate::camera::{HEIGHT, WIDTH};
 
 	const CAMERA: Config = Config {
-		width: 640,
-		height: 480,
-		fps: 15,
-		bit_rate: 600_000,
-		max_bytes: 128 * 1024,
+		width: WIDTH as u32,
+		height: HEIGHT as u32,
+		fps: model::voice_settings::CameraFrameRate::Fps30.fps(),
+		bit_rate: crate::camera::BIT_RATE,
+		max_bytes: crate::camera::MAX_ENCODED_BYTES,
 		profile: Profile::Baseline,
 	};
 
@@ -274,28 +288,50 @@ mod tests {
 	}
 
 	#[test]
-	fn rejects_unbounded_pictures_and_stays_independently_decodable() {
+	fn rejects_unbounded_pictures_predicts_and_honours_keyframe_requests() {
 		let Some(mut encoder) = any_encoder() else {
 			return;
 		};
-		for length in [0, 640 * 480 * 3 - 1, 640 * 480 * 3 + 1] {
-			assert!(encoder.encode(&vec![0; length]).is_err());
+		for length in [0, WIDTH * HEIGHT * 3 - 1, WIDTH * HEIGHT * 3 + 1] {
+			assert!(encoder.encode(&vec![0; length], false).is_err());
 		}
-		let mut coded = 0;
-		for value in [0u8, 32, 96, 160, 255, 8, 200, 64] {
-			let mut rgb = vec![value; 640 * 480 * 3];
-			for (index, pixel) in rgb.as_chunks_mut::<3>().0.iter_mut().take(640).enumerate() {
-				*pixel = [(index % 251) as u8, value, (index % 97) as u8];
+		let mut kinds = Vec::new();
+		for index in 0..16u8 {
+			let value = index.wrapping_mul(16);
+			let mut rgb = vec![value; WIDTH * HEIGHT * 3];
+			for (column, pixel) in rgb
+				.as_chunks_mut::<3>()
+				.0
+				.iter_mut()
+				.take(WIDTH)
+				.enumerate()
+			{
+				*pixel = [(column % 251) as u8, value, (column % 97) as u8];
 			}
-			let Some(data) = encoder.encode(&rgb).expect("hardware encode") else {
+			// The first picture and one mid-stream request must come back as IDRs.
+			let Some(data) = encoder
+				.encode(&rgb, index == 0 || index == 8)
+				.expect("hardware encode")
+			else {
 				continue;
 			};
-			coded += 1;
 			assert!(data.len() <= CAMERA.max_bytes);
-			assert!(crate::video_receive::is_keyframe(&data));
-			assert!(crate::video_receive::has_parameter_sets(&data));
+			let keyframe = crate::video_receive::is_keyframe(&data);
+			if keyframe {
+				assert!(crate::video_receive::has_parameter_sets(&data));
+			}
+			kinds.push(keyframe);
 		}
-		assert!(coded > 0, "the pipeline returned no encoded picture");
+		assert_eq!(
+			kinds.first(),
+			Some(&true),
+			"the stream must start with an IDR"
+		);
+		assert!(kinds.iter().filter(|k| **k).count() >= 2, "{kinds:?}");
+		assert!(
+			kinds.iter().any(|k| !k),
+			"pictures were never predicted: {kinds:?}"
+		);
 
 		{
 			assert!(gst::init().is_ok());

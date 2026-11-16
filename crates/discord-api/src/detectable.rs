@@ -2,10 +2,10 @@
 //! names local process detection compares against. No account data is sent or received.
 use crate::rpc::download;
 use model::Id;
-use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tokio::time::Instant;
+use wreq::Client;
 
 /// The published list is a few megabytes of JSON; refuse anything beyond a generous cap.
 const MAX_LIST: usize = 24 * 1024 * 1024;
@@ -225,8 +225,8 @@ fn bound(mut games: Vec<Game>) -> Result<Vec<Game>, &'static str> {
 /// against every entry is quadratic and far too slow to repeat on a timer.
 pub struct Index {
 	names: HashMap<String, (Id, String)>,
-	/// Windows only exposes image names, while Discord's list often stores
-	/// `win64/cs2.exe` or a launcher-relative path. Bare inputs fall back here.
+	/// A Windows process that cannot be queried exposes only its image name, while Discord's
+	/// list often stores `win64/cs2.exe`. Only bare inputs fall back here.
 	basenames: HashMap<String, (Id, String)>,
 	/// Lowercase titles; `None` when several applications share one, so a guess never wins.
 	titles: HashMap<String, Option<Id>>,
@@ -308,12 +308,13 @@ impl Index {
 		{
 			return Some(found);
 		}
-		// Windows `tasklist` supplies only the image name, while the list often
-		// stores `win64/cs2.exe`. Match the basename after full suffix and bundle
-		// checks so a path-aware match still wins.
-		parts
-			.last()
-			.and_then(|basename| self.basenames.get(*basename).cloned())
+		// A process whose path could not be read supplies only the image name, while the
+		// list often stores `win64/cs2.exe`. A known directory that does not match must not
+		// fall back: `GitHub CLI/gh.exe` is not `green hell/gh.exe`.
+		match parts {
+			[basename] => self.basenames.get(*basename).cloned(),
+			_ => None,
+		}
 	}
 }
 
@@ -364,9 +365,14 @@ mod tests {
 		.unwrap();
 		let index = Index::new(&games);
 		assert_eq!(
-			index.find("C:\\Games\\CS2\\cs2.exe").unwrap().1,
+			index
+				.find("C:\\Games\\CS2\\game\\bin\\win64\\cs2.exe")
+				.unwrap()
+				.1,
 			"Counter-Strike 2"
 		);
+		// A known path in another directory is a different program with the same file name.
+		assert!(index.find("C:\\Tools\\cs2.exe").is_none());
 		assert_eq!(index.find("cs2.exe").unwrap().1, "Counter-Strike 2");
 		assert_eq!(index.find("CS2.EXE").unwrap().1, "Counter-Strike 2");
 		assert!(index.find("not-cs2.exe").is_none());

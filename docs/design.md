@@ -132,6 +132,19 @@ pages keep their existing status treatment; pending messages suppress the welcom
 `--features demo -- --demo --demo-empty-channel` previews this state offline;
 `--demo-empty-channel-long` exercises a long Unicode name and `--demo-light` selects light mode.
 
+Loading states are static skeletons from `crates/ui/src/skeleton.rs`: one fill colour (card and
+panel frames and form controls use fixed lighter tints of it, so the data on them stays
+legible), the real headings kept, and one accessible label per region. Action and media spinners
+remain. Avatars, server and group icons, badges, role and app icons, game covers and banners
+show a neutral placeholder while their image downloads, and initials, the generic glyph or the
+fallback colour only once the image failed or stalled for 30 s.
+
+`--demo-loading` leaves every fixture fetch unanswered, so loading states stay on screen; it also
+withholds the synthetic artwork (avatars, icons, badges, covers, banners) and keeps open profile
+cards loading. It combines with the surface flags (e.g. `--demo-pins`, `--demo-gifs`,
+`--demo-server-settings`). `=partial` instead keeps the latest history page and the first People
+rows with their artwork, so only older history and further People rows stay pending.
+
 Channel references and bare Discord message links share one inline pill. The leading icon
 distinguishes text, announcement, voice, thread, forum, forum post, direct and group
 conversations; message links append a chevron and message glyph, or the post name for forum
@@ -163,8 +176,18 @@ Voice follows Discord's call screens: a black stage with 80px participant avatar
 above the conversation) or 16:9 tiles with name badges (guild channels), a bottom control bar
 of dark pills (mute with settings chevron, camera, screen share, activities, soundboard, more)
 and a red hang-up button, a green "In a call" badge in the header, mute/deafen toggles in the
-account card, and a "Voice Connected" panel above it while connected. Camera, screen share,
-activities and soundboard are shown disabled: Serein has no such features.
+account card, and a "Voice Connected" panel above it while connected. While this device's
+screen share is capturing, a live section above "Voice Connected" shows the source, chosen
+height/frame rate and a stop control. Activities and soundboard are shown disabled.
+
+Settings > Chat also offers an original native adaptation of Equicord's `noBlockedMessages`
+behavior (upstream reference `0d4da19faff378b7f62fd7fd31e78499a5e03e5b`, GPL-3.0-or-later), not
+its renderer patches or another restrictions manager. The default-off preference filters visible
+rows from known blocked authors through the existing bounded timeline iterator; a second option
+includes known ignored authors. It covers thread starters and removes the row from virtual-list
+measurement rather than leaving blank space. Unknown relationship state stays visible, retained
+messages are unchanged, and unread/read behavior is not rewritten. Both choices are device-local
+and survive restart; no new endpoint, account list, per-message ID store or server write exists.
 
 ## Verification notes
 

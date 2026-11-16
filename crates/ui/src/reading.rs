@@ -145,6 +145,22 @@ impl MessagingUi {
 			design::card_divider(ui);
 			design::switch(
 				ui,
+				"reading-chat-reading-settings-hide-blocked-messages",
+				Some("reading-chat-reading-settings-hide-blocked-messages-description"),
+				&mut self.hide_blocked_messages,
+			);
+			design::card_divider(ui);
+			ui.add_enabled_ui(self.hide_blocked_messages, |ui| {
+				design::switch(
+					ui,
+					"reading-chat-reading-settings-hide-ignored-messages",
+					Some("reading-chat-reading-settings-hide-ignored-messages-description"),
+					&mut self.hide_ignored_messages,
+				);
+			});
+			design::card_divider(ui);
+			design::switch(
+				ui,
 				"reading-chat-reading-settings-compact-message-spacing",
 				Some("reading-chat-reading-settings-tighter-gaps-between-message-groups"),
 				&mut value.compact_messages,
@@ -219,6 +235,8 @@ impl MessagingUi {
 			let defaults = ReadingPreferences::default();
 			value.animate_gifs = defaults.animate_gifs;
 			value.hide_media_links = defaults.hide_media_links;
+			self.hide_blocked_messages = false;
+			self.hide_ignored_messages = false;
 			value.compact_messages = defaults.compact_messages;
 			value.double_click_reaction_enabled = defaults.double_click_reaction_enabled;
 			value.double_click_reaction = defaults.double_click_reaction;

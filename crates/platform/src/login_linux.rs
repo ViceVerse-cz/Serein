@@ -123,10 +123,8 @@ impl LoginView {
 		session.set_tls_errors_policy(webkit6::TLSErrorsPolicy::Fail);
 		session.connect_download_started(|_, download| download.cancel());
 		let settings = webkit6::Settings::new();
-		// WebKitGTK's default identity is "Safari on Linux", which no real browser presents;
-		// hCaptcha and Discord score it as automation and reject the solved login. Present the
-		// same browser identity as the REST client that will use the session afterwards.
-		settings.set_user_agent(Some(&client_core::fingerprint::user_agent()));
+		// Keep the hosted login on its WebKit identity independently of desktop REST.
+		settings.set_user_agent(Some(&client_core::fingerprint::verification_user_agent()));
 		settings.set_enable_developer_extras(false);
 		settings.set_enable_write_console_messages_to_stdout(false);
 		settings.set_allow_file_access_from_file_urls(false);

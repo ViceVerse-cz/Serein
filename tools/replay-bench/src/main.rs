@@ -91,6 +91,7 @@ fn navigation() {
 	state.channels = channels
 		.into_iter()
 		.map(|id| model::Channel {
+			user_limit: None,
 			id,
 			guild: None,
 			parent_id: None,
@@ -191,6 +192,7 @@ fn hover_navigation() {
 	state.timeline.clear();
 	state.channels = (100..140)
 		.map(|id| model::Channel {
+			user_limit: None,
 			id: Id(id),
 			guild: None,
 			parent_id: None,

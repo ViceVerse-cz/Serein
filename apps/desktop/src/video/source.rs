@@ -30,13 +30,13 @@ pub(super) fn source(
 		if !url.username().is_empty() || url.password().is_some() {
 			return Err(INVALID);
 		}
-		let client = reqwest::Client::builder()
+		let client = wreq::Client::builder()
 			.no_proxy()
 			.no_gzip()
 			.no_brotli()
 			.no_deflate()
 			.no_zstd()
-			.redirect(reqwest::redirect::Policy::none())
+			.redirect(wreq::redirect::Policy::none())
 			.timeout(Duration::from_secs(15))
 			.build()
 			.map_err(|_| INVALID)?;
@@ -71,7 +71,7 @@ pub(super) fn source(
 
 enum Input {
 	Http {
-		client: reqwest::Client,
+		client: wreq::Client,
 		url: url::Url,
 		runtime: Handle,
 	},
@@ -125,31 +125,33 @@ impl Source {
 				}
 			};
 			let transfer = async {
-				let mut response = client
-					.get(url.clone())
-					.header(reqwest::header::ACCEPT_ENCODING, "identity")
-					.header(reqwest::header::RANGE, format!("bytes={start}-{end}"))
-					.send()
-					.await
-					.map_err(|_| invalid())?;
-				if response.status() == reqwest::StatusCode::PARTIAL_CONTENT {
+				let response = client_core::fingerprint::discord_request(
+					client.get(url.as_str()),
+					url.as_str(),
+				)
+				.header(wreq::header::ACCEPT_ENCODING, "identity")
+				.header(wreq::header::RANGE, format!("bytes={start}-{end}"))
+				.send()
+				.await
+				.map_err(|_| invalid())?;
+				if response.status() == wreq::StatusCode::PARTIAL_CONTENT {
 					let range = format!("bytes {start}-{end}/{}", self.len);
 					if response
 						.headers()
-						.get(reqwest::header::CONTENT_RANGE)
+						.get(wreq::header::CONTENT_RANGE)
 						.and_then(|value| value.to_str().ok())
 						!= Some(range.as_str())
 					{
 						return Err(invalid());
 					}
-				} else if !(response.status() == reqwest::StatusCode::OK
+				} else if !(response.status() == wreq::StatusCode::OK
 					&& start == 0 && count == self.len)
 				{
 					return Err(io::Error::new(io::ErrorKind::Unsupported, UNSUPPORTED));
 				}
 				if response
 					.headers()
-					.get(reqwest::header::CONTENT_ENCODING)
+					.get(wreq::header::CONTENT_ENCODING)
 					.is_some_and(|value| value != "identity")
 					|| response
 						.content_length()
@@ -158,7 +160,12 @@ impl Source {
 					return Err(invalid());
 				}
 				let mut bytes = Vec::with_capacity(count);
-				while let Some(chunk) = response.chunk().await.map_err(|_| invalid())? {
+				let mut response_body = std::pin::pin!(response.bytes_stream());
+				while let Some(chunk) = futures_util::StreamExt::next(&mut response_body)
+					.await
+					.transpose()
+					.map_err(|_| invalid())?
+				{
 					if chunk.len() > count - bytes.len() {
 						return Err(invalid());
 					}

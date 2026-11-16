@@ -146,7 +146,8 @@ impl eframe::App for Preview {
 					for y in 0..64 {
 						for x in 0..64 {
 							if (x / 8 + y / 8) % 2 == 0 {
-								image.pixels[y * 64 + x] = egui::Color32::from_rgb(100, 205, 175);
+								image.pixels_mut()[y * 64 + x] =
+									egui::Color32::from_rgb(100, 205, 175);
 							}
 						}
 					}
@@ -193,17 +194,17 @@ impl eframe::App for Preview {
 				let output = self.output.clone();
 				let thumbnail = self.thumbnail;
 				self.writer = Some(std::thread::spawn(move || {
-					if image.size[0] > 4096 || image.size[1] > 4096 {
+					if image.resolution()[0] > 4096 || image.resolution()[1] > 4096 {
 						return Err("Screenshot exceeds the 4096-pixel dimension limit".into());
 					}
 					let pixels: Vec<u8> = image
-						.pixels
+						.pixels()
 						.iter()
 						.flat_map(|pixel| pixel.to_srgba_unmultiplied())
 						.collect();
 					let image = image::RgbaImage::from_raw(
-						image.size[0] as u32,
-						image.size[1] as u32,
+						image.resolution()[0] as u32,
+						image.resolution()[1] as u32,
 						pixels,
 					)
 					.ok_or("Invalid screenshot pixel count")?;
@@ -268,6 +269,52 @@ fn prime_profile(state: &mut client_core::State) {
 			},
 		});
 	}
+}
+
+/// Role ids for the profile-card fixture, in snowflake order rather than hierarchy.
+fn profile_card_role_ids() -> Vec<model::Id> {
+	vec![
+		model::Id(101),
+		model::Id(102),
+		model::Id(103),
+		model::Id(104),
+	]
+}
+
+/// Puts four roles in the catalog in an order that is not top-of-hierarchy first.
+/// Reversing the stored list yields Member, Moderator, Guest, Owner.
+fn install_profile_roles(state: &mut client_core::State) {
+	let mut permissions = test_support::permission_snapshot(state);
+	if let Some(guild) = permissions
+		.guilds
+		.iter_mut()
+		.find(|guild| guild.id == model::Id(10))
+	{
+		let mut roles = guild.roles.clone().unwrap_or_default();
+		roles.truncate(1);
+		let role = |id, position, name: &str, color| model::permissions::Role {
+			id: model::Id(id),
+			name: name.into(),
+			bits: 0,
+			color,
+			secondary_color: None,
+			tertiary_color: None,
+			position,
+			hoist: false,
+			managed: false,
+		};
+		roles.extend([
+			role(104, 9, "Owner", 0xE74C3C),
+			role(101, 1, "Guest", 0x95A5A6),
+			role(103, 6, "Moderator", 0x3498DB),
+			role(102, 2, "Member", 0x2ECC71),
+		]);
+		guild.roles = Some(roles);
+	}
+	state
+		.permissions
+		.replace(permissions)
+		.expect("synthetic profile roles");
 }
 
 /// Opaque external artwork reference; only generated pixels are served in this example.
@@ -1158,6 +1205,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			} else if page == "profile-card" {
 				state.demo = false;
 				state.gateway_connected = true;
+				state.selected = Some(model::Id(20));
+				install_profile_roles(&mut state);
 				let mut user = test_support::message(1, model::Id(20)).author;
 				style_name(&mut user);
 				state.members = Some(model::MemberList {
@@ -1173,7 +1222,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 					slots: vec![Some(model::MemberSlot::Person(model::Member {
 						user: user.clone(),
 						nick: None,
-						roles: vec![],
+						roles: profile_card_role_ids(),
 						status: Some("online".into()),
 						// `--status=` gives the synthetic member a custom status.
 						custom_status: card_status.clone(),
@@ -1186,6 +1235,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 							..Default::default()
 						},
 					}))],
+				});
+				let mut profile = ui::synthetic_own_profile(&user);
+				profile.bio = "Synthetic member used to check role order.".into();
+				profile.board = None;
+				profile.badges.clear();
+				profile.connections.clear();
+				profile.guild = Some(model::GuildProfile {
+					guild: model::Id(10),
+					roles: profile_card_role_ids(),
+					nick: None,
+					avatar: None,
+					banner: None,
+					bio: String::new(),
+					pronouns: String::new(),
+					joined_at: Some("2026-01-01T00:00:00Z".into()),
+				});
+				state.profile = Some(client_core::profile::ProfileView {
+					user: user.id,
+					guild: Some(model::Id(10)),
+					request: 0,
+					loading: false,
+					error: None,
+					data: Some(profile),
 				});
 				// `--private` serves the card a private profile, as Discord sends a non-friend.
 				let guild = Some(model::Id(10));

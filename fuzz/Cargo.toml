@@ -3,7 +3,7 @@ name = "serein-fuzz"
 version = "0.0.0"
 publish = false
 edition = "2024"
-rust-version = "1.98"
+rust-version = "1.99"
 license = "MIT OR Apache-2.0"
 
 [package.metadata]
@@ -16,7 +16,7 @@ members = ["."]
 [dependencies]
 libfuzzer-sys = "=0.4.13"
 discord-protocol = { path = "../crates/discord-protocol" }
-client-core = { path = "../crates/client-core" }
+client-core = { path = "../crates/client-core", default-features = false }
 model = { path = "../crates/model" }
 session-cache = { path = "../crates/session-cache" }
 

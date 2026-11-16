@@ -9,6 +9,22 @@ model.workspace = true
 session-cache.workspace = true
 zeroize.workspace = true
 thiserror.workspace = true
+sys-locale = "=0.3.2"
+iana-time-zone = "=0.1.65"
+wreq = { workspace = true, optional = true }
+wreq-util = { workspace = true, optional = true }
+tokio-tungstenite = { workspace = true, optional = true }
+
+# Rename BoringSSL's symbols so they cannot collide with a system OpenSSL that WebKitGTK,
+# GStreamer or their plugins load into the process. Linux only: btls-sys still renames the
+# bindings on macOS and Windows, where it cannot rename the library, and the link fails.
+[target.'cfg(target_os = "linux")'.dependencies]
+wreq = { workspace = true, optional = true, features = ["prefix-symbols"] }
+
+[features]
+default = ["transport"]
+# Browser handshake and WebSocket dialing; builds BoringSSL.
+transport = ["dep:wreq", "dep:wreq-util", "dep:tokio-tungstenite"]
 
 [lints]
 workspace = true

@@ -149,7 +149,10 @@ impl AuditLogUi {
 		} else {
 			None
 		};
-		if state.server_admin.pending {
+		// With no entries yet (the first load, or a filter change, which clears them) the list
+		// is sketched where it goes; paging and reloads keep this line over the entries.
+		let first_load = state.server_admin.pending && state.server_admin.audit_log.is_none();
+		if state.server_admin.pending && !first_load {
 			ui.horizontal(|ui| {
 				ui.spinner();
 				ui.weak(crate::i18n::translate(
@@ -204,6 +207,8 @@ impl AuditLogUi {
 				query.before = Some(last.id);
 				requested = Some(query);
 			}
+		} else if first_load {
+			pending_entries(ui);
 		}
 		if let Some(query) = requested
 			&& let Some(command) =
@@ -232,7 +237,7 @@ impl AuditLogUi {
 			.and_then(|id| page.entries.iter().position(|entry| entry.id == id));
 		let extra = expanded_index.map_or(0.0, |i| details_height(&page.entries[i]));
 		let width = ui.available_width();
-		let total_height = page.entries.len() as f32 * 80.0 + extra;
+		let total_height = page.entries.len() as f32 * ENTRY_PITCH + extra;
 		egui::ScrollArea::vertical()
 			.id_salt("audit-log-entries")
 			.max_height(height)
@@ -240,12 +245,13 @@ impl AuditLogUi {
 			.show_viewport(ui, |ui, viewport| {
 				ui.set_min_height(total_height);
 				let origin = ui.cursor().min;
-				let first = ((viewport.min.y - extra).max(0.0) / 80.0).floor() as usize;
-				let end = ((viewport.max.y / 80.0).ceil() as usize + 1).min(page.entries.len());
+				let first = ((viewport.min.y - extra).max(0.0) / ENTRY_PITCH).floor() as usize;
+				let end =
+					((viewport.max.y / ENTRY_PITCH).ceil() as usize + 1).min(page.entries.len());
 				for index in first..end {
 					let entry = &page.entries[index];
 					let expanded = expanded_index == Some(index);
-					let y = index as f32 * 80.0
+					let y = index as f32 * ENTRY_PITCH
 						+ if expanded_index.is_some_and(|open| index > open) {
 							extra
 						} else {
@@ -253,7 +259,7 @@ impl AuditLogUi {
 						};
 					let rect = egui::Rect::from_min_size(
 						origin + Vec2::new(0.0, y),
-						Vec2::new(width, 72.0 + if expanded { extra } else { 0.0 }),
+						Vec2::new(width, ENTRY_HEIGHT + if expanded { extra } else { 0.0 }),
 					);
 					if !ui.is_rect_visible(rect) {
 						continue;
@@ -266,10 +272,12 @@ impl AuditLogUi {
 						egui::Stroke::new(1.0, colors.border),
 						egui::StrokeKind::Inside,
 					);
-					let header = egui::Rect::from_min_size(
-						rect.min + Vec2::splat(4.0),
-						Vec2::new(rect.width() - 8.0, 64.0),
-					);
+					let EntryParts {
+						header,
+						kind: kind_rect,
+						avatar,
+						text: text_rect,
+					} = entry_parts(rect);
 					let response = ui.interact(
 						header,
 						ui.scope_id().with(("audit-entry", entry.id)),
@@ -291,19 +299,11 @@ impl AuditLogUi {
 						self.expanded = if expanded { None } else { Some(entry.id) };
 					}
 					response.on_hover_text(&summary);
-					let kind_rect = egui::Rect::from_center_size(
-						egui::pos2(header.left() + 22.0, header.center().y),
-						Vec2::splat(22.0),
-					);
 					icons::paint(
 						ui.painter(),
 						event_icon(entry.action_type),
 						kind_rect,
 						colors.muted,
-					);
-					let avatar = egui::Rect::from_center_size(
-						egui::pos2(header.left() + 60.0, header.center().y),
-						Vec2::splat(36.0),
 					);
 					{
 						let mut child = ui.new_child(
@@ -322,10 +322,6 @@ impl AuditLogUi {
 							icons::paint(ui.painter(), icons::Icon::Profile, avatar, colors.muted);
 						}
 					}
-					let text_rect = egui::Rect::from_min_max(
-						header.min + Vec2::new(88.0, 12.0),
-						header.max - Vec2::new(36.0, 8.0),
-					);
 					{
 						let mut child = ui.new_child(
 							egui::UiBuilder::new()
@@ -383,6 +379,84 @@ impl AuditLogUi {
 				}
 			});
 	}
+}
+/// Distance between entry tops, and the height of a collapsed entry.
+const ENTRY_PITCH: f32 = 80.0;
+const ENTRY_HEIGHT: f32 = 72.0;
+
+/// An entry's clickable header and, inside it, its action icon, actor avatar and text areas.
+struct EntryParts {
+	header: egui::Rect,
+	kind: egui::Rect,
+	avatar: egui::Rect,
+	text: egui::Rect,
+}
+
+fn entry_parts(rect: egui::Rect) -> EntryParts {
+	let header = egui::Rect::from_min_size(
+		rect.min + Vec2::splat(4.0),
+		Vec2::new(rect.width() - 8.0, ENTRY_HEIGHT - 8.0),
+	);
+	let center = |x: f32, side: f32| {
+		egui::Rect::from_center_size(
+			egui::pos2(header.left() + x, header.center().y),
+			Vec2::splat(side),
+		)
+	};
+	EntryParts {
+		header,
+		kind: center(22.0, 22.0),
+		avatar: center(60.0, 36.0),
+		text: egui::Rect::from_min_max(
+			header.min + Vec2::new(88.0, 12.0),
+			header.max - Vec2::new(36.0, 8.0),
+		),
+	}
+}
+
+/// Entry cards while the first page loads, filling the list's height: the action icon, the
+/// actor's avatar slot and the summary and time lines every entry has.
+fn pending_entries(ui: &mut egui::Ui) {
+	use crate::skeleton::{bar, block, circle, outline, width_factor};
+	let height = design::list_height(ui, 0.0);
+	let count = ((height / ENTRY_PITCH).ceil() as usize).min(32);
+	let (summary, time) = ui.fonts_mut(|fonts| {
+		(
+			fonts.row_height(&egui::FontId::new(14.0, design::medium_family(ui.ctx()))),
+			fonts.row_height(&egui::FontId::proportional(12.0)),
+		)
+	});
+	crate::skeleton::custom(
+		ui,
+		&crate::i18n::translate("server-audit-log-show-loading-audit-log"),
+		Vec2::new(ui.available_width(), height),
+		|painter, rect, fill| {
+			for index in 0..count {
+				let card = egui::Rect::from_min_size(
+					rect.min + Vec2::new(0.0, index as f32 * ENTRY_PITCH),
+					Vec2::new(rect.width(), ENTRY_HEIGHT),
+				);
+				let parts = entry_parts(card);
+				outline(painter, fill, card, 8.0);
+				block(painter, fill, parts.kind.shrink(1.0), 5.0);
+				circle(painter, fill, parts.avatar.center(), 18.0);
+				let width = parts.text.width().clamp(0.0, 420.0);
+				// Summary and time lines, one spacing apart.
+				bar(
+					painter,
+					fill,
+					parts.text.min + Vec2::new(0.0, (summary - 12.0) * 0.5),
+					Vec2::new(width * 0.6 * width_factor(index), 12.0),
+				);
+				bar(
+					painter,
+					fill,
+					parts.text.min + Vec2::new(0.0, summary + 1.0 + (time - 10.0) * 0.5),
+					Vec2::new(width.min(140.0), 10.0),
+				);
+			}
+		},
+	);
 }
 fn details_height(entry: &Entry) -> f32 {
 	((entry.changes.len() + entry.options.len() + usize::from(entry.reason.is_some())).max(1)

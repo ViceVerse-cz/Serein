@@ -1,0 +1,272 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: x <x@x>
+Date: Mon, 9 Nov 2026 13:33:43 +0100
+Subject: [PATCH] Serein: render emoji-presentation clusters from a color font
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Fallback picked a face per base char and ignored emoji presentation, so a text font earlier in the chain with a plain glyph (a math font's ♾, a symbol font's 🆕) beat the color emoji font, and the system provider asked text fonts before the emoji family. Clusters with emoji presentation (default, or U+FE0F) now prefer a face with a color glyph, asking the providers for one, and the system provider queries the emoji family first. Text presentation is unchanged. Adds two tiny fixture fonts and a regression test.
+---
+ crates/egui_system_font_provider/src/lib.rs |  17 ++++++-
+ crates/epaint/src/text/family.rs            |  53 ++++++++++++++++++++
+ crates/epaint/src/text/font_face.rs         |  17 +++++++
+ crates/epaint/src/text/font_provider.rs     |  10 ++++
+ crates/epaint/src/text/fonts.rs             |  36 +++++++++++++
+ crates/epaint/src/text/test_fonts/color.ttf | Bin 0 -> 876 bytes
+ crates/epaint/src/text/test_fonts/mono.ttf  | Bin 0 -> 744 bytes
+ 7 files changed, 132 insertions(+), 1 deletion(-)
+ create mode 100644 crates/epaint/src/text/test_fonts/color.ttf
+ create mode 100644 crates/epaint/src/text/test_fonts/mono.ttf
+
+diff --git a/crates/egui_system_font_provider/src/lib.rs b/crates/egui_system_font_provider/src/lib.rs
+index bc3321a80..4a2230fda 100644
+--- a/crates/egui_system_font_provider/src/lib.rs
++++ b/crates/egui_system_font_provider/src/lib.rs
+@@ -115,7 +115,22 @@ impl FontProvider for SystemFontProvider {
+             FontFamily::Proportional | FontFamily::Name(_) => GenericFamily::SansSerif,
+         };
+ 
+-        let font = if let Some(script) = script_of(base_char) {
++        let font = if epaint::text::has_emoji_presentation(cluster) {
++            // An emoji (🆕, ♾️): the color emoji font first, not a text font with a plain glyph.
++            let mut query = collection.query(source_cache);
++            query.set_families(
++                [
++                    GenericFamily::Emoji,
++                    generic,
++                    GenericFamily::SystemUi,
++                    GenericFamily::Math,
++                    GenericFamily::Serif,
++                    GenericFamily::Monospace,
++                ]
++                .map(QueryFamily::Generic),
++            );
++            find_font(&mut query, base_char)
++        } else if let Some(script) = script_of(base_char) {
+             find_font_for_script(
+                 collection,
+                 source_cache,
+diff --git a/crates/epaint/src/text/family.rs b/crates/epaint/src/text/family.rs
+index 3f7d07103..aa8dfa64c 100644
+--- a/crates/epaint/src/text/family.rs
++++ b/crates/epaint/src/text/family.rs
+@@ -32,6 +32,10 @@ pub(crate) struct Family {
+     /// not on variation coordinates).
+     face_cache: ahash::HashMap<char, FontFaceKey>,
+ 
++    /// Like [`Self::face_cache`], for clusters with emoji presentation (🆕, ♾️), which prefer
++    /// a face that draws the char in color over an earlier text-style face.
++    emoji_face_cache: ahash::HashMap<char, FontFaceKey>,
++
+     /// Lazily calculated: every supported char, and the names of the faces that have it.
+     characters: Option<BTreeMap<char, Vec<String>>>,
+ }
+@@ -69,6 +73,7 @@ impl Family {
+             name: name.clone(),
+             chain,
+             face_cache: Default::default(),
++            emoji_face_cache: Default::default(),
+             characters: None,
+         }
+     }
+@@ -114,6 +119,9 @@ impl Family {
+         let Some(base_char) = cluster.chars().next() else {
+             return self.notdef_face();
+         };
++        if super::has_emoji_presentation(cluster) {
++            return self.resolve_emoji(faces, providers, cluster, base_char);
++        }
+         if let Some(font_key) = self.face_cache.get(&base_char) {
+             return *font_key;
+         }
+@@ -147,6 +155,51 @@ impl Family {
+         font_key
+     }
+ 
++    /// Resolve an emoji-presentation cluster: the first face that draws `c` in color,
++    /// asking the providers for one if no installed face does, else the text-style face.
++    ///
++    /// Without this, a text font earlier in the chain with a monochrome glyph for `c`
++    /// (e.g. a math or symbol font with ♾) would win, so ♾️ would render as text.
++    #[cold]
++    fn resolve_emoji(
++        &mut self,
++        faces: &mut FaceStore,
++        providers: &mut FontProviders,
++        cluster: &str,
++        c: char,
++    ) -> FontFaceKey {
++        if let Some(font_key) = self.emoji_face_cache.get(&c) {
++            return *font_key;
++        }
++        let is_color = |faces: &mut FaceStore, key: FontFaceKey| {
++            faces
++                .get_mut(key)
++                .is_some_and(|face| face.has_color_glyph_for(c))
++        };
++        let in_chain = self.chain.iter().copied().find(|&key| is_color(faces, key));
++        let font_key = match in_chain {
++            Some(key) => key,
++            None => match self.discover(faces, providers, cluster) {
++                Some(key) if is_color(faces, key) => key,
++                // The discovered face is in the chain now, so this does not ask again:
++                Some(_) => match self.face_cache.get(&c) {
++                    Some(key) => *key,
++                    None => self.resolve_slow(faces, providers, cluster, c),
++                },
++                // The providers have nothing for `c`. Settle its text resolution from the
++                // installed faces, so they are not asked again for its text presentation.
++                None => {
++                    let notdef = self.notdef_face();
++                    *self.face_cache.entry(c).or_insert_with(|| {
++                        Self::find_face_for_char_in(&self.chain, c, faces).unwrap_or(notdef)
++                    })
++                }
++            },
++        };
++        self.emoji_face_cache.insert(c, font_key);
++        font_key
++    }
++
+     /// The face whose `.notdef` glyph ("tofu") we render for chars no face has.
+     #[inline]
+     fn notdef_face(&self) -> FontFaceKey {
+diff --git a/crates/epaint/src/text/font_face.rs b/crates/epaint/src/text/font_face.rs
+index 3f0374287..994120273 100644
+--- a/crates/epaint/src/text/font_face.rs
++++ b/crates/epaint/src/text/font_face.rs
+@@ -646,6 +646,23 @@ impl FontFace {
+         self.subpixel_binning
+     }
+ 
++    /// Does this face draw `c` with a color glyph, e.g. a color emoji?
++    pub(super) fn has_color_glyph_for(&mut self, c: char) -> bool {
++        core::cfg_select! {
++            feature = "color_fonts" => {
++                matches!(
++                    self.glyph_id_resolution(c),
++                    Some(GlyphIdResolution::Glyph(glyph_id))
++                        if self.font.has_color_glyph(glyph_id, skrifa::instance::Size::unscaled())
++                )
++            }
++            _ => {
++                let _ = c;
++                false
++            }
++        }
++    }
++
+     /// Will this glyph be rendered as a color bitmap or `COLR` glyph, e.g. a color emoji?
+     pub(crate) fn is_color_glyph(&self, metrics: &StyledMetrics, glyph_id: GlyphId) -> bool {
+         core::cfg_select! {
+diff --git a/crates/epaint/src/text/font_provider.rs b/crates/epaint/src/text/font_provider.rs
+index f7dbab5c7..c9221760f 100644
+--- a/crates/epaint/src/text/font_provider.rs
++++ b/crates/epaint/src/text/font_provider.rs
+@@ -284,11 +284,21 @@ mod tests {
+         assert!(!fonts.has_glyph(&FontId::proportional(14.0), HANGUL));
+         assert!(!fonts.has_glyph(&FontId::proportional(14.0), HANGUL));
+         assert!(!fonts.has_glyph(&FontId::monospace(14.0), HANGUL));
++
++        // An emoji is asked for once too, covering its text presentation:
++        let new_button = '\u{1F195}';
++        assert!(!fonts.has_glyph(&FontId::proportional(14.0), new_button));
++        fonts.with_pixels_per_point(1.0).layout_no_wrap(
++            format!("{new_button}\u{FE0E}"),
++            FontId::proportional(14.0),
++            Color32::WHITE,
++        );
+         assert_eq!(
+             *requests.lock(),
+             vec![
+                 (FontFamily::Proportional, HANGUL.to_string()),
+                 (FontFamily::Monospace, HANGUL.to_string()),
++                (FontFamily::Proportional, new_button.to_string()),
+             ]
+         );
+         assert!(fonts.discovered_fonts().is_empty());
+diff --git a/crates/epaint/src/text/fonts.rs b/crates/epaint/src/text/fonts.rs
+index 6142c4c6e..d10392fa8 100644
+--- a/crates/epaint/src/text/fonts.rs
++++ b/crates/epaint/src/text/fonts.rs
+@@ -1017,6 +1017,42 @@ mod tests {
+         }
+     }
+ 
++    /// Emoji presentation (🆕, or ♾ with U+FE0F) prefers a face that draws the char in color,
++    /// even when an earlier face has a plain glyph for it. Text presentation keeps that face.
++    /// The fixtures are minimal fonts covering U+267E and U+1F195, the second with `COLR` glyphs.
++    #[cfg(feature = "color_fonts")]
++    #[test]
++    fn emoji_presentation_prefers_a_color_face() {
++        let mut definitions = FontDefinitions::empty();
++        for (name, data) in [
++            ("mono", include_bytes!("test_fonts/mono.ttf").as_slice()),
++            ("color", include_bytes!("test_fonts/color.ttf").as_slice()),
++        ] {
++            definitions.font_data.insert(
++                name.to_owned(),
++                Arc::new(crate::text::FontData::from_static(data)),
++            );
++            definitions
++                .families
++                .entry(FontFamily::Proportional)
++                .or_default()
++                .push(name.to_owned());
++        }
++        let mut fonts = FontsImpl::new(TextOptions::default(), definitions);
++        let family = fonts.family_key(&FontFamily::Proportional);
++        for (cluster, expected) in [
++            ("\u{267E}", "mono"),
++            ("\u{267E}\u{FE0F}", "color"),
++            ("\u{267E}\u{FE0E}", "mono"),
++            ("\u{1F195}", "color"),
++            ("\u{267E}", "mono"),
++        ] {
++            let key = fonts.resolve_cluster_face(family, cluster);
++            let face = fonts.face(key).map(|face| face.name().to_owned());
++            assert_eq!(face.as_deref(), Some(expected), "{cluster:?}");
++        }
++    }
++
+     #[test]
+     fn test_fallback_glyph_width() {
+         let mut fonts = Fonts::new(TextOptions::default(), FontDefinitions::empty());
+diff --git a/crates/epaint/src/text/test_fonts/color.ttf b/crates/epaint/src/text/test_fonts/color.ttf
+new file mode 100644
+index 0000000000000000000000000000000000000000..8ec39e6df8aed7c98c281e9f65f50c69dca89a8b
+GIT binary patch
+literal 876
+zcmb_aL2DC16#ix=u~=%grJ@AUwUo9el~#&}fGv?wXh|hP8!WV4x?@t<?S?hM6rl)u
+z(}M{92SL1f%n#^6ynFGgSFw7N_`TUpiwEhYZ+ZLnd*8g7@4Z<l07G~NgZa|Raus>Z
+z0_HZe<E8rx%ZwL@YmB2S4{px9-zcvEYLR$rJMx>jw)T|xBXLj<_a4~=TLkn3aid}V
+z;Fh}jo8O=4bCSq^)epHoM?BGpS{?HO2gL7)2g7*VM+H1vUlttsohHukftn`vcKyg+
+zto&Rh|B5(i#*bSEFXIaJ5wcEtp?_XFT;Duj`~_pa3-Rqz^x-H5tgh)Uv4NH>jWx#W
+z-67LOfI!#WPAQkZmCNLi%b0%U@fxGM>NTe)ot<bJ^G9p$(tyeRUN6;PJekNp=Jl0{
+zI>$)E;#c^Vt|bmK7J0tMm?@QA)4jhu&y)|51!SIL>|=62b@J-RTjws1b0}a+Zi7sJ
+zYCLmx<oZaU4t4j>z0+ny_gtn^@qBkPPUQd*JI$RXTfkWMtuc%n<(*Eeomj6FhjCK1
+z^>*kdC}Rg5w9rNZ%ZZc_Bcvy&64#jz;S;5uGW^%%KHn&<jM=qM@}a+H`&Gka3Y?(K
+UU%9BLEBhH;F8ym{9poPV0+pq9YybcN
+
+literal 0
+HcmV?d00001
+
+diff --git a/crates/epaint/src/text/test_fonts/mono.ttf b/crates/epaint/src/text/test_fonts/mono.ttf
+new file mode 100644
+index 0000000000000000000000000000000000000000..ddb467764005648de4522cd3371d3b4a781b6c7a
+GIT binary patch
+literal 744
+zcmb7BO)ErE7=G?K_hRHDS&+n4LQ#Y!3&moZm5*XU6mIUF8FfFVF_W2;l#Qj7U*Y2i
+zXx8!<Y^)Spg%yqG+&eQi7Myy|d7tNf&-*^-J<tF&;}{a=^6L2H<yLYH&_>Aa?0Qxf
+z{cDHBXT)~eEv4FWF_-w0cq!vp_Jr2=LH~*t&yX-4#RmN++F-`Z7o~}N=ARNbxxuc5
+z9!wLzDePIrEDSUdHxZk@<vBOTZ5j{@#6dRL&+A62L|i5wgVIXdOx-26+h^Y)<qH`+
+zcX`+K(`NR1m@gp|%f&m=tjvUUY}jHwtQ5tfT?-iry&9?A{K=7`%qbYm_`?#IuV>A1
+z0YgWXN~9s0NIk3^v!)DG&!32_m!5jDI-7aUvbV`ok5sCPQQe1=s_GU-fst@$NfnKZ
+zaqaaYw2((D|6!PHZCdO()iKavYj2|bl~5D=e?+y_5wB{|pwuY+s$(M&U!%v!bfdHC
+z3$$T0xmU~=a*nwe_`!;kF1S_>N$jDBJPOFc;iDH3z^APcrOCRm7^(kn*yNW@P4Zk5
+I(svHN0Tak)dH?_b
+
+literal 0
+HcmV?d00001
+

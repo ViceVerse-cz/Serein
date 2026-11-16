@@ -4,7 +4,7 @@ use model::{
 	Id,
 	server_audit_log::{Page, Query},
 };
-use reqwest::Method;
+use wreq::Method;
 impl DiscordApi {
 	pub(super) async fn server_audit_log(&self, guild: Id, query: &Query) -> Result<Page, Failure> {
 		if guild.0 == 0 || !query.valid() {
