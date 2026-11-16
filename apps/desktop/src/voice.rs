@@ -1663,10 +1663,9 @@ impl Voice {
 				}
 			});
 			let wake = ctx.clone();
-			match discord_voice::camera::Camera::start_on_adapter(
+			match discord_voice::camera::Camera::preview(
 				ui.voice_camera_device.clone(),
 				ui.video_settings,
-				self.video_adapter,
 				on_frame,
 				Arc::new(move || wake.request_repaint()),
 			) {

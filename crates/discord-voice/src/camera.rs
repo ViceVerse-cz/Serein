@@ -50,7 +50,7 @@ pub const SUPPORTED: bool = cfg!(any(
 static RUNNING: AtomicBool = AtomicBool::new(false);
 
 pub struct Frame {
-	/// Actual encoded picture dimensions; the preview has its own smaller geometry.
+	/// Selected capture dimensions; the preview has its own smaller geometry.
 	pub width: u32,
 	pub height: u32,
 	pub preview_width: u32,
@@ -76,6 +76,7 @@ struct Shared {
 	error: Mutex<Option<&'static str>>,
 	keyframe_request: Arc<AtomicBool>,
 	reset: Arc<AtomicU64>,
+	preview_only: bool,
 	capacity: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
 	denoising_status: Arc<Mutex<CameraDenoisingStatus>>,
 }
@@ -143,6 +144,47 @@ impl Camera {
 		wake: Arc<dyn Fn() + Send + Sync>,
 		capacity: Arc<dyn Fn() -> bool + Send + Sync>,
 	) -> Result<Self, &'static str> {
+		Self::start_worker(
+			device,
+			video,
+			adapter,
+			on_frame,
+			wake,
+			Shared {
+				capacity: Some(capacity),
+				..Shared::default()
+			},
+		)
+	}
+
+	/// Explicit local preview with denoising, without a video encoder or transport.
+	pub fn preview(
+		device: Option<String>,
+		video: VideoSettings,
+		on_frame: Arc<dyn Fn(Frame) + Send + Sync>,
+		wake: Arc<dyn Fn() + Send + Sync>,
+	) -> Result<Self, &'static str> {
+		Self::start_worker(
+			device,
+			video,
+			None,
+			on_frame,
+			wake,
+			Shared {
+				preview_only: true,
+				..Shared::default()
+			},
+		)
+	}
+
+	fn start_worker(
+		device: Option<String>,
+		video: VideoSettings,
+		adapter: Option<model::VideoAdapter>,
+		on_frame: Arc<dyn Fn(Frame) + Send + Sync>,
+		wake: Arc<dyn Fn() + Send + Sync>,
+		shared: Shared,
+	) -> Result<Self, &'static str> {
 		if !SUPPORTED {
 			return Err("Camera capture is unavailable on this platform");
 		}
@@ -158,10 +200,7 @@ impl Camera {
 		{
 			return Err("Previous camera session is still closing; try again shortly");
 		}
-		let shared = Arc::new(Shared {
-			capacity: Some(capacity),
-			..Shared::default()
-		});
+		let shared = Arc::new(shared);
 		let worker = shared.clone();
 		if thread::Builder::new()
 			.name("serein-camera".into())
@@ -252,10 +291,13 @@ fn new_camera_denoiser(
 	(filter, status)
 }
 
-/// Camera encoding preserves prediction order through the shared FFmpeg worker.
-struct CameraEncoder {
+struct CameraEncoding {
 	diagnostics: crate::diagnostics::EncoderRegistration,
 	encoder: crate::video_encode::Encoder,
+}
+
+struct CameraEncoder {
+	encoding: Option<CameraEncoding>,
 	codec: VideoCodec,
 	yuv: YUVBuffer,
 	i420: Vec<u8>,
@@ -302,27 +344,62 @@ impl CameraEncoder {
 		)
 	}
 
+	#[cfg(test)]
 	fn new_on_adapter(
 		video: VideoSettings,
 		adapter: Option<model::VideoAdapter>,
 		keyframe_request: Arc<AtomicBool>,
 		reset: Arc<AtomicU64>,
 	) -> Result<Self, &'static str> {
+		Self::new_processing(video, adapter, keyframe_request, reset, false)
+	}
+
+	fn for_capture(
+		shared: &Shared,
+		video: VideoSettings,
+		adapter: Option<model::VideoAdapter>,
+		wake: Arc<dyn Fn() + Send + Sync>,
+	) -> Result<Self, &'static str> {
+		let mut processor = Self::new_processing(
+			video,
+			adapter,
+			shared.keyframe_request.clone(),
+			shared.reset.clone(),
+			shared.preview_only,
+		)?;
+		processor.connect_status(shared.denoising_status.clone(), wake);
+		Ok(processor)
+	}
+
+	fn new_processing(
+		video: VideoSettings,
+		adapter: Option<model::VideoAdapter>,
+		keyframe_request: Arc<AtomicBool>,
+		reset: Arc<AtomicU64>,
+		preview_only: bool,
+	) -> Result<Self, &'static str> {
 		let mut config = Self::config(video);
 		config.adapter = adapter;
 		let (width, height) = (config.width as usize, config.height as usize);
-		let encoder = crate::video_encode::Encoder::new(config)?;
+		let encoding = if preview_only {
+			None
+		} else {
+			let encoder = crate::video_encode::Encoder::new(config)?;
+			Some(CameraEncoding {
+				diagnostics: crate::diagnostics::EncoderRegistration::new(
+					false,
+					encoder.hardware(),
+					encoder.amf_split(),
+				),
+				encoder,
+			})
+		};
 		let (denoiser, status) = match video.camera_denoising {
 			model::voice_settings::CameraDenoising::Off => (None, CameraDenoisingStatus::Off),
 			model::voice_settings::CameraDenoising::On => new_camera_denoiser(width, height),
 		};
 		Ok(Self {
-			diagnostics: crate::diagnostics::EncoderRegistration::new(
-				false,
-				encoder.hardware(),
-				encoder.amf_split(),
-			),
-			encoder,
+			encoding,
 			codec: video.codec,
 			yuv: YUVBuffer::new(width, height),
 			i420: Vec::with_capacity(width * height * 3 / 2),
@@ -396,7 +473,9 @@ impl CameraEncoder {
 				}
 			}
 			self.denoising_slow_frames = 0;
-			self.encoder.restart()?;
+			if let Some(encoding) = &mut self.encoding {
+				encoding.encoder.restart()?;
+			}
 			self.reset_generation = reset;
 			self.awaiting_keyframe = true;
 			// Capture can span the reset. The following input must be newly captured.
@@ -406,8 +485,10 @@ impl CameraEncoder {
 			self.denoising_paused = false;
 			self.denoising_slow_frames = 0;
 			// Retire encoder-delayed pictures, if any, along with filter history.
-			if self.encoder.pending() {
-				self.encoder.restart()?;
+			if let Some(encoding) = &mut self.encoding
+				&& encoding.encoder.pending()
+			{
+				encoding.encoder.restart()?;
 				self.awaiting_keyframe = true;
 			}
 			let (filter, status) = new_camera_denoiser(width, height);
@@ -415,6 +496,9 @@ impl CameraEncoder {
 			if self.denoiser.is_none() {
 				self.disable_denoising(status);
 			}
+		}
+		if self.encoding.is_none() && self.denoiser.is_none() {
+			return self.preview(rgb).map(Some);
 		}
 		self.yuv.read_rgb8(RgbSliceU8::new(&rgb, (width, height)));
 		self.i420.clear();
@@ -444,21 +528,33 @@ impl CameraEncoder {
 				Err(_) => self.disable_denoising(CameraDenoisingStatus::Unavailable),
 			}
 		}
-		// Coalesce repeated feedback while lookahead is still producing the first IDR.
-		if self.keyframe_request.swap(false, Ordering::AcqRel) && !self.awaiting_keyframe {
-			self.encoder.restart()?;
-			self.awaiting_keyframe = true;
-		}
-		let packet = self
-			.encoder
-			.encode_at(&self.i420, false, timestamp as u32)?;
-		self.diagnostics
-			.set(Some((self.encoder.hardware(), self.encoder.amf_split())));
-		if filtered {
-			let preview = self.filtered_preview()?;
-			self.finish_packet_with_preview(preview, packet).map(Some)
+		if let Some(encoding) = &mut self.encoding {
+			// Coalesce feedback while lookahead is still producing the first IDR.
+			if self.keyframe_request.swap(false, Ordering::AcqRel) && !self.awaiting_keyframe {
+				encoding.encoder.restart()?;
+				self.awaiting_keyframe = true;
+			}
+			let packet = encoding
+				.encoder
+				.encode_at(&self.i420, false, timestamp as u32)?;
+			encoding.diagnostics.set(Some((
+				encoding.encoder.hardware(),
+				encoding.encoder.amf_split(),
+			)));
+			if filtered {
+				let preview = self.filtered_preview()?;
+				self.finish_packet_with_preview(preview, packet).map(Some)
+			} else {
+				self.finish_packet(rgb, packet).map(Some)
+			}
 		} else {
-			self.finish_packet(rgb, packet).map(Some)
+			let mut preview = if filtered {
+				self.filtered_preview()?
+			} else {
+				self.preview(rgb)?
+			};
+			preview.timestamp = timestamp as u32;
+			Ok(Some(preview))
 		}
 	}
 
@@ -514,7 +610,10 @@ impl CameraEncoder {
 			codec: self.codec,
 			timestamp: (self.origin.elapsed().as_micros() * 90 / 1000) as u32,
 			keyframe: false,
-			epoch: self.encoder.epoch(),
+			epoch: self
+				.encoding
+				.as_ref()
+				.map_or(0, |encoding| encoding.encoder.epoch()),
 			keyframe_request: self.keyframe_request.clone(),
 			reset: self.reset.clone(),
 			reset_generation: self.reset_generation,
@@ -622,34 +721,8 @@ fn run(
 	on_frame: &Arc<dyn Fn(Frame) + Send + Sync>,
 	wake: &Arc<dyn Fn() + Send + Sync>,
 ) -> Result<(), &'static str> {
-	let mut encoder = CameraEncoder::new_on_adapter(
-		video,
-		adapter,
-		shared.keyframe_request.clone(),
-		shared.reset.clone(),
-	)?;
-	encoder.connect_status(shared.denoising_status.clone(), wake.clone());
-	let mut emit = |rgb| {
-		if shared.stopped.load(Ordering::Acquire) {
-			return Ok(());
-		}
-		let frame = if shared.capacity.as_ref().is_none_or(|capacity| capacity()) {
-			encoder.encode(rgb)?
-		} else if encoder.denoiser.is_some() || encoder.denoising_paused {
-			encoder.pause_denoising();
-			None
-		} else {
-			Some(encoder.preview(rgb)?)
-		};
-		if let Some(frame) = frame
-			&& !shared.stopped.load(Ordering::Acquire)
-		{
-			on_frame(frame);
-			shared.active.store(true, Ordering::Release);
-			wake();
-		}
-		Ok(())
-	};
+	let mut encoder = CameraEncoder::for_capture(shared, video, adapter, wake.clone())?;
+	let mut emit = |rgb| emit_frame(shared, &mut encoder, rgb, on_frame, wake);
 	#[cfg(target_os = "windows")]
 	{
 		windows::run(
@@ -670,6 +743,35 @@ fn run(
 			&mut emit,
 		)
 	}
+}
+
+fn emit_frame(
+	shared: &Shared,
+	encoder: &mut CameraEncoder,
+	rgb: Vec<u8>,
+	on_frame: &Arc<dyn Fn(Frame) + Send + Sync>,
+	wake: &Arc<dyn Fn() + Send + Sync>,
+) -> Result<(), &'static str> {
+	if shared.stopped.load(Ordering::Acquire) {
+		return Ok(());
+	}
+	let frame = if shared.preview_only || shared.capacity.as_ref().is_none_or(|capacity| capacity())
+	{
+		encoder.encode(rgb)?
+	} else if encoder.denoiser.is_some() || encoder.denoising_paused {
+		encoder.pause_denoising();
+		None
+	} else {
+		Some(encoder.preview(rgb)?)
+	};
+	if let Some(frame) = frame
+		&& !shared.stopped.load(Ordering::Acquire)
+	{
+		on_frame(frame);
+		shared.active.store(true, Ordering::Release);
+		wake();
+	}
+	Ok(())
 }
 
 impl Drop for Camera {
@@ -928,13 +1030,7 @@ mod macos {
 		if shared.stopped.load(Ordering::Acquire) {
 			return Ok(());
 		}
-		let mut encoder = CameraEncoder::new_on_adapter(
-			video,
-			adapter,
-			shared.keyframe_request.clone(),
-			shared.reset.clone(),
-		)?;
-		encoder.connect_status(shared.denoising_status.clone(), wake.clone());
+		let mut encoder = CameraEncoder::for_capture(shared, video, adapter, wake.clone())?;
 		let target_fps = video.camera_frame_rate.fps();
 		let cadence =
 			format::Cadence::new(target_fps, Instant::now()).ok_or("Invalid camera frame rate")?;
@@ -1045,23 +1141,7 @@ mod macos {
 			{
 				rgb.copy_from_slice(&[bgra[2], bgra[1], bgra[0]]);
 			}
-			let frame = if shared.capacity.as_ref().is_none_or(|capacity| capacity()) {
-				encoder.encode(rgb)?
-			} else if encoder.denoiser.is_some() || encoder.denoising_paused {
-				encoder.pause_denoising();
-				None
-			} else {
-				Some(encoder.preview(rgb)?)
-			};
-			let Some(frame) = frame else {
-				continue;
-			};
-			if shared.stopped.load(Ordering::Acquire) {
-				break;
-			}
-			on_frame(frame);
-			shared.active.store(true, Ordering::Release);
-			wake();
+			emit_frame(shared, encoder, rgb, on_frame, wake)?;
 		}
 		Ok(())
 	}
@@ -1070,6 +1150,245 @@ mod macos {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	fn local_preview(video: VideoSettings) -> (Shared, CameraEncoder) {
+		let shared = Shared {
+			preview_only: true,
+			capacity: Some(Arc::new(|| {
+				panic!("Local preview has no transport capacity gate")
+			})),
+			..Shared::default()
+		};
+		let processor = CameraEncoder::for_capture(
+			&shared,
+			video,
+			Some(model::VideoAdapter::default()),
+			Arc::new(|| {}),
+		)
+		.unwrap();
+		(shared, processor)
+	}
+
+	#[test]
+	fn local_preview_does_not_initialize_the_selected_hardware_encoder() {
+		for codec in [VideoCodec::H264, VideoCodec::H265, VideoCodec::Av1] {
+			let video = VideoSettings {
+				codec,
+				camera_resolution: VideoResolution::P720,
+				..VideoSettings::default()
+			};
+			if codec != VideoCodec::H264 {
+				assert!(
+					CameraEncoder::new_on_adapter(
+						video,
+						Some(model::VideoAdapter::default()),
+						Arc::new(AtomicBool::new(false)),
+						Arc::new(AtomicU64::new(0)),
+					)
+					.is_err()
+				);
+			}
+			let (shared, mut processor) = local_preview(video);
+			assert!(processor.encoding.is_none());
+			assert_eq!(
+				*shared.denoising_status.lock().unwrap(),
+				CameraDenoisingStatus::Off
+			);
+			processor.origin -= std::time::Duration::from_secs(1);
+			shared.keyframe_request.store(true, Ordering::Release);
+			let picture = Arc::new(Mutex::new(None));
+			let target = picture.clone();
+			let on_frame: Arc<dyn Fn(Frame) + Send + Sync> = Arc::new(move |frame| {
+				*target.lock().unwrap() = Some(frame);
+			});
+			let wake: Arc<dyn Fn() + Send + Sync> = Arc::new(|| {});
+			emit_frame(
+				&shared,
+				&mut processor,
+				vec![127; 1280 * 720 * 3],
+				&on_frame,
+				&wake,
+			)
+			.unwrap();
+			let frame = picture.lock().unwrap().take().unwrap();
+			assert_eq!((frame.width, frame.height), (1280, 720));
+			assert_eq!((frame.preview_width, frame.preview_height), (640, 360));
+			assert_eq!(frame.rgb, vec![127; 640 * 360 * 3]);
+			assert!(frame.data.is_empty() && !frame.keyframe);
+			assert_eq!((frame.codec, frame.epoch), (codec, 0));
+			assert!(frame.timestamp >= 90_000);
+			assert!(processor.i420.is_empty());
+			assert!(shared.active.load(Ordering::Acquire));
+			assert!(shared.keyframe_request.load(Ordering::Acquire));
+		}
+	}
+
+	#[test]
+	fn local_preview_keeps_frame_bounds_cancellation_and_security_resets() {
+		let (shared, mut processor) = local_preview(VideoSettings::default());
+		let picture = Arc::new(Mutex::new(None));
+		let target = picture.clone();
+		let on_frame: Arc<dyn Fn(Frame) + Send + Sync> = Arc::new(move |frame| {
+			*target.lock().unwrap() = Some(frame);
+		});
+		let wake: Arc<dyn Fn() + Send + Sync> = Arc::new(|| {});
+		for length in [0, WIDTH * HEIGHT * 3 - 1, WIDTH * HEIGHT * 3 + 3] {
+			assert!(
+				emit_frame(&shared, &mut processor, vec![0; length], &on_frame, &wake).is_err()
+			);
+		}
+		assert!(picture.lock().unwrap().is_none());
+		assert!(!shared.active.load(Ordering::Acquire));
+		shared.reset.store(1, Ordering::Release);
+		emit_frame(
+			&shared,
+			&mut processor,
+			vec![16; WIDTH * HEIGHT * 3],
+			&on_frame,
+			&wake,
+		)
+		.unwrap();
+		assert!(picture.lock().unwrap().is_none());
+		emit_frame(
+			&shared,
+			&mut processor,
+			vec![240; WIDTH * HEIGHT * 3],
+			&on_frame,
+			&wake,
+		)
+		.unwrap();
+		let fresh = picture.lock().unwrap().take().unwrap();
+		assert_eq!(fresh.reset_generation, 1);
+		assert!(fresh.rgb.iter().all(|value| *value == 240));
+		assert!(fresh.data.is_empty());
+		assert!(Arc::ptr_eq(&fresh.reset, &shared.reset));
+		shared.reset.store(u64::MAX, Ordering::Release);
+		assert!(
+			emit_frame(
+				&shared,
+				&mut processor,
+				vec![240; WIDTH * HEIGHT * 3],
+				&on_frame,
+				&wake,
+			)
+			.is_err()
+		);
+		shared.stopped.store(true, Ordering::Release);
+		emit_frame(&shared, &mut processor, Vec::new(), &on_frame, &wake).unwrap();
+		assert!(picture.lock().unwrap().is_none());
+	}
+
+	#[test]
+	fn local_preview_keeps_denoising_fallback_status_without_an_encoder() {
+		let (shared, mut processor) = local_preview(VideoSettings {
+			codec: VideoCodec::H265,
+			camera_resolution: VideoResolution::P1440,
+			camera_denoising: model::voice_settings::CameraDenoising::On,
+			..VideoSettings::default()
+		});
+		assert!(processor.encoding.is_none() && processor.denoiser.is_none());
+		assert_eq!(
+			*shared.denoising_status.lock().unwrap(),
+			CameraDenoisingStatus::ResolutionUnsupported
+		);
+		let picture = Arc::new(Mutex::new(None));
+		let target = picture.clone();
+		let on_frame: Arc<dyn Fn(Frame) + Send + Sync> = Arc::new(move |frame| {
+			*target.lock().unwrap() = Some(frame);
+		});
+		let wake: Arc<dyn Fn() + Send + Sync> = Arc::new(|| {});
+		let (width, height) = processor.dimensions;
+		emit_frame(
+			&shared,
+			&mut processor,
+			vec![128; width * height * 3],
+			&on_frame,
+			&wake,
+		)
+		.unwrap();
+		let frame = picture.lock().unwrap().take().unwrap();
+		assert_eq!((frame.preview_width, frame.preview_height), (640, 360));
+		assert_eq!(frame.rgb.len(), 640 * 360 * 3);
+		assert!(frame.data.is_empty());
+		assert!(processor.i420.is_empty());
+	}
+
+	#[test]
+	fn local_preview_denoises_without_encoding_and_discards_old_temporal_frames() {
+		if !offline_gpu() {
+			return;
+		}
+		let (shared, mut processor) = local_preview(VideoSettings {
+			codec: VideoCodec::Av1,
+			camera_denoising: model::voice_settings::CameraDenoising::On,
+			..VideoSettings::default()
+		});
+		assert!(processor.encoding.is_none());
+		assert!(processor.denoiser.is_some());
+		assert_eq!(
+			*shared.denoising_status.lock().unwrap(),
+			CameraDenoisingStatus::Active
+		);
+		processor.frame_budget = std::time::Duration::from_secs(60);
+		processor.origin -= std::time::Duration::from_secs(1);
+		let picture = Arc::new(Mutex::new(None));
+		let target = picture.clone();
+		let on_frame: Arc<dyn Fn(Frame) + Send + Sync> = Arc::new(move |frame| {
+			*target.lock().unwrap() = Some(frame);
+		});
+		let wake: Arc<dyn Fn() + Send + Sync> = Arc::new(|| {});
+		let mut newest_timestamp = 0;
+		for _ in 0..10 {
+			newest_timestamp = (processor.origin.elapsed().as_micros() * 90 / 1000) as u32;
+			emit_frame(
+				&shared,
+				&mut processor,
+				vec![16; WIDTH * HEIGHT * 3],
+				&on_frame,
+				&wake,
+			)
+			.unwrap();
+			processor.origin -= std::time::Duration::from_millis(100);
+		}
+		let dark = picture.lock().unwrap().take().expect("filtered preview");
+		assert!(dark.data.is_empty());
+		assert!(dark.timestamp >= 90_000 && dark.timestamp < newest_timestamp);
+		assert_eq!(
+			dark.rgb,
+			preview_i420(&processor.i420, WIDTH, HEIGHT).unwrap().0
+		);
+		shared.reset.store(1, Ordering::Release);
+		emit_frame(
+			&shared,
+			&mut processor,
+			vec![16; WIDTH * HEIGHT * 3],
+			&on_frame,
+			&wake,
+		)
+		.unwrap();
+		assert!(picture.lock().unwrap().is_none());
+		for _ in 0..10 {
+			emit_frame(
+				&shared,
+				&mut processor,
+				vec![240; WIDTH * HEIGHT * 3],
+				&on_frame,
+				&wake,
+			)
+			.unwrap();
+			processor.origin -= std::time::Duration::from_millis(100);
+		}
+		let fresh = picture
+			.lock()
+			.unwrap()
+			.take()
+			.expect("fresh filtered preview");
+		assert_eq!(fresh.reset_generation, 1);
+		assert!(fresh.timestamp > dark.timestamp);
+		assert!(fresh.data.is_empty() && !fresh.keyframe);
+		assert!(fresh.rgb.iter().all(|value| *value > 190));
+		assert_eq!(fresh.rgb.len(), WIDTH * HEIGHT * 3);
+	}
 
 	fn offline_gpu() -> bool {
 		let available = platform::video::denoise::install_test_gpu();
@@ -1193,7 +1512,7 @@ mod tests {
 				.is_none()
 		);
 		assert_eq!(encoder.reset_generation, 1);
-		assert_eq!(encoder.encoder.epoch(), 1);
+		assert_eq!(encoder.encoding.as_ref().unwrap().encoder.epoch(), 1);
 		let fresh = encoder
 			.encode(vec![192; WIDTH * HEIGHT * 3])
 			.unwrap()
@@ -1374,11 +1693,16 @@ mod tests {
 				}
 			}
 			assert!(encoder.denoiser.is_some());
-			assert!(!encoder.encoder.pending());
+			assert!(!encoder.encoding.as_ref().unwrap().encoder.pending());
 			if force_pending {
-				encoder.encoder.simulate_pending_for_test();
+				encoder
+					.encoding
+					.as_mut()
+					.unwrap()
+					.encoder
+					.simulate_pending_for_test();
 			}
-			let old_epoch = encoder.encoder.epoch();
+			let old_epoch = encoder.encoding.as_ref().unwrap().encoder.epoch();
 			encoder.pause_denoising();
 			assert!(encoder.denoiser.is_none() && encoder.denoising_paused);
 			encoder.pause_denoising();
