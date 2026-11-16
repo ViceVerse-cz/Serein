@@ -725,12 +725,30 @@ impl Avatars {
 	}
 	/// The cached still rendition that draws custom emoji `id` at `edge` pixels: that size, or
 	/// else the smallest larger one, so a rendition already loaded is not fetched again smaller.
+	/// Once the `edge` rendition has failed, the largest smaller one stands in for it.
 	fn cached_custom(&self, id: model::Id, edge: u32) -> Option<(String, u32)> {
+		let cached = |cached: u32| {
+			let key = format!("emoji-{id}@{cached}");
+			self.emoji_textures
+				.contains_key(&key)
+				.then_some((key, cached))
+		};
 		CUSTOM_EMOJI_EDGES
 			.into_iter()
 			.filter(|cached| *cached >= edge)
-			.map(|cached| (format!("emoji-{id}@{cached}"), cached))
-			.find(|(key, _)| self.emoji_textures.contains_key(key))
+			.find_map(cached)
+			.or_else(|| {
+				self.failed
+					.contains(&format!("emoji-{id}@{edge}"))
+					.then(|| {
+						CUSTOM_EMOJI_EDGES
+							.into_iter()
+							.rev()
+							.filter(|cached| *cached < edge)
+							.find_map(cached)
+					})
+					.flatten()
+			})
 	}
 	pub(crate) fn custom_image(
 		&mut self,
@@ -3347,10 +3365,20 @@ mod tests {
 		);
 		// The cached 64 px rendition draws the 32 px slot instead of fetching it again smaller.
 		assert!(avatars.take_requests().is_empty());
-		// Renditions are the smallest power of two covering the physical edge, 32 to 256 px.
-		for (size, scale, edge) in [(10.0, 1.0, 32), (24.0, 1.5, 64), (52.0, 2.0, 128)] {
-			assert_eq!(custom_emoji_edge(size, scale), edge);
-		}
+		// A larger slot waits for its own rendition; if that fails, the smaller one stands in.
+		assert!(
+			avatars
+				.custom_image(&ctx, model::Id(9001), 100.0, false)
+				.is_none()
+		);
+		assert_eq!(avatars.take_requests(), ["emoji-9001@128"]);
+		avatars.accept(&ctx, "emoji-9001@128".into(), None);
+		assert!(
+			avatars
+				.custom_image(&ctx, model::Id(9001), 100.0, false)
+				.is_some()
+		);
+		assert_eq!(custom_emoji_edge(10.0, 1.0), 32);
 		assert_eq!(custom_emoji_edge(400.0, 2.0), 256);
 		assert_eq!(custom_emoji_edge(f32::NAN, 1.0), 64);
 		assert_eq!(

@@ -1026,10 +1026,14 @@ utility QoS). Painted and prefetched requests wait in two queues of at most 512 
 a full queue drops its oldest job, and painted jobs not requested in the current or
 previous frame are skipped. Finished rasters wait in a queue of at most 1,024 items /
 16 MiB and are uploaded at most 4 MiB per frame into one texture each, held in a
-1,024-item / 16-MiB least-recently-drawn cache. Rasters not drawn for 60 seconds are
-released on a later frame. Driver overhead and upload staging are additional. There are no
-emoji downloads, disk writes or retries; artwork that fails to rasterise is shown as text
-for the rest of the session. Unknown sequences and explicit text-presentation selectors
+1,024-item / 16-MiB least-recently-drawn cache. Rasters drawn in the current or previous
+frame are never evicted: a painted raster that does not fit beside them stays an empty slot,
+without being requested again, until idle release frees space, and a prefetched one is
+dropped. Prefetching pauses while the cache holds more than 12 MiB and covers at most one
+screen beyond the visible area. Rasters not drawn for 60 seconds are released at the
+existing artwork maintenance deadline. Driver overhead and upload staging are additional.
+There are no emoji downloads, disk writes or retries; an emoji whose artwork fails to
+rasterise lays out as text from its next layout for the rest of the session. Unknown sequences and explicit text-presentation selectors
 remain font text.
 
 GIF search and trending results retain at most eight session-memory pages / 768 KiB for ten

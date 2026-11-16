@@ -353,6 +353,8 @@ pub struct MessagingUi {
 	edit_widget_id: Option<egui::Id>,
 	edit_closed_channel: Option<Id>,
 	avatars: avatars::Avatars,
+	/// When the emoji raster cache next has an idle raster to release.
+	emoji_release: Option<std::time::Instant>,
 	profile: profiles::ProfileSession,
 	profile_image: Option<ProfileImage>,
 	user_action: Option<user_menu::Action>,
@@ -1274,9 +1276,15 @@ impl MessagingUi {
 	pub fn take_avatar_requests(&mut self) -> Vec<String> {
 		self.avatars.take_requests()
 	}
-	/// Next idle animation/inline texture release; see `take_avatar_requests`.
+	/// Next idle animation/inline texture or emoji raster release; see `take_avatar_requests`.
 	pub fn avatar_release_at(&self) -> Option<std::time::Instant> {
-		self.avatars.next_release()
+		// A deadline left by a frame that no longer shows messages must not wake the host.
+		let now = std::time::Instant::now();
+		self.avatars
+			.next_release()
+			.into_iter()
+			.chain(self.emoji_release.filter(|release| *release > now))
+			.min()
 	}
 	pub fn accept_gif_animation(&mut self, key: String, frames: GifFrames) {
 		self.avatars.accept_animation(key, frames);
@@ -4876,6 +4884,7 @@ impl MessagingUi {
 	/// service layer.
 	pub fn show(&mut self, ui: &mut egui::Ui, state: &mut State) -> Vec<Command> {
 		interface_tweaks::publish(ui.ctx(), &self.interface_tweaks);
+		self.emoji_release = emoji::maintain(ui.ctx());
 		rtl::scope(
 			ui.ctx(),
 			state.generation,

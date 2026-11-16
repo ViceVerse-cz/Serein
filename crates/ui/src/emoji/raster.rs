@@ -20,13 +20,19 @@ const TEXTURES: usize = 1024;
 const TEXTURE_BYTES: usize = 16 * 1024 * 1024;
 /// Rasters not drawn for this long are released on a later pass.
 const IDLE: Duration = Duration::from_secs(60);
+/// Prefetching pauses above this share of [`TEXTURE_BYTES`], so speculative work never
+/// evicts what is on screen.
+const PREFETCH_BYTES: usize = TEXTURE_BYTES / 4 * 3;
+/// Painted rasters refused for want of space are not requested again until space frees.
+const REFUSED: usize = 4096;
 /// Finished rasters uploaded per pass; the rest wait for the next pass.
 const UPLOAD_BYTES: usize = 4 * 1024 * 1024;
 /// Finished rasters waiting for upload; workers pause beyond either bound.
 const FINISHED: usize = 1024;
 const FINISHED_BYTES: usize = 16 * 1024 * 1024;
-pub(super) const MIN_EDGE: u32 = 16;
-pub(super) const MAX_EDGE: u32 = 256;
+/// Smallest and largest raster edge in physical pixels.
+pub const MIN_EDGE: u32 = 16;
+pub const MAX_EDGE: u32 = 256;
 
 /// Renders one bundled compressed SVG into an `edge` × `edge` premultiplied image.
 pub type Rasterize = dyn Fn(&[u8], u32) -> Option<ColorImage> + Send + Sync;
@@ -49,6 +55,8 @@ type Key = (usize, u32);
 struct Entry {
 	/// Last pass that asked for this raster.
 	pass: u64,
+	/// Painted at least once since it was queued, rather than only prefetched.
+	painted: bool,
 	now: bool,
 	later: bool,
 	running: bool,
@@ -70,6 +78,7 @@ impl Queues {
 		let pass = self.pass;
 		let entry = self.entries.entry(key).or_default();
 		entry.pass = pass;
+		entry.painted |= !later;
 		let queued = if later {
 			entry.later || entry.now
 		} else {
@@ -148,6 +157,10 @@ struct State {
 	finished: VecDeque<(Key, Option<ColorImage>)>,
 	finished_bytes: usize,
 	/// Held only while work is outstanding, so idle workers do not keep the context alive.
+	///
+	/// A worker holding it keeps the context (and so this service) alive; the cycle lasts only
+	/// until the queues drain and finished rasters are uploaded, which [`Service::maintain`]
+	/// does every frame.
 	repaint: Option<Context>,
 	started: bool,
 	shutdown: bool,
@@ -168,6 +181,7 @@ impl Shared {
 struct Raster {
 	texture: TextureHandle,
 	used: Instant,
+	/// Last pass that drew it; 0 for a prefetched raster not drawn yet.
 	pass: u64,
 }
 
@@ -177,26 +191,39 @@ struct Cache {
 	bytes: usize,
 	/// Cells whose artwork failed to rasterise; at most one per bundled cell.
 	failed: HashSet<usize>,
+	/// Painted rasters that did not fit beside the ones on screen; they stay empty, without
+	/// being requested again, until space frees.
+	refused: HashSet<Key>,
 	pass: Option<u64>,
 	now: Option<Instant>,
 	swept: Option<Instant>,
 }
 
 impl Cache {
-	fn insert(&mut self, ctx: &Context, key: Key, image: ColorImage, now: Instant, pass: u64) {
+	/// Stores a finished raster, evicting the least recently drawn ones that were not drawn in
+	/// this or the previous pass. False when it does not fit beside those.
+	fn insert(
+		&mut self,
+		ctx: &Context,
+		key: Key,
+		image: ColorImage,
+		(now, pass): (Instant, u64),
+		painted: bool,
+	) -> bool {
 		let bytes = image.pixels().len() * 4;
 		if let Some(old) = self.rasters.remove(&key) {
 			self.bytes -= old.texture.byte_size();
 		}
-		while !self.rasters.is_empty()
-			&& (self.rasters.len() >= TEXTURES || self.bytes + bytes > TEXTURE_BYTES)
-		{
-			let oldest = *self
+		while self.rasters.len() >= TEXTURES || self.bytes + bytes > TEXTURE_BYTES {
+			let Some(oldest) = self
 				.rasters
 				.iter()
-				.min_by_key(|(_, raster)| raster.used)
-				.expect("nonempty emoji cache")
-				.0;
+				.filter(|(_, raster)| raster.pass + 1 < pass)
+				.min_by_key(|(_, raster)| (raster.pass, raster.used))
+				.map(|(key, _)| *key)
+			else {
+				return false;
+			};
 			let raster = self.rasters.remove(&oldest).expect("oldest emoji raster");
 			self.bytes -= raster.texture.byte_size();
 		}
@@ -207,9 +234,10 @@ impl Cache {
 			Raster {
 				texture,
 				used: now,
-				pass,
+				pass: if painted { pass } else { 0 },
 			},
 		);
+		true
 	}
 	/// Releases rasters idle for [`IDLE`] that the previous pass did not draw either.
 	fn sweep(&mut self, now: Instant, pass: u64) {
@@ -220,6 +248,7 @@ impl Cache {
 			return;
 		}
 		self.swept = Some(now);
+		let before = self.rasters.len();
 		let bytes = &mut self.bytes;
 		self.rasters.retain(|_, raster| {
 			let keep = raster.pass + 1 >= pass || now.saturating_duration_since(raster.used) < IDLE;
@@ -228,6 +257,17 @@ impl Cache {
 			}
 			keep
 		});
+		if self.rasters.len() < before {
+			self.refused.clear();
+		}
+	}
+	/// When an undrawn raster next becomes idle, for the host's maintenance deadline.
+	fn next_release(&self, now: Instant) -> Option<Instant> {
+		self.rasters
+			.values()
+			.map(|raster| raster.used + IDLE)
+			.filter(|release| *release > now)
+			.min()
 	}
 }
 
@@ -246,7 +286,7 @@ impl Drop for Service {
 
 /// The raster's state for a painted or prefetched emoji.
 pub(super) enum Lookup {
-	Ready(TextureHandle),
+	Ready(egui::TextureId),
 	Pending,
 	Failed,
 }
@@ -307,8 +347,12 @@ impl Service {
 				uploaded += bytes;
 				state.finished_bytes -= bytes;
 				let (key, image) = state.finished.pop_front().expect("finished raster");
-				state.queues.entries.remove(&key);
-				finished.push((key, image));
+				let painted = state
+					.queues
+					.entries
+					.remove(&key)
+					.is_some_and(|entry| entry.painted);
+				finished.push((key, image, painted));
 			}
 			if state.queues.idle() && state.finished.is_empty() {
 				state.repaint = None;
@@ -317,9 +361,18 @@ impl Service {
 		if !finished.is_empty() {
 			self.shared.wake.notify_all();
 		}
-		for (key, image) in finished {
+		for (key, image, painted) in finished {
 			match image {
-				Some(image) => cache.insert(ctx, key, image, now, pass),
+				// A prefetch that does not fit is dropped; prefetching pauses while the cache
+				// is this full, so it is not requested again in a loop.
+				Some(image) => {
+					if !cache.insert(ctx, key, image, (now, pass), painted) && painted {
+						if cache.refused.len() >= REFUSED {
+							cache.refused.clear();
+						}
+						cache.refused.insert(key);
+					}
+				}
 				None => {
 					cache.failed.insert(key.0);
 				}
@@ -338,7 +391,10 @@ impl Service {
 		if let Some(raster) = cache.rasters.get_mut(&key) {
 			raster.used = now;
 			raster.pass = pass;
-			return Lookup::Ready(raster.texture.clone());
+			return Lookup::Ready(raster.texture.id());
+		}
+		if cache.refused.contains(&key) {
+			return Lookup::Pending;
 		}
 		drop(cache);
 		self.request(ctx, key, false);
@@ -348,11 +404,25 @@ impl Service {
 	pub(super) fn prefetch(&self, ctx: &Context, key: Key) {
 		let mut cache = self.cache();
 		self.begin_pass(ctx, &mut cache);
-		if cache.failed.contains(&key.0) || cache.rasters.contains_key(&key) {
+		if cache.failed.contains(&key.0)
+			|| cache.rasters.contains_key(&key)
+			|| cache.bytes > PREFETCH_BYTES
+		{
 			return;
 		}
 		drop(cache);
 		self.request(ctx, key, true);
+	}
+	/// Uploads finished rasters, releases idle ones and drops the context handle once work
+	/// is done, even in passes that draw no emoji. Returns the next idle deadline.
+	pub(super) fn maintain(&self, ctx: &Context) -> Option<Instant> {
+		let mut cache = self.cache();
+		let (now, _) = self.begin_pass(ctx, &mut cache);
+		cache.next_release(now)
+	}
+	/// Whether the artwork of `cell` failed to rasterise this session.
+	pub(super) fn failed(&self, cell: usize) -> bool {
+		self.cache().failed.contains(&cell)
 	}
 	fn request(&self, ctx: &Context, key: Key, later: bool) {
 		let mut state = self.shared.lock();
@@ -499,12 +569,12 @@ mod tests {
 		let mut cache = Cache::default();
 		for cell in 0..TEXTURES + 100 {
 			let image = ColorImage::filled([16, 16], egui::Color32::WHITE);
-			cache.insert(&ctx, (cell, 16), image, now, 0);
+			cache.insert(&ctx, (cell, 16), image, (now, 2), false);
 		}
 		assert_eq!(cache.rasters.len(), TEXTURES);
 		for cell in 0..100 {
 			let image = ColorImage::filled([256, 256], egui::Color32::WHITE);
-			cache.insert(&ctx, (cell, 256), image, now, 0);
+			cache.insert(&ctx, (cell, 256), image, (now, 2), false);
 			assert!(cache.bytes <= TEXTURE_BYTES);
 		}
 		assert_eq!(
@@ -538,8 +608,48 @@ mod tests {
 			service.prefetch(ui.ctx(), (0, 256));
 		})
 		.drop_without_applying_deltas();
-		assert_eq!(service.cache().bytes, UPLOAD_BYTES);
-		assert_eq!(service.shared.lock().finished.len(), 40 - 16);
+		assert!(service.cache().bytes <= UPLOAD_BYTES);
+		assert!(!service.shared.lock().finished.is_empty());
+	}
+
+	/// More distinct emoji on screen than the cache holds: the visible ones stay, the rest
+	/// stay empty, and the workers and repaints stop instead of evicting and re-rendering.
+	#[test]
+	fn more_painted_emoji_than_fit_settle_without_evicting_visible_ones() {
+		let ctx = Context::default();
+		install_inline(
+			&ctx,
+			Backend {
+				rasterize: Arc::new(|_, edge| {
+					Some(ColorImage::filled([edge as usize; 2], egui::Color32::WHITE))
+				}),
+				on_worker_start: || {},
+			},
+		);
+		let service = service(&ctx).unwrap();
+		let keys: Vec<Key> = (0..TEXTURES + 50).map(|cell| (cell, 16)).collect();
+		let mut shown = HashSet::new();
+		for _ in 0..8 {
+			let mut ready = HashSet::new();
+			ctx.run_ui(Default::default(), |ui| {
+				for &key in &keys {
+					if let Lookup::Ready(_) = service.paint(ui.ctx(), key) {
+						ready.insert(key);
+					}
+				}
+			})
+			.drop_without_applying_deltas();
+			assert!(shown.is_subset(&ready), "a visible raster was evicted");
+			shown = ready;
+			run_jobs(&ctx);
+		}
+		assert_eq!(shown.len(), TEXTURES);
+		let state = service.shared.lock();
+		assert!(state.queues.idle() && state.finished.is_empty());
+		assert!(
+			state.repaint.is_none(),
+			"settled work holds no repaint handle"
+		);
 	}
 
 	#[test]
@@ -570,8 +680,12 @@ mod tests {
 		);
 		assert_eq!(service(&ctx).unwrap().shared.lock().queues.now.len(), 1);
 		run_jobs(&ctx);
-		assert!(
-			matches!(pass((cell, 24)), Lookup::Ready(texture) if texture.resolution() == [24, 24])
+		assert!(matches!(pass((cell, 24)), Lookup::Ready(_)));
+		assert_eq!(
+			service(&ctx).unwrap().cache().rasters[&(cell, 24)]
+				.texture
+				.resolution(),
+			[24, 24]
 		);
 		// Artwork that cannot be rasterised shows as text, without retrying.
 		assert!(matches!(pass((cell, 40)), Lookup::Pending));

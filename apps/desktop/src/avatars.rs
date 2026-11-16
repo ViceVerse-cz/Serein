@@ -103,7 +103,8 @@ fn custom_emoji(key: &str) -> Option<(Id, u32)> {
 }
 fn decode_edge(key: &str) -> u32 {
 	if let Some((_, size)) = custom_emoji(key.strip_prefix("anim:").unwrap_or(key)) {
-		// Emoji decode no larger than their rendition, which keeps animated frames small.
+		// Emoji keep the 128 px decode bound they had before renditions were sized, and get
+		// their own rendition edge above it; animated frames stay small either way.
 		return size.max(128);
 	}
 	if key.starts_with("anim:")

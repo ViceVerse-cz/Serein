@@ -2400,7 +2400,7 @@ impl Formatted {
 				);
 				let cluster = &text[offset..offset + len];
 				let cell = if custom.is_none() && !style.code {
-					crate::emoji::lookup(cluster)
+					crate::emoji::artwork(ui.ctx(), cluster)
 				} else {
 					None
 				};
@@ -2720,7 +2720,7 @@ impl Formatted {
 				);
 				let cluster = &text[offset..offset + len];
 				let cell = if custom.is_none() && !style.code && shared.is_none() {
-					crate::emoji::lookup(cluster)
+					crate::emoji::artwork(ui.ctx(), cluster)
 				} else {
 					None
 				};
@@ -2851,11 +2851,13 @@ impl Formatted {
 			));
 		}
 		// Resolve artwork only after its slot is positioned inside the viewport. Unicode emoji
-		// laid out just outside it (a timeline's overscan rows) are rasterised ahead.
+		// laid out within a screen of it (a timeline's overscan rows) are rasterised ahead.
+		let clip = ui.clip_rect();
+		let ahead = clip.expand2(egui::vec2(0.0, clip.height()));
 		for (index, rect) in &slots {
-			if !ui.is_rect_visible(*rect) || !rect.intersect(ui.clip_rect()).is_positive() {
+			if !ui.is_rect_visible(*rect) || !rect.intersect(clip).is_positive() {
 				let inline = &inlines[*index];
-				if inline.cell.is_some() && shared.is_none() {
+				if inline.cell.is_some() && shared.is_none() && ahead.intersects(*rect) {
 					crate::emoji::prefetch(ui.ctx(), &inline.text, size);
 				}
 				continue;
@@ -3251,7 +3253,7 @@ impl Formatted {
 			let mut start = 0;
 			if !style.code {
 				for (offset, cluster) in take.grapheme_indices(true) {
-					if crate::emoji::lookup(cluster).is_none() {
+					if crate::emoji::artwork(ui.ctx(), cluster).is_none() {
 						continue;
 					}
 					job.append(&take[start..offset], 0.0, format.clone());
@@ -3615,6 +3617,7 @@ mod tests {
 	#[test]
 	fn inline_preview_preserves_emoji_placeholder_near_limit() {
 		let ctx = egui::Context::default();
+		crate::emoji::install_for_tests(&ctx);
 		let output = ctx.run_ui(Default::default(), |ui| {
 			// 118 chars ("a " * 59) + "x😀 more" -> emoji fits in 120 limit
 			let prefix = "a ".repeat(59);

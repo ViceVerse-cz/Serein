@@ -11,7 +11,7 @@ pub(crate) fn backend() -> ui::emoji::Backend {
 
 /// Only trusted bundled path/shape SVGs: image references are never resolved.
 fn rasterize(source: &[u8], edge: u32) -> Option<egui::ColorImage> {
-	if !(16..=256).contains(&edge) {
+	if !(ui::emoji::MIN_EDGE..=ui::emoji::MAX_EDGE).contains(&edge) {
 		return None;
 	}
 	let svg = ui::emoji::decode_bundled_svg(source)?;

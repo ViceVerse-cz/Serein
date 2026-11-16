@@ -293,7 +293,7 @@ impl Layout {
 				len
 			} else {
 				let grapheme = tail.graphemes(true).next().expect("nonempty tail");
-				artwork = emoji::lookup(grapheme).is_some() && emoji::installed(ui.ctx());
+				artwork = emoji::artwork(ui.ctx(), grapheme).is_some();
 				unicode = artwork.then(|| grapheme.into());
 				grapheme.len()
 			};

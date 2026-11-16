@@ -1,7 +1,7 @@
 //! Bundled Twemoji: scalable artwork rasterised on demand at the size it is drawn.
 mod raster;
 
-pub use raster::Backend;
+pub use raster::{Backend, MAX_EDGE, MIN_EDGE};
 
 use egui::{Context, Image, TextureHandle};
 use std::sync::OnceLock;
@@ -75,6 +75,21 @@ pub(crate) fn installed(ctx: &Context) -> bool {
 	raster::service(ctx).is_some()
 }
 
+/// The bundled artwork cell to reserve a slot for: a known emoji whose artwork can be drawn
+/// here. Artwork that failed to rasterise lays out as text instead.
+pub(crate) fn artwork(ctx: &Context, text: &str) -> Option<usize> {
+	let cell = lookup(text)?;
+	let service = raster::service(ctx)?;
+	(!service.failed(cell)).then_some(cell)
+}
+
+/// Once per frame: uploads finished rasters and releases idle ones even when no emoji is
+/// drawn. Returns when the next idle raster can be released, for the host's existing
+/// maintenance deadline; it never requests a repaint itself.
+pub(crate) fn maintain(ctx: &Context) -> Option<std::time::Instant> {
+	raster::service(ctx)?.maintain(ctx)
+}
+
 pub(crate) fn inline_size(ui: &egui::Ui) -> f32 {
 	egui::TextStyle::Body.resolve(ui.style()).size * 1.6
 }
@@ -144,7 +159,7 @@ pub(crate) fn image(ctx: &Context, text: &str, size: f32) -> Option<Image<'stati
 	let service = raster::service(ctx)?;
 	let image = match service.paint(ctx, (cell, raster::edge(ctx, size))) {
 		raster::Lookup::Ready(texture) => Image::new(egui::load::SizedTexture::new(
-			texture.id(),
+			texture,
 			egui::Vec2::splat(size),
 		)),
 		raster::Lookup::Pending => blank(ctx, size),
