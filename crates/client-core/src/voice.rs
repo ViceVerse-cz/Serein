@@ -307,6 +307,13 @@ pub enum Event {
 		channel: Id,
 		request: u64,
 	},
+	/// Discord moved this device's own session to another voice channel of the same server.
+	/// The call follows it; no join is sent.
+	Moved {
+		from: Id,
+		channel: Id,
+		request: u64,
+	},
 	Snapshot {
 		partial: bool,
 		guild: Option<Id>,
@@ -848,6 +855,33 @@ impl ClientState {
 			}
 			Event::Departed { channel, request } => {
 				self.voice.departed = Some((channel, request));
+			}
+			Event::Moved {
+				from,
+				channel,
+				request,
+			} => {
+				let participants = self
+					.voice
+					.roster
+					.iter()
+					.filter(|entry| entry.channel == channel)
+					.map(|entry| entry.participant)
+					.take(MAX_PARTICIPANTS)
+					.collect();
+				if let Some(call) = &mut self.voice.active
+					&& call.channel == from
+					&& call.request == request
+					&& call.guild.is_some()
+					&& call.phase != Phase::Failed
+				{
+					call.channel = channel;
+					call.channel_started_at = None;
+					// Video belongs to the channel left behind; the microphone choice stays.
+					call.camera = false;
+					call.watching = None;
+					call.participants = participants;
+				}
 			}
 			Event::Snapshot {
 				partial,
