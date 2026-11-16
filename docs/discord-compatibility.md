@@ -1441,7 +1441,8 @@ Formatted messages (including existing formatted embed/search surfaces), Unicode
 counts and the reaction menu use bundled [Twemoji 17.0.3](https://github.com/jdecked/twemoji/releases/tag/v17.0.3)
 artwork from Twitter and contributors, under CC BY 4.0. This is a local rendering feature,
 not a new protocol endpoint or proof of matching Discord's current artwork revision.
-Grapheme matching supports flags, modifiers, keycaps and ZWJ sequences, including optional
+The bundled SVGs are rasterised locally, off the UI thread, at the pixel size each emoji is
+drawn; nothing is downloaded. Grapheme matching supports flags, modifiers, keycaps and ZWJ sequences, including optional
 emoji presentation selectors. Code, explicit text-presentation and unknown sequences remain
 literal. Original message/reaction strings and outgoing requests are unchanged. Whole-message
 Copy preserves the original text; drag-selection of rendered text excludes inline image widgets.

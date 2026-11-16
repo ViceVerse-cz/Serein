@@ -25,6 +25,10 @@ tempfile = "=3.27.0"
 rfd = { version = "=0.17.2", default-features = false, features = ["xdg-portal", "wayland"] }
 image = { version = "=0.25.10", default-features = false, features = ["png"] }
 
+[target.'cfg(any(target_os = "linux", target_os = "macos"))'.dependencies]
+# Lowers emoji raster worker priority (setpriority / pthread QoS); already in the lockfile.
+libc = "=0.2.189"
+
 [target.'cfg(not(target_os = "windows"))'.dependencies]
 symphonia = { version = "=0.6.1", default-features = false, features = ["aac"] }
 

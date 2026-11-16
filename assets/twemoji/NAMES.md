@@ -1,10 +1,10 @@
 # Emoji picker names
 
 `names.tsv` contains 3,953 Unicode 17.0 fully qualified emoji and components
-that have artwork in the bundled Twemoji atlas. Columns are the original
+that have artwork in the bundled Twemoji set. Columns are the original
 fully qualified Unicode sequence and its lowercase English name, in Unicode's
 recommended CLDR keyboard order. This preserves presentation selectors when
-inserting into a draft. The 56 remaining atlas entries are not listed as RGI
+inserting into a draft. The 56 remaining bundled entries are not listed as RGI
 emoji/components in the Unicode 17.0 test data; the message renderer still
 supports them.
 

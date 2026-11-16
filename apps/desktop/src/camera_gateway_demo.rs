@@ -124,7 +124,7 @@ pub(crate) fn capture(output: PathBuf) -> eframe::Result {
 		options,
 		Box::new(move |cc| {
 			ui::fonts::install(&cc.egui_ctx);
-			let _ = ui::emoji::install(&cc.egui_ctx);
+			ui::emoji::install(&cc.egui_ctx, crate::emoji_raster::backend());
 			ui::design::apply(&cc.egui_ctx);
 			cc.egui_ctx.set_theme(egui::ThemePreference::Dark);
 			cc.egui_ctx.set_pixels_per_point(1.0);

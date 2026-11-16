@@ -1,9 +1,11 @@
-//! Bundled Twemoji: an inline atlas and bounded scalable artwork decoded by the media worker.
+//! Bundled Twemoji: scalable artwork rasterised on demand at the size it is drawn.
+mod raster;
+
+pub use raster::Backend;
+
 use egui::{Context, Image, TextureHandle};
-use image::ImageDecoder;
 use std::sync::OnceLock;
 
-const ATLAS: &[u8] = include_bytes!("../../../assets/twemoji/atlas.png");
 const INDEX: &str = include_str!("../../../assets/twemoji/index.tsv");
 const VECTORS: &[u8] = include_bytes!("../../../assets/twemoji/vectors.bin");
 const VECTOR_COUNT: usize = 4009;
@@ -17,7 +19,7 @@ pub fn bundled_svg(key: &str) -> Option<(&'static [u8], u32)> {
 	let (cell, edge) = key.strip_prefix("emoji-unicode-")?.split_once('-')?;
 	let cell = cell.parse::<usize>().ok()?;
 	let edge = edge.parse::<u32>().ok()?;
-	if cell >= VECTOR_COUNT || !matches!(edge, 64 | 128 | 256) {
+	if cell >= VECTOR_COUNT || !(raster::MIN_EDGE..=raster::MAX_EDGE).contains(&edge) {
 		return None;
 	}
 	let offset = |index| {
@@ -55,52 +57,22 @@ fn entries() -> &'static [(&'static str, usize)] {
 			.lines()
 			.map(|line| {
 				let (text, index) = line.split_once('\t').expect("bundled emoji index");
-				(text, index.parse().expect("bundled atlas cell"))
+				(text, index.parse().expect("bundled artwork cell"))
 			})
 			.collect()
 	})
 }
 
-// The bundled RGBA8 PNG decodes directly into its final pixel allocation. Color32's
-// safe byte view is converted from straight alpha before the image reaches egui.
-fn decode_atlas() -> Result<egui::ColorImage, image::ImageError> {
-	let decoder = image::codecs::png::PngDecoder::new(std::io::Cursor::new(ATLAS))?;
-	assert_eq!(
-		decoder.color_type(),
-		image::ColorType::Rgba8,
-		"bundled atlas format"
-	);
-	let (width, height) = decoder.dimensions();
-	assert!(u64::from(width) * u64::from(height) * 4 <= 16 * 1024 * 1024);
-	let mut image = egui::ColorImage::filled(
-		[width as usize, height as usize],
-		egui::Color32::TRANSPARENT,
-	);
-	decoder.read_image(image.as_raw_mut())?;
-	for pixel in image.pixels_mut() {
-		let [r, g, b, a] = pixel.to_array();
-		*pixel = egui::Color32::from_rgba_unmultiplied(r, g, b, a);
-	}
-	Ok(image)
-}
-
-/// Decode once during application creation, outside the render callback.
-pub fn install(ctx: &Context) -> Result<(), image::ImageError> {
-	let texture = ctx.load_texture(
-		"Twemoji 17.0.3",
-		decode_atlas()?,
-		egui::TextureOptions::LINEAR,
-	);
-	ctx.data_mut(|data| data.insert_temp(egui::Id::unique("twemoji"), texture));
+/// Starts the Unicode emoji service: nothing is decoded until an emoji is drawn, and the
+/// backend's worker threads start with the first request.
+pub fn install(ctx: &Context, backend: Backend) {
+	raster::install(ctx, backend);
 	entries();
-	Ok(())
 }
 
-pub(crate) fn ready(ctx: &Context) -> bool {
-	ctx.data(|data| {
-		data.get_temp::<TextureHandle>(egui::Id::unique("twemoji"))
-			.is_some()
-	})
+/// Whether Unicode emoji can be drawn as artwork in this context.
+pub(crate) fn installed(ctx: &Context) -> bool {
+	raster::service(ctx).is_some()
 }
 
 pub(crate) fn inline_size(ui: &egui::Ui) -> f32 {
@@ -163,31 +135,36 @@ pub(crate) fn presentation(text: &str) -> std::borrow::Cow<'_, str> {
 	std::borrow::Cow::Owned(marked)
 }
 
+/// Square artwork for a known emoji at `size` points, drawn from a raster made for its exact
+/// pixel size. While that raster is on its way the slot stays empty (a transparent image of
+/// the same size). `None` when `text` is not a bundled emoji, the service is not installed or
+/// its artwork failed, so callers show the text instead.
 pub(crate) fn image(ctx: &Context, text: &str, size: f32) -> Option<Image<'static>> {
 	let cell = lookup(text)?;
-	Some(image_cell(atlas(ctx)?, text, cell, size))
+	let service = raster::service(ctx)?;
+	let image = match service.paint(ctx, (cell, raster::edge(ctx, size))) {
+		raster::Lookup::Ready(texture) => Image::new(egui::load::SizedTexture::new(
+			texture.id(),
+			egui::Vec2::splat(size),
+		)),
+		raster::Lookup::Pending => blank(ctx, size),
+		raster::Lookup::Failed => return None,
+	};
+	Some(image.alt_text(text))
 }
 
-pub(crate) fn atlas(ctx: &Context) -> Option<egui::load::SizedTexture> {
-	let texture = ctx.data(|data| data.get_temp::<TextureHandle>(egui::Id::unique("twemoji")))?;
-	Some((&texture).into())
+/// Queues `text`'s artwork at `size` points at low priority, ahead of being drawn.
+pub(crate) fn prefetch(ctx: &Context, text: &str, size: f32) {
+	if let Some(cell) = lookup(text) {
+		prefetch_cell(ctx, cell, size);
+	}
 }
 
-pub(crate) fn image_cell(
-	atlas: egui::load::SizedTexture,
-	text: &str,
-	cell: usize,
-	size: f32,
-) -> Image<'static> {
-	let x = (cell % 64) as f32 * 32.0;
-	let y = (cell / 64) as f32 * 32.0;
-	let uv = egui::Rect::from_min_max(
-		egui::pos2(x / atlas.size.x, y / atlas.size.y),
-		egui::pos2((x + 32.0) / atlas.size.x, (y + 32.0) / atlas.size.y),
-	);
-	Image::new((atlas.id, egui::Vec2::splat(size)))
-		.uv(uv)
-		.alt_text(text)
+/// [`prefetch`] for a bundled artwork cell from [`lookup`].
+pub(crate) fn prefetch_cell(ctx: &Context, cell: usize, size: f32) {
+	if let Some(service) = raster::service(ctx) {
+		service.prefetch(ctx, (cell, raster::edge(ctx, size)));
+	}
 }
 
 pub(crate) fn button(ctx: &Context, emoji: &str, text: String) -> egui::Button<'static> {
@@ -254,7 +231,7 @@ mod tests {
 	}
 	#[test]
 	fn vector_artwork_keys_and_decompression_are_bounded() {
-		for edge in [64, 128, 256] {
+		for edge in [16, 37, 256] {
 			let (source, parsed) = bundled_svg(&format!("emoji-unicode-0-{edge}")).unwrap();
 			assert_eq!(parsed, edge);
 			let svg = decode_bundled_svg(source).unwrap();
@@ -263,6 +240,8 @@ mod tests {
 		}
 		for key in [
 			"emoji-unicode-4009-64",
+			"emoji-unicode-0-15",
+			"emoji-unicode-0-257",
 			"emoji-unicode-0-4096",
 			"emoji-unicode-../0-64",
 			"emoji-unicode-0-64?url=x",
@@ -298,17 +277,10 @@ mod tests {
 		}
 	}
 	#[test]
-	fn atlas_is_bounded_and_matches_complete_sequences() {
-		let image = image::load_from_memory(ATLAS).unwrap();
-		assert!(image.width() as usize * image.height() as usize * 4 <= 16 * 1024 * 1024);
-		assert!(ATLAS.len() <= 8 * 1024 * 1024);
+	fn index_is_bounded_and_matches_complete_sequences() {
 		assert!(entries().len() <= 4096);
 		assert!(entries().windows(2).all(|pair| pair[0].0 < pair[1].0));
-		assert!(
-			entries()
-				.iter()
-				.all(|(_, cell)| *cell < (image.width() / 32 * (image.height() / 32)) as usize)
-		);
+		assert!(entries().iter().all(|(_, cell)| *cell < VECTOR_COUNT));
 		for text in ["👍", "👍🏽", "❤️", "👩🏽‍💻", "🇨🇿", "1️⃣", "🏳️‍🌈", "🏳‍🌈", "👩‍⚕", "👨‍👩‍👧‍👦"]
 		{
 			assert!(lookup(text).is_some(), "missing {text}");
@@ -317,4 +289,22 @@ mod tests {
 			assert!(lookup(text).is_none(), "unexpected {text}");
 		}
 	}
+}
+
+/// Installs a synthetic rasteriser without worker threads; [`run_jobs`] renders queued work.
+#[cfg(test)]
+pub(crate) fn install_for_tests(ctx: &Context) {
+	raster::install_inline(
+		ctx,
+		Backend {
+			rasterize: std::sync::Arc::new(|_, edge| {
+				Some(egui::ColorImage::filled(
+					[edge as usize; 2],
+					egui::Color32::WHITE,
+				))
+			}),
+			on_worker_start: || {},
+		},
+	);
+	entries();
 }

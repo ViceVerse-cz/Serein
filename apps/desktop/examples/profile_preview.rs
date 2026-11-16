@@ -1,5 +1,7 @@
 //! Offline native framebuffer capture; no account, filesystem cache, or network adapters.
 use eframe::egui;
+#[path = "../src/emoji_raster.rs"]
+mod emoji_raster;
 #[path = "../src/server_settings_demo.rs"]
 mod server_settings_demo;
 #[allow(dead_code)] // The shared fixture's CLI check is called by the desktop binary.
@@ -940,7 +942,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		},
 		Box::new(move |cc| {
 			ui::fonts::install(&cc.egui_ctx);
-			let _ = ui::emoji::install(&cc.egui_ctx);
+			ui::emoji::install(&cc.egui_ctx, emoji_raster::backend());
 			ui::design::set_window_effects(transparency.is_some(), transparency.unwrap_or(0), 0);
 			ui::design::apply(&cc.egui_ctx);
 			cc.egui_ctx.set_theme(if light {

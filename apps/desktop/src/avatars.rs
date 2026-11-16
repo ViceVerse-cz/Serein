@@ -566,8 +566,7 @@ impl AvatarWorker {
 		*self.usage.borrow()
 	}
 	pub fn request(&self, key: String) -> bool {
-		(ui::emoji::bundled_svg(&key).is_some() || (!self.bundled_only && cdn_url(&key).is_some()))
-			&& self.requests.try_send(key).is_ok()
+		!self.bundled_only && cdn_url(&key).is_some() && self.requests.try_send(key).is_ok()
 	}
 	pub fn poll(&mut self) -> Option<AvatarResult> {
 		let result = self.results.try_recv().ok()?;
@@ -1154,7 +1153,6 @@ fn partition(key: &str) -> model::CachePartition {
 	if ARTWORK.iter().any(|prefix| key.starts_with(prefix))
 		&& !key.starts_with("nameplate-anim-")
 		&& !key.starts_with("badge-art:")
-		&& !key.starts_with("emoji-unicode-")
 	{
 		model::CachePartition::Artwork
 	} else {
@@ -1290,26 +1288,6 @@ async fn run(
 				.or_else(|| artwork.pop_front())
 				.or_else(|| inline.pop_front())
 		{
-			if let Some((source, edge)) = ui::emoji::bundled_svg(&key) {
-				jobs.spawn(async move {
-					let image =
-						bounded_decode(DECODE_SLOTS.clone(), move || rasterize_emoji(source, edge))
-							.await
-							.ok()
-							.flatten();
-					// Bundled shapes are never written to disk.
-					let loaded = Loaded {
-						key,
-						fetched: None,
-						image,
-						frames: Vec::new(),
-						error: None,
-						until: Instant::now(),
-					};
-					(u64::MAX, loaded)
-				});
-				continue;
-			}
 			if bundled_only {
 				continue;
 			}
@@ -1422,36 +1400,6 @@ async fn run(
 		}
 	}
 	jobs.abort_all();
-}
-
-fn rasterize_emoji(source: &[u8], edge: u32) -> Option<egui::ColorImage> {
-	if !matches!(edge, 64 | 128 | 256) {
-		return None;
-	}
-	let svg = ui::emoji::decode_bundled_svg(source)?;
-	let options = resvg::usvg::Options {
-		image_href_resolver: resvg::usvg::ImageHrefResolver {
-			resolve_data: Box::new(|_, _, _| None),
-			resolve_string: Box::new(|_, _| None),
-		},
-		..Default::default()
-	};
-	let tree = resvg::usvg::Tree::from_data(&svg, &options).ok()?;
-	let mut pixels = resvg::tiny_skia::Pixmap::new(edge, edge)?;
-	let padding = edge as f32 / 32.0;
-	let scale = (edge as f32 - padding * 2.0) / tree.size().width().max(tree.size().height());
-	let transform = resvg::tiny_skia::Transform::from_row(scale, 0.0, 0.0, scale, padding, padding);
-	resvg::render(&tree, transform, &mut pixels.as_mut());
-	Some(egui::ColorImage::new(
-		[edge as usize, edge as usize],
-		pixels
-			.data()
-			.as_chunks::<4>()
-			.0
-			.iter()
-			.map(|p| egui::Color32::from_rgba_premultiplied(p[0], p[1], p[2], p[3]))
-			.collect(),
-	))
 }
 
 fn job_urls(key: &str) -> Option<MediaUrls> {
@@ -2422,27 +2370,13 @@ mod tests {
 	}
 
 	#[test]
-	fn offline_emoji_worker_rejects_network_requests() {
+	fn offline_worker_rejects_network_requests() {
 		let runtime = tokio::runtime::Runtime::new().unwrap();
-		let mut worker =
+		let worker =
 			super::AvatarWorker::start_bundled(&runtime, egui::Context::default()).unwrap();
-		assert!(!worker.request("emoji-9001".into()));
+		assert!(!worker.request("emoji-9001@64".into()));
 		assert!(!worker.request("1-01234567890123456789012345678901".into()));
-		assert!(worker.request("emoji-unicode-0-128".into()));
-		let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-		let result = loop {
-			if let Some(result) = worker.poll() {
-				break result;
-			}
-			assert!(
-				std::time::Instant::now() < deadline,
-				"bundled worker did not finish"
-			);
-			std::thread::sleep(std::time::Duration::from_millis(5));
-		};
-		assert_eq!(result.key, "emoji-unicode-0-128");
-		assert_eq!(result.image.unwrap().resolution(), [128, 128]);
-		assert!(result.error.is_none());
+		assert!(!worker.request("emoji-unicode-0-128".into()));
 		assert!(
 			worker
 				.shutdown()
@@ -3073,7 +3007,6 @@ mod tests {
 			"7-0123456789abcdef0123456789abcdef",
 			"banner-7-0123456789abcdef0123456789abcdef",
 			"nameplate-anim-12",
-			"emoji-unicode-0-64",
 			"frame-30-31",
 			"anim:https://media.discordapp.net/x.gif",
 		] {

@@ -1325,13 +1325,15 @@ fn tag_font(ui: &egui::Ui, height: f32) -> egui::FontId {
 	)
 }
 
-/// Does this emoji have artwork to paint: a custom emoji, or a Unicode one in the atlas?
+/// Does this emoji have artwork to paint: a custom emoji, or a bundled Unicode one?
 fn has_emoji(ctx: &egui::Context, id: Option<Id>, name: Option<&str>) -> bool {
 	id.is_some()
-		|| name.is_some_and(|name| crate::emoji::lookup(name).is_some() && crate::emoji::ready(ctx))
+		|| name.is_some_and(|name| {
+			crate::emoji::lookup(name).is_some() && crate::emoji::installed(ctx)
+		})
 }
 
-/// Paint a custom emoji from the image cache, or a Unicode one from the Twemoji atlas.
+/// Paint a custom emoji from the image cache, or a Unicode one from bundled Twemoji.
 pub(crate) fn paint_emoji(
 	ui: &egui::Ui,
 	(images, demo): (&mut Avatars, bool),

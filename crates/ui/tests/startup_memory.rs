@@ -22,12 +22,6 @@ fn font_install() {
 }
 
 #[test]
-#[ignore = "release component benchmark; one warmup and five measured installations"]
-fn emoji_install() {
-	measure(|ctx| ui::emoji::install(ctx).unwrap());
-}
-
-#[test]
 #[ignore = "release component benchmark; one warmup and five measured frame batches"]
 fn settled_font_frames() {
 	let ctx = egui::Context::default();

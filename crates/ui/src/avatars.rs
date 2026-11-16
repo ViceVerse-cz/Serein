@@ -732,32 +732,6 @@ impl Avatars {
 			.map(|cached| (format!("emoji-{id}@{cached}"), cached))
 			.find(|(key, _)| self.emoji_textures.contains_key(key))
 	}
-	pub(crate) fn unicode_image(
-		&mut self,
-		ctx: &egui::Context,
-		cell: usize,
-		size: f32,
-	) -> Option<egui::Image<'static>> {
-		let physical = size * ctx.pixels_per_point();
-		if !physical.is_finite() || physical <= 30.0 {
-			return None;
-		}
-		let edge = if physical <= 64.0 {
-			64
-		} else if physical <= 128.0 {
-			128
-		} else {
-			256
-		};
-		let key = format!("emoji-unicode-{cell}-{edge}");
-		if let Some(entry) = self.emoji_textures.get_mut(&key) {
-			entry.0 = Instant::now();
-			Some(egui::Image::new(&entry.1).fit_to_exact_size(egui::Vec2::splat(size)))
-		} else {
-			self.request(key);
-			None
-		}
-	}
 	pub(crate) fn custom_image(
 		&mut self,
 		_ctx: &egui::Context,
@@ -2217,10 +2191,6 @@ mod tests {
 			(
 				"[sticker](https://cdn.discordapp.com/stickers/2.png)",
 				"embed:sticker-2-1".to_owned(),
-			),
-			(
-				"🙂",
-				format!("emoji-unicode-{}-64", crate::emoji::lookup("🙂").unwrap()),
 			),
 		] {
 			let ctx = egui::Context::default();

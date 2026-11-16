@@ -16,6 +16,9 @@ struct Inline {
 	label: Option<Arc<egui::Galley>>,
 	background: Color32,
 	image: Option<Image<'static>>,
+	/// Bundled Unicode emoji; its raster is looked up at paint, so arriving rasters need no
+	/// relayout.
+	unicode: Option<Box<str>>,
 	asset: Option<model::ImageShare>,
 	icon: Option<crate::icons::Icon>,
 	game_icon: Option<String>,
@@ -162,7 +165,7 @@ impl Layout {
 		colors.mention_bg.hash(&mut key);
 		colors.muted.hash(&mut key);
 		avatars.revision.hash(&mut key);
-		emoji::ready(ui.ctx()).hash(&mut key);
+		emoji::installed(ui.ctx()).hash(&mut key);
 		demo.hash(&mut key);
 		if text.contains("<:") || text.contains("<a:") || text.contains("](https://") {
 			static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
@@ -214,6 +217,7 @@ impl Layout {
 			let mut label = None;
 			let mut background = colors.accent.gamma_multiply(0.12);
 			let mut image = None;
+			let mut unicode = None;
 			let mut asset = None;
 			let mut icon = None;
 			let mut game_icon = None;
@@ -289,8 +293,8 @@ impl Layout {
 				len
 			} else {
 				let grapheme = tail.graphemes(true).next().expect("nonempty tail");
-				image = emoji::image(ui.ctx(), grapheme, size);
-				artwork = image.is_some() || emoji::lookup(grapheme).is_some();
+				artwork = emoji::lookup(grapheme).is_some() && emoji::installed(ui.ctx());
+				unicode = artwork.then(|| grapheme.into());
 				grapheme.len()
 			};
 			let label = label.map(|(text, color)| {
@@ -316,6 +320,7 @@ impl Layout {
 					label,
 					background,
 					image,
+					unicode,
 					asset,
 					icon,
 					game_icon,
@@ -440,7 +445,12 @@ impl Layout {
 					label.clone(),
 					Color32::PLACEHOLDER,
 				);
-			} else if let Some(image) = &inline.image {
+			} else if let Some(image) = inline
+				.unicode
+				.as_deref()
+				.and_then(|text| emoji::image(ui.ctx(), text, emoji::inline_size(ui)))
+				.or_else(|| inline.image.clone())
+			{
 				let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect));
 				child.set_clip_rect(clip);
 				image.paint_at(
