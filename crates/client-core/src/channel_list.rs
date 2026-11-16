@@ -311,9 +311,12 @@ impl State {
 			.into_iter()
 			.filter(|(id, value)| *value != flags_of(*id))
 			.collect();
+		// Adding or removing a channel only means something in opt-in mode, so it always carries
+		// that mode; another session turning Show All Channels on before dispatch can't leave the
+		// write half applied.
 		let write = Write {
 			guild,
-			flags: (flags != current).then_some(flags),
+			flags: (flags != current || matches!(change, Change::List { .. })).then_some(flags),
 			channels,
 		};
 		write.valid().then_some(write)
@@ -595,7 +598,7 @@ mod tests {
 				listed: true,
 			},
 		);
-		assert_eq!(sent.flags, None);
+		assert_eq!(sent.flags, Some(OPT_IN_CHANNELS_ON | 1 << 11));
 		assert_eq!(sent.channels, [(Id(2), OPT_IN_ENABLED | 1 << 11)]);
 		let sent = write(&mut state, Change::ShowAll(true));
 		assert_eq!(sent.flags, Some(OPT_IN_CHANNELS_OFF | 1 << 11));
@@ -603,6 +606,39 @@ mod tests {
 		assert_eq!(listed(&state), [2, 3, 6, 5]);
 		write(&mut state, Change::ShowAll(false));
 		assert_eq!(listed(&state), [2, 5]);
+		// A queued removal keeps opt-in mode when another session turned Show All Channels on
+		// before it was sent.
+		let mut queued = self::state(OPT_IN_CHANNELS_ON, vec![(Id(5), OPT_IN_ENABLED)]);
+		let Some(Command::ChannelList {
+			write: removal,
+			latest,
+			..
+		}) = queued.change_channel_list(
+			Id(100),
+			Change::List {
+				channel: Id(5),
+				listed: false,
+			},
+		)
+		else {
+			panic!()
+		};
+		queued
+			.apply_notification_preferences(notifications::Event::Settings {
+				entries: vec![notifications::Setting {
+					overrides_known: true,
+					guild: Some(Id(100)),
+					channels: vec![(Id(5), None, None)],
+					flags: Some(OPT_IN_CHANNELS_OFF),
+					channel_flags: vec![(Id(5), OPT_IN_ENABLED)],
+					..Default::default()
+				}],
+				replace: false,
+			})
+			.unwrap();
+		let sent = removal.rebase(latest.lock().unwrap().as_ref().unwrap());
+		assert_eq!(sent.flags, Some(OPT_IN_CHANNELS_ON));
+		assert_eq!(sent.channels, [(Id(5), 0)]);
 		// Removing a channel while showing all keeps the saved selection instead of reseeding.
 		write(&mut state, Change::ShowAll(true));
 		write(
@@ -645,7 +681,7 @@ mod tests {
 		};
 		assert_eq!(
 			(write.flags, &write.channels[..]),
-			(None, &[(Id(2), 0)][..])
+			(Some(OPT_IN_CHANNELS_ON), &[(Id(2), 0)][..])
 		);
 		// The gateway maps a row with a null override flag to unknown guild flags and leaves
 		// that override out; it must neither echo the write nor become writable.
