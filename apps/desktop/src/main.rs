@@ -2987,6 +2987,28 @@ impl Desktop {
 		}
 		self.messaging.reading_status = self.reading.status();
 	}
+	/// Applies mute (bit 1) and deafen (bit 2) toggles from a hotkey or the tray.
+	fn toggle_voice(&mut self, toggles: u8) {
+		if toggles == 0 || self.fixture_only {
+			return;
+		}
+		// Toggle from the newest choice; a mute and deafen in one frame apply in order.
+		let mut latest = None;
+		if toggles & 1 != 0 {
+			latest = Some(self.messaging.toggle_voice(false));
+		}
+		if toggles & 2 != 0 {
+			latest = Some(self.messaging.toggle_voice(true));
+		}
+		let (muted, deafened) =
+			latest.unwrap_or((self.messaging.voice_muted, self.messaging.voice_deafened));
+		if self.state.auth == AuthState::Authenticated
+			&& let Some(command) = self.state.set_call_mute(muted, deafened)
+			&& !self.state.demo
+		{
+			self.command(command);
+		}
+	}
 	fn sync_tray(&mut self, ctx: &egui::Context) {
 		let previous_status = self.messaging.tray_status;
 		self.tray_setting.observe(self.messaging.minimize_to_tray);
@@ -3055,6 +3077,25 @@ impl Desktop {
 				platform::tray::VoiceState::Unmuted
 			};
 			tray.set_voice_state(voice_state);
+			tray.set_menu(&platform::tray::Menu {
+				account: self
+					.state
+					.user
+					.as_ref()
+					.filter(|_| self.state.demo || self.state.auth == AuthState::Authenticated)
+					.map(|user| user.name.as_str()),
+				call: self
+					.state
+					.voice
+					.active
+					.as_ref()
+					.filter(|call| call.phase != client_core::voice::Phase::Failed)
+					.and_then(|call| self.state.channel(call.channel))
+					.map(|channel| channel.name.as_str()),
+				pings: self.notification_runtime.pings(),
+				muted,
+				deafened,
+			});
 		}
 		if self.tray_window.hidden && !self.background_available() {
 			self.tray_window.show(ctx);
@@ -5963,24 +6004,7 @@ impl eframe::App for Desktop {
 			| self
 				.messaging
 				.voice_toggle_pressed(ctx, |action, chord| self.hotkeys.is_global(action, chord));
-		if voice_toggles != 0 && !self.fixture_only {
-			// Toggle from the newest choice; a mute and deafen in one frame apply in order.
-			let mut latest = None;
-			if voice_toggles & 1 != 0 {
-				latest = Some(self.messaging.toggle_voice(false));
-			}
-			if voice_toggles & 2 != 0 {
-				latest = Some(self.messaging.toggle_voice(true));
-			}
-			let (muted, deafened) =
-				latest.unwrap_or((self.messaging.voice_muted, self.messaging.voice_deafened));
-			if self.state.auth == AuthState::Authenticated
-				&& let Some(command) = self.state.set_call_mute(muted, deafened)
-				&& !self.state.demo
-			{
-				self.command(command);
-			}
-		}
+		self.toggle_voice(voice_toggles);
 		if self.updater.sync(
 			ctx,
 			&self.runtime,
@@ -6056,10 +6080,10 @@ impl eframe::App for Desktop {
 				);
 			}
 		}
-		let mut tray_events = Vec::with_capacity(4);
+		let mut tray_events = Vec::with_capacity(8);
 		if let Some(tray) = &mut self.tray {
 			// The Linux worker can refill event bits while this frame consumes them.
-			for _ in 0..4 {
+			for _ in 0..8 {
 				let Some(event) = tray.take_event() else {
 					break;
 				};
@@ -6074,6 +6098,15 @@ impl eframe::App for Desktop {
 					self.tray_window.quit(ctx);
 				}
 				platform::tray::Event::Show => self.tray_window.show(ctx),
+				platform::tray::Event::ToggleMute => self.toggle_voice(1),
+				platform::tray::Event::ToggleDeafen => self.toggle_voice(2),
+				platform::tray::Event::Disconnect => {
+					if !self.fixture_only
+						&& let Some(command) = self.state.leave_call()
+					{
+						self.command(command);
+					}
+				}
 				#[cfg(target_os = "linux")]
 				platform::tray::Event::Minimize => {
 					if !quitting {

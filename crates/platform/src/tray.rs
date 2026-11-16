@@ -9,6 +9,134 @@ pub enum Event {
 	Quit = 4,
 	#[cfg(target_os = "linux")]
 	Minimize = 8,
+	ToggleMute = 16,
+	ToggleDeafen = 32,
+	/// Leave the call this device is in.
+	Disconnect = 64,
+}
+
+impl Event {
+	/// Whether the window comes forward for this event; voice actions work from the tray alone.
+	#[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
+	fn restores(self) -> bool {
+		matches!(self, Self::Show | Self::Quit | Self::Unavailable)
+	}
+}
+
+/// What the tray menu shows beyond its fixed actions. A tray redraws only when this changes.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Menu<'a> {
+	/// Signed-in account name.
+	pub account: Option<&'a str>,
+	/// Voice channel or call this device is in.
+	pub call: Option<&'a str>,
+	/// Unread mentions and direct messages, as counted for the app badge.
+	pub pings: u32,
+	pub muted: bool,
+	pub deafened: bool,
+}
+
+/// The last [`Menu`] a tray was given, owned, so an unchanged frame costs one comparison.
+#[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux", test))]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct MenuState {
+	account: Option<String>,
+	call: Option<String>,
+	pings: u32,
+	muted: bool,
+	deafened: bool,
+}
+
+#[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux", test))]
+enum Row {
+	/// A line of text that cannot be chosen.
+	Info(String),
+	Separator,
+	Action {
+		label: &'static str,
+		event: Event,
+		/// `Some` draws a check mark slot.
+		checked: Option<bool>,
+		enabled: bool,
+	},
+}
+
+#[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux", test))]
+impl MenuState {
+	/// A service name as one bounded line of menu text.
+	fn line(text: &str) -> impl Iterator<Item = char> + '_ {
+		text.chars().filter(|c| !c.is_control()).take(64)
+	}
+	fn matches(&self, menu: &Menu<'_>) -> bool {
+		// Compare what is shown: a name that was shortened still equals its own source.
+		let same = |shown: &Option<String>, source: Option<&str>| match (shown, source) {
+			(Some(shown), Some(source)) => shown.chars().eq(Self::line(source)),
+			(None, None) => true,
+			_ => false,
+		};
+		same(&self.account, menu.account)
+			&& same(&self.call, menu.call)
+			&& (self.pings, self.muted, self.deafened) == (menu.pings, menu.muted, menu.deafened)
+	}
+	fn new(menu: &Menu<'_>) -> Self {
+		let line = |text: &str| -> String { Self::line(text).collect() };
+		Self {
+			account: menu.account.map(line),
+			call: menu.call.map(line),
+			pings: menu.pings,
+			muted: menu.muted,
+			deafened: menu.deafened,
+		}
+	}
+	/// The menu top to bottom, the same on every platform.
+	fn rows(&self) -> Vec<Row> {
+		let action = |label, event| Row::Action {
+			label,
+			event,
+			checked: None,
+			enabled: true,
+		};
+		let mut rows = Vec::with_capacity(12);
+		rows.extend(self.account.clone().map(Row::Info));
+		if self.pings > 0 {
+			rows.push(Row::Info(format!(
+				"Unread mentions and DMs: {}",
+				self.pings
+			)));
+		}
+		if let Some(call) = &self.call {
+			rows.push(Row::Info(format!("In voice: {call}")));
+		}
+		if !rows.is_empty() {
+			rows.push(Row::Separator);
+		}
+		rows.push(action("Show Serein", Event::Show));
+		#[cfg(target_os = "linux")]
+		rows.push(action("Minimize Serein", Event::Minimize));
+		rows.push(Row::Separator);
+		rows.push(Row::Action {
+			label: "Mute",
+			event: Event::ToggleMute,
+			// Deafening mutes too, as in the app.
+			checked: Some(self.muted || self.deafened),
+			enabled: true,
+		});
+		rows.push(Row::Action {
+			label: "Deafen",
+			event: Event::ToggleDeafen,
+			checked: Some(self.deafened),
+			enabled: true,
+		});
+		rows.push(Row::Action {
+			label: "Disconnect",
+			event: Event::Disconnect,
+			checked: None,
+			enabled: self.call.is_some(),
+		});
+		rows.push(Row::Separator);
+		rows.push(action("Quit Serein", Event::Quit));
+		rows
+	}
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -54,9 +182,16 @@ impl Events {
 		self.0.set(self.0.get() | event as u8);
 	}
 	fn take(&self) -> Option<Event> {
-		let event = [Event::Quit, Event::Unavailable, Event::Show]
-			.into_iter()
-			.find(|event| self.0.get() & *event as u8 != 0)?;
+		let event = [
+			Event::Quit,
+			Event::Unavailable,
+			Event::Show,
+			Event::ToggleMute,
+			Event::ToggleDeafen,
+			Event::Disconnect,
+		]
+		.into_iter()
+		.find(|event| self.0.get() & *event as u8 != 0)?;
 		self.0.set(self.0.get() & !(event as u8));
 		Some(event)
 	}
@@ -93,13 +228,18 @@ impl Tray {
 		None
 	}
 	pub fn set_voice_state(&self, _state: VoiceState) {}
+	pub fn set_menu(&self, _menu: &Menu<'_>) {}
 }
 
 #[cfg(target_os = "windows")]
 #[allow(unsafe_code)]
 mod native {
-	use super::{Event, Events};
-	use std::{cell::Cell, rc::Rc, sync::Arc};
+	use super::{Event, Events, MenuState, Row};
+	use std::{
+		cell::{Cell, RefCell},
+		rc::Rc,
+		sync::Arc,
+	};
 	use windows::{
 		Win32::{
 			Foundation::{HANDLE, HWND, LPARAM, LRESULT, POINT, WPARAM},
@@ -113,6 +253,9 @@ mod native {
 	const ID: usize = 0x5352;
 	const SHOW: usize = 1;
 	const QUIT: usize = 2;
+	const MUTE: usize = 3;
+	const DEAFEN: usize = 4;
+	const DISCONNECT: usize = 5;
 	const NIN_KEYSELECT: u32 = NIN_SELECT | NINF_KEY;
 	const UNAVAILABLE: &str = "The Windows tray is unavailable. The window will remain accessible.";
 	const ATLAS: &[u8] = include_bytes!("../../../assets/icons/atlas.png");
@@ -138,6 +281,10 @@ mod native {
 		voice_icons: [Option<HICON>; 4],
 		current_voice_state: Cell<super::VoiceState>,
 		applied_voice_state: Cell<Option<super::VoiceState>>,
+		menu_state: RefCell<MenuState>,
+		/// The native menu no longer matches `menu_state`; it is rebuilt before it next opens,
+		/// never while it is showing.
+		menu_stale: Cell<bool>,
 	}
 
 	impl Tray {
@@ -220,14 +367,16 @@ mod native {
 					voice_icons,
 					current_voice_state: Cell::new(super::VoiceState::Unmuted),
 					applied_voice_state: Cell::new(None),
+					menu_state: RefCell::default(),
+					menu_stale: Cell::new(true),
 				}),
 				_window: window,
 			};
+			if !tray.state.rebuild_menu() {
+				return Err(UNAVAILABLE);
+			}
 			// SAFETY: menu and hwnd are live UI-thread handles; Rc keeps callback state stable.
 			unsafe {
-				AppendMenuW(menu, MF_STRING, SHOW, w!("Show Serein")).map_err(|_| UNAVAILABLE)?;
-				AppendMenuW(menu, MF_STRING, QUIT, w!("Quit")).map_err(|_| UNAVAILABLE)?;
-				SetMenuDefaultItem(menu, SHOW as u32, 0).map_err(|_| UNAVAILABLE)?;
 				let reference = Rc::into_raw(tray.state.clone());
 				if SetPropW(
 					hwnd,
@@ -283,6 +432,13 @@ mod native {
 					unsafe { Shell_NotifyIconW(NIM_MODIFY, &data).as_bool() }
 				},
 			);
+		}
+
+		pub fn set_menu(&self, menu: &super::Menu<'_>) {
+			if !self.state.menu_state.borrow().matches(menu) {
+				*self.state.menu_state.borrow_mut() = MenuState::new(menu);
+				self.state.menu_stale.set(true);
+			}
 		}
 	}
 
@@ -349,7 +505,69 @@ mod native {
 			self.events.push(event);
 			(self.wake)();
 		}
+		/// Replaces the native menu's items with the current rows.
+		fn rebuild_menu(&self) -> bool {
+			let rows = self.menu_state.borrow().rows();
+			// SAFETY: this state owns the menu, and it is not showing: only `menu` opens it, and
+			// that rebuilds before tracking starts.
+			unsafe {
+				while GetMenuItemCount(Some(self.menu)) > 0 {
+					if DeleteMenu(self.menu, 0, MF_BYPOSITION).is_err() {
+						return false;
+					}
+				}
+				for row in rows {
+					let (flags, id, text) = match row {
+						Row::Separator => (MF_SEPARATOR, 0, String::new()),
+						Row::Info(text) => (MF_STRING | MF_GRAYED, 0, text),
+						Row::Action {
+							label,
+							event,
+							checked,
+							enabled,
+						} => {
+							let mut flags = MF_STRING;
+							if checked == Some(true) {
+								flags |= MF_CHECKED;
+							}
+							if !enabled {
+								flags |= MF_GRAYED;
+							}
+							let id = match event {
+								Event::Show => SHOW,
+								Event::Quit => QUIT,
+								Event::ToggleMute => MUTE,
+								Event::ToggleDeafen => DEAFEN,
+								Event::Disconnect => DISCONNECT,
+								Event::Unavailable => continue,
+							};
+							(flags, id, label.to_owned())
+						}
+					};
+					// An ampersand would otherwise mark a mnemonic. The menu copies the text.
+					let text: Vec<u16> = text
+						.replace('&', "&&")
+						.encode_utf16()
+						.chain(std::iter::once(0))
+						.collect();
+					if AppendMenuW(self.menu, flags, id, windows::core::PCWSTR(text.as_ptr()))
+						.is_err()
+					{
+						return false;
+					}
+				}
+				if SetMenuDefaultItem(self.menu, SHOW as u32, 0).is_err() {
+					return false;
+				}
+			}
+			self.menu_stale.set(false);
+			true
+		}
 		fn menu(&self) {
+			if self.menu_stale.get() {
+				// A failed rebuild keeps the stale flag; the next opening tries again.
+				let _ = self.rebuild_menu();
+			}
 			let mut cursor = POINT::default();
 			// SAFETY: live owned menu/window and stack cursor; TrackPopupMenu runs a nested UI loop.
 			let command = unsafe {
@@ -376,9 +594,14 @@ mod native {
 			if let Some(event) = match command {
 				SHOW => Some(Event::Show),
 				QUIT => Some(Event::Quit),
+				MUTE => Some(Event::ToggleMute),
+				DEAFEN => Some(Event::ToggleDeafen),
+				DISCONNECT => Some(Event::Disconnect),
 				_ => None,
 			} {
-				self.restore();
+				if event.restores() {
+					self.restore();
+				}
 				self.emit(event);
 			}
 		}
@@ -713,7 +936,10 @@ mod native {
 				tray.state.remove_icon();
 				let _ = SendMessageW(hwnd, tray.state.restart, None, None);
 				assert!(tray.state.present.get());
-				assert_eq!(GetMenuItemID(tray.state.menu, 1), QUIT as u32);
+				assert_eq!(
+					GetMenuItemID(tray.state.menu, GetMenuItemCount(Some(tray.state.menu)) - 1),
+					QUIT as u32
+				);
 				tray.state.activate(QUIT);
 				assert_eq!(tray.take_event(), Some(Event::Quit));
 				assert!(IsWindow(Some(hwnd)).as_bool()); // Quit is an app event, never forced destruction.

@@ -78,6 +78,11 @@ impl PttCues {
 	}
 }
 impl Runtime {
+	/// Unread mentions and direct messages as last counted for the app badge; zero while the
+	/// badge is off.
+	pub fn pings(&self) -> u32 {
+		self.badge.unwrap_or(0)
+	}
 	fn ring_cue(&mut self, ringing: Option<(Id, Sound)>, now: Instant) -> Option<Sound> {
 		if self.ring.map(|(key, _)| key) != ringing {
 			if self.ring.is_some() {

@@ -1,10 +1,12 @@
-use super::{Event, Events};
+use super::{Event, Events, MenuState, Row};
 use objc2::{
 	AllocAnyThread, DefinedClass, MainThreadOnly, define_class, msg_send, rc::Retained, sel,
 };
 use objc2_app_kit::{NSImage, NSMenu, NSMenuItem, NSStatusBar, NSStatusItem};
-use objc2_foundation::{MainThreadMarker, NSData, NSObject, NSObjectProtocol, NSSize, ns_string};
-use std::sync::Arc;
+use objc2_foundation::{
+	MainThreadMarker, NSData, NSObject, NSObjectProtocol, NSSize, NSString, ns_string,
+};
+use std::{cell::RefCell, sync::Arc};
 
 /// Serein's own mark, rasterized from `assets/brand/serein-mark.svg` as a menu bar template:
 /// only its alpha matters, so macOS tints it for light, dark and highlighted menu bars.
@@ -40,6 +42,21 @@ define_class!(
 		fn quit(&self, _sender: &NSMenuItem) {
 			self.emit(Event::Quit);
 		}
+
+		#[unsafe(method(toggleMute:))]
+		fn toggle_mute(&self, _sender: &NSMenuItem) {
+			self.emit(Event::ToggleMute);
+		}
+
+		#[unsafe(method(toggleDeafen:))]
+		fn toggle_deafen(&self, _sender: &NSMenuItem) {
+			self.emit(Event::ToggleDeafen);
+		}
+
+		#[unsafe(method(disconnectCall:))]
+		fn disconnect(&self, _sender: &NSMenuItem) {
+			self.emit(Event::Disconnect);
+		}
 	}
 );
 
@@ -47,9 +64,11 @@ impl Target {
 	fn emit(&self, event: Event) {
 		let state = self.ivars();
 		// Restore before Quit as well, so the app can display its unsaved-draft prompt.
-		state.window.set_visible(true);
-		state.window.set_minimized(false);
-		state.window.focus_window();
+		if event.restores() {
+			state.window.set_visible(true);
+			state.window.set_minimized(false);
+			state.window.focus_window();
+		}
 		state.events.push(event);
 		(state.wake)();
 	}
@@ -60,6 +79,7 @@ pub struct Tray {
 	item: Retained<NSStatusItem>,
 	menu: Retained<NSMenu>,
 	target: Retained<Target>,
+	shown: RefCell<MenuState>,
 }
 
 impl Tray {
@@ -82,6 +102,7 @@ impl Tray {
 			item: NSStatusBar::systemStatusBar().statusItemWithLength(-1.0),
 			menu,
 			target,
+			shown: RefCell::default(),
 		};
 		let button = tray
 			.item
@@ -96,26 +117,77 @@ impl Tray {
 			button.setTitle(ns_string!("Serein"));
 		}
 		button.setToolTip(Some(ns_string!("Serein")));
-		for (title, action) in [
-			(ns_string!("Show Serein"), sel!(showSerein:)),
-			(ns_string!("Quit Serein"), sel!(quitSerein:)),
-		] {
-			// SAFETY: both selectors are implemented above with the menu action signature.
-			// Tray retains their main-thread target until the menu is disconnected on drop.
+		tray.fill(mtm);
+		tray.item.setMenu(Some(&tray.menu));
+		Ok(tray)
+	}
+
+	/// Replaces the menu's items with the current rows.
+	fn fill(&self, mtm: MainThreadMarker) {
+		self.clear();
+		for row in self.shown.borrow().rows() {
+			let (title, action, checked, enabled) = match row {
+				Row::Separator => {
+					self.menu.addItem(&NSMenuItem::separatorItem(mtm));
+					continue;
+				}
+				Row::Info(text) => (text, None, None, false),
+				Row::Action {
+					label,
+					event,
+					checked,
+					enabled,
+				} => {
+					let action = match event {
+						Event::Show => sel!(showSerein:),
+						Event::Quit => sel!(quitSerein:),
+						Event::ToggleMute => sel!(toggleMute:),
+						Event::ToggleDeafen => sel!(toggleDeafen:),
+						Event::Disconnect => sel!(disconnectCall:),
+						Event::Unavailable => continue,
+					};
+					(label.to_owned(), Some(action), checked, enabled)
+				}
+			};
+			// SAFETY: every selector is implemented above with the menu action signature.
+			// Tray retains their main-thread target until the menu is disconnected.
 			let item = unsafe {
 				let item = NSMenuItem::initWithTitle_action_keyEquivalent(
 					NSMenuItem::alloc(mtm),
-					title,
-					Some(action),
+					&NSString::from_str(&title),
+					action,
 					ns_string!(""),
 				);
-				item.setTarget(Some(&tray.target));
+				if action.is_some() {
+					item.setTarget(Some(&self.target));
+				}
+				if checked == Some(true) {
+					// NSControlStateValueOn, without the NSCell bindings it is declared in.
+					let _: () = msg_send![&*item, setState: 1isize];
+				}
 				item
 			};
-			tray.menu.addItem(&item);
+			item.setEnabled(enabled);
+			self.menu.addItem(&item);
 		}
-		tray.item.setMenu(Some(&tray.menu));
-		Ok(tray)
+	}
+
+	fn clear(&self) {
+		for item in self.menu.itemArray() {
+			// SAFETY: disconnect even a menu item retained by AppKit's active menu tracking.
+			unsafe { item.setTarget(None) };
+		}
+		self.menu.removeAllItems();
+	}
+
+	pub fn set_menu(&self, menu: &super::Menu<'_>) {
+		if self.shown.borrow().matches(menu) {
+			return;
+		}
+		*self.shown.borrow_mut() = MenuState::new(menu);
+		if let Some(mtm) = MainThreadMarker::new() {
+			self.fill(mtm);
+		}
 	}
 
 	pub fn take_event(&self) -> Option<Event> {
@@ -128,11 +200,7 @@ impl Tray {
 impl Drop for Tray {
 	fn drop(&mut self) {
 		self.item.setMenu(None);
-		for item in self.menu.itemArray() {
-			// SAFETY: disconnect even a menu item retained by AppKit's active menu tracking.
-			unsafe { item.setTarget(None) };
-		}
-		self.menu.removeAllItems();
+		self.clear();
 		NSStatusBar::systemStatusBar().removeStatusItem(&self.item);
 	}
 }
