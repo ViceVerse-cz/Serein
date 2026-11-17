@@ -73,6 +73,11 @@ impl WheelMotion {
 				egui::Vec2::ZERO
 			};
 		}
+		let mut due = if now >= self.deadline {
+			std::mem::take(&mut self.pending)
+		} else {
+			egui::Vec2::ZERO
+		};
 		let was_pending = self.pending != egui::Vec2::ZERO;
 		let mut direct = egui::Vec2::ZERO;
 		let mut fresh = false;
@@ -90,10 +95,12 @@ impl WheelMotion {
 			if modifiers.matches_any(options.zoom_modifier) {
 				// egui has already extracted zoom from the event; do not also scroll.
 				self.cancel();
+				due = egui::Vec2::ZERO;
 				continue;
 			}
 			if *phase == egui::TouchPhase::Start {
 				self.cancel();
+				due = egui::Vec2::ZERO;
 			}
 			if !matches!(phase, egui::TouchPhase::Move | egui::TouchPhase::Start) {
 				continue;
@@ -115,11 +122,15 @@ impl WheelMotion {
 				&& *source != egui::MouseWheelSource::Wheel);
 			if precision {
 				self.cancel();
+				due = egui::Vec2::ZERO;
 				direct += delta;
 			} else {
 				for axis in 0..2 {
 					if delta[axis] != 0.0 && self.pending[axis].signum() != delta[axis].signum() {
 						self.pending[axis] = 0.0;
+					}
+					if delta[axis] != 0.0 && due[axis].signum() != delta[axis].signum() {
+						due[axis] = 0.0;
 					}
 				}
 				self.pending += delta;
@@ -149,7 +160,8 @@ impl WheelMotion {
 			self.cancel();
 			return egui::Vec2::ZERO;
 		}
-		let output = (direct + smoothed) * (f32::from(preferences.scroll_speed_percent) / 100.0);
+		let output =
+			(due + direct + smoothed) * (f32::from(preferences.scroll_speed_percent) / 100.0);
 		if output.is_finite() {
 			output
 		} else {
@@ -714,6 +726,33 @@ mod tests {
 		assert_eq!(
 			step(&mut motion, 1.4, 0.1, vec![], Default::default()),
 			egui::Vec2::ZERO
+		);
+	}
+
+	#[test]
+	fn new_notch_cannot_extend_an_expired_tail() {
+		let mut motion = WheelMotion::default();
+		let notch = |lines| vec![wheel(egui::MouseWheelUnit::Line, egui::vec2(0.0, lines))];
+		let initial = step(
+			&mut motion,
+			1.0,
+			1.0 / 60.0,
+			notch(-30.0),
+			Default::default(),
+		);
+		let after_delay = step(
+			&mut motion,
+			1.3,
+			1.0 / 60.0,
+			notch(-1.0),
+			Default::default(),
+		);
+		assert!(initial.y + after_delay.y <= -30.0 * DISCORD_LINE_SCROLL_SPEED);
+		assert!(motion.pending.y.abs() < DISCORD_LINE_SCROLL_SPEED);
+		let final_tail = step(&mut motion, 1.5, 1.0 / 60.0, vec![], Default::default());
+		assert!(
+			(initial.y + after_delay.y + final_tail.y + 31.0 * DISCORD_LINE_SCROLL_SPEED).abs()
+				< 0.001
 		);
 	}
 
