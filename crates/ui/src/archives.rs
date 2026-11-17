@@ -343,7 +343,7 @@ fn thread_card(
 						ui.add(
 							egui::Label::new(crate::role_names::galley(
 								ui,
-								state.message_author_name(starter),
+								state.message_render_name(starter),
 								egui::FontId::new(12.5, crate::design::medium_family(ui.ctx())),
 								state.message_author_colors(starter),
 								colors.raised,

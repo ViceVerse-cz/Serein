@@ -754,7 +754,7 @@ fn thread_card(
 					crate::design::role_name_color(role.primary, colors.chat, colors.text_strong)
 				});
 			let author = egui::WidgetText::from(
-				crate::design::medium(ui, state.message_author_name(message), 12.5).color(color),
+				crate::design::medium(ui, state.message_render_name(message), 12.5).color(color),
 			)
 			.into_galley(
 				ui,
@@ -858,7 +858,7 @@ fn thread_card(
 		named.push(thread_count(count));
 	}
 	if let (Some(last), Some(text)) = (card.last, card.text) {
-		named.push(format!("{}: {text}", state.message_author_name(last)));
+		named.push(format!("{}: {text}", state.message_render_name(last)));
 	}
 	if let Some(latest) = card.latest {
 		named.push(crate::local_time::ago(timestamp(latest)));
@@ -906,7 +906,7 @@ fn starter_row(
 							crate::account_badge::name(
 								ui,
 								&message.author,
-								state.message_author_name(message),
+								state.message_render_name(message),
 								15.5,
 								(
 									colors.text_strong,
@@ -3486,7 +3486,7 @@ impl TimelineView {
 														preview.append(
 															&format!(
 																"@{}  ",
-																state.message_author_name(original)
+																state.message_render_name(original)
 															),
 															0.0,
 															egui::TextFormat {
@@ -3734,7 +3734,7 @@ impl TimelineView {
 													crate::account_badge::name(
 														ui,
 														&message.author,
-														state.message_author_name(message),
+														state.message_render_name(message),
 														15.5,
 														(
 															colors.text_strong,
@@ -3812,7 +3812,7 @@ impl TimelineView {
 														crate::account_badge::name(
 															ui,
 															&message.author,
-															state.message_author_name(message),
+															state.message_render_name(message),
 															15.5,
 															(
 																colors.text_strong,

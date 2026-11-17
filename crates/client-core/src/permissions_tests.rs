@@ -1720,7 +1720,7 @@ fn history_freshness_does_not_disable_authorized_sending() {
 }
 
 #[test]
-fn a_friend_nickname_can_precede_a_server_nickname_without_rewriting_webhooks() {
+fn a_friend_nickname_applies_only_to_message_rendering() {
 	let mut state = state();
 	let mut message = state.timeline.get(Id(100)).unwrap().clone();
 	message.author.id = Id(3);
@@ -1738,10 +1738,15 @@ fn a_friend_nickname_can_precede_a_server_nickname_without_rewriting_webhooks() 
 			text: "Private name".into(),
 		})
 		.unwrap();
-	assert_eq!(state.message_author_name(&message), "Server nick");
+	// Rendering prefers the nickname only once the owner turns the preference on.
+	assert_eq!(state.message_render_name(&message), "Server nick");
 	state.set_prefer_friend_nickname(true);
-	assert_eq!(state.message_author_name(&message), "Private name");
+	assert_eq!(state.message_render_name(&message), "Private name");
+	// The shared resolver is unchanged, so typing pills and notification senders keep the
+	// names they showed before this preference existed.
+	assert_eq!(state.message_author_name(&message), "Server nick");
 	message.author.webhook = true;
+	assert_eq!(state.message_render_name(&message), "Synthetic friend");
 	assert_eq!(state.message_author_name(&message), "Synthetic friend");
 	message.author.webhook = false;
 
@@ -1751,7 +1756,7 @@ fn a_friend_nickname_can_precede_a_server_nickname_without_rewriting_webhooks() 
 		.apply_user_action(crate::user_actions::Event::Friends(Some(Vec::new())))
 		.unwrap();
 	assert_eq!(state.friend_nickname(message.author.id), None);
-	assert_eq!(state.message_author_name(&message), "Server nick");
+	assert_eq!(state.message_render_name(&message), "Server nick");
 
 	// The same holds when the friendship becomes unknown: that empties the friend set but
 	// cannot prune the nickname, so applying it would name a user who is no longer a friend.
@@ -1767,7 +1772,7 @@ fn a_friend_nickname_can_precede_a_server_nickname_without_rewriting_webhooks() 
 			text: "Private name".into(),
 		})
 		.unwrap();
-	assert_eq!(state.message_author_name(&message), "Private name");
+	assert_eq!(state.message_render_name(&message), "Private name");
 	state
 		.apply_user_action(crate::user_actions::Event::Friends(None))
 		.unwrap();
@@ -1776,10 +1781,12 @@ fn a_friend_nickname_can_precede_a_server_nickname_without_rewriting_webhooks() 
 		Some("Private name")
 	);
 	assert_eq!(
-		state.message_author_name(&message),
+		state.message_render_name(&message),
 		"Server nick",
 		"an unknown friendship never applies a retained nickname"
 	);
+	// The shared resolver ignores the preference entirely, so it never sees the nickname.
+	assert_eq!(state.message_author_name(&message), "Server nick");
 }
 
 #[test]

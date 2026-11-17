@@ -4782,6 +4782,7 @@ settings-silent-typing-default-hidden = Hide unless a location is listed
 settings-silent-typing-default-hidden-description = On: typing is hidden everywhere except the listed channels and servers. Off: typing is shown except in the listed channels and servers.
 settings-silent-typing-locations-description = Comma-separated channel or server IDs, at most 64 distinct IDs. Invalid, duplicate or oversized edits keep the previous list.
 settings-silent-typing-locations-hint = 123456789012345678, 987654321098765432
+settings-silent-typing-locations-rejected = That edit was rejected. The previous location list is still active; fix the IDs and try again.
 settings-name-display = Name display
 settings-prefer-friend-nickname = Prefer friend nicknames
 settings-prefer-friend-nickname-description = Where you have set a private nickname for a confirmed friend, show it instead of their server nickname. Other name surfaces stay native.

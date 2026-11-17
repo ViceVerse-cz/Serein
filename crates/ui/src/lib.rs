@@ -290,6 +290,8 @@ pub struct MessagingUi {
 	pub silent_typing: model::SilentTyping,
 	/// Editable comma-separated channel/guild IDs backing `silent_typing`.
 	pub silent_typing_locations: String,
+	/// The last edit was rejected, so the field no longer matches the active exception list.
+	pub silent_typing_locations_error: bool,
 	/// Device preference: a confirmed friend's private nickname wins over a server nickname.
 	pub prefer_friend_nickname: bool,
 	/// Device preference: request a conversation's page while the pointer rests on it.

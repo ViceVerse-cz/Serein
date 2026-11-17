@@ -5166,6 +5166,7 @@ settings-silent-typing-default-hidden-description = 켜면 나열된 채널과 �
 settings-silent-typing-locations-description = 쉼표로 구분한 채널 또는 서버 ID이며, 서로 다른 ID를 최대 64개까지 지정할 수 있습니다. 잘못되었거나 중복되었거나 너무 긴 편집은 이전 목록을 유지합니다.
 # Context: chat_settings
 settings-silent-typing-locations-hint = 123456789012345678, 987654321098765432
+settings-silent-typing-locations-rejected = 해당 편집은 거부되었습니다. 이전 위치 목록이 계속 적용됩니다. ID를 수정한 뒤 다시 시도하세요.
 # Context: chat_settings
 settings-name-display = 이름 표시
 # Context: chat_settings

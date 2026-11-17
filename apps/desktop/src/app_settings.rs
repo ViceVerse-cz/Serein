@@ -117,6 +117,7 @@ impl Settings {
 		ui.hide_ignored_messages = value.hide_ignored_messages;
 		ui.silent_typing = value.silent_typing.clone();
 		ui.silent_typing_locations = value.silent_typing.locations_text();
+		ui.silent_typing_locations_error = false;
 		ui.prefer_friend_nickname = value.prefer_friend_nickname;
 		ui.preload_on_hover = value.preload_on_hover;
 		ui.auto_idle = value.auto_idle;
