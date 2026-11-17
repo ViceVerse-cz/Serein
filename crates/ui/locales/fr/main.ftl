@@ -4945,10 +4945,6 @@ moderation-confirm-timeout = Exclure
 # Context: moderation
 moderation-confirm-ban = Bannir
 
-## crates/ui/src/ventrilo.rs
-# Context: voice_only_tree
-ventrilo-empty = Les salons vocaux de vos serveurs apparaîtront ici.
-# Context: channel_row
-ventrilo-join-hint = Double-cliquez pour rejoindre
-# Context: voice_only_call
-ventrilo-hide-call = Masquer la fenêtre d'appel
+## crates/ui/src/interface_ui.rs
+# Context: interface_tree
+interface-ui-empty = Ce module n'a encore rien à afficher.

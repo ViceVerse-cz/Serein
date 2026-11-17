@@ -4928,10 +4928,6 @@ moderation-confirm-timeout = タイムアウト
 # Context: moderation
 moderation-confirm-ban = BAN
 
-## crates/ui/src/ventrilo.rs
-# Context: voice_only_tree
-ventrilo-empty = サーバーのボイスチャンネルがここに表示されます。
-# Context: channel_row
-ventrilo-join-hint = ダブルクリックで参加
-# Context: voice_only_call
-ventrilo-hide-call = 通話ウィンドウを非表示にする
+## crates/ui/src/interface_ui.rs
+# Context: interface_tree
+interface-ui-empty = このプラグインにはまだ表示するものがありません。

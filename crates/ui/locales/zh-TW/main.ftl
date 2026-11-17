@@ -5042,10 +5042,6 @@ moderation-confirm-timeout = 禁言
 # Context: moderation
 moderation-confirm-ban = 停權
 
-## crates/ui/src/ventrilo.rs
-# Context: voice_only_tree
-ventrilo-empty = 你所在伺服器的語音頻道會顯示在這裡。
-# Context: channel_row
-ventrilo-join-hint = 雙擊加入
-# Context: voice_only_call
-ventrilo-hide-call = 隱藏通話視窗
+## crates/ui/src/interface_ui.rs
+# Context: interface_tree
+interface-ui-empty = 此擴充功能目前沒有可顯示的內容。

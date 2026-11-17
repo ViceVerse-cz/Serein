@@ -63,7 +63,7 @@ may not be available in a released build.
 | [Message Counter](message-counter/src/lib.rs) | Reactive events, saved counters and a reset button |
 | [Message Delete Protector](../../extensions/plugins/message-delete-protector/src/lib.rs) | Opt-in activation enabling host-managed message retention |
 | [RGB Cycle](rgb-cycle/src/lib.rs) | Host-scheduled, smoothly eased appearance updates with saved settings |
-| [Ventrilo Mode](ventrilo/src/lib.rs) | Activation-restored interface tweak for a slim Ventrilo-style voice-only tree, with a saved on/off toggle |
+| [Ventrilo Mode](ventrilo/src/lib.rs) | Declarative `interface_ui` tree: a Ventrilo-style layout of servers, text and voice channels with server switching, double-click join/close, a chat window beside the tree, mute/deafen icons and a saved on/off toggle |
 | [Custom Rich Presence](../../extensions/plugins/custom-rpc) | Native activity editor/preview, saved Apply/Stop controls and activation restore through the bounded `rich_presence` capability |
 | [Equicord-derived safe tools](../../extensions/plugins/README.md#equicord-derived-safe-tools) | Least-privilege offline transformations, stored tags/rules, selected-message display, and Apply-reviewed browser navigation |
 

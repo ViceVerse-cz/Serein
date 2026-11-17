@@ -127,7 +127,7 @@ Unknown API versions and invalid packages are rejected before installation.
 
 Each capability is independent and requires user consent. An update requests
 renewed consent; adding a read grant does not grant commands. The SDK currently
-supports 56 capabilities, with at most 64 distinct declarations per manifest.
+supports 57 capabilities, with at most 64 distinct declarations per manifest.
 `external_navigation` and `style.icon_size` are Preview APIs from PR #937, not yet released.
 
 > **Preview SDK — PR #411, not yet released.** `channel_control`,
@@ -173,7 +173,8 @@ supports 56 capabilities, with at most 64 distinct declarations per manifest.
 | `voice_control` | Propose mute/deafen, leaving or watching/stopping a participant stream | Each command requires Apply and the same current call |
 | `app_events` | Observe ready/navigation/context/connection/voice/settings changes | Other grants control accompanying data; no background commands |
 | `context_menus` | Add actions to user, channel, server and role context menus | The invocation names the clicked item by ID (a role adds its name and color); results follow the action's other grants |
-| `interface_tweaks` | Switch on host-defined interface tweaks such as still typing dots, plain profiles, always-expanded roles, hidden request counts, one alert per direct conversation until read, hidden messages from blocked users, hidden profile notes, a larger stream preview, double-click to reply or edit or a slim Ventrilo-style voice-only tree with a server picker in its header, whose call window opens on double-clicking a voice channel and closes on double-clicking it again | Activation and panel results only; a tweak stays on while any enabled plugin requests it and switches off when that plugin is disabled, fails or the account logs out |
+| `interface_tweaks` | Switch on host-defined interface tweaks such as still typing dots, plain profiles, always-expanded roles, hidden request counts, one alert per direct conversation until read, hidden messages from blocked users, hidden profile notes, a larger stream preview or double-click to reply or edit | Activation and panel results only; a tweak stays on while any enabled plugin requests it and switches off when that plugin is disabled, fails or the account logs out |
+| `interface_ui` | Replace the client's main panes with a bounded declarative row tree (indent, generic icon, tint, badge, emphasis, selected); row clicks invoke the plugin's declared `interface_click` panel action (the one reserved action id allowed to contain `_`) with the row id and a double-click flag, and `window` shows one native window beside the tree: the active call's stage or an accessible channel's conversation view | Activation, panel and event results restate the tree; `None` restores the normal layout; at most 512 rows, 256-byte labels, 32-byte badges, unique 64-byte row ids, indent at most 8; the host renders the window itself, so no message content reaches Wasm; row-click effects still wait for Apply |
 | `message_send` | Propose sending text, replies, loaded stickers, a loaded-message forward, or opening the native attachment picker | Apply; selected accessible targets; picker discloses no file path/bytes to Wasm; preserves existing composition |
 | `message_manage` | Propose editing, deleting or pinning a loaded message | Apply; native ownership/moderation checks |
 | `reactions_control` | Propose adding/removing your reaction | Apply; known message and current reaction state |
@@ -439,10 +440,11 @@ completion-paced schedule. They run only while signed in and enabled, only when 
 shared worker is idle, and pause after failure until disable/re-enable. The host eases
 hex colors between results; plugins receive elapsed `tick_ms`, not a render callback.
 
-This supports app-wide palette changes and shared native control styling, not
-arbitrary code injection into egui, replacement of the app layout, custom fonts,
-network access, or automatic Discord actions. Fixed-size custom-painted components
-keep their existing geometry. Missing fields inherit the underlying theme.
+Appearance supports app-wide palette changes and shared native control styling, not
+arbitrary code injection into egui, custom fonts, network access, or automatic Discord
+actions. Layout replacement is limited to the separate `interface_ui` capability's
+declarative row tree. Fixed-size custom-painted components keep their existing geometry.
+Missing fields inherit the underlying theme.
 
 ## Safe execution diagnostics
 
@@ -484,7 +486,7 @@ invocation input/output, panel complexity, queues and plugin storage.
 | Execution fuel | 10,000,000 | Shared by parsing and execution; a valid-sized input can still exhaust it. |
 | Wasm call depth / interpreter stack | 128 calls / 256 KiB | Avoid deep recursion. |
 | Serialized input and output | 256 KiB each | Count UTF-8 and JSON escaping, including nested storage JSON. |
-| Manifest actions / capabilities | 16 / 64 distinct | Only the 56 supported capability names are currently accepted. |
+| Manifest actions / capabilities | 16 / 64 distinct | Only the 57 supported capability names are currently accepted. |
 | Panel | 64 elements / 8 row levels | Includes nested children; text and input values are at most 4 KiB each. |
 | Plugin storage on disk | 1 MiB | Its practical size must also fit the smaller invocation/output budget. |
 | App snapshot | 64 KiB | Individual lists have smaller budgets; see the [data reference](extension-sdk-reference.md#app-data). |

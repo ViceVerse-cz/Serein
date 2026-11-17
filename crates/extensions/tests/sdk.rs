@@ -122,6 +122,7 @@ fn host_invocations_and_legacy_handlers_keep_the_v1_contract() {
 				composer: input.composer.clone(),
 				storage: input.storage.clone(),
 				values: input.values.clone(),
+				double_clicked: false,
 			}
 		);
 		if let Some(target) = &input.menu_target {
@@ -213,6 +214,7 @@ fn host_invocations_and_legacy_handlers_keep_the_v1_contract() {
 			composer: None,
 			storage: None,
 			values: Default::default(),
+			double_clicked: false,
 		};
 		let legacy_bytes = serde_json::to_vec(&legacy).unwrap();
 		let extended: sdk::EventInvocation = serde_json::from_slice(&legacy_bytes).unwrap();
@@ -310,7 +312,6 @@ fn interface_tweaks_are_granted_activation_or_panel_output_and_unique() {
 			sdk::InterfaceTweak::HiddenProfileNotes,
 			sdk::InterfaceTweak::LargeStreamPreview,
 			sdk::InterfaceTweak::DoubleClickReplyEdit,
-			sdk::InterfaceTweak::VoiceOnlyLayout,
 		]),
 		..Default::default()
 	};
@@ -376,6 +377,236 @@ fn interface_tweaks_are_granted_activation_or_panel_output_and_unique() {
 	}))
 	.unwrap();
 	assert!(!old.supports_tweak("plain_profiles"));
+}
+
+/// Checks that a granted plugin's interface tree reaches the host unchanged, that only
+/// activation, panel and event results may restate it, that an off-bounds tree is rejected
+/// like any invalid output, and that a result without one clears it.
+#[test]
+fn interface_ui_is_granted_activation_panel_or_event_output_and_validated() {
+	let tree = sdk::InterfaceUi {
+		nodes: vec![
+			sdk::InterfaceNode {
+				id: "server:10".into(),
+				indent: 0,
+				icon: Some(sdk::InterfaceIcon::Server),
+				text: "Voice club".into(),
+				badge: Some("3".into()),
+				emphasis: false,
+				selected: false,
+				tint: None,
+			},
+			sdk::InterfaceNode {
+				id: String::new(),
+				indent: 2,
+				icon: Some(sdk::InterfaceIcon::MicrophoneSlash),
+				text: "Quill Harper".into(),
+				badge: None,
+				emphasis: false,
+				selected: false,
+				tint: Some(sdk::InterfaceTint::Danger),
+			},
+		],
+		window: Some(sdk::InterfaceWindow::Chat {
+			channel_id: "20".into(),
+		}),
+	};
+	let expected: extensions::InterfaceUi =
+		serde_json::from_value(serde_json::to_value(&tree).unwrap()).unwrap();
+	let output = sdk::InterfaceUiOutput {
+		interface_ui: Some(tree),
+		..Default::default()
+	};
+	let host: extensions::Output =
+		serde_json::from_slice(&serde_json::to_vec(&output).unwrap()).unwrap();
+	assert_eq!(host.interface_ui.as_ref(), Some(&expected));
+	let info = serde_json::to_value(extensions::HostInfo::current()).unwrap();
+	assert!(
+		info["capabilities"]
+			.as_array()
+			.unwrap()
+			.iter()
+			.any(|capability| capability == "interface_ui")
+	);
+	let interface = extensions::Output {
+		interface_ui: Some(expected.clone()),
+		..Default::default()
+	};
+	let with = |action: &str, surface, granted: bool| {
+		let mut manifest = manifest(action, surface);
+		if granted {
+			manifest.capabilities.push(Capability::InterfaceUi);
+		}
+		let input = Invocation {
+			action: action.into(),
+			..Default::default()
+		};
+		(manifest, input)
+	};
+	for (action, surface, allowed) in [
+		("activate", Surface::Activation, true),
+		("apply", Surface::Panel, true),
+		("message-event", Surface::MessageEvent, true),
+		("app-event", Surface::AppEvent, true),
+		("message", Surface::Message, false),
+		("compose", Surface::Composer, false),
+		("tick", Surface::Tick, false),
+	] {
+		let (granted, input) = with(action, surface, true);
+		assert_eq!(
+			interface.validate(&granted, &input).is_ok(),
+			allowed,
+			"{action}"
+		);
+		let (ungranted, input) = with(action, surface, false);
+		assert!(
+			interface.validate(&ungranted, &input).is_err(),
+			"{action} without grant"
+		);
+	}
+	let (panel, panel_input) = with("apply", Surface::Panel, true);
+	let mut duplicate = interface.clone();
+	let first = duplicate
+		.interface_ui
+		.as_ref()
+		.unwrap()
+		.nodes
+		.first()
+		.cloned()
+		.unwrap();
+	duplicate.interface_ui.as_mut().unwrap().nodes.push(first);
+	assert!(duplicate.validate(&panel, &panel_input).is_err());
+	let maximal = extensions::InterfaceUi {
+		nodes: (0..extensions::MAX_INTERFACE_NODES)
+			.map(|row| extensions::InterfaceNode {
+				id: format!("row-{row}"),
+				indent: 0,
+				icon: None,
+				text: "x".repeat(extensions::MAX_INTERFACE_TEXT_BYTES),
+				badge: None,
+				emphasis: false,
+				selected: false,
+				tint: None,
+			})
+			.collect(),
+		window: Some(extensions::InterfaceWindow::Call),
+	};
+	assert!(maximal.validate().is_ok());
+	// A chat window must name a snowflake channel id.
+	for bad in ["", "general", "1".repeat(21).as_str()] {
+		let chat = extensions::InterfaceUi {
+			nodes: Vec::new(),
+			window: Some(extensions::InterfaceWindow::Chat {
+				channel_id: bad.into(),
+			}),
+		};
+		assert!(chat.validate().is_err(), "{bad:?} rejected");
+	}
+	let mut bounded = interface.clone();
+	bounded.interface_ui = Some(maximal);
+	assert!(bounded.validate(&panel, &panel_input).is_ok());
+	let cleared: extensions::Output =
+		serde_json::from_value(serde_json::to_value(sdk::Output::default()).unwrap()).unwrap();
+	assert!(
+		cleared.interface_ui.is_none(),
+		"a result without a tree restores the normal layout"
+	);
+	// One panel result may restate the tree and carry a host effect together; each part
+	// needs its own grant and the combination itself is never rejected.
+	let combined = extensions::Output {
+		interface_ui: Some(expected),
+		effects: vec![extensions::HostEffect::Notice {
+			text: "Joined".into(),
+		}],
+		..Default::default()
+	};
+	let mut both = panel.clone();
+	both.capabilities.push(Capability::LocalNotices);
+	assert!(combined.validate(&both, &panel_input).is_ok());
+	assert!(
+		combined.validate(&panel, &panel_input).is_err(),
+		"effect without its grant"
+	);
+	both.capabilities
+		.retain(|cap| *cap != Capability::InterfaceUi);
+	assert!(
+		combined.validate(&both, &panel_input).is_err(),
+		"tree without its grant"
+	);
+	// The reserved row action keeps its SDK spelling; other underscored ids stay invalid.
+	let mut clicks = panel.clone();
+	clicks.actions.push(Action {
+		id: sdk::INTERFACE_CLICK_ACTION.into(),
+		label: "Interface row".into(),
+		surface: Surface::Panel,
+	});
+	assert_eq!(
+		sdk::INTERFACE_CLICK_ACTION,
+		extensions::INTERFACE_CLICK_ACTION
+	);
+	assert!(clicks.validate().is_ok());
+	clicks.actions.last_mut().unwrap().id = "other_click".into();
+	assert!(clicks.validate().is_err());
+}
+
+/// Checks that the voice roster stays absent from older snapshots, serializes only when
+/// populated, and is bounded and id-checked by the host validator.
+#[test]
+fn voice_roster_defaults_and_validates() {
+	use extensions::{AppSnapshot, VoiceRosterEntry, VoiceSnapshot};
+	let old: VoiceSnapshot = serde_json::from_value(serde_json::json!({
+		"phase": "idle", "muted": false, "deafened": false, "camera": false,
+		"streaming": false, "participants": []
+	}))
+	.unwrap();
+	assert!(old.roster.is_empty(), "older snapshots have no roster");
+	assert!(
+		serde_json::to_value(&old).unwrap().get("roster").is_none(),
+		"an empty roster stays off the wire"
+	);
+	let entry = VoiceRosterEntry {
+		guild_id: "10".into(),
+		channel_id: "30".into(),
+		user_id: "7".into(),
+		name: Some("Quill Harper".into()),
+		muted: true,
+		deafened: false,
+		server_muted: false,
+		server_deafened: false,
+		speaking: false,
+	};
+	let json = serde_json::to_value(&entry).unwrap();
+	assert_eq!(json["name"], "Quill Harper");
+	assert_eq!(json["speaking"], false);
+	let unnamed = VoiceRosterEntry {
+		name: None,
+		..entry.clone()
+	};
+	assert!(
+		serde_json::to_value(&unnamed)
+			.unwrap()
+			.get("name")
+			.is_none()
+	);
+	let mut manifest = manifest("apply", Surface::Panel);
+	manifest.capabilities.push(Capability::VoiceState);
+	let mut snapshot = AppSnapshot {
+		voice: Some(VoiceSnapshot {
+			roster: vec![entry.clone(), unnamed],
+			..old
+		}),
+		..Default::default()
+	};
+	assert!(snapshot.validate(&manifest).is_ok());
+	let voice = snapshot.voice.as_mut().unwrap();
+	voice.roster[0].user_id = "not-an-id".into();
+	assert!(snapshot.validate(&manifest).is_err(), "bad id rejected");
+	let voice = snapshot.voice.as_mut().unwrap();
+	voice.roster = vec![entry; extensions::MAX_VOICE_ROSTER + 1];
+	assert!(
+		snapshot.validate(&manifest).is_err(),
+		"oversized roster rejected"
+	);
 }
 
 #[test]

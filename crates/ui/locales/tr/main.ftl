@@ -4931,10 +4931,6 @@ moderation-confirm-timeout = Zaman aşımı
 # Context: moderation
 moderation-confirm-ban = Yasakla
 
-## crates/ui/src/ventrilo.rs
-# Context: voice_only_tree
-ventrilo-empty = Sunucularınızdaki ses kanalları burada görünecek.
-# Context: channel_row
-ventrilo-join-hint = Katılmak için çift tıklayın
-# Context: voice_only_call
-ventrilo-hide-call = Arama penceresini gizle
+## crates/ui/src/interface_ui.rs
+# Context: interface_tree
+interface-ui-empty = Bu eklentinin henüz gösterecek bir şeyi yok.

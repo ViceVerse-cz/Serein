@@ -71,6 +71,7 @@ impl HostInfo {
 				Capability::ExternalNavigation,
 				Capability::ContextMenus,
 				Capability::InterfaceTweaks,
+				Capability::InterfaceUi,
 			],
 			app_events: &[
 				AppEventKind::Ready,

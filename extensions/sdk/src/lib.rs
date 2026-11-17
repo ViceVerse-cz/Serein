@@ -38,6 +38,8 @@ mod message_action;
 pub use message_action::*;
 mod interface_tweaks;
 pub use interface_tweaks::*;
+mod interface_ui;
+pub use interface_ui::*;
 
 /// Maximum serialized size of either ABI buffer, in UTF-8 bytes.
 pub const MAX_IO_BYTES: usize = 256 * 1024;
@@ -59,6 +61,9 @@ pub struct Invocation {
 	pub storage: Option<String>,
 	#[serde(default)]
 	pub values: BTreeMap<String, String>,
+	/// True when the host routed a double click on an interface row or panel button.
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub double_clicked: bool,
 }
 
 /// Opt-in scheduled appearance context, preserving the original `Invocation` API.

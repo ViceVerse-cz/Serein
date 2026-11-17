@@ -18,6 +18,8 @@ pub const MAX_RELATIONSHIPS: usize = 100;
 pub const MAX_APP_MEMBERS: usize = 100;
 pub const MAX_APP_PRESENCES: usize = 100;
 pub const MAX_VOICE_PARTICIPANTS: usize = 64;
+/// People listed in a voice snapshot's roster across every visible voice channel.
+pub const MAX_VOICE_ROSTER: usize = 128;
 pub const MAX_HOST_EFFECTS: usize = 1;
 pub const MAX_HOST_EFFECT_BYTES: usize = 8 * 1024;
 
@@ -281,6 +283,28 @@ pub struct VoiceSnapshot {
 	pub camera: bool,
 	pub streaming: bool,
 	pub participants: Vec<String>,
+	/// Everyone connected to a voice channel the account can see, in every server, not only
+	/// the active call.
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub roster: Vec<VoiceRosterEntry>,
+}
+
+/// One person connected to a voice channel.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VoiceRosterEntry {
+	pub guild_id: String,
+	pub channel_id: String,
+	pub user_id: String,
+	/// Resolved display name when the member is loaded.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub name: Option<String>,
+	pub muted: bool,
+	pub deafened: bool,
+	pub server_muted: bool,
+	pub server_deafened: bool,
+	/// Talking right now, as the client's own speaking indicator shows it.
+	pub speaking: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -1364,6 +1388,17 @@ impl AppSnapshot {
 				voice.participants.iter().map(String::as_str),
 				MAX_VOICE_PARTICIPANTS,
 			)?;
+			if voice.roster.len() > MAX_VOICE_ROSTER {
+				return Err(Error::Limit);
+			}
+			for entry in &voice.roster {
+				entity_id(&entry.guild_id)?;
+				entity_id(&entry.channel_id)?;
+				entity_id(&entry.user_id)?;
+				if let Some(name) = &entry.name {
+					label(name, 256)?;
+				}
+			}
 		}
 		if let Some(read_state) = &self.read_state
 			&& let Some(channel) = &read_state.channel_id

@@ -5042,10 +5042,6 @@ moderation-confirm-timeout = 禁言
 # Context: moderation
 moderation-confirm-ban = 封禁
 
-## crates/ui/src/ventrilo.rs
-# Context: voice_only_tree
-ventrilo-empty = 你所在服务器的语音频道会显示在这里。
-# Context: channel_row
-ventrilo-join-hint = 双击加入
-# Context: voice_only_call
-ventrilo-hide-call = 隐藏通话窗口
+## crates/ui/src/interface_ui.rs
+# Context: interface_tree
+interface-ui-empty = 此插件暂时没有可显示的内容。

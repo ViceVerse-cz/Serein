@@ -16,6 +16,65 @@ fn sidebar_rank(channel: &Channel) -> (bool, i32, Id) {
 	(voice_lane(channel.kind), channel.position, channel.id)
 }
 
+/// Every loaded channel in the order the sidebar lists it. Per server, in server order:
+/// uncategorized channels, then each category (by position) followed by its channels, each
+/// ranked as the sidebar ranks siblings; a thread follows its parent. Channels outside a
+/// known server, such as direct messages, keep their loaded order at the end.
+pub fn sidebar_order(state: &State) -> Vec<&Channel> {
+	let channels = &state.channels;
+	// Indices in sidebar order; each is emitted once.
+	let mut order = Vec::with_capacity(channels.len());
+	for guild in &state.guilds {
+		let members: Vec<usize> = (0..channels.len())
+			.filter(|index| channels[*index].guild == Some(guild.id))
+			.collect();
+		let mut categories: Vec<usize> = members
+			.iter()
+			.copied()
+			.filter(|index| channels[*index].kind == 4)
+			.collect();
+		categories.sort_unstable_by_key(|index| (channels[*index].position, channels[*index].id));
+		let category_ids: BTreeSet<Id> = categories.iter().map(|i| channels[*i].id).collect();
+		let mut threads: BTreeMap<Option<Id>, Vec<usize>> = BTreeMap::new();
+		let mut groups: BTreeMap<Option<Id>, Vec<usize>> = BTreeMap::new();
+		for &index in &members {
+			let channel = &channels[index];
+			if matches!(channel.kind, 10..=12) {
+				threads.entry(channel.parent_id).or_default().push(index);
+			} else if channel.kind != 4 {
+				let parent = channel.parent_id.filter(|id| category_ids.contains(id));
+				groups.entry(parent).or_default().push(index);
+			}
+		}
+		for list in threads.values_mut() {
+			list.sort_unstable_by_key(|index| channels[*index].id);
+		}
+		for group in groups.values_mut() {
+			group.sort_unstable_by_key(|index| sidebar_rank(&channels[*index]));
+		}
+		let group = |parent: Option<Id>, order: &mut Vec<usize>| {
+			for &index in groups.get(&parent).into_iter().flatten() {
+				order.push(index);
+				order.extend(threads.get(&Some(channels[index].id)).into_iter().flatten());
+			}
+		};
+		group(None, &mut order);
+		for &category in &categories {
+			order.push(category);
+			group(Some(channels[category].id), &mut order);
+		}
+		// Threads whose parent is not loaded still belong to this server.
+		order.extend(threads.values().flatten());
+	}
+	order.extend(0..channels.len());
+	let mut placed = vec![false; channels.len()];
+	order
+		.into_iter()
+		.filter(|index| !std::mem::replace(&mut placed[*index], true))
+		.map(|index| &channels[index])
+		.collect()
+}
+
 /// Where a channel row came from. A mirrored guild channel differs from its tree copy by slot.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum Slot {
@@ -2881,11 +2940,9 @@ mod tests {
 		let mut state = test_support::voice_demo_state();
 		state.demo = false;
 		state.gateway_connected = true;
-		// The fixture reuses id 26 for its quiet room, so every row with that id is set.
 		let limit = |state: &mut State, limit| {
-			for channel in state.channels.iter_mut().filter(|c| c.id == Id(26)) {
-				channel.user_limit = limit;
-			}
+			let room = state.channels.iter_mut().find(|c| c.id == Id(37)).unwrap();
+			room.user_limit = limit;
 		};
 		limit(&mut state, None);
 		let mut view = MessagingUi {
@@ -2949,12 +3006,12 @@ mod tests {
 
 		// A single click opens the channel without touching the call.
 		let (picked, commands) = click(&mut view, &mut state, "Quiet room", 1);
-		assert_eq!(picked, Some(Id(26)));
+		assert_eq!(picked, Some(Id(37)));
 		assert!(commands.is_empty() && view.voice_switch.is_none());
 
 		// From another call, a double-click still waits for the switch confirmation.
 		let (picked, commands) = click(&mut view, &mut state, "Quiet room", 2);
-		assert_eq!(picked, Some(Id(26)));
+		assert_eq!(picked, Some(Id(37)));
 		assert!(commands.is_empty() && view.voice_switch.is_some());
 		view.voice_switch = None;
 
@@ -2980,7 +3037,7 @@ mod tests {
 			commands.as_slice(),
 			[client_core::Command::Voice(
 				client_core::voice::Command::Join {
-					channel: Id(26),
+					channel: Id(37),
 					ring: false,
 					..
 				}

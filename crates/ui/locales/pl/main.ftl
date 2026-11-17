@@ -4947,10 +4947,6 @@ moderation-confirm-timeout = Przerwa
 # Context: moderation
 moderation-confirm-ban = Zbanuj
 
-## crates/ui/src/ventrilo.rs
-# Context: voice_only_tree
-ventrilo-empty = Tutaj pojawią się kanały głosowe z Twoich serwerów.
-# Context: channel_row
-ventrilo-join-hint = Kliknij dwukrotnie, aby dołączyć
-# Context: voice_only_call
-ventrilo-hide-call = Ukryj okno połączenia
+## crates/ui/src/interface_ui.rs
+# Context: interface_tree
+interface-ui-empty = Ta wtyczka nie ma jeszcze nic do pokazania.

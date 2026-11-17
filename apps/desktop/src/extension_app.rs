@@ -452,7 +452,8 @@ pub fn snapshot(
 			truncated: false,
 		};
 		let mut budget = 10 * 1024;
-		for value in state.channels.iter().filter(|c| {
+		// Items follow the client's sidebar order.
+		for value in ui::sidebar_order(state).into_iter().filter(|c| {
 			state.can_view(c.id)
 				&& !(state.selected == Some(c.id) && state.freshness == Freshness::Unavailable)
 		}) {
@@ -624,6 +625,20 @@ pub fn snapshot(
 				.filter(|p| p.user.0 != 0)
 				.take(MAX_VOICE_PARTICIPANTS)
 				.map(|p| p.user.0.to_string())
+				.collect(),
+			roster: voice_roster(state, messaging)
+				.take(MAX_VOICE_ROSTER)
+				.map(|row| VoiceRosterEntry {
+					guild_id: row.entry.guild.0.to_string(),
+					channel_id: row.entry.channel.0.to_string(),
+					user_id: row.entry.participant.user.0.to_string(),
+					name: row.name.map(str::to_owned),
+					muted: row.shown.muted,
+					deafened: row.shown.deafened,
+					server_muted: row.shown.server_muted,
+					server_deafened: row.shown.server_deafened,
+					speaking: row.speaking,
+				})
 				.collect(),
 		});
 	}
@@ -1172,6 +1187,20 @@ fn phase(phase: client_core::voice::Phase) -> &'static str {
 	}
 }
 
+/// Roster rows plugins may see: real ids in voice channels whose view is not explicitly
+/// denied. Unknown permissions (a server never opened) still list, like the server rail.
+fn voice_roster<'a>(
+	state: &'a State,
+	messaging: &'a ui::MessagingUi,
+) -> impl Iterator<Item = ui::VoiceRosterRow<'a>> + 'a {
+	messaging.voice_roster(state).filter(move |row| {
+		row.entry.guild.0 != 0
+			&& row.entry.channel.0 != 0
+			&& row.entry.participant.user.0 != 0
+			&& !state.view_channel_denied(row.entry.channel)
+	})
+}
+
 /// Fixed-size change key: no copied messages, user names, or per-frame plugin execution.
 #[derive(PartialEq, Eq)]
 pub struct ChangeKey {
@@ -1179,6 +1208,8 @@ pub struct ChangeKey {
 	connected: bool,
 	context: (Freshness, bool, Option<Freshness>),
 	voice: Option<VoiceKey>,
+	/// Hash of every visible voice channel's people, flags and speaking indicators.
+	roster: u64,
 	settings: LocalSettingsSnapshot,
 	notification_settings: NotificationSettingsSnapshot,
 	audio_settings: (ui::VoiceGain, model::voice_settings::VoiceProcessing, bool),
@@ -1210,6 +1241,23 @@ impl ChangeKey {
 					.filter(|members| Some(members.channel) == state.selected)
 					.map(|members| members.freshness),
 			),
+			roster: {
+				let mut roster = std::collections::hash_map::DefaultHasher::new();
+				for row in voice_roster(state, messaging).take(MAX_VOICE_ROSTER) {
+					(
+						row.entry.channel.0,
+						row.entry.participant.user.0,
+						row.name,
+						row.shown.muted,
+						row.shown.deafened,
+						row.shown.server_muted,
+						row.shown.server_deafened,
+						row.speaking,
+					)
+						.hash(&mut roster);
+				}
+				roster.finish()
+			},
 			voice: state.voice.active.as_ref().map(|call| {
 				let mut participants = std::collections::hash_map::DefaultHasher::new();
 				for p in call.participants.iter().take(MAX_VOICE_PARTICIPANTS) {
@@ -1253,7 +1301,7 @@ impl ChangeKey {
 			Some(AppEventKind::Navigation)
 		} else if self.context != old.context {
 			Some(AppEventKind::Context)
-		} else if self.voice != old.voice {
+		} else if self.voice != old.voice || self.roster != old.roster {
 			Some(AppEventKind::Voice)
 		} else if self.settings != old.settings
 			|| self.notification_settings != old.notification_settings
@@ -1287,6 +1335,91 @@ mod tests {
 				surface: Surface::Panel,
 			}],
 		}
+	}
+
+	/// Checks that the voice roster lists every voice channel's people with their names and
+	/// flags, lights speaking only as the client's own indicator does, honours local mutes,
+	/// and raises a voice event when someone starts talking.
+	#[test]
+	fn voice_roster_snapshot_carries_names_flags_and_speaking() {
+		let state = test_support::voice_demo_state();
+		let mut messaging = ui::MessagingUi::default();
+		messaging.voice_speaking = vec![Id(1), Id(2), Id(4)];
+		let voice = manifest(vec![Capability::VoiceState]);
+		let app = snapshot(&state, &messaging, &voice).unwrap();
+		let roster = &app.voice.as_ref().unwrap().roster;
+		assert_eq!(roster.len(), 5, "every voice channel, not just the call");
+		let row = |user: &str| roster.iter().find(|row| row.user_id == user).unwrap();
+		assert_eq!(row("1").name.as_deref(), Some("You (synthetic)"));
+		assert_eq!(row("1").channel_id, "25");
+		assert_eq!(row("4").channel_id, "37");
+		assert!(row("2").muted && row("2").deafened);
+		assert!(row("3").muted && !row("3").deafened);
+		assert!(row("1").speaking, "talking in the call");
+		assert!(!row("2").speaking, "muted people never light up");
+		assert!(!row("4").speaking, "only the active call reports speaking");
+		let before = ChangeKey::capture(&state, &messaging);
+		messaging.set_voice_user_mutes(&[1]);
+		let app = snapshot(&state, &messaging, &voice).unwrap();
+		let roster = &app.voice.as_ref().unwrap().roster;
+		assert!(
+			!roster
+				.iter()
+				.find(|row| row.user_id == "1")
+				.unwrap()
+				.speaking,
+			"a local mute silences the indicator"
+		);
+		assert_eq!(
+			ChangeKey::capture(&state, &messaging).changed(&before),
+			Some(AppEventKind::Voice)
+		);
+		assert!(
+			snapshot(&state, &messaging, &manifest(vec![Capability::AppContext]))
+				.unwrap()
+				.voice
+				.is_none(),
+			"roster needs the voice grant"
+		);
+		// The channel directory follows the sidebar: a category precedes its channels, and
+		// within one parent text channels precede voice channels.
+		let mut state = state;
+		state.gateway_connected = true;
+		let directory = snapshot(
+			&state,
+			&messaging,
+			&manifest(vec![Capability::ChannelDirectory]),
+		)
+		.unwrap()
+		.channels
+		.unwrap();
+		let ids: Vec<Id> = directory
+			.items
+			.iter()
+			.map(|item| Id(item.id.parse().unwrap()))
+			.collect();
+		assert_eq!(
+			ids,
+			ui::sidebar_order(&state)
+				.into_iter()
+				.filter(|c| state.can_view(c.id))
+				.map(|c| c.id)
+				.take(ids.len())
+				.collect::<Vec<_>>()
+		);
+		let at = |id: Id| ids.iter().position(|item| *item == id);
+		for (index, id) in ids.iter().enumerate() {
+			let known = state.channel(*id).unwrap();
+			if let Some(parent) = known.parent_id.and_then(at) {
+				assert!(parent < index, "{id:?} follows its parent");
+			}
+		}
+		let text = at(Id(21)).expect("text channel listed");
+		let voice = at(Id(37)).expect("voice channel listed");
+		assert!(
+			text < voice,
+			"text before voice under one category: {ids:?}"
+		);
 	}
 
 	#[test]

@@ -240,6 +240,26 @@ impl Bridge {
 			.collect()
 	}
 
+	/// The interface the enabled granted plugin with the lowest id last returned, with its
+	/// owning plugin id. Disabled, failed and ungranted plugins never publish.
+	pub fn plugin_interface(&self) -> Option<ui::PluginInterface> {
+		self.installed
+			.iter()
+			.filter(|entry| entry.error.is_none() && !self.disabled.contains(&entry.manifest.id))
+			.filter(|entry| {
+				entry
+					.manifest
+					.capabilities
+					.contains(&Capability::InterfaceUi)
+			})
+			.filter_map(|entry| entry.interface_ui.as_ref().map(|tree| (entry, tree)))
+			.min_by_key(|(entry, _)| &entry.manifest.id)
+			.map(|(entry, tree)| ui::PluginInterface {
+				plugin: entry.manifest.id.clone(),
+				tree: tree.clone(),
+			})
+	}
+
 	pub fn api_proxy_ready(&self) -> bool {
 		self.api_proxy_loaded
 	}
@@ -516,6 +536,7 @@ impl Bridge {
 			entry.image_sharing = false;
 			entry.rich_presence = None;
 			entry.interface_tweaks.clear();
+			entry.interface_ui = None;
 		}
 		self.picker = None;
 		self.theme_picker = None;
@@ -940,6 +961,15 @@ impl Bridge {
 						{
 							installed.interface_tweaks.clone_from(tweaks);
 						}
+						// Every result restates the plugin's interface: a tree replaces the one
+						// shown, and its absence restores the normal layout.
+						if let Some(installed) = self
+							.installed
+							.iter_mut()
+							.find(|entry| entry.manifest.id == id)
+						{
+							installed.interface_ui.clone_from(&output.interface_ui);
+						}
 						if context.is_current(state)
 							&& let Some(config) = &output.api_proxy
 							&& let Some(installed) = self
@@ -950,7 +980,16 @@ impl Bridge {
 							installed.api_proxy = Some(config.clone());
 							self.refresh_api_proxy();
 						}
-						if invocation.message_event.is_none() && invocation.app_event.is_none() {
+						// A row click that only restated the interface has nothing to review; it
+						// re-renders through the stored tree instead of opening the result window.
+						let silent_row = invocation.action == extensions::INTERFACE_CLICK_ACTION
+							&& output.panel.is_empty()
+							&& output.effects.is_empty()
+							&& output.replacement.is_none();
+						if invocation.message_event.is_none()
+							&& invocation.app_event.is_none()
+							&& !silent_row
+						{
 							messaging
 								.extensions
 								.present_output(id, invocation, context, output, state);
@@ -1325,6 +1364,7 @@ impl Bridge {
 				}),
 		);
 		messaging.set_interface_tweaks(self.interface_tweaks());
+		messaging.set_plugin_interface(self.plugin_interface());
 		let max_texture = ctx.input(|input| input.max_texture_side);
 		if self
 			.installed
@@ -1862,6 +1902,7 @@ mod tests {
 			rich_presence: None,
 			api_proxy: None,
 			interface_tweaks: Vec::new(),
+			interface_ui: None,
 		};
 		let bridge = Bridge {
 			scope: Some((
@@ -1958,6 +1999,103 @@ mod tests {
 		bridge.installed[0].error = None;
 		let _ = bridge.logout(&egui::Context::default());
 		assert!(bridge.interface_tweaks().is_empty());
+	}
+
+	/// Checks that a plugin interface needs the capability, names its owning plugin, and
+	/// clears when the plugin is disabled, fails or the account logs out.
+	#[test]
+	fn plugin_interface_requires_capability_and_clears_with_disable_error_and_logout() {
+		let (mut bridge, _, _) = message_events_fixture();
+		let tree = extensions::InterfaceUi {
+			nodes: Vec::new(),
+			window: Some(extensions::InterfaceWindow::Call),
+		};
+		bridge.installed[0].interface_ui = Some(tree.clone());
+		assert!(bridge.plugin_interface().is_none());
+		bridge.installed[0]
+			.manifest
+			.capabilities
+			.push(Capability::InterfaceUi);
+		let id = bridge.installed[0].manifest.id.clone();
+		assert_eq!(
+			bridge.plugin_interface(),
+			Some(ui::PluginInterface {
+				plugin: id.clone(),
+				tree,
+			})
+		);
+		bridge.disabled.insert(id.clone());
+		assert!(bridge.plugin_interface().is_none());
+		bridge.disabled.remove(&id);
+		bridge.installed[0].error = Some("Failed".into());
+		assert!(bridge.plugin_interface().is_none());
+		bridge.installed[0].error = None;
+		let _ = bridge.logout(&egui::Context::default());
+		assert!(bridge.plugin_interface().is_none());
+	}
+
+	/// Checks the shipped Ventrilo-style example end to end on the host: its manifest passes
+	/// host validation (including the reserved row action), its activation returns a granted
+	/// tree, and the bridge publishes that tree for the plugin.
+	#[test]
+	fn packaged_interface_plugin_activation_publishes_its_tree() {
+		let package = extensions::parse_package(include_bytes!(
+			"../../../examples/extensions/packages/ventrilo.serein-extension"
+		))
+		.expect("packaged plugin passes host validation");
+		let activation = package
+			.manifest
+			.actions
+			.iter()
+			.find(|action| action.surface == Surface::Activation)
+			.unwrap()
+			.id
+			.clone();
+		let output = extensions::invoke(
+			&package,
+			&Invocation {
+				action: activation,
+				..Default::default()
+			},
+		)
+		.expect("activation output passes host validation");
+		assert!(output.interface_ui.is_some(), "activation restates a tree");
+		let (mut bridge, _, _) = message_events_fixture();
+		bridge.installed[0].manifest = package.manifest.clone();
+		bridge.installed[0].interface_ui = output.interface_ui.clone();
+		assert_eq!(
+			bridge.plugin_interface().map(|shown| shown.tree),
+			output.interface_ui
+		);
+		// The follow-up app event carries the granted snapshot the tree is built from.
+		// Directories are snapshotted only while connected, as in a live session.
+		let mut state = test_support::voice_demo_state();
+		state.gateway_connected = true;
+		let messaging = ui::MessagingUi::default();
+		let refresh = package
+			.manifest
+			.actions
+			.iter()
+			.find(|action| action.surface == Surface::AppEvent)
+			.unwrap();
+		let mut invocation = Invocation {
+			action: refresh.id.clone(),
+			app_event: Some(AppEventKind::Ready),
+			..Default::default()
+		};
+		attach_app_data(&mut invocation, &state, &messaging, &package.manifest);
+		let output = extensions::invoke(&package, &invocation).expect("refresh output");
+		let texts: Vec<_> = output
+			.interface_ui
+			.expect("refresh restates a tree")
+			.nodes
+			.into_iter()
+			.map(|node| node.text)
+			.collect();
+		assert!(
+			texts.iter().any(|text| text == "Room 3,5"),
+			"voice channels listed: {texts:?}"
+		);
 	}
 
 	#[test]

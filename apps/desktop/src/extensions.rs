@@ -322,6 +322,8 @@ pub struct InstalledExtension {
 	pub api_proxy: Option<extensions::ApiProxyConfig>,
 	/// Interface tweaks the granted activation action switched on.
 	pub interface_tweaks: Vec<extensions::InterfaceTweak>,
+	/// Interface tree the granted plugin last returned, replacing the main panes while set.
+	pub interface_ui: Option<extensions::InterfaceUi>,
 }
 
 pub enum Event {
@@ -540,6 +542,9 @@ impl Stored {
 			{
 				return Err("Interface tweaks were not granted".into());
 			}
+			if output.interface_ui.is_some() && !self.grants.contains(&Capability::InterfaceUi) {
+				return Err("Interface replacement was not granted".into());
+			}
 			Ok(output)
 		});
 		let background_image = if active {
@@ -594,6 +599,10 @@ impl Stored {
 				.ok()
 				.and_then(|output| output.interface_tweaks.clone())
 				.unwrap_or_default(),
+			interface_ui: result
+				.as_ref()
+				.ok()
+				.and_then(|output| output.interface_ui.clone()),
 			// Current protector packages have a no-op activation; consent still opts in.
 			preserve_deleted_messages: activation.is_some()
 				&& result.is_ok()
@@ -893,6 +902,9 @@ fn run(root: &Path, job: Job, gate: &Gate) -> Result<Event, String> {
 			{
 				return Err("Interface tweaks were not granted".into());
 			}
+			if output.interface_ui.is_some() && !stored.grants.contains(&Capability::InterfaceUi) {
+				return Err("Interface replacement was not granted".into());
+			}
 			if let Some(data) = output.storage.take() {
 				if !stored.grants.contains(&Capability::Storage) || data.len() > MAX_STORAGE {
 					return Err("Plugin data exceeds its granted storage budget".into());
@@ -1191,6 +1203,7 @@ fn load(
 							summary.image_sharing = false;
 							summary.rich_presence = None;
 							summary.interface_tweaks.clear();
+							summary.interface_ui = None;
 							summary.error = Some(error);
 							summary
 						}
@@ -1226,6 +1239,7 @@ fn load(
 						rich_presence: None,
 						api_proxy: None,
 						interface_tweaks: Vec::new(),
+						interface_ui: None,
 					},
 				});
 			}

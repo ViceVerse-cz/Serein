@@ -41,6 +41,7 @@ The examples in this table use `i: &Invocation`. For a wrapper, set
 | `composer` | `Option<String>` / string or null | The current draft for a `composer` action with the `composer` grant. An empty draft is `Some("")`, not `None`. | `i.composer.as_deref()` |
 | `storage` | `Option<String>` / string or null | The plugin's last saved opaque UTF-8 value for this account (device-wide for the narrow `api_proxy` plugin). Requires `storage`; absent when nothing has been saved. The worker reloads it before execution. | `i.storage_json::<u64>()` if your plugin stores a JSON number |
 | `values` | `BTreeMap<String, String>` / object of string values | Current form values when a panel button invokes an action. Keys are input element IDs. Initial tool/panel opens normally have an empty map; reactive events always do. | `i.value("name")` or `i.parse_value::<bool>("enabled")` |
+| `double_clicked` | `bool` / boolean, default `false` | True when the host routed a double click on an interface row (`interface_ui`) or panel button. Single clicks and keyboard activation leave it false. | `i.double_clicked` |
 
 `values` holds strings even for typed controls: a checkbox supplies `"true"` or
 `"false"`, a slider supplies a decimal integer string, and a select supplies the
@@ -115,9 +116,9 @@ can be inspected without decoding a newer capability/event enum.
 | --- | --- | --- | --- |
 | `api_version` | `u32` / integer | Current buffer/JSON ABI version, `1`. | `host.api_version` |
 | `sdk_revision` | `u32` / integer | Current discovery schema revision, `1`; not a release or protocol compatibility claim. | `host.sdk_revision` |
-| `capabilities` | `Vec<String>` / array of strings | Host-supported capability names (56 currently), not this plugin's granted capabilities. | `host.supports("rich_presence")` |
+| `capabilities` | `Vec<String>` / array of strings | Host-supported capability names (57 currently), not this plugin's granted capabilities. | `host.supports("rich_presence")` |
 | `app_events` | `Vec<String>` / array of strings | Host-supported app-event names (21 currently), not an event subscription or delivery guarantee. | `host.supports_event("typing")` |
-| `interface_tweaks` | `Vec<String>` / array of strings, empty on older hosts | Interface tweak names this host honors: `static_typing_indicator`, `plain_profiles`, `expanded_roles`, `hidden_request_counts`, `one_ping_per_direct_message`, `hidden_blocked_messages`, `hidden_profile_notes`, `large_stream_preview`, `double_click_reply_edit`, `voice_only_layout`. | `host.supports_tweak("expanded_roles")` |
+| `interface_tweaks` | `Vec<String>` / array of strings, empty on older hosts | Interface tweak names this host honors: `static_typing_indicator`, `plain_profiles`, `expanded_roles`, `hidden_request_counts`, `one_ping_per_direct_message`, `hidden_blocked_messages`, `hidden_profile_notes`, `large_stream_preview`, `double_click_reply_edit`. | `host.supports_tweak("expanded_roles")` |
 
 A supported capability still needs to be declared and explicitly granted. Older
 hosts reject unknown required manifest capabilities **before** a handler can run;
@@ -764,7 +765,7 @@ Discord. In the examples, `directory` is the borrowed group.
 
 | Wire field | SDK Rust / JSON type | Meaning | Reading it |
 | --- | --- | --- | --- |
-| `items` | `Vec<ChannelSnapshot>` / array | Up to 100 distinct loaded, visible channel records, further limited by the byte budget. No stable sorting contract is promised. | `directory.items.iter().find(\|channel\| channel.id == "100")` |
+| `items` | `Vec<ChannelSnapshot>` / array | Up to 100 distinct loaded, visible channel records, further limited by the byte budget. Items follow the client's sidebar order: per server, uncategorized channels first, then each category followed by its channels (text before voice, then by position); a thread follows its parent, and direct messages come after server channels. | `directory.items.iter().find(\|channel\| channel.id == "100")` |
 | `truncated` | `bool` / boolean | The collector stopped because a list or byte limit was reached. | `directory.truncated` |
 
 ### TimelineSnapshot and MessageSnapshot: loaded messages
@@ -1098,9 +1099,10 @@ A user with no entry has unknown/unsupplied presence, not necessarily offline.
 
 ### VoiceSnapshot: the current call
 
-Requires `voice_state`. This is the current active call, not a directory of calls
-or everyone in the selected server. An inaccessible or absent call produces an
-idle summary: no `channel_id`, phase `idle`, false flags and no participants.
+Requires `voice_state`. The call summary describes the current active call, not a directory
+of calls. An inaccessible or absent call produces an idle summary: no `channel_id`, phase
+`idle`, false flags and no participants. The additive `roster` lists tracked voice
+participants across channels with display names and voice flags when the host has them.
 
 | Wire field | SDK Rust / JSON type | Meaning | Reading from `voice: &VoiceSnapshot` |
 | --- | --- | --- | --- |
@@ -1110,7 +1112,8 @@ idle summary: no `channel_id`, phase `idle`, false flags and no participants.
 | `deafened` | `bool` / boolean | Current account's call deafen state. | `voice.deafened` |
 | `camera` | `bool` / boolean | Current account's call camera flag. No frames or device details are provided. | `voice.camera` |
 | `streaming` | `bool` / boolean | Local screen sharing is busy: starting, active, stopping or retiring. It is not proof that frames are currently being transmitted. | `voice.streaming` |
-| `participants` | `Vec<String>` / array of ID strings | At most 64 tracked participant IDs. No per-user voice flags or media are supplied. There is no `truncated` flag, so treat this as a bounded roster. | `voice.participants.len()` |
+| `participants` | `Vec<String>` / array of ID strings | At most 64 tracked participant IDs of the current call. Per-user names, voice flags and speaking arrive in `roster`; no media are supplied. There is no `truncated` flag, so treat this as a bounded roster. | `voice.participants.len()` |
+| `roster` | `Vec<VoiceRosterEntry>` / array of objects, absent when empty | Tracked participants across channels: `guild_id`, `channel_id`, `user_id`, optional resolved `name`, `muted`, `deafened`, `server_muted`, `server_deafened`, `speaking`. `speaking` is the host's current speaking indication, not measured microphone activity; `name` is absent until member data loads. Empty on hosts predating the roster. | `voice.roster.iter()` |
 
 | `phase` | Meaning in the host |
 | --- | --- |

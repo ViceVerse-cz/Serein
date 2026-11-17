@@ -792,7 +792,7 @@ pub fn voice_demo_state() -> State {
 	state.channels.push(Channel {
 		user_limit: Some(2),
 		slowmode: 0,
-		id: Id(26),
+		id: Id(37),
 		guild: Some(Id(10)),
 		parent_id: Some(Id(24)),
 		position: 2,
@@ -805,12 +805,17 @@ pub fn voice_demo_state() -> State {
 		message_count: None,
 		last_message: None,
 	});
+	// The new room carries the server's synthetic permissions like the fixture's other rooms.
+	state
+		.permissions
+		.replace(permission_snapshot(&state))
+		.unwrap();
 	state.voice.roster = [
 		(1, "You (synthetic)", false, false, 25),
 		(2, "Robin with a rather long display name", true, true, 25),
 		(3, "Fern and the midnight orchestra", true, false, 25),
-		(4, "Ash", false, false, 26),
-		(5, "Wren", true, false, 26),
+		(4, "Ash", false, false, 37),
+		(5, "Wren", true, false, 37),
 	]
 	.into_iter()
 	.map(|(id, name, muted, deafened, channel)| RosterEntry {

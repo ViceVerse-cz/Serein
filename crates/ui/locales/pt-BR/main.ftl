@@ -4945,10 +4945,6 @@ moderation-confirm-timeout = Castigar
 # Context: moderation
 moderation-confirm-ban = Banir
 
-## crates/ui/src/ventrilo.rs
-# Context: voice_only_tree
-ventrilo-empty = Os canais de voz dos seus servidores aparecerão aqui.
-# Context: channel_row
-ventrilo-join-hint = Clique duas vezes para entrar
-# Context: voice_only_call
-ventrilo-hide-call = Ocultar janela da chamada
+## crates/ui/src/interface_ui.rs
+# Context: interface_tree
+interface-ui-empty = Este plug-in ainda não tem nada para mostrar.

@@ -29,6 +29,16 @@ pub(super) struct CallSwitch {
 	open: Option<Id>,
 }
 
+/// One roster entry as the client shows it; see [`MessagingUi::voice_roster`].
+pub struct VoiceRosterRow<'a> {
+	pub entry: &'a RosterEntry,
+	/// Display name when the member is loaded.
+	pub name: Option<&'a str>,
+	/// Mute and deafen flags as shown, including the own call's live state.
+	pub shown: Participant,
+	pub speaking: bool,
+}
+
 impl MessagingUi {
 	pub(super) fn exit_voice_fullscreen(&mut self) {
 		if let Some((_, ctx, previous, focus)) = self.voice_fullscreen.take() {
@@ -408,6 +418,25 @@ impl MessagingUi {
 					&& !call.deafened
 					&& !call.server_deafened
 			}) && self.voice_speaking.contains(&participant.user)
+	}
+
+	/// Everyone in a voice channel as the client shows them: the resolved display name when
+	/// the member is loaded, the shown mute and deafen flags, and whether the speaking
+	/// indicator is lit. For plugin snapshots; no audio data leaves this summary.
+	pub fn voice_roster<'a>(
+		&'a self,
+		state: &'a State,
+	) -> impl Iterator<Item = VoiceRosterRow<'a>> + 'a {
+		state.voice.roster.iter().map(move |entry| {
+			let shown = shown_participant(state, entry);
+			let (user, name) = resolve_member(state, entry);
+			VoiceRosterRow {
+				entry,
+				name: user.map(|_| name),
+				speaking: self.is_speaking(state, entry.channel, &shown),
+				shown,
+			}
+		})
 	}
 
 	pub(super) fn voice_channel_button(
@@ -5424,7 +5453,7 @@ mod tests {
 			.find(|role| role.id == guild)
 			.unwrap()
 			.bits = p::VIEW_CHANNEL | p::CONNECT | p::MUTE_MEMBERS | p::MOVE_MEMBERS;
-		for id in [Id(25), Id(26)] {
+		for id in [Id(25), Id(37)] {
 			state.permissions.channels.insert(
 				id,
 				p::Channel {
@@ -5435,14 +5464,14 @@ mod tests {
 			);
 		}
 		state.permissions.clear_cache();
-		assert!(state.can_moderate_voice(guild, Id(25), Id(2), VoiceChange::Move(Some(Id(26)))));
+		assert!(state.can_moderate_voice(guild, Id(25), Id(2), VoiceChange::Move(Some(Id(37)))));
 		assert!(!state.can_moderate_voice(guild, Id(25), Id(1), VoiceChange::Mute(true)));
 		assert!(!state.can_moderate_voice(guild, Id(25), Id(2), VoiceChange::Move(Some(Id(25)))));
 		assert!(!state.can_moderate_voice(guild, Id(25), Id(2), VoiceChange::Move(Some(Id(20)))));
 		state
 			.permissions
 			.channels
-			.get_mut(&Id(26))
+			.get_mut(&Id(37))
 			.unwrap()
 			.overwrites = Some(vec![p::Overwrite {
 			id: guild,
@@ -5451,18 +5480,18 @@ mod tests {
 			deny: p::CONNECT,
 		}]);
 		state.permissions.clear_cache();
-		assert!(!state.can_moderate_voice(guild, Id(25), Id(2), VoiceChange::Move(Some(Id(26)))));
+		assert!(!state.can_moderate_voice(guild, Id(25), Id(2), VoiceChange::Move(Some(Id(37)))));
 		state
 			.permissions
 			.channels
-			.get_mut(&Id(26))
+			.get_mut(&Id(37))
 			.unwrap()
 			.overwrites = Some(vec![]);
 		state.permissions.clear_cache();
 		for change in [
 			VoiceChange::Mute(true),
 			VoiceChange::Mute(false),
-			VoiceChange::Move(Some(Id(26))),
+			VoiceChange::Move(Some(Id(37))),
 			VoiceChange::Move(None),
 		] {
 			let channel = state
@@ -5520,7 +5549,7 @@ mod tests {
 			}
 		}
 		assert!(
-			!state.can_moderate_voice(guild, Id(26), Id(2), VoiceChange::Mute(true)),
+			!state.can_moderate_voice(guild, Id(37), Id(2), VoiceChange::Mute(true)),
 			"departed source cannot be moderated"
 		);
 	}
@@ -5617,7 +5646,7 @@ mod tests {
 					.find(|role| role.id == guild)
 					.unwrap()
 					.bits = p::VIEW_CHANNEL | p::CONNECT | p::MOVE_MEMBERS;
-				for id in [Id(25), Id(26)] {
+				for id in [Id(25), Id(37)] {
 					state.permissions.channels.insert(
 						id,
 						p::Channel {
@@ -5631,7 +5660,7 @@ mod tests {
 					state
 						.permissions
 						.channels
-						.get_mut(&Id(26))
+						.get_mut(&Id(37))
 						.unwrap()
 						.overwrites = Some(vec![p::Overwrite {
 						id: guild,
@@ -5777,7 +5806,7 @@ mod tests {
 					}
 				}
 				let expected =
-					(!denied).then_some((guild, Id(25), Id(2), VoiceChange::Move(Some(Id(26)))));
+					(!denied).then_some((guild, Id(25), Id(2), VoiceChange::Move(Some(Id(37)))));
 				assert_eq!(
 					view.voice_moderation, expected,
 					"dragging={dragging}, denied={denied}"
@@ -5813,7 +5842,7 @@ mod tests {
 					if denied {
 						vec![]
 					} else {
-						vec![(Id(2), Id(25), VoiceChange::Move(Some(Id(26))))]
+						vec![(Id(2), Id(25), VoiceChange::Move(Some(Id(37))))]
 					}
 				);
 			}

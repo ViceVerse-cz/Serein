@@ -1075,18 +1075,7 @@ impl ExtensionUi {
 		);
 	}
 	fn invoke_panel(&mut self, ctx: &egui::Context, state: &State, id: String, action: String) {
-		let declared = self.entries.iter().any(|entry| {
-			entry.manifest.id == id
-				&& entry.manifest.kind == ExtensionKind::Plugin
-				&& entry.enabled
-				&& !entry.cleanup_pending
-				&& entry
-					.manifest
-					.actions
-					.iter()
-					.any(|declared| declared.id == action && declared.surface == Surface::Panel)
-		});
-		if !declared {
+		if !self.panel_action_declared(&id, &action) {
 			return;
 		}
 		self.details = None;
@@ -1096,6 +1085,50 @@ impl ExtensionUi {
 				id,
 				invocation: Invocation {
 					action,
+					..Default::default()
+				},
+				context: ExtensionContext::panel(state),
+			},
+		);
+	}
+
+	/// Whether `id` is an enabled plugin declaring `action` as a panel action.
+	fn panel_action_declared(&self, id: &str, action: &str) -> bool {
+		self.entries.iter().any(|entry| {
+			entry.manifest.id == id
+				&& entry.manifest.kind == ExtensionKind::Plugin
+				&& entry.enabled
+				&& !entry.cleanup_pending
+				&& entry
+					.manifest
+					.actions
+					.iter()
+					.any(|declared| declared.id == action && declared.surface == Surface::Panel)
+		})
+	}
+
+	/// Routes an interface-row click exactly like a panel button: the owning plugin's declared
+	/// `interface_click` panel action runs with the row's id in `values` and `double_clicked`
+	/// set for double clicks. Rows of a plugin without the declaration are inert.
+	pub(crate) fn invoke_interface_row(
+		&mut self,
+		ctx: &egui::Context,
+		state: &State,
+		id: &str,
+		row: &str,
+		double_clicked: bool,
+	) {
+		if !self.panel_action_declared(id, extensions::INTERFACE_CLICK_ACTION) {
+			return;
+		}
+		self.queue(
+			ctx,
+			ExtensionRequest::Invoke {
+				id: id.into(),
+				invocation: Invocation {
+					action: extensions::INTERFACE_CLICK_ACTION.into(),
+					double_clicked,
+					values: [("id".into(), row.into())].into(),
 					..Default::default()
 				},
 				context: ExtensionContext::panel(state),
@@ -3276,6 +3309,7 @@ fn capability_label(capability: Capability) -> &'static str {
 		Capability::SelectedMessage => "Read the message I choose for an action",
 		Capability::ContextMenus => "Add actions to user, channel, server and role menus",
 		Capability::InterfaceTweaks => "Change how parts of the interface look or behave",
+		Capability::InterfaceUi => "Replace the main panes with the plugin's own list of rows",
 		Capability::Composer => "Read my draft and propose text changes",
 		Capability::Storage => "Store up to 1 MiB of local data for this account",
 		Capability::AppContext => "Read my account and current conversation details",

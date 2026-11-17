@@ -4950,10 +4950,6 @@ moderation-confirm-timeout = Timeout
 # Context: moderation
 moderation-confirm-ban = Bannen
 
-## crates/ui/src/ventrilo.rs
-# Context: voice_only_tree
-ventrilo-empty = Sprachkanäle Ihrer Server werden hier angezeigt.
-# Context: channel_row
-ventrilo-join-hint = Zum Beitreten doppelklicken
-# Context: voice_only_call
-ventrilo-hide-call = Anruffenster ausblenden
+## crates/ui/src/interface_ui.rs
+# Context: interface_tree
+interface-ui-empty = Dieses Plugin hat noch nichts anzuzeigen.

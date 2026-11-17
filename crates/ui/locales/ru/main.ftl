@@ -4955,10 +4955,6 @@ moderation-confirm-timeout = Тайм-аут
 # Context: moderation
 moderation-confirm-ban = Забанить
 
-## crates/ui/src/ventrilo.rs
-# Context: voice_only_tree
-ventrilo-empty = Здесь появятся голосовые каналы ваших серверов.
-# Context: channel_row
-ventrilo-join-hint = Дважды щелкните, чтобы присоединиться
-# Context: voice_only_call
-ventrilo-hide-call = Скрыть окно звонка
+## crates/ui/src/interface_ui.rs
+# Context: interface_tree
+interface-ui-empty = Плагину пока нечего показать.

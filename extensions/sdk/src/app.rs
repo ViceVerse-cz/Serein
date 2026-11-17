@@ -260,6 +260,28 @@ pub struct VoiceSnapshot {
 	pub camera: bool,
 	pub streaming: bool,
 	pub participants: Vec<String>,
+	/// Tracked voice participants across channels, with display names and voice flags when
+	/// the host has them; at most 128 entries, snowflake ID strings and names of at most 256
+	/// bytes. Empty on hosts predating the roster; `participants` stays the bounded ID-only
+	/// list of the current call.
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub roster: Vec<VoiceRosterEntry>,
+}
+
+/// One tracked voice participant. `name` is the resolved display name when member data is
+/// loaded; `speaking` reflects the host's current speaking indication, not measured audio.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VoiceRosterEntry {
+	pub guild_id: String,
+	pub channel_id: String,
+	pub user_id: String,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub name: Option<String>,
+	pub muted: bool,
+	pub deafened: bool,
+	pub server_muted: bool,
+	pub server_deafened: bool,
+	pub speaking: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

@@ -5153,10 +5153,6 @@ reading-chat-reading-settings-hide-ignored-messages = 무시한 사용자의 메
 # Context: reading_chat
 reading-chat-reading-settings-hide-ignored-messages-description = 무시한 작성자도 로컬 필터에 포함합니다. 관계 상태를 알 수 없으면 메시지를 숨기지 않습니다.
 
-## crates/ui/src/ventrilo.rs
-# Context: voice_only_tree
-ventrilo-empty = 서버의 음성 채널이 여기에 표시됩니다.
-# Context: channel_row
-ventrilo-join-hint = 두 번 클릭해 참가
-# Context: voice_only_call
-ventrilo-hide-call = 통화 창 숨기기
+## crates/ui/src/interface_ui.rs
+# Context: interface_tree
+interface-ui-empty = 이 플러그인은 아직 표시할 항목이 없습니다.
