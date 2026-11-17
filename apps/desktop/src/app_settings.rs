@@ -327,6 +327,10 @@ impl PluginWindowSize {
 				return;
 			};
 			window.set_min_inner_size(None::<winit::dpi::PhysicalSize<u32>>);
+			// The user may have maximized the plugin-sized window; their own placement decides.
+			if window.is_maximized() && !normal.maximized {
+				window.set_maximized(false);
+			}
 			if let Some(size) = normal.size {
 				let _ = window.request_inner_size(size);
 			}

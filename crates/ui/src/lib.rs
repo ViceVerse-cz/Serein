@@ -5278,7 +5278,7 @@ impl MessagingUi {
 		if let Some(interface) = self.plugin_interface.clone() {
 			// The replaced panes have no conversation header or search pane, so an open
 			// search would leave an orphaned overlay and pending results behind.
-			self.search.toggle(false);
+			self.search.close();
 			if state.search.is_some() {
 				commands.push(state.clear_search());
 			}

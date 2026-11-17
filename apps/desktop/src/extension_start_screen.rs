@@ -221,17 +221,29 @@ impl DeviceStartScreen {
 		}
 	}
 
-	/// A failed write keeps its value for one more attempt unless none can succeed; the
-	/// first retry runs on the next poll and later ones wait out the backoff. Returns the
-	/// failure to report either way.
+	/// A failed write keeps its value for one more attempt unless none can succeed or a newer
+	/// value already waits (that one supersedes it, with its own attempts); the first retry
+	/// runs on the next frame and later ones wait out the backoff, each with a scheduled wake.
+	/// Returns the failure to report either way.
 	fn failed(&mut self, owner: Option<Owner>, error: &str) -> Option<String> {
+		if self.unsaved.is_some() {
+			return Some(error.to_owned());
+		}
 		if error == BUDGET_ERROR || self.attempts + 1 >= MAX_SAVE_ATTEMPTS {
 			self.attempts = 0;
 			self.retry_at = None;
 		} else {
 			self.attempts += 1;
-			self.retry_at = (self.attempts > 1).then(|| Instant::now() + RETRY_DELAY);
+			let delay = if self.attempts > 1 {
+				RETRY_DELAY
+			} else {
+				std::time::Duration::ZERO
+			};
+			self.retry_at = (self.attempts > 1).then(|| Instant::now() + delay);
 			self.unsaved = Some(owner);
+			if let Some(context) = &self.context {
+				context.request_repaint_after(delay);
+			}
 		}
 		Some(error.to_owned())
 	}
@@ -251,7 +263,12 @@ impl DeviceStartScreen {
 		{
 			return self.failed(owner, error);
 		}
-		if self.retry_at.is_some_and(|at| Instant::now() < at) {
+		if let Some(at) = self.retry_at
+			&& let Some(wait) = at.checked_duration_since(Instant::now())
+		{
+			if let Some(context) = &self.context {
+				context.request_repaint_after(wait);
+			}
 			return None;
 		}
 		self.retry_at = None;
@@ -330,5 +347,30 @@ mod tests {
 		})
 		.unwrap();
 		assert!(bytes.len() <= MAX_FILE_BYTES, "{} bytes", bytes.len());
+	}
+
+	/// A failed write must not bring back an older value over a newer one already queued
+	/// (e.g. a logout's clear queued while a screen was being written).
+	#[test]
+	fn failed_write_keeps_a_newer_queued_value() {
+		let mut device = DeviceStartScreen {
+			unsaved: Some(None),
+			..Default::default()
+		};
+		let screen = StartScreen {
+			title: Some("Old".into()),
+			..Default::default()
+		};
+		let old = Owner {
+			account: "a".into(),
+			plugin: "p".into(),
+			screen: Arc::new(ui::DecodedStartScreen::new(screen).expect("valid screen")),
+		};
+		assert!(device.failed(Some(old), SAVE_ERROR).is_some());
+		assert!(
+			matches!(device.unsaved, Some(None)),
+			"the queued clear survives"
+		);
+		assert_eq!(device.attempts, 0);
 	}
 }
