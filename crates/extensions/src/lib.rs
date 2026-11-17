@@ -474,7 +474,9 @@ pub struct Invocation {
 	/// Milliseconds elapsed since this plugin was enabled for the current session.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub tick_ms: Option<u64>,
-	/// True when the host routed a double click on an interface row or panel button.
+	/// True when the host routed a double click on an interface row or dock item, or
+	/// Enter on the focused row or dock item; single clicks and Space leave it false.
+	/// Panel button activations leave it false.
 	#[serde(default, skip_serializing_if = "interface_ui::is_false")]
 	pub double_clicked: bool,
 }
@@ -1550,7 +1552,11 @@ fn validate_elements(
 				(id, label)
 			}
 		};
-		if !valid_id(id)
+		// The reserved interface-row action keeps the SDK's spelling, which `valid_id`
+		// rejects; a Button for that exact declared action is accepted.
+		let reserved =
+			matches!(element, Element::Button { id, .. } if *id == INTERFACE_CLICK_ACTION);
+		if (!reserved && !valid_id(id))
 			|| !ids.insert(id.clone())
 			|| label.is_empty()
 			|| label.len() > 128

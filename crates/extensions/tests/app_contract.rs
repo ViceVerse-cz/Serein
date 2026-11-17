@@ -407,6 +407,7 @@ fn each_snapshot_group_requires_its_own_grant_and_typed_sdk_roundtrips() {
 	assert_eq!(sdk::MAX_APP_MEMBERS, MAX_APP_MEMBERS);
 	assert_eq!(sdk::MAX_APP_PRESENCES, MAX_APP_PRESENCES);
 	assert_eq!(sdk::MAX_VOICE_PARTICIPANTS, MAX_VOICE_PARTICIPANTS);
+	assert_eq!(sdk::MAX_VOICE_ROSTER, MAX_VOICE_ROSTER);
 	assert_eq!(sdk::MAX_HOST_EFFECTS, MAX_HOST_EFFECTS);
 	assert_eq!(sdk::MAX_HOST_EFFECT_BYTES, MAX_HOST_EFFECT_BYTES);
 	assert_eq!(sdk::MAX_CAPABILITIES, MAX_CAPABILITIES);

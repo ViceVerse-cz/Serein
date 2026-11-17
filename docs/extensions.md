@@ -162,7 +162,7 @@ supports 58 capabilities, with at most 64 distinct declarations per manifest.
 | `timeline` | Read ordinary loaded messages in the active conversation | Fresh readable timeline, at most 50 (12 with `message_details`); no deleted/ephemeral text |
 | `members` | Read loaded members or DM recipients | Active channel, at most 100; no fetch |
 | `presence` | Read cached status strings for that context | At most 100; no activity/private device payloads |
-| `voice_state` | Read current call state and participant IDs | At most 64 participants; no raw media |
+| `voice_state` | Read call state, the 64-ID participant list of the current call, and up to 128 roster entries with names, mute, deafen and speaking flags across voice channels the account can view | Roster rows carry bounded, sanitized names; the roster keeps its own 16-KiB byte budget within the snapshot; no raw media |
 | `read_state` | Read current channel unread/mention summary | Unknown unread remains distinct from false |
 | `local_settings` | Read and propose changing seven local reading preferences | Zoom/sidebar/member list/GIFs/media links/smooth scrolling/scroll speed; changes require Apply |
 | `notification_settings` | Read and propose changing device-local notification preferences | Sound volume, sound toggles and unread badge; changes require Apply; no Discord notification settings |
@@ -244,8 +244,10 @@ is unavailable or ungranted, not an empty dataset. Snapshot construction reads
 already-loaded state without network or disk IO. The complete serialized snapshot
 is capped at 64 KiB. Per-group budgets are 10 KiB for channels, 20 KiB for timeline,
 6 KiB each for members, presence and channel-detail recipients, and 8 KiB for guilds,
-including item overhead. The channel directory first lists every channel of a focus
-server on its own budget of up to 250 channels and 48 KiB, then fills the shared
+including item overhead. The voice roster keeps its own 16-KiB budget (at most 128
+entries with names and flags, beside the 64-ID call participant list). The channel
+directory first lists every channel of a focus server on its own budget of up to
+250 channels and 48 KiB, then fills the shared
 100-channel, 10-KiB budget with the rest; directory items are dropped from the end if
 the snapshot would otherwise pass 64 KiB. The focus server is the `guild_id` of the
 dock item an `interface_click` names, otherwise that of the selected dock item in the
@@ -494,7 +496,7 @@ invocation input/output, panel complexity, queues and plugin storage.
 | Execution fuel | 10,000,000 | Shared by parsing and execution; a valid-sized input can still exhaust it. |
 | Wasm call depth / interpreter stack | 128 calls / 256 KiB | Avoid deep recursion. |
 | Serialized input and output | 256 KiB each | Count UTF-8 and JSON escaping, including nested storage JSON. |
-| Manifest actions / capabilities | 16 / 64 distinct | Only the 57 supported capability names are currently accepted. |
+| Manifest actions / capabilities | 16 / 64 distinct | Only the 58 supported capability names are currently accepted. |
 | Panel | 64 elements / 8 row levels | Includes nested children; text and input values are at most 4 KiB each. |
 | Plugin storage on disk | 1 MiB | Its practical size must also fit the smaller invocation/output budget. |
 | App snapshot | 64 KiB | Individual lists have smaller budgets; see the [data reference](extension-sdk-reference.md#app-data). |

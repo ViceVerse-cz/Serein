@@ -294,7 +294,9 @@ pub struct PluginWindowSize {
 
 #[derive(Clone, Copy)]
 struct Placement {
-	size: winit::dpi::PhysicalSize<u32>,
+	/// The user's own normal size; absent when none was ever saved, so restore only
+	/// re-maximizes.
+	size: Option<winit::dpi::PhysicalSize<u32>>,
 	position: Option<winit::dpi::PhysicalPosition<i32>>,
 	maximized: bool,
 }
@@ -306,14 +308,18 @@ impl PluginWindowSize {
 		self.normal.is_some()
 	}
 
-	/// Gives the window the logical size a plugin asks for, clamped to its monitor and centered
-	/// there, again whenever the request changes. The user's own size, position and maximized
-	/// state are kept from when the first request takes over and restored once none asks.
+	/// Gives the window the logical size a plugin asks for, clamped to its monitor and
+	/// centered there, again whenever the request changes. The user's own size, position
+	/// and maximized state are kept from when the first request takes over and restored
+	/// once none asks. A minimized window defers takeover until it is restored, and a
+	/// maximized one never records the maximized geometry as the user's own: the saved
+	/// normal placement is restored instead, and without one restore just re-maximizes.
 	pub fn sync(
 		&mut self,
 		window: &winit::window::Window,
 		requested: Option<winit::dpi::LogicalSize<u32>>,
 		minimum: &mut Option<winit::dpi::PhysicalSize<u32>>,
+		saved: Option<local_store::WindowGeometry>,
 	) {
 		let Some(requested) = requested else {
 			self.applied = None;
@@ -321,7 +327,9 @@ impl PluginWindowSize {
 				return;
 			};
 			window.set_min_inner_size(None::<winit::dpi::PhysicalSize<u32>>);
-			let _ = window.request_inner_size(normal.size);
+			if let Some(size) = normal.size {
+				let _ = window.request_inner_size(size);
+			}
 			if let Some(position) = normal.position {
 				window.set_outer_position(position);
 			}
@@ -338,11 +346,37 @@ impl PluginWindowSize {
 		if self.applied == Some(requested) {
 			return;
 		}
+		if window.is_minimized() == Some(true) {
+			// Geometry measured while minimized is unusable; take over once restored.
+			self.applied = None;
+			return;
+		}
 		self.applied = Some(requested);
 		if self.normal.is_none() {
+			let (size, position) = if window.is_maximized() {
+				// Never capture geometry measured while maximized: the saved placement is
+				// the user's own normal one; without it restore just re-maximizes.
+				let scale = window.scale_factor();
+				let size = saved
+					.filter(|geometry| geometry.is_valid())
+					.map(|geometry| {
+						winit::dpi::LogicalSize::new(geometry.size[0], geometry.size[1])
+							.to_physical::<u32>(scale)
+					});
+				let position = saved
+					.filter(|geometry| geometry.is_valid())
+					.and_then(|geometry| {
+						geometry
+							.position
+							.map(|[x, y]| winit::dpi::PhysicalPosition::new(x, y))
+					});
+				(size, position)
+			} else {
+				(Some(window.inner_size()), window.outer_position().ok())
+			};
 			self.normal = Some(Placement {
-				size: window.inner_size(),
-				position: window.outer_position().ok(),
+				size,
+				position,
 				maximized: window.is_maximized(),
 			});
 		}

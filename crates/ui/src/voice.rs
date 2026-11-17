@@ -420,22 +420,27 @@ impl MessagingUi {
 			}) && self.voice_speaking.contains(&participant.user)
 	}
 
-	/// Everyone in a voice channel as the client shows them: the resolved display name when
-	/// the member is loaded, the shown mute and deafen flags, and whether the speaking
-	/// indicator is lit. For plugin snapshots; no audio data leaves this summary.
+	/// Everyone in a voice channel the account can view, as the client shows them: the
+	/// resolved display name when the member is loaded, the shown mute and deafen flags,
+	/// and whether the speaking indicator is lit. Channels without a positive view grant
+	/// are left out, like the directory. For plugin snapshots; no audio data leaves this
+	/// summary.
 	pub fn voice_roster<'a>(
 		&'a self,
 		state: &'a State,
 	) -> impl Iterator<Item = VoiceRosterRow<'a>> + 'a {
-		state.voice.roster.iter().map(move |entry| {
+		state.voice.roster.iter().filter_map(move |entry| {
+			if !state.can_view(entry.channel) {
+				return None;
+			}
 			let shown = shown_participant(state, entry);
 			let (user, name) = resolve_member(state, entry);
-			VoiceRosterRow {
+			Some(VoiceRosterRow {
 				entry,
 				name: user.map(|_| name),
 				speaking: self.is_speaking(state, entry.channel, &shown),
 				shown,
-			}
+			})
 		})
 	}
 

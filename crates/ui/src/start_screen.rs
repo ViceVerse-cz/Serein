@@ -7,12 +7,13 @@ use egui::emath::GuiRounding;
 use extensions::{StartImage, StartScreen, StartWindow};
 use std::{sync::Arc, time::Duration};
 
-/// Least space the restore screen leaves above its header, in logical pixels.
-const MIN_TOP: f32 = 12.0;
 /// Space kept under the screen's last control, at least the gaps around the progress bar.
 const BOTTOM_PADDING: f32 = 32.0;
-/// Height of the copy, progress bar and button assumed before the first frame measures it.
-const BELOW_ESTIMATE: f32 = 200.0;
+/// Height of the progress bar and the way-out button assumed before the first frame
+/// measures them.
+const BELOW_ESTIMATE: f32 = 80.0;
+/// Height of the title and subtitle assumed before the first frame measures them.
+const TEXT_ESTIMATE: f32 = 80.0;
 /// Approximate height of the default logo, title and stage copy, in logical pixels.
 const DEFAULT_HEADER: f32 = 124.0;
 /// Space between the logo or images and the title, in logical pixels.
@@ -189,9 +190,11 @@ fn paint(value: &str) -> Paint {
 pub struct StartScreenView {
 	playing: Option<Playing>,
 	lift: f32,
-	/// Where this frame's copy starts, and how far the copy, bar and button reached below it
-	/// on the previous frame; the images are sized so all of it fits above the bottom padding.
+	/// Where this frame's copy starts; the title and subtitle measured below it, and how far
+	/// the bar and button reached below the text on the previous frame, size the images so
+	/// all of it fits above the bottom padding.
 	copy_top: f32,
+	text: f32,
 	below: f32,
 	window: Option<StartWindow>,
 	shown: bool,
@@ -220,14 +223,16 @@ impl StartScreenView {
 	}
 
 	/// Records where the screen's last control ended, after the caller drew everything below
-	/// the header.
+	/// the header; `below` excludes the header's own text, which `text` already measures.
 	pub fn end(&mut self, ui: &egui::Ui) {
-		self.below = ui.cursor().min.y - self.copy_top;
+		self.below = (ui.cursor().min.y - self.copy_top - self.text).max(0.0);
 	}
 
 	/// Draws the header into the current top-down column. Without a plugin screen this is the
 	/// client's own logo, title and stage line. A plugin screen replaces all three with its
-	/// images, stacked top to bottom, then its optional title and subtitle.
+	/// images, stacked top to bottom, then its optional title and subtitle. Both lines
+	/// truncate instead of wrapping, so a short window always leaves room for the bar and
+	/// the way out below.
 	pub fn header(
 		&mut self,
 		ui: &mut egui::Ui,
@@ -246,9 +251,16 @@ impl StartScreenView {
 			logo(ui);
 			ui.add_space(HEADER_GAP);
 			self.copy_top = ui.cursor().min.y;
-			ui.label(crate::design::semibold(ui, title, 24.0).color(p.text_strong));
+			ui.add(
+				egui::Label::new(crate::design::semibold(ui, title, 24.0).color(p.text_strong))
+					.truncate(),
+			);
 			ui.add_space(8.0);
-			ui.label(egui::RichText::new(subtitle).size(15.0).color(p.muted));
+			ui.add(
+				egui::Label::new(egui::RichText::new(subtitle).size(15.0).color(p.muted))
+					.truncate(),
+			);
+			self.text = ui.cursor().min.y - self.copy_top;
 			return;
 		};
 		let mut gap = 0.0;
@@ -261,13 +273,19 @@ impl StartScreenView {
 		self.copy_top = ui.cursor().min.y;
 		if let Some(text) = &screen.screen.title {
 			ui.add_space(gap);
-			ui.label(crate::design::semibold(ui, text, 24.0).color(p.text_strong));
+			ui.add(
+				egui::Label::new(crate::design::semibold(ui, text, 24.0).color(p.text_strong))
+					.truncate(),
+			);
 			gap = 8.0;
 		}
 		if let Some(text) = &screen.screen.subtitle {
 			ui.add_space(gap);
-			ui.label(egui::RichText::new(text).size(15.0).color(p.muted));
+			ui.add(
+				egui::Label::new(egui::RichText::new(text).size(15.0).color(p.muted)).truncate(),
+			);
 		}
+		self.text = ui.cursor().min.y - self.copy_top;
 		self.lift = ((ui.cursor().min.y - top - DEFAULT_HEADER) * 0.5).max(0.0);
 	}
 
@@ -314,9 +332,14 @@ impl StartScreenView {
 		} else {
 			BELOW_ESTIMATE
 		};
-		// Everything but the images, so a short window shrinks them, never a control.
-		let room =
-			ui.max_rect().height() - MIN_TOP - ui.spacing().item_spacing.y - below - BOTTOM_PADDING;
+		let text = if self.text > 0.0 {
+			self.text
+		} else {
+			TEXT_ESTIMATE
+		};
+		// Everything but the images, measured from where they start, so a short window
+		// shrinks them — to nothing if it must — never a control below.
+		let room = ui.max_rect().bottom() - ui.cursor().min.y - text - below - BOTTOM_PADDING;
 		let pixels_per_point = ui.pixels_per_point();
 		// A cell of whole physical pixels prints every cell of an image the same size.
 		let crisp = |image: &Image| (image.cell * pixels_per_point).round().max(1.0);

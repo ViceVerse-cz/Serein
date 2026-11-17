@@ -685,6 +685,28 @@ pub fn snapshot(
 				&& !(state.selected == Some(call.channel)
 					&& state.freshness == Freshness::Unavailable)
 		});
+		let mut roster = Vec::new();
+		// The roster keeps its own byte budget, like the other groups, so names cannot
+		// squeeze the call summary out of the snapshot.
+		let mut budget = 16 * 1024;
+		for row in voice_roster(state, messaging) {
+			let entry = VoiceRosterEntry {
+				guild_id: row.entry.guild.0.to_string(),
+				channel_id: row.entry.channel.0.to_string(),
+				user_id: row.entry.participant.user.0.to_string(),
+				// One gateway nickname with control characters or nothing printable must
+				// not invalidate the whole snapshot; such a name is left out instead.
+				name: row.name.and_then(bounded_name),
+				muted: row.shown.muted,
+				deafened: row.shown.deafened,
+				server_muted: row.shown.server_muted,
+				server_deafened: row.shown.server_deafened,
+				speaking: row.speaking,
+			};
+			if !push(&mut roster, entry, &mut budget, MAX_VOICE_ROSTER) {
+				break;
+			}
+		}
 		app.voice = Some(VoiceSnapshot {
 			channel_id: call.map(|c| c.channel.0.to_string()),
 			phase: call.map_or("idle", |c| phase(c.phase)).into(),
@@ -699,22 +721,7 @@ pub fn snapshot(
 				.take(MAX_VOICE_PARTICIPANTS)
 				.map(|p| p.user.0.to_string())
 				.collect(),
-			roster: voice_roster(state, messaging)
-				.take(MAX_VOICE_ROSTER)
-				.map(|row| VoiceRosterEntry {
-					guild_id: row.entry.guild.0.to_string(),
-					channel_id: row.entry.channel.0.to_string(),
-					user_id: row.entry.participant.user.0.to_string(),
-					// One gateway nickname with control characters or nothing printable must
-					// not invalidate the whole snapshot; such a name is left out instead.
-					name: row.name.and_then(bounded_name),
-					muted: row.shown.muted,
-					deafened: row.shown.deafened,
-					server_muted: row.shown.server_muted,
-					server_deafened: row.shown.server_deafened,
-					speaking: row.speaking,
-				})
-				.collect(),
+			roster,
 		});
 	}
 	if granted(Capability::ReadState) {
@@ -744,6 +751,20 @@ pub fn snapshot(
 	}
 	// With the focus server's extra directory budget the fixed-budget groups can exceed the
 	// snapshot cap; drop directory items from the end (other servers first) until it fits.
+	// The snapshot is measured once and each popped item's serialized bytes subtracted from
+	// that measure, so trimming does not re-serialize everything per pop; a final exact
+	// re-check trims any drift the estimate can hide.
+	let mut measured = app
+		.bytes()
+		.unwrap_or_else(|_| serde_json::to_vec(&app).map_or(usize::MAX, |bytes| bytes.len()));
+	while measured > MAX_APP_SNAPSHOT_BYTES
+		&& let Some(group) = app.channels.as_mut()
+		&& let Some(item) = group.items.pop()
+	{
+		group.truncated = true;
+		measured =
+			measured.saturating_sub(serde_json::to_vec(&item).map_or(0, |bytes| bytes.len() + 1));
+	}
 	while matches!(app.bytes(), Err(Error::Limit))
 		&& let Some(group) = app.channels.as_mut()
 		&& group.items.pop().is_some()
@@ -1270,17 +1291,14 @@ fn phase(phase: client_core::voice::Phase) -> &'static str {
 	}
 }
 
-/// Roster rows plugins may see: real ids in voice channels whose view is not explicitly
-/// denied. Unknown permissions (a server never opened) still list, like the server rail.
+/// Roster rows plugins may see: real ids in voice channels. Viewability is already
+/// filtered by [`ui::MessagingUi::voice_roster`], like the directory and the call summary.
 fn voice_roster<'a>(
 	state: &'a State,
 	messaging: &'a ui::MessagingUi,
 ) -> impl Iterator<Item = ui::VoiceRosterRow<'a>> + 'a {
 	messaging.voice_roster(state).filter(move |row| {
-		row.entry.guild.0 != 0
-			&& row.entry.channel.0 != 0
-			&& row.entry.participant.user.0 != 0
-			&& !state.view_channel_denied(row.entry.channel)
+		row.entry.guild.0 != 0 && row.entry.channel.0 != 0 && row.entry.participant.user.0 != 0
 	})
 }
 
@@ -1420,9 +1438,10 @@ mod tests {
 		}
 	}
 
-	/// Checks that the voice roster lists every voice channel's people with their names and
-	/// flags, lights speaking only as the client's own indicator does, honours local mutes,
-	/// and raises a voice event when someone starts talking.
+	/// Checks that the voice roster lists every viewable voice channel's people with their
+	/// names and flags, keeps denied channels out, lights speaking only as the client's own
+	/// indicator does, honours local mutes, and raises a voice event when someone starts
+	/// talking.
 	#[test]
 	fn voice_roster_snapshot_carries_names_flags_and_speaking() {
 		let state = test_support::voice_demo_state();
@@ -1491,6 +1510,31 @@ mod tests {
 		assert_eq!(row("5").name, None, "an empty nickname is left out");
 		let bounded = row("3").name.as_deref().unwrap();
 		assert!(bounded.len() <= 128 && long.starts_with(bounded));
+		// A channel whose view is denied keeps its people out of the roster, like the
+		// directory; only a positive view grant lists a channel.
+		let mut permissions = test_support::permission_snapshot(&state);
+		for channel in &mut permissions.channels {
+			if channel.id == Id(37) {
+				channel.overwrites = Some(vec![model::permissions::Overwrite {
+					id: Id(10),
+					kind: 0,
+					allow: 0,
+					deny: model::permissions::VIEW_CHANNEL,
+				}]);
+			}
+		}
+		state.permissions.replace(permissions).unwrap();
+		let roster = &snapshot(&state, &messaging, &voice, None)
+			.unwrap()
+			.voice
+			.unwrap()
+			.roster;
+		assert_eq!(roster.len(), 3, "denied channels leave the roster");
+		assert!(roster.iter().all(|row| row.channel_id == "25"));
+		state
+			.permissions
+			.replace(test_support::permission_snapshot(&state))
+			.unwrap();
 		// The channel directory keeps the loaded order and carries each channel's visible
 		// parent and position for plugins to sort by.
 		state.gateway_connected = true;

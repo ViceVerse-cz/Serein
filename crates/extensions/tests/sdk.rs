@@ -696,8 +696,9 @@ fn start_screen_is_granted_activation_or_panel_output_and_validated() {
 	);
 }
 
-/// Checks that the voice roster stays absent from older snapshots, serializes only when
-/// populated, and is bounded and id-checked by the host validator.
+/// Checks that the voice roster stays absent from older snapshots, survives a populated
+/// SDK-to-host round trip with ids, names and flags, and is bounded and id-checked by the
+/// host validator.
 #[test]
 fn voice_roster_defaults_and_validates() {
 	use extensions::{AppSnapshot, VoiceRosterEntry, VoiceSnapshot};
@@ -707,9 +708,47 @@ fn voice_roster_defaults_and_validates() {
 	}))
 	.unwrap();
 	assert!(old.roster.is_empty(), "older snapshots have no roster");
+	let sdk_entry = sdk::VoiceRosterEntry {
+		guild_id: "10".into(),
+		channel_id: "30".into(),
+		user_id: "7".into(),
+		name: Some("Quill Harper".into()),
+		muted: true,
+		deafened: false,
+		server_muted: false,
+		server_deafened: true,
+		speaking: false,
+	};
+	let sdk_voice = sdk::VoiceSnapshot {
+		channel_id: Some("30".into()),
+		phase: "connected".into(),
+		muted: false,
+		deafened: false,
+		camera: false,
+		streaming: false,
+		participants: vec!["7".into()],
+		roster: vec![
+			sdk_entry.clone(),
+			sdk::VoiceRosterEntry {
+				name: None,
+				..sdk_entry.clone()
+			},
+		],
+	};
+	let decoded: VoiceSnapshot =
+		serde_json::from_slice(&serde_json::to_vec(&sdk_voice).unwrap()).unwrap();
+	assert_eq!(decoded.channel_id.as_deref(), Some("30"));
+	assert_eq!(decoded.roster.len(), 2);
+	assert_eq!(decoded.roster[0].guild_id, "10");
+	assert_eq!(decoded.roster[0].channel_id, "30");
+	assert_eq!(decoded.roster[0].user_id, "7");
+	assert_eq!(decoded.roster[0].name.as_deref(), Some("Quill Harper"));
+	assert_eq!(decoded.roster[0].muted, sdk_entry.muted);
+	assert_eq!(decoded.roster[0].server_deafened, sdk_entry.server_deafened);
+	assert_eq!(decoded.roster[0].speaking, sdk_entry.speaking);
 	assert!(
-		serde_json::to_value(&old).unwrap().get("roster").is_none(),
-		"an empty roster stays off the wire"
+		decoded.roster[1].name.is_none(),
+		"unnamed rows stay unnamed"
 	);
 	let entry = VoiceRosterEntry {
 		guild_id: "10".into(),
@@ -722,24 +761,11 @@ fn voice_roster_defaults_and_validates() {
 		server_deafened: false,
 		speaking: false,
 	};
-	let json = serde_json::to_value(&entry).unwrap();
-	assert_eq!(json["name"], "Quill Harper");
-	assert_eq!(json["speaking"], false);
-	let unnamed = VoiceRosterEntry {
-		name: None,
-		..entry.clone()
-	};
-	assert!(
-		serde_json::to_value(&unnamed)
-			.unwrap()
-			.get("name")
-			.is_none()
-	);
 	let mut manifest = manifest("apply", Surface::Panel);
 	manifest.capabilities.push(Capability::VoiceState);
 	let mut snapshot = AppSnapshot {
 		voice: Some(VoiceSnapshot {
-			roster: vec![entry.clone(), unnamed],
+			roster: vec![entry.clone()],
 			..old
 		}),
 		..Default::default()
@@ -844,4 +870,145 @@ fn every_sdk_panel_and_appearance_field_is_accepted_by_the_host() {
 	let roundtrip: sdk::Output =
 		serde_json::from_slice(&serde_json::to_vec(&host).unwrap()).unwrap();
 	assert_eq!(roundtrip, expected);
+}
+
+/// Checks that the host mirror of the interface contract keeps every bound and verdict in
+/// step with the SDK: the interface and start-screen constants agree, and both validators
+/// accept and reject the same candidate trees with the same errors.
+#[test]
+fn interface_contract_bounds_and_verdicts_match_the_sdk() {
+	for (kit, host) in [
+		(sdk::MAX_INTERFACE_NODES, extensions::MAX_INTERFACE_NODES),
+		(
+			sdk::MAX_INTERFACE_TEXT_BYTES,
+			extensions::MAX_INTERFACE_TEXT_BYTES,
+		),
+		(
+			sdk::MAX_INTERFACE_BADGE_BYTES,
+			extensions::MAX_INTERFACE_BADGE_BYTES,
+		),
+		(
+			sdk::MAX_INTERFACE_ID_BYTES,
+			extensions::MAX_INTERFACE_ID_BYTES,
+		),
+		(
+			sdk::MAX_INTERFACE_DOCK_ITEMS,
+			extensions::MAX_INTERFACE_DOCK_ITEMS,
+		),
+		(
+			sdk::MAX_START_TITLE_BYTES,
+			extensions::MAX_START_TITLE_BYTES,
+		),
+		(
+			sdk::MAX_START_SUBTITLE_BYTES,
+			extensions::MAX_START_SUBTITLE_BYTES,
+		),
+		(sdk::MAX_START_IMAGES, extensions::MAX_START_IMAGES),
+		(sdk::MAX_START_FRAMES, extensions::MAX_START_FRAMES),
+		(sdk::MAX_START_PALETTE, extensions::MAX_START_PALETTE),
+		(
+			sdk::MAX_START_FRAME_BYTES,
+			extensions::MAX_START_FRAME_BYTES,
+		),
+	] {
+		assert_eq!(kit, host);
+	}
+	for (kit, host) in [
+		(sdk::MAX_INTERFACE_INDENT, extensions::MAX_INTERFACE_INDENT),
+		(sdk::MAX_START_FPS, extensions::MAX_START_FPS),
+		(
+			sdk::MAX_START_CELL_PIXELS,
+			extensions::MAX_START_CELL_PIXELS,
+		),
+	] {
+		assert_eq!(kit, host);
+	}
+	for (kit, host) in [
+		(
+			sdk::MIN_INTERFACE_WINDOW_SIDE,
+			extensions::MIN_INTERFACE_WINDOW_SIDE,
+		),
+		(
+			sdk::MAX_INTERFACE_WINDOW_WIDTH,
+			extensions::MAX_INTERFACE_WINDOW_WIDTH,
+		),
+		(
+			sdk::MAX_INTERFACE_WINDOW_HEIGHT,
+			extensions::MAX_INTERFACE_WINDOW_HEIGHT,
+		),
+		(
+			sdk::MAX_START_IMAGE_CELLS,
+			extensions::MAX_START_IMAGE_CELLS,
+		),
+		(
+			sdk::MIN_START_WINDOW_SIDE,
+			extensions::MIN_START_WINDOW_SIDE,
+		),
+		(
+			sdk::MAX_START_WINDOW_WIDTH,
+			extensions::MAX_START_WINDOW_WIDTH,
+		),
+		(
+			sdk::MAX_START_WINDOW_HEIGHT,
+			extensions::MAX_START_WINDOW_HEIGHT,
+		),
+	] {
+		assert_eq!(kit, host);
+	}
+	let valid = serde_json::json!({
+		"nodes": [
+			{"id": "channel:25", "text": "Room", "badge": "2", "indent": 1},
+			{"text": "Plain label"},
+			{"id": "join:37", "text": "Lobby", "native": {"type": "join_voice", "channel_id": "37"}}
+		],
+		"dock": [{"id": "server:10", "label": "Voice club", "guild_id": "10"}],
+		"window": {"kind": "chat", "channel_id": "20"},
+		"size": {"width": 480, "height": 720}
+	});
+	for (label, json, ok) in [
+		("valid tree", valid.clone(), true),
+		(
+			"control character in row text",
+			serde_json::json!({"nodes": [{"id": "a", "text": "bad\u{7}text"}]}),
+			false,
+		),
+		(
+			"whitespace-only row text",
+			serde_json::json!({"nodes": [{"id": "a", "text": "  \t "}]}),
+			false,
+		),
+		(
+			"whitespace-only badge",
+			serde_json::json!({"nodes": [{"id": "a", "text": "ok", "badge": " "}]}),
+			false,
+		),
+		(
+			"control character in dock label",
+			serde_json::json!({"nodes": [{"text": "ok"}], "dock": [{"id": "d", "label": "a\u{1}"}]}),
+			false,
+		),
+		(
+			"oversized indent",
+			serde_json::json!({"nodes": [{"text": "ok", "indent": sdk::MAX_INTERFACE_INDENT + 1}]}),
+			false,
+		),
+		(
+			"non-snowflake chat window",
+			serde_json::json!({"nodes": [{"text": "ok"}], "window": {"kind": "chat", "channel_id": "x"}}),
+			false,
+		),
+		(
+			"oversized window",
+			serde_json::json!({
+				"nodes": [{"text": "ok"}],
+				"size": {"width": sdk::MAX_INTERFACE_WINDOW_WIDTH + 1, "height": 600}
+			}),
+			false,
+		),
+	] {
+		let host: extensions::InterfaceUi = serde_json::from_value(json.clone()).unwrap();
+		let kit: sdk::InterfaceUi = serde_json::from_value(json).unwrap();
+		assert_eq!(host.validate(), kit.validate(), "{label} agrees");
+		assert_eq!(host.validate().is_ok(), ok, "{label}");
+	}
 }

@@ -1574,6 +1574,25 @@ impl Avatars {
 		crate::design::rail_name(&response, label);
 		response
 	}
+
+	/// An inert dock tile (a plugin without the declared click action): the same face,
+	/// static, with no clicks, focus, hover name or hover highlight.
+	pub fn paint_guild_dock(
+		&mut self,
+		ui: &mut egui::Ui,
+		guild: &model::Guild,
+		selected: bool,
+		demo: bool,
+		size: f32,
+	) -> egui::Response {
+		let (rect, response) =
+			ui.allocate_exact_size(egui::Vec2::splat(size), egui::Sense::hover());
+		if ui.is_rect_visible(rect) {
+			let squircle = size * 0.29;
+			self.paint_guild_face(ui, guild, rect, demo, f32::from(selected), squircle as u8);
+		}
+		response
+	}
 	fn guild_avatar(
 		&mut self,
 		ui: &mut egui::Ui,

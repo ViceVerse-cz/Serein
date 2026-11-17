@@ -176,6 +176,11 @@ fn snowflake(id: &str) -> bool {
 	(1..=20).contains(&id.len()) && id.bytes().all(|b| b.is_ascii_digit())
 }
 
+/// Row text, badges and dock labels must carry visible characters and no control codes.
+fn printable(value: &str) -> bool {
+	!value.chars().any(char::is_control) && !value.trim().is_empty()
+}
+
 impl InterfaceUi {
 	/// Bound every row and keep action ids unique so clicks route to one row.
 	pub fn validate(&self) -> Result<(), &'static str> {
@@ -196,12 +201,13 @@ impl InterfaceUi {
 			if node.text.is_empty() {
 				return Err("interface row text must not be empty");
 			}
-			if node
-				.badge
-				.as_ref()
-				.is_some_and(|badge| badge.len() > MAX_INTERFACE_BADGE_BYTES || badge.is_empty())
-			{
-				return Err("interface row badge must be 1 through 32 bytes");
+			if !printable(&node.text) {
+				return Err("interface row text must be printable and not blank");
+			}
+			if node.badge.as_ref().is_some_and(|badge| {
+				badge.len() > MAX_INTERFACE_BADGE_BYTES || badge.is_empty() || !printable(badge)
+			}) {
+				return Err("interface row badge must be 1 through 32 printable bytes");
 			}
 			if node.indent > MAX_INTERFACE_INDENT {
 				return Err("interface row indent exceeds 8");
@@ -233,8 +239,11 @@ impl InterfaceUi {
 			if !ids.insert(item.id.as_str()) {
 				return Err("interface row ids must be unique");
 			}
-			if item.label.is_empty() || item.label.len() > MAX_INTERFACE_TEXT_BYTES {
-				return Err("interface dock label must be 1 through 256 bytes");
+			if item.label.is_empty()
+				|| item.label.len() > MAX_INTERFACE_TEXT_BYTES
+				|| !printable(&item.label)
+			{
+				return Err("interface dock label must be 1 through 256 printable bytes");
 			}
 			if item.guild_id.as_deref().is_some_and(|id| !snowflake(id)) {
 				return Err("interface dock guild id must be a snowflake");

@@ -309,6 +309,8 @@ impl MessagingUi {
 		}
 		let area = ui.available_rect_before_wrap();
 		ui.scope_builder(egui::UiBuilder::new().max_rect(area), |ui| {
+			// A plain wheel over the dock scrolls it, like any other single-direction area.
+			ui.style_mut().always_scroll_the_only_direction = true;
 			egui::ScrollArea::horizontal()
 				.min_scrolled_width(0.0)
 				.id_salt("plugin-interface-dock")
@@ -331,7 +333,8 @@ impl MessagingUi {
 
 	/// One dock item: the loaded server's icon through the rail's own painting and cache, the
 	/// label's initials otherwise, an accent ring when selected, and the label on hover.
-	/// Clicks, double clicks and keyboard activation route the item's id exactly like a row's.
+	/// Clicks, double clicks and keyboard activation route the item's id exactly like a row's;
+	/// without the plugin's declared `interface_click` action the tile is inert.
 	fn interface_dock_item(
 		&mut self,
 		ui: &mut egui::Ui,
@@ -360,9 +363,16 @@ impl MessagingUi {
 				&unknown
 			}
 		};
-		let response =
+		let declared = self
+			.extensions
+			.panel_action_declared(plugin, extensions::INTERFACE_CLICK_ACTION);
+		let response = if declared {
 			self.avatars
-				.show_guild_dock(ui, guild, item.selected, state.demo, DOCK, &item.label);
+				.show_guild_dock(ui, guild, item.selected, state.demo, DOCK, &item.label)
+		} else {
+			self.avatars
+				.paint_guild_dock(ui, guild, item.selected, state.demo, DOCK)
+		};
 		if item.selected {
 			ui.painter().rect_stroke(
 				response.rect,
@@ -428,9 +438,16 @@ impl MessagingUi {
 	) {
 		let id = row_id(plugin, node, index);
 		let join = native_join(state, node);
+		// Rows route clicks through the declared `interface_click` action; without the
+		// declaration they are inert. Native join rows keep their own grant check.
 		let active = match node.native {
 			Some(_) => join.is_some(),
-			None => !node.id.is_empty(),
+			None => {
+				!node.id.is_empty()
+					&& self
+						.extensions
+						.panel_action_declared(plugin, extensions::INTERFACE_CLICK_ACTION)
+			}
 		};
 		let Some((rect, response)) = tree_row(ui, ROW, id, active) else {
 			return;
@@ -499,9 +516,11 @@ impl MessagingUi {
 			font,
 			color,
 		);
-		response.widget_info(|| {
-			egui::WidgetInfo::selected(egui::Role::Button, active, node.selected, text)
-		});
+		if active {
+			response.widget_info(|| {
+				egui::WidgetInfo::selected(egui::Role::Button, active, node.selected, text)
+			});
+		}
 	}
 }
 
@@ -520,11 +539,16 @@ fn native_join<'a>(
 }
 
 /// A tree row's egui id. Actionable rows are keyed by plugin and row id, so focus stays on
-/// the same row when others are inserted before it; inert rows never focus and keep their
-/// position.
+/// the same row when others are inserted before it; an id-less native join row is keyed by
+/// its channel for the same reason, and inert rows never focus and keep their position.
 fn row_id(plugin: &str, node: &extensions::InterfaceNode, index: usize) -> egui::Id {
 	if node.id.is_empty() {
-		egui::Id::unique(("plugin-interface-inert-row", plugin, index))
+		match &node.native {
+			Some(extensions::InterfaceNative::JoinVoice { channel_id }) => {
+				egui::Id::unique(("plugin-interface-join-row", plugin, channel_id.as_str()))
+			}
+			_ => egui::Id::unique(("plugin-interface-inert-row", plugin, index)),
+		}
 	} else {
 		egui::Id::unique(("plugin-interface-row", plugin, node.id.as_str()))
 	}
@@ -1085,7 +1109,9 @@ mod tests {
 			"empty placeholder: {texts:?}"
 		);
 		assert!(
-			!shown("plans-and-notes"),
+			!texts
+				.iter()
+				.any(|(text, _)| text.contains("plans-and-notes")),
 			"channel list still hidden: {texts:?}"
 		);
 	}
@@ -1156,6 +1182,20 @@ mod tests {
 		client.frame(&mut state, vec![egui::Event::PointerMoved(label)]);
 		click(&mut client, &mut state, label);
 		assert_eq!(client.routed().len(), 2, "inert row stays inert");
+		// Without the declared `interface_click` action even an id row stays inert.
+		client.view.extensions.entries[0]
+			.manifest
+			.actions
+			.retain(|action| action.id != extensions::INTERFACE_CLICK_ACTION);
+		client.frame(&mut state, vec![egui::Event::PointerMoved(lobby)]);
+		click(&mut client, &mut state, lobby);
+		click(&mut client, &mut state, lobby);
+		assert_eq!(
+			client.routed().len(),
+			2,
+			"an undeclared click action leaves rows inert"
+		);
+		client.view.extensions.set_entries(vec![plugin_entry()]);
 		// Focus stays with the row's id when a row is inserted before it.
 		let row = super::row_id("tree-plugin", &node("channel:30", "Lobby"), 1);
 		client.ctx.memory_mut(|memory| memory.request_focus(row));
@@ -1261,11 +1301,15 @@ mod tests {
 			let missing = point("Missing room").expect("unknown channel keeps the plugin text");
 			client.frame(&mut call, vec![egui::Event::PointerMoved(quiet)]);
 			click(&mut client, &mut call, quiet);
+			assert!(
+				!joined(&client),
+				"a single click never joins, whatever the grant"
+			);
 			click(&mut client, &mut call, quiet);
 			assert_eq!(
 				joined(&client),
 				granted,
-				"double click joins only with the grant"
+				"the double click joins only with the grant"
 			);
 			let routed = client.routed();
 			assert_eq!(routed.len(), 2, "both clicks still route: {routed:?}");

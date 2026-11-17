@@ -20,6 +20,8 @@ pub const MAX_RELATIONSHIPS: usize = 100;
 pub const MAX_APP_MEMBERS: usize = 100;
 pub const MAX_APP_PRESENCES: usize = 100;
 pub const MAX_VOICE_PARTICIPANTS: usize = 64;
+/// Maximum voice roster entries in one snapshot.
+pub const MAX_VOICE_ROSTER: usize = 128;
 pub const MAX_HOST_EFFECTS: usize = 1;
 pub const MAX_HOST_EFFECT_BYTES: usize = 8 * 1024;
 
@@ -269,9 +271,9 @@ pub struct VoiceSnapshot {
 	pub streaming: bool,
 	pub participants: Vec<String>,
 	/// Tracked voice participants across channels, with display names and voice flags when
-	/// the host has them; at most 128 entries, snowflake ID strings and names of at most 256
-	/// bytes. Empty on hosts predating the roster; `participants` stays the bounded ID-only
-	/// list of the current call.
+	/// the host has them; at most [`MAX_VOICE_ROSTER`] entries, snowflake ID strings and
+	/// names of at most 256 bytes. Empty on hosts predating the roster; `participants`
+	/// stays the bounded ID-only list of the current call.
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	pub roster: Vec<VoiceRosterEntry>,
 }

@@ -243,6 +243,8 @@ fn result_invocation(result: &ResultPanel, action: String) -> Invocation {
 	invocation.selected_message = None;
 	invocation.selected_message_ref = None;
 	invocation.menu_target = None;
+	// A follow-up button in the result window is its own click, never the row's double.
+	invocation.double_clicked = false;
 	invocation.values = result.values.clone();
 	invocation
 }
@@ -1093,7 +1095,7 @@ impl ExtensionUi {
 	}
 
 	/// Whether `id` is an enabled plugin declaring `action` as a panel action.
-	fn panel_action_declared(&self, id: &str, action: &str) -> bool {
+	pub(crate) fn panel_action_declared(&self, id: &str, action: &str) -> bool {
 		self.entries.iter().any(|entry| {
 			entry.manifest.id == id
 				&& entry.manifest.kind == ExtensionKind::Plugin
@@ -3311,7 +3313,7 @@ fn capability_label(capability: Capability) -> &'static str {
 		Capability::InterfaceTweaks => "Change how parts of the interface look or behave",
 		Capability::InterfaceUi => "Replace the main panes with the plugin's own list of rows",
 		Capability::StartScreen => {
-			"Replace the start screen's logo and text with the plugin's images and text"
+			"Replace the start screen's logo and text with the plugin's images and text, on this device before sign-in"
 		}
 		Capability::Composer => "Read my draft and propose text changes",
 		Capability::Storage => "Store up to 1 MiB of local data for this account",
@@ -3341,7 +3343,9 @@ fn capability_label(capability: Capability) -> &'static str {
 		Capability::Timeline => "Read loaded messages in the active conversation",
 		Capability::Members => "Read loaded members of the active conversation",
 		Capability::Presence => "Read loaded user presence status",
-		Capability::VoiceState => "Read current call state and participant identifiers",
+		Capability::VoiceState => {
+			"Read call state and the people in voice channels I can see, with names, mute, deafen and speaking"
+		}
 		Capability::ReadState => "Read unread and mention counts in the active conversation",
 		Capability::LocalSettings => "Read local reading settings and propose changes for approval",
 		Capability::NotificationSettings => {

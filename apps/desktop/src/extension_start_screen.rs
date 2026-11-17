@@ -15,7 +15,17 @@ use std::{
 		Arc,
 		mpsc::{self, TryRecvError},
 	},
+	time::Instant,
 };
+
+/// Write attempts behind one unsaved value, including the first.
+const MAX_SAVE_ATTEMPTS: u32 = 3;
+/// Wait before every retry after the first; later polls back off instead of hot-looping.
+const RETRY_DELAY: std::time::Duration = std::time::Duration::from_secs(1);
+/// The failure reported when a save cannot start or its writer dies.
+const SAVE_ERROR: &str = "Start screen could not be saved";
+/// The failure a screen over the file budget always reports; retrying cannot fix it.
+const BUDGET_ERROR: &str = "Start screen exceeds its device storage budget";
 
 /// File beside the extension directories.
 const FILE: &str = "start-screen.json";
@@ -60,9 +70,10 @@ impl Owner {
 		}
 	}
 }
-
 /// The start screen kept on this device. Persistence runs on a short-lived thread: at most
-/// one write is in flight and only the newest unsaved value waits behind it.
+/// one write is in flight and only the newest unsaved value waits behind it. A failed
+/// write keeps its value and is retried a bounded number of times, later retries after a
+/// delay; a screen over the file budget is never retried, because no attempt can fit it.
 #[derive(Default)]
 pub struct DeviceStartScreen {
 	path: Option<PathBuf>,
@@ -71,6 +82,12 @@ pub struct DeviceStartScreen {
 	/// A change not yet handed to a writer; `Some(None)` removes the file.
 	unsaved: Option<Option<Owner>>,
 	writing: Option<mpsc::Receiver<Result<(), String>>>,
+	/// The value handed to the in-flight writer, kept for its bounded retry.
+	in_flight: Option<Option<Owner>>,
+	/// Failed attempts behind the current unsaved value.
+	attempts: u32,
+	/// When the next retry may start; `None` retries on the next poll.
+	retry_at: Option<Instant>,
 }
 
 impl DeviceStartScreen {
@@ -135,10 +152,13 @@ impl DeviceStartScreen {
 		let candidate = plugins
 			.filter_map(|(id, screen)| Some((id, screen.as_ref()?.as_ref()?)))
 			.min_by_key(|(id, _)| *id);
+		// A current-account candidate always replaces an owner from another account; within
+		// one account the lowest plugin id keeps the screen.
 		if let Some((id, screen)) = candidate
-			&& next.as_ref().is_none_or(|owner| {
-				id < owner.plugin.as_str() || id == owner.plugin && owner.account != key
-			}) && let Some(screen) = ui::DecodedStartScreen::new(screen.clone())
+			&& next
+				.as_ref()
+				.is_none_or(|owner| owner.account != key || id < owner.plugin.as_str())
+			&& let Some(screen) = ui::DecodedStartScreen::new(screen.clone())
 		{
 			next = Some(Owner {
 				account: key,
@@ -169,6 +189,8 @@ impl DeviceStartScreen {
 	/// Queues the current value; [`Self::poll`] hands it to a writer on this frame's tick.
 	fn save(&mut self) {
 		self.unsaved = Some(self.owner.clone());
+		self.attempts = 0;
+		self.retry_at = None;
 	}
 
 	fn flush(&mut self) -> Option<String> {
@@ -177,12 +199,13 @@ impl DeviceStartScreen {
 		}
 		let path = self.path.clone()?;
 		let owner = self.unsaved.take()?;
+		let writing = owner.clone();
 		let context = self.context.clone();
 		let (sender, receiver) = mpsc::sync_channel(1);
 		let spawned = std::thread::Builder::new()
 			.name("serein-start-screen-save".into())
 			.spawn(move || {
-				let _ = sender.send(write(&path, owner.as_ref()));
+				let _ = sender.send(write(&path, writing.as_ref()));
 				if let Some(context) = context {
 					context.request_repaint();
 				}
@@ -190,23 +213,54 @@ impl DeviceStartScreen {
 		match spawned {
 			Ok(_) => {
 				self.writing = Some(receiver);
+				self.in_flight = Some(owner);
 				None
 			}
-			Err(_) => Some("Start screen could not be saved".into()),
+			// The value stays queued; a later poll retries it behind the same bound.
+			Err(_) => self.failed(owner, SAVE_ERROR),
 		}
 	}
 
-	/// Finishes a completed write and starts the newest waiting one; returns a failure.
-	/// Called once per frame.
+	/// A failed write keeps its value for one more attempt unless none can succeed; the
+	/// first retry runs on the next poll and later ones wait out the backoff. Returns the
+	/// failure to report either way.
+	fn failed(&mut self, owner: Option<Owner>, error: &str) -> Option<String> {
+		if error == BUDGET_ERROR || self.attempts + 1 >= MAX_SAVE_ATTEMPTS {
+			self.attempts = 0;
+			self.retry_at = None;
+		} else {
+			self.attempts += 1;
+			self.retry_at = (self.attempts > 1).then(|| Instant::now() + RETRY_DELAY);
+			self.unsaved = Some(owner);
+		}
+		Some(error.to_owned())
+	}
+
+	/// Finishes a completed write and starts the newest waiting one — a failed write once
+	/// its backoff elapses, while attempts remain; returns a failure. Called once per frame.
 	pub fn poll(&mut self) -> Option<String> {
 		let finished = match self.writing.as_ref().map(mpsc::Receiver::try_recv) {
 			Some(Err(TryRecvError::Empty)) => return None,
 			Some(Ok(result)) => result.err(),
-			Some(Err(TryRecvError::Disconnected)) => Some("Start screen could not be saved".into()),
+			Some(Err(TryRecvError::Disconnected)) => Some(SAVE_ERROR.into()),
 			None => None,
 		};
 		self.writing = None;
+		if let Some(owner) = self.in_flight.take()
+			&& let Some(error) = &finished
+		{
+			return self.failed(owner, error);
+		}
+		if self.retry_at.is_some_and(|at| Instant::now() < at) {
+			return None;
+		}
+		self.retry_at = None;
 		self.flush().or(finished)
+	}
+
+	/// Whether a save is queued or in flight; the desktop's close gate waits for it.
+	pub fn pending(&self) -> bool {
+		self.writing.is_some() || self.unsaved.is_some()
 	}
 
 	/// Blocks until every queued write has finished.
@@ -214,10 +268,13 @@ impl DeviceStartScreen {
 	pub fn settle(&mut self) {
 		loop {
 			assert_eq!(self.flush(), None);
+			self.attempts = 0;
+			self.retry_at = None;
 			let Some(receiver) = self.writing.take() else {
 				return;
 			};
 			assert_eq!(receiver.recv(), Ok(Ok(())));
+			self.in_flight = None;
 		}
 	}
 }
@@ -233,7 +290,7 @@ fn write(path: &Path, owner: Option<&Owner>) -> Result<(), String> {
 	})
 	.map_err(|_| "Cannot encode the start screen")?;
 	if bytes.len() > MAX_FILE_BYTES {
-		return Err("Start screen exceeds its device storage budget".into());
+		return Err(BUDGET_ERROR.into());
 	}
 	write_device_file(path, Some(&bytes))
 }

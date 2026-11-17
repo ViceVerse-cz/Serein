@@ -41,7 +41,7 @@ The examples in this table use `i: &Invocation`. For a wrapper, set
 | `composer` | `Option<String>` / string or null | The current draft for a `composer` action with the `composer` grant. An empty draft is `Some("")`, not `None`. | `i.composer.as_deref()` |
 | `storage` | `Option<String>` / string or null | The plugin's last saved opaque UTF-8 value for this account (device-wide for the narrow `api_proxy` plugin). Requires `storage`; absent when nothing has been saved. The worker reloads it before execution. | `i.storage_json::<u64>()` if your plugin stores a JSON number |
 | `values` | `BTreeMap<String, String>` / object of string values | Current form values when a panel button invokes an action. Keys are input element IDs. Initial tool/panel opens normally have an empty map; reactive events always do. | `i.value("name")` or `i.parse_value::<bool>("enabled")` |
-| `double_clicked` | `bool` / boolean, default `false` | True when the host routed a double click on an interface row (`interface_ui`) or panel button. Single clicks and keyboard activation leave it false. | `i.double_clicked` |
+| `double_clicked` | `bool` / boolean, default `false` | True when the host routed a double click on an interface row or dock item, or Enter on the focused row or dock item; single clicks and Space leave it false. Panel button activations leave it false. | `i.double_clicked` |
 
 `values` holds strings even for typed controls: a checkbox supplies `"true"` or
 `"false"`, a slider supplies a decimal integer string, and a select supplies the
@@ -1121,7 +1121,7 @@ participants across channels with display names and voice flags when the host ha
 | `camera` | `bool` / boolean | Current account's call camera flag. No frames or device details are provided. | `voice.camera` |
 | `streaming` | `bool` / boolean | Local screen sharing is busy: starting, active, stopping or retiring. It is not proof that frames are currently being transmitted. | `voice.streaming` |
 | `participants` | `Vec<String>` / array of ID strings | At most 64 tracked participant IDs of the current call. Per-user names, voice flags and speaking arrive in `roster`; no media are supplied. There is no `truncated` flag, so treat this as a bounded roster. | `voice.participants.len()` |
-| `roster` | `Vec<VoiceRosterEntry>` / array of objects, absent when empty | Tracked participants across channels: `guild_id`, `channel_id`, `user_id`, optional resolved `name`, `muted`, `deafened`, `server_muted`, `server_deafened`, `speaking`. `speaking` is the host's current speaking indication, not measured microphone activity; `name` is absent until member data loads. Empty on hosts predating the roster. | `voice.roster.iter()` |
+| `roster` | `Vec<VoiceRosterEntry>` / array of objects, absent when empty | Tracked participants across channels: at most 128 entries, only voice channels the account can view; names bounded and sanitized; no truncated flag. Each row carries `guild_id`, `channel_id`, `user_id`, optional resolved `name`, `muted`, `deafened`, `server_muted`, `server_deafened`, `speaking`. `speaking` is the host's current speaking indication, not measured microphone activity; `name` is absent until member data loads. Empty on hosts predating the roster. | `voice.roster.iter()` |
 
 | `phase` | Meaning in the host |
 | --- | --- |

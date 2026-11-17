@@ -7181,8 +7181,12 @@ impl eframe::App for Desktop {
 				winit::dpi::LogicalSize::new(u32::from(width), u32::from(height))
 			});
 		self.start_screen.retire();
-		self.plugin_size
-			.sync(&self.window, requested, &mut self.window_minimum);
+		self.plugin_size.sync(
+			&self.window,
+			requested,
+			&mut self.window_minimum,
+			self.app_settings.current.window_geometry,
+		);
 		// Outside the signed-in branch so leaving an account still restores the window mode.
 		let video = self.messaging.video().take_fullscreen_request();
 		let voice = self.messaging.take_voice_fullscreen_request();

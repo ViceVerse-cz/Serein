@@ -205,6 +205,9 @@ pub struct Bridge {
 	start_screen: crate::extension_start_screen::DeviceStartScreen,
 	/// Whether `installed` holds the current account scope's plugins yet.
 	start_screen_loaded: bool,
+	/// The interface last handed to the UI, so an unchanged tree is not re-published
+	/// (deep-copied) every frame.
+	published_interface: Option<ui::PluginInterface>,
 }
 impl Bridge {
 	fn tick_pending(&self, generation: u64, id: &str) -> bool {
@@ -554,7 +557,8 @@ impl Bridge {
 		}
 	}
 	pub fn cleanup_pending(&self) -> bool {
-		self.pending.values().any(|pending| pending.cleanup)
+		// Start-screen writes are waited out too, so closing cannot cut one short.
+		self.pending.values().any(|pending| pending.cleanup) || self.start_screen.pending()
 	}
 	/// Drops account-scoped plugin state, including queued events, presence and interface tweaks,
 	/// and logs the plugin host out of the account's data.
@@ -972,85 +976,14 @@ impl Bridge {
 						&& requested == id && !self.disabled.contains(&id)
 						&& self.installed.iter().any(|e| e.manifest.id == id)
 					{
-						if context.is_current(state)
-							&& let Some(appearance) = &output.appearance
-						{
-							self.transitions.remove(&id);
-							if let Some(installed) = self
-								.installed
-								.iter_mut()
-								.find(|entry| entry.manifest.id == id)
-							{
-								installed.theme = Some(appearance.clone());
-							}
-							self.apply_theme(ctx);
-						}
-						if context.is_current(state)
-							&& let Some(update) = &output.rich_presence
-							&& let Some(installed) = self
-								.installed
-								.iter_mut()
-								.find(|entry| entry.manifest.id == id)
-						{
-							self.rich_presence_changed = true;
-							installed.rich_presence = match update {
-								extensions::RichPresenceUpdate::Set { presence } => {
-									Some(presence.clone())
-								}
-								extensions::RichPresenceUpdate::Clear => None,
-							};
-						}
-						if let Some(tweaks) = &output.interface_tweaks
-							&& let Some(installed) = self
-								.installed
-								.iter_mut()
-								.find(|entry| entry.manifest.id == id)
-						{
-							installed.interface_tweaks.clone_from(tweaks);
-						}
-						// Every result restates the plugin's interface: a tree replaces the one
-						// shown, and its absence restores the normal layout.
-						if let Some(installed) = self
-							.installed
-							.iter_mut()
-							.find(|entry| entry.manifest.id == id)
-						{
-							installed.interface_ui.clone_from(&output.interface_ui);
-						}
-						// Omitted keeps the device start screen; `null` clears this plugin's.
-						if let Some(start) = output.start_screen.take()
-							&& let Some(installed) = self
-								.installed
-								.iter_mut()
-								.find(|entry| entry.manifest.id == id)
-						{
-							installed.start_screen = Some(start);
-							self.refresh_start_screen();
-						}
-						if context.is_current(state)
-							&& let Some(config) = &output.api_proxy
-							&& let Some(installed) = self
-								.installed
-								.iter_mut()
-								.find(|entry| entry.manifest.id == id)
-						{
-							installed.api_proxy = Some(config.clone());
-							self.refresh_api_proxy();
-						}
-						// A row click that only restated the interface has nothing to review; it
-						// re-renders through the stored tree instead of opening the result window.
-						let silent_row = invocation.action == extensions::INTERFACE_CLICK_ACTION
-							&& output.panel.is_empty()
-							&& output.effects.is_empty()
-							&& output.replacement.is_none();
-						if invocation.message_event.is_none()
-							&& invocation.app_event.is_none()
-							&& !silent_row
-						{
-							messaging
-								.extensions
-								.present_output(id, invocation, context, output, state);
-						}
+						self.apply_invoked(
+							ctx,
+							state,
+							messaging,
+							&id,
+							&mut output,
+							(invocation, context),
+						);
 					}
 				}
 				Ok(Event::EditTheme {
@@ -1427,7 +1360,11 @@ impl Bridge {
 				}),
 		);
 		messaging.set_interface_tweaks(self.interface_tweaks());
-		messaging.set_plugin_interface(self.plugin_interface());
+		let interface = self.plugin_interface();
+		if interface != self.published_interface {
+			self.published_interface = interface.clone();
+			messaging.set_plugin_interface(interface);
+		}
 		let max_texture = ctx.input(|input| input.max_texture_side);
 		if self
 			.installed
@@ -1860,6 +1797,98 @@ impl Bridge {
 		};
 		Some(blend_theme(&transition.from, &transition.to, t))
 	}
+	/// Applies one plugin invocation result the host accepted: its theme, presence,
+	/// tweaks, restated interface tree, device start screen and API proxy, and the result
+	/// window unless the result only restated an interface row.
+	fn apply_invoked(
+		&mut self,
+		ctx: &egui::Context,
+		state: &State,
+		messaging: &mut ui::MessagingUi,
+		id: &str,
+		output: &mut extensions::Output,
+		invocation: (Invocation, ExtensionContext),
+	) {
+		let (invocation, context) = invocation;
+		if context.is_current(state)
+			&& let Some(appearance) = &output.appearance
+		{
+			self.transitions.remove(id);
+			if let Some(installed) = self
+				.installed
+				.iter_mut()
+				.find(|entry| entry.manifest.id == id)
+			{
+				installed.theme = Some(appearance.clone());
+			}
+			self.apply_theme(ctx);
+		}
+		if context.is_current(state)
+			&& let Some(update) = &output.rich_presence
+			&& let Some(installed) = self
+				.installed
+				.iter_mut()
+				.find(|entry| entry.manifest.id == id)
+		{
+			self.rich_presence_changed = true;
+			installed.rich_presence = match update {
+				extensions::RichPresenceUpdate::Set { presence } => Some(presence.clone()),
+				extensions::RichPresenceUpdate::Clear => None,
+			};
+		}
+		if let Some(tweaks) = &output.interface_tweaks
+			&& let Some(installed) = self
+				.installed
+				.iter_mut()
+				.find(|entry| entry.manifest.id == id)
+		{
+			installed.interface_tweaks.clone_from(tweaks);
+		}
+		// Every result restates the plugin's interface: a tree replaces the one shown, and
+		// its absence restores the normal layout.
+		if let Some(installed) = self
+			.installed
+			.iter_mut()
+			.find(|entry| entry.manifest.id == id)
+		{
+			installed.interface_ui.clone_from(&output.interface_ui);
+		}
+		// Omitted keeps the device start screen; `null` clears this plugin's.
+		if let Some(start) = output.start_screen.take()
+			&& let Some(installed) = self
+				.installed
+				.iter_mut()
+				.find(|entry| entry.manifest.id == id)
+		{
+			installed.start_screen = Some(start);
+			self.refresh_start_screen();
+		}
+		if context.is_current(state)
+			&& let Some(config) = &output.api_proxy
+			&& let Some(installed) = self
+				.installed
+				.iter_mut()
+				.find(|entry| entry.manifest.id == id)
+		{
+			installed.api_proxy = Some(config.clone());
+			self.refresh_api_proxy();
+		}
+		// A row click that only restated the interface has nothing to review; it re-renders
+		// through the stored tree instead of opening the result window.
+		let silent_row = invocation.action == extensions::INTERFACE_CLICK_ACTION
+			&& output.panel.is_empty()
+			&& output.effects.is_empty()
+			&& output.replacement.is_none();
+		if invocation.message_event.is_none() && invocation.app_event.is_none() && !silent_row {
+			messaging.extensions.present_output(
+				id.to_owned(),
+				invocation,
+				context,
+				output.clone(),
+				state,
+			);
+		}
+	}
 	fn apply_theme(&self, ctx: &egui::Context) {
 		// Explicit theme first, then enabled plugin appearances in stable ID order.
 		let mut entries: Vec<_> = self
@@ -2167,6 +2196,18 @@ mod tests {
 		bridge.installed[1].start_screen = Some(None);
 		refresh(&mut bridge);
 		assert_eq!(saved().as_deref(), Some("Counter"), "null hands it on");
+		// A screen another account's plugin left behind: this account's candidate always
+		// takes over, even with a higher plugin id.
+		let foreign = screen("Foreign");
+		bridge
+			.start_screen
+			.reconcile("foreign-account", [("aaa-foreign", &foreign)].into_iter());
+		refresh(&mut bridge);
+		assert_eq!(
+			saved().as_deref(),
+			Some("Counter"),
+			"the current account wins"
+		);
 		bridge.disabled.insert("message-counter".into());
 		refresh(&mut bridge);
 		assert_eq!(saved(), None, "disabling the owner clears it");
@@ -2281,6 +2322,138 @@ mod tests {
 			names.contains(&"Room 3,5"),
 			"voice channels listed in the snapshot: {names:?}"
 		);
+	}
+
+	/// Drives an interface plugin's invocation result through the host's `Event::Invoked`
+	/// path rather than a hand-seeded entry: the result's tree replaces the published
+	/// interface, its start screen persists to the device file with its owner, a later
+	/// result without either restores the layout and clears the file, and a row click that
+	/// only restates the interface still republishes its tree.
+	#[test]
+	fn invoked_interface_result_replaces_the_tree_and_persists_the_start_screen() {
+		use crate::extension_start_screen::DeviceStartScreen;
+		let manifest = extensions::Manifest {
+			api_version: extensions::API_VERSION,
+			id: "interface-plugin".into(),
+			name: "Interface plugin".into(),
+			version: "1.0.0".into(),
+			author: "Serein contributors".into(),
+			license: "MIT".into(),
+			source: "https://example.org/source".into(),
+			kind: extensions::ExtensionKind::Plugin,
+			capabilities: vec![Capability::InterfaceUi, Capability::StartScreen],
+			actions: vec![
+				extensions::Action {
+					id: "activate".into(),
+					label: "Activate".into(),
+					surface: Surface::Activation,
+				},
+				extensions::Action {
+					id: extensions::INTERFACE_CLICK_ACTION.into(),
+					label: "Interface row".into(),
+					surface: Surface::Panel,
+				},
+			],
+		};
+		manifest.validate().unwrap();
+		let mut output: extensions::Output = serde_json::from_str(
+			r##"{
+				"interface_ui": {"nodes": [{"id": "channel:25", "icon": "speaker", "text": "Room 3,5"}]},
+				"start_screen": {
+					"images": [{"width": 2, "height": 2, "palette": ["#33aa55"], "frames": ["bA=="], "fps": 12, "cell": 3}],
+					"title": "Driven"
+				}
+			}"##,
+		)
+		.unwrap();
+		let invocation = Invocation {
+			action: "activate".into(),
+			..Default::default()
+		};
+		output.validate(&manifest, &invocation).unwrap();
+		let (mut bridge, state, _) = message_events_fixture();
+		bridge.installed[0].manifest = manifest.clone();
+		let id = bridge.installed[0].manifest.id.clone();
+		let mut nonce = [0; 8];
+		getrandom::fill(&mut nonce).unwrap();
+		let root = std::env::temp_dir().join(format!(
+			"serein-invoked-start-screen-test-{}",
+			u64::from_le_bytes(nonce)
+		));
+		let ctx = egui::Context::default();
+		let saved = || {
+			DeviceStartScreen::load(&root, &ctx)
+				.current()
+				.and_then(|screen| screen.screen().title.clone())
+		};
+		bridge.start_screen = DeviceStartScreen::load(&root, &ctx);
+		bridge.start_screen_loaded = true;
+		let mut messaging = ui::MessagingUi::default();
+		bridge.apply_invoked(
+			&ctx,
+			&state,
+			&mut messaging,
+			&id,
+			&mut output,
+			(invocation, ExtensionContext::panel(&state)),
+		);
+		bridge.start_screen.settle();
+		let published = bridge
+			.plugin_interface()
+			.expect("the result's tree publishes");
+		assert_eq!(published.plugin, id);
+		assert_eq!(published.tree.nodes.len(), 1);
+		assert_eq!(
+			saved().as_deref(),
+			Some("Driven"),
+			"the start screen persists"
+		);
+		// A later result with neither field restores the normal layout and clears the file.
+		let mut cleared: extensions::Output =
+			serde_json::from_str(r#"{"start_screen": null}"#).unwrap();
+		bridge.apply_invoked(
+			&ctx,
+			&state,
+			&mut messaging,
+			&id,
+			&mut cleared,
+			(
+				Invocation {
+					action: "activate".into(),
+					..Default::default()
+				},
+				ExtensionContext::panel(&state),
+			),
+		);
+		bridge.start_screen.settle();
+		assert!(bridge.plugin_interface().is_none(), "no tree, no interface");
+		assert_eq!(saved(), None, "null clears the device file");
+		// A row click that only restates a tree leaves no result to review.
+		let mut row: extensions::Output = serde_json::from_str(
+			r#"{"interface_ui": {"nodes": [{"id": "channel:25", "text": "Room 3,5"}]}}"#,
+		)
+		.unwrap();
+		let click = Invocation {
+			action: extensions::INTERFACE_CLICK_ACTION.into(),
+			..Default::default()
+		};
+		row.validate(&manifest, &click).unwrap();
+		bridge.apply_invoked(
+			&ctx,
+			&state,
+			&mut messaging,
+			&id,
+			&mut row,
+			(click, ExtensionContext::panel(&state)),
+		);
+		assert_eq!(
+			bridge
+				.plugin_interface()
+				.map(|shown| shown.tree.nodes.len()),
+			Some(1),
+			"a silent row still restates the tree"
+		);
+		let _ = std::fs::remove_dir_all(&root);
 	}
 
 	#[test]

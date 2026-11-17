@@ -63,8 +63,9 @@ pub struct Invocation {
 	pub storage: Option<String>,
 	#[serde(default)]
 	pub values: BTreeMap<String, String>,
-	/// True when the host routed a double click on an interface row or panel button, or
-	/// Enter on a focused interface row or dock item (its primary open action).
+	/// True when the host routed a double click on an interface row or dock item, or
+	/// Enter on the focused row or dock item; single clicks and Space leave it false.
+	/// Panel button activations leave it false.
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub double_clicked: bool,
 }

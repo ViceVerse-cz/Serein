@@ -267,8 +267,9 @@ retention means released capacity does not guarantee an equal process-RSS drop.
 Independently granted app snapshots contain only already-loaded, accessible data.
 The serialized snapshot remains capped at 64 KiB. Directories hold at most 100
 channels and 100 joined guilds; the selected channel has at most 32 loaded
-recipients. Timeline, members/presence and voice limits remain 50 ordinary loaded
-messages, 100 entries each and 64 participant IDs respectively. A simultaneous
+messages, 100 entries each and 64 participant IDs respectively. The voice roster adds
+up to 128 tracked participants with names and flags across voice channels the account
+can view, on its own 16-KiB byte budget within the snapshot. A simultaneous
 `message_details` grant lowers the timeline row limit to 20, retaining its 20-KiB
 byte budget and the shared 10-million Wasm fuel limit; valid wire size alone does not
 guarantee execution fits the fuel budget. Collector budgets
@@ -1984,10 +1985,14 @@ at launch, before authentication and without running plugin code, and holds at m
 screen (about 217 KiB) always fits. A missing, oversized or invalid file shows the default
 screen. When several plugins set one, the lowest plugin id wins. Writes replace the file
 atomically on a short-lived background thread, one at a time with only the newest pending
-value queued, so rendering never waits for them. Disabling, removing or failing the owning
-plugin, revoking its grant, ending its account session (which removes that account's
-plugins) or its explicit `start_screen: null` removes the file or hands the screen to the
-next plugin. In memory the accepted screen keeps its value as set (base64 frames of at most
+value queued, so rendering never waits for them. A failed write keeps its value and is
+retried on later frames, up to three attempts with a delay before later retries; a screen
+over the file budget is never retried, because no attempt can fit it. The desktop's close
+gate waits for a queued or in-flight write before exiting. Disabling, removing or failing
+the owning plugin, revoking its grant, ending its account session (which removes that
+account's plugins) or its explicit `start_screen: null` removes the file or hands the
+screen to the next plugin. In memory the accepted screen keeps its value as set (base64
+frames of at most
 about 214 KiB) and, decoded once when it is loaded or accepted, one palette-index byte per
 cell of every frame: at most 640 KiB for the 160 KiB packed limit. While the start screen
 shows, each of its at most four images has one reused texture of at most 160×160 cells

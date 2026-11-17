@@ -716,6 +716,12 @@ enum MentionWrite {
 	DidNotFit,
 }
 
+/// Conservative width of the nightly/dev build pill: its glyph, label and a long version
+/// string, wider than the widest pill it draws.
+const BUILD_BADGE_ROOM: f32 = 250.0;
+/// Conservative width of the offline-preview pill in the title bar.
+const OFFLINE_BADGE_ROOM: f32 = 120.0;
+
 impl MessagingUi {
 	pub fn interaction_modal_id(&self) -> Option<Id> {
 		self.interaction_components.modal_id()
@@ -1546,8 +1552,39 @@ impl MessagingUi {
 					12.0
 				};
 				// The right side lays out before the title so the title takes only the space
-				// left between both sides; badges that would not fit a narrow window are left out.
-				let badge_room = 120.0;
+				// left between both sides. The update badge measures its own galley; the build
+				// and offline pills keep conservative bounds wider than they ever draw, so a
+				// badge that would crowd the title is left out.
+				let update_badge = (self.updates.available || self.updates.ready).then(|| {
+					let (label, icon) = if self.updates.ready {
+						(
+							"updates-shows-update-banner-restart-to-update",
+							icons::Icon::Reload,
+						)
+					} else if self.updates.busy {
+						(
+							"updates-shows-update-banner-updating",
+							icons::Icon::Download,
+						)
+					} else {
+						(
+							"updates-shows-update-banner-update-available",
+							icons::Icon::Download,
+						)
+					};
+					let label = crate::i18n::translate(label);
+					let font = egui::FontId::new(12.0, design::medium_family(ui.ctx()));
+					let galley = ui.painter().layout_no_wrap(label, font, colors.accent);
+					(icon, galley)
+				});
+				let badge_room = update_badge.as_ref().map_or(
+					if self.build.channel != design::Channel::Stable {
+						BUILD_BADGE_ROOM
+					} else {
+						0.0
+					},
+					|(_, galley)| galley.size().x + 13.0 + 5.0 + 12.0,
+				);
 				let right_start = ui
 					.scope_builder(
 						egui::UiBuilder::new()
@@ -1561,29 +1598,9 @@ impl MessagingUi {
 								design::window_controls(ui);
 							}
 							ui.spacing_mut().item_spacing.x = 10.0;
-							if ui.available_width() < badge_room {
-							} else if self.updates.available || self.updates.ready {
-								let (label, icon) = if self.updates.ready {
-									(
-										"updates-shows-update-banner-restart-to-update",
-										icons::Icon::Reload,
-									)
-								} else if self.updates.busy {
-									(
-										"updates-shows-update-banner-updating",
-										icons::Icon::Download,
-									)
-								} else {
-									(
-										"updates-shows-update-banner-update-available",
-										icons::Icon::Download,
-									)
-								};
-								let label = crate::i18n::translate(label);
-								let font = egui::FontId::new(12.0, design::medium_family(ui.ctx()));
-								let galley =
-									ui.painter()
-										.layout_no_wrap(label.clone(), font, colors.accent);
+							if ui.available_width() >= badge_room
+								&& let Some((icon, galley)) = &update_badge
+							{
 								let icon_size = 13.0;
 								let gap = 5.0;
 								let pad = egui::vec2(6.0, 2.0);
@@ -1609,13 +1626,13 @@ impl MessagingUi {
 									),
 									egui::Vec2::splat(icon_size),
 								);
-								icons::paint(ui.painter(), icon, icon_rect, colors.accent);
+								icons::paint(ui.painter(), *icon, icon_rect, colors.accent);
 								ui.painter().galley(
 									egui::pos2(
 										icon_rect.right() + gap,
 										rect.center().y - galley.size().y / 2.0,
 									),
-									galley,
+									galley.clone(),
 									colors.accent,
 								);
 								if response
@@ -1626,12 +1643,12 @@ impl MessagingUi {
 								{
 									self.open_update_settings();
 								}
-							} else {
+							} else if ui.available_width() >= badge_room {
 								design::build_badge(ui, self.build);
 							}
 							if state.demo
 								&& !self.updates.available
-								&& !self.updates.ready && ui.available_width() >= badge_room
+								&& !self.updates.ready && ui.available_width() >= OFFLINE_BADGE_ROOM
 							{
 								egui::Frame::new()
 									.stroke(egui::Stroke::new(1.0, colors.border))
@@ -5259,6 +5276,12 @@ impl MessagingUi {
 		// A plugin's declarative interface stands in for the navigation, conversation and member
 		// panes; the dialogs above and the overlays after the panes still run.
 		if let Some(interface) = self.plugin_interface.clone() {
+			// The replaced panes have no conversation header or search pane, so an open
+			// search would leave an orphaned overlay and pending results behind.
+			self.search.toggle(false);
+			if state.search.is_some() {
+				commands.push(state.clear_search());
+			}
 			self.show_plugin_interface(ui, state, &mut commands, &interface);
 			// A plugin chat visit is remembered like one from the channel list.
 			self.sync_last_channels(state);

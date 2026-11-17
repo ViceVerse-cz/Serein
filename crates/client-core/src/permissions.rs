@@ -692,12 +692,6 @@ impl State {
 	pub fn can_view(&self, channel: Id) -> bool {
 		self.permission(channel, p::VIEW_CHANNEL) == Some(true)
 	}
-	/// Whether VIEW_CHANNEL is explicitly denied. An unknown permission (a server whose
-	/// permissions never loaded) is not a denial: directory-style surfaces list such channels
-	/// and load the server when picked, like the server rail.
-	pub fn view_channel_denied(&self, channel: Id) -> bool {
-		self.permission(channel, p::VIEW_CHANNEL) == Some(false)
-	}
 	pub(crate) fn overwrite_target(&self, channel: &model::Channel) -> Option<Id> {
 		if matches!(channel.kind, 10..=12) {
 			let parent = channel.parent_id?;
