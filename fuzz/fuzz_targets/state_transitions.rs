@@ -27,6 +27,7 @@ fn ready() -> Event {
 			id: Id(10),
 			name: "Synthetic".into(),
 			icon: None,
+			banner: None,
 			emojis: None,
 		}],
 		channels: (20..23)
@@ -43,6 +44,7 @@ fn ready() -> Event {
 				message_count: None,
 				member_list_id: None,
 				user_limit: None,
+				slowmode: 0,
 				tags: None,
 			})
 			.collect(),
