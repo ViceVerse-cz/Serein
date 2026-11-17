@@ -58,9 +58,10 @@ the host renders it generically.
   list. Toggling off restores the normal layout immediately and is remembered
   for the next activation, together with the picked server and the open window.
 
-With nothing saved, the layout is on. If saved storage is corrupt (or from an
-older version of this plugin), the plugin falls back to the same default and
-leaves storage unchanged; the next toggle overwrites it with a valid value.
+With nothing saved, the layout is on. Fields this version no longer uses (such as
+an older `folded` list) are ignored. If a field it does use has the wrong type
+(for example an older boolean `window`), the plugin falls back to the same default
+and leaves storage unchanged; the next change overwrites it with a valid value.
 
 ## Limitations
 
