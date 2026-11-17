@@ -4,14 +4,26 @@ Anylinux AppImage Runtime and Loader Notices
 This AppImage embeds the pinned runtime and loader components below.
 Build-host-only packaging tools (`quick-sharun.sh` @ `9ed54a2c6213cf7f72993bd25635a655be78516e`,
 `appimagetool` 0.7.0, and `mkdwarfs` 0.15.6) run only during image creation and are
-not included in the distributed AppImage. Shared libraries staged into the
-AppDir from the Arch Linux build container are recorded in
-`AppImage-bundled-packages.txt` and retain their respective upstream licenses.
+not included in the distributed AppImage. Shared libraries, plugins, helper binaries,
+and data assets staged into the AppDir from the Arch Linux build container are
+recorded in `AppImage-bundled-packages.txt` and retain their respective upstream
+licenses.
 
 
 1. uruntime v0.8.3 (`uruntime-appimage-dwarfs-lite-x86_64`)
 -----------------------------------------------------------
 Source: https://github.com/VHSgunzo/uruntime/tree/v0.8.3
+
+Statically built for `x86_64-unknown-linux-musl` (`--no-default-features
+--features appimage,dwarfs,lite`; omits `squashfuse` and `zlib`). Statically
+linked runtime components in `uruntime` retain their upstream licenses:
+* `musl libc` (MIT; https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT)
+* `libzstd` 1.5.7 via `zstd` / `zstd-sys` (dual `BSD-3-Clause OR GPL-2.0-only`,
+  BSD-3-Clause option; https://github.com/facebook/zstd/blob/dev/LICENSE)
+* Linked Rust crates (`goblin` 0.10.7, `nix` 0.31.3, `rustix` 1.1.6, `libc` 0.2.191,
+  `procfs` 0.18.0, `num_cpus` 1.17.0, `signal-hook` 0.4.6, `which` 8.0.6,
+  `xxhash-rust` 0.8.19, `memfd-exec` 0.2.7, `dotenv` 0.16.0, `cfg-if` 1.0.5)
+  under MIT / Apache-2.0 / BSD-3-Clause / Zlib terms
 
 MIT License
 
@@ -41,8 +53,24 @@ Per upstream `mhx/dwarfs` `LICENSE`, the DwarFS reader/extractor components
 (`dwarfs_common`, `dwarfs_compressor`, `dwarfs_decompressor`, `dwarfs_extractor`,
 `dwarfs_reader`) are licensed under the MIT License (unlike `dwarfs_rewrite`,
 `dwarfs_writer`, and tests/benchmarks, which are GPL-3.0 and omitted from the
-`dwarfs-lite` runtime). Statically linked upstream dependencies inside `uruntime`
-and `dwarfs-fuse-extract` retain their original upstream licenses.
+`dwarfs-lite` runtime). Statically linked upstream dependencies in the embedded
+`x86_64-alpine-linux-musl` `dwarfs-fuse-extract` binary retain their upstream
+licenses:
+* `musl libc` (MIT) and compiler C++/unwind runtime (`libstdc++` / `libgcc_eh`
+  under the GCC Runtime Library Exception)
+* `libfuse3` 3.18.2 (LGPL-2.1; https://github.com/libfuse/libfuse/blob/master/LGPL2.txt)
+* `libarchive` 3.8.8 (BSD-2-Clause)
+* `Boost` 1.91.0 (BSL-1.0)
+* `LibreSSL` `libcrypto` 4.3.1 (OpenSSL / SSLeay / ISC permissive licenses)
+* `libzstd` 1.5.7 (dual `BSD-3-Clause OR GPL-2.0-only`, BSD-3-Clause option)
+* `XZ Utils` (`liblzma`) 5.8.3 (0BSD)
+* `jemalloc` 5.3.1 (BSD-2-Clause)
+* `{fmt}` 12.2.0 (MIT)
+* `xxHash` 0.8.3 (BSD-2-Clause)
+* Header-only/vendored reader/extractor dependencies: `parallel-hashmap`
+  (`phmap`) 2.0.0 (Apache-2.0), `range-v3` 0.12.0 (BSL-1.0), `utfcpp` 4.1.1
+  (BSL-1.0), `FSST` (MIT), Apache Thrift (`thrift-lite` / `frozen`, Apache-2.0),
+  and `wcwidth.c` (MIT)
 
 Copyright (c) Marcus Holland-Moritz
 
@@ -69,6 +97,16 @@ SOFTWARE.
 --------------------------------------------------------
 Source: https://github.com/pkgforge-dev/Anylinux-sharun/tree/3.9.0
 
+Statically built `sharun` binary (`x86_64-unknown-linux-musl`) links:
+* `musl libc` (MIT)
+* Rust crates (`goblin` 0.8.2, `walkdir` 2.5.0, `userland-execve` 0.3.2,
+  `nix` 0.31.1) under MIT / Unlicense terms
+
+Preload helper libraries (`anylinux.so`, optional `glycin-fix.so`,
+`gtk-fix-nonsense.so`, `path-mapping.so`) and optional stubs
+(`libsndfile.so.1`, `libsystemd.so.0`) are licensed under MIT and dynamically
+link only host `libc` / `libdl` (`GLIBC_2.31` floor).
+
 MIT License
 
 Copyright (c) 2025 VHSgunzo
@@ -80,8 +118,8 @@ to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
 copies of the Software, and to permit persons to whom the Software is
 furnished to do so, subject to the following conditions:
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
@@ -94,7 +132,9 @@ SOFTWARE.
 
 3. Bundled `dash` shell (`share/licenses/dash-COPYING`)
 -------------------------------------------------------
-Reproduced verbatim from `dash-COPYING` bundled in `sharun+helper-libs-x86_64.tar`:
+`dash` 0.5.13.5 is statically linked against `musl libc` (MIT) with
+`Anylinux-sharun`'s `dash-pattern-replace.patch` (MIT). Upstream license
+reproduced verbatim from `dash-COPYING` bundled in `sharun+helper-libs-x86_64.tar`:
 
 Copyright (c) 1989-1994
 	The Regents of the University of California.  All rights reserved.

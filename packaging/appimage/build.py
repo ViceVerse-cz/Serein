@@ -85,6 +85,50 @@ MAX_IMAGE_BYTES = 512 * 1024 * 1024
 MAX_ZSYNC_BYTES = 16 * 1024 * 1024
 DWARFS_COMPRESSION = "zstd:level=22 -S25 -B2"
 
+SHARUN_TAR = "sharun+helper-libs-x86_64.tar"
+CROSS_LIBC_TAR = "cross-libc-dlopen-x86_64.tar"
+
+SHARUN_ROOT_TAR_MEMBERS = (
+    ("AppRun", "sharun"),
+    ("sharun", "sharun"),
+    ("bin/serein", "sharun"),
+    ("dash", "dash"),
+    ("share/licenses/dash-COPYING", "dash-COPYING"),
+)
+
+SHARUN_REQUIRED_PRELOAD_LIBS = (
+    "anylinux.so",
+    "cross-libc-dlopen.so",
+    "egl-fwd.so",
+    "gl-fwd.so",
+    "gles-fwd.so",
+)
+
+SHARUN_PRELOAD_TAR_MEMBERS = {
+    "anylinux.so": SHARUN_TAR,
+    "glycin-fix.so": SHARUN_TAR,
+    "gtk-fix-nonsense.so": SHARUN_TAR,
+    "path-mapping.so": SHARUN_TAR,
+    "cross-libc-dlopen.so": CROSS_LIBC_TAR,
+    "egl-fwd.so": CROSS_LIBC_TAR,
+    "gl-fwd.so": CROSS_LIBC_TAR,
+    "gles-fwd.so": CROSS_LIBC_TAR,
+}
+
+SHARUN_STUB_TAR_MEMBERS = {
+    "libsndfile.so.1": "stubs/libsndfile.so.1",
+    "libsystemd.so.0": "stubs/libsystemd.so.0",
+}
+
+HOST_LIBRARY_PREFIXES = (
+    "usr/lib",
+    "usr/lib64",
+    "usr/lib/x86_64-linux-gnu",
+    "lib",
+    "lib64",
+    "lib/x86_64-linux-gnu",
+)
+
 
 def update_metadata(version, release_tag):
     if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?", version):
@@ -96,6 +140,10 @@ def update_metadata(version, release_tag):
     information = f"gh-releases-zsync|ViceVerse-cz|Serein|{channel}|serein-*-Linux-X64.AppImage.zsync"
     url = f"https://github.com/ViceVerse-cz/Serein/releases/download/v{version}/serein-v{version}-Linux-X64.AppImage"
     return name, information, url
+
+
+def sha256_bytes(data):
+    return hashlib.sha256(data).hexdigest()
 
 
 def sha256_file(path):
@@ -132,8 +180,7 @@ def verify_host_tools():
             raise ValueError(f"Required host packaging tool '{tool}' was not found in PATH")
 
 
-def extract_tar_member(tar_path, member_name, destination, mode):
-    destination.parent.mkdir(parents=True, exist_ok=True)
+def read_tar_member_bytes(tar_path, member_name):
     with tarfile.open(tar_path, "r") as archive:
         member = archive.getmember(member_name)
         if not member.isfile():
@@ -141,9 +188,77 @@ def extract_tar_member(tar_path, member_name, destination, mode):
         source = archive.extractfile(member)
         if source is None:
             raise ValueError(f"Unable to read '{member_name}' from {tar_path.name}")
-        with source, destination.open("wb") as target:
-            shutil.copyfileobj(source, target)
+        with source:
+            return source.read()
+
+
+def extract_tar_member(tar_path, member_name, destination, mode):
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    data = read_tar_member_bytes(tar_path, member_name)
+    destination.write_bytes(data)
     destination.chmod(mode)
+
+
+def allowed_so_hashes(raw_bytes, strip_bin=None, work_dir=None):
+    hashes = {sha256_bytes(raw_bytes)}
+    if strip_bin:
+        temp_ctx = tempfile.TemporaryDirectory(prefix="serein-strip-") if work_dir is None else None
+        try:
+            root = Path(temp_ctx.name) if temp_ctx is not None else work_dir
+            candidate = root / "check.so"
+            candidate.write_bytes(raw_bytes)
+            candidate.chmod(0o755)
+            subprocess.run(
+                [strip_bin, "-s", "-R", ".comment", "--strip-unneeded", str(candidate)],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+            )
+            hashes.add(sha256_file(candidate))
+        finally:
+            if temp_ctx is not None:
+                temp_ctx.cleanup()
+    return hashes
+
+
+def verify_pinned_sharun_artifacts(appdir, tools_dir):
+    sharun_tar = tools_dir / SHARUN_TAR
+    for appdir_rel, member_name in SHARUN_ROOT_TAR_MEMBERS:
+        target = appdir / appdir_rel
+        if target.is_symlink() or not target.is_file():
+            raise ValueError(f"Expected pinned non-symlink artifact '{appdir_rel}' inside AppDir")
+        expected_sha = sha256_bytes(read_tar_member_bytes(sharun_tar, member_name))
+        actual_sha = sha256_file(target)
+        if actual_sha != expected_sha:
+            raise ValueError(
+                f"Checksum mismatch for deployed '{appdir_rel}' against pinned {SHARUN_TAR} ({member_name})"
+            )
+
+    preload_dir = appdir / "lib/sharun-preload"
+    if preload_dir.is_symlink() or not preload_dir.is_dir():
+        raise ValueError("Expected non-symlink lib/sharun-preload directory inside AppDir")
+
+    strip_bin = shutil.which("strip")
+    present = set()
+    with tempfile.TemporaryDirectory(prefix="serein-preload-check-") as work_dir:
+        work_root = Path(work_dir)
+        for entry in sorted(preload_dir.iterdir()):
+            if entry.is_symlink() or not entry.is_file():
+                raise ValueError(f"Unexpected non-regular entry inside lib/sharun-preload: {entry.name}")
+            tar_name = SHARUN_PRELOAD_TAR_MEMBERS.get(entry.name)
+            if tar_name is None:
+                raise ValueError(f"Unexpected preload library inside lib/sharun-preload: {entry.name}")
+            tar_path = tools_dir / tar_name
+            raw_bytes = read_tar_member_bytes(tar_path, entry.name)
+            if sha256_file(entry) not in allowed_so_hashes(raw_bytes, strip_bin, work_root):
+                raise ValueError(
+                    f"Preload library '{entry.name}' does not match pinned {tar_name}"
+                )
+            present.add(entry.name)
+
+    missing = [name for name in SHARUN_REQUIRED_PRELOAD_LIBS if name not in present]
+    if missing:
+        raise ValueError("Missing required pinned preload libraries: " + ", ".join(missing))
 
 
 def is_elf_file(path):
@@ -402,38 +517,253 @@ def stage_docs_and_icons(appdir, payload_stage, tools, libraries):
         0o644,
     )
     (doc_dst / "AppImage-bundled-packages.txt").write_text(
-        format_package_inventory(appdir, libraries),
+        format_package_inventory(appdir, libraries, tools),
         encoding="utf-8",
     )
     (doc_dst / "AppImage-bundled-packages.txt").chmod(0o644)
 
 
-def format_package_inventory(appdir, ldd_output):
+def _map_host_path(host_root, raw_path):
+    candidate = Path(raw_path)
+    if host_root != Path("/") and not candidate.is_relative_to(host_root):
+        candidate = host_root / raw_path.lstrip("/")
+    return candidate
+
+
+def _find_host_helper_binary(host_root, name):
+    for prefix in ("usr/bin", "usr/sbin", "bin"):
+        candidate = host_root / prefix / name
+        if candidate.is_file():
+            return candidate
+    for prefix in ("usr/lib", "usr/libexec", "usr/lib64", "usr/lib/x86_64-linux-gnu"):
+        base = host_root / prefix
+        if not base.is_dir():
+            continue
+        direct = base / name
+        if direct.is_file():
+            return direct
+        for pattern in (f"*/{name}", f"*/*/{name}"):
+            for candidate in sorted(base.glob(pattern)):
+                if candidate.is_file():
+                    return candidate
+    return None
+
+
+def collect_host_package_probe_paths(appdir, ldd_output, tools=None, host_root=Path("/")):
+    host_root = Path(host_root)
+    probe_paths = []
+    seen_probes = set()
+
+    def add_probe(path):
+        key = str(path)
+        if key not in seen_probes and path.exists():
+            seen_probes.add(key)
+            probe_paths.append(path)
+
+    for raw in re.findall(r"(?:=>\s+|^\s*)(/\S+)", ldd_output, re.MULTILINE):
+        add_probe(_map_host_path(host_root, raw))
+
+    sharun_path = appdir / "sharun"
+    sharun_identity = None
+    if not sharun_path.is_symlink() and sharun_path.is_file():
+        sharun_stat = sharun_path.stat()
+        sharun_identity = (sharun_stat.st_dev, sharun_stat.st_ino)
+
+    lib_root = appdir / "lib"
+    stub_hashes_by_name = {}
+    if tools is not None and lib_root.is_dir():
+        present_stubs = {
+            stub_name: member_name
+            for stub_name, member_name in SHARUN_STUB_TAR_MEMBERS.items()
+            if not (lib_root / stub_name).is_symlink() and (lib_root / stub_name).is_file()
+        }
+        sharun_tar = Path(tools) / SHARUN_TAR
+        if present_stubs and sharun_tar.is_file():
+            strip_bin = shutil.which("strip")
+            with tempfile.TemporaryDirectory(prefix="serein-stub-hashes-") as work_dir:
+                work_root = Path(work_dir)
+                for stub_name, member_name in present_stubs.items():
+                    stub_hashes_by_name[stub_name] = allowed_so_hashes(
+                        read_tar_member_bytes(sharun_tar, member_name),
+                        strip_bin,
+                        work_root,
+                    )
+
+    helper_rel_by_name = {}
+    if lib_root.is_dir():
+        for root_dir, dirnames, filenames in os.walk(lib_root, followlinks=False):
+            dirnames[:] = sorted(dirnames)
+            for filename in sorted(filenames):
+                entry = Path(root_dir) / filename
+                if entry.is_symlink() or not entry.is_file():
+                    continue
+                rel = entry.relative_to(lib_root)
+                if rel == Path("lib.path") or rel.parts[0] == "sharun-preload":
+                    continue
+                if len(rel.parts) == 1 and rel.name in stub_hashes_by_name:
+                    if sha256_file(entry) in stub_hashes_by_name[rel.name]:
+                        continue
+                entry_stat = entry.stat()
+                is_sharun_link = (
+                    sharun_identity is not None
+                    and (entry_stat.st_dev, entry_stat.st_ino) == sharun_identity
+                )
+                search_prefixes = (
+                    ("usr/lib", "usr/lib64", "usr/libexec", "usr/lib/x86_64-linux-gnu", "lib", "lib64", "lib/x86_64-linux-gnu")
+                    if is_sharun_link
+                    else (*HOST_LIBRARY_PREFIXES, "usr/libexec")
+                )
+                for prefix in search_prefixes:
+                    candidate = host_root / prefix / rel
+                    if candidate.exists():
+                        add_probe(candidate)
+                        if is_sharun_link:
+                            helper_rel_by_name.setdefault(rel.name, candidate)
+                        break
+
+    shared_bin = appdir / "shared/bin"
+    if shared_bin.is_dir():
+        for entry in sorted(shared_bin.iterdir()):
+            if entry.is_symlink() or not entry.is_file():
+                continue
+            if entry.name in ("serein", "qt.conf") or entry.name.endswith(".hook"):
+                continue
+            if sharun_identity is not None:
+                entry_stat = entry.stat()
+                if (entry_stat.st_dev, entry_stat.st_ino) == sharun_identity:
+                    continue
+            if entry.name in helper_rel_by_name:
+                add_probe(helper_rel_by_name[entry.name])
+                continue
+            match = _find_host_helper_binary(host_root, entry.name)
+            if match is not None:
+                add_probe(match)
+
+    if (appdir / "bin/bwrap").exists() and not (appdir / "shared/bin/bwrap").exists():
+        add_probe(host_root / "usr/bin/bwrap")
+
+    etc_root = appdir / "etc"
+    if etc_root.is_dir():
+        for root_dir, dirnames, filenames in os.walk(etc_root, followlinks=False):
+            dirnames[:] = sorted(dirnames)
+            for filename in sorted(filenames):
+                entry = Path(root_dir) / filename
+                if entry.is_symlink() or not entry.is_file():
+                    continue
+                rel = entry.relative_to(etc_root)
+                if rel.as_posix() == "ssl/openssl.cnf":
+                    continue
+                add_probe(host_root / "etc" / rel)
+
+    share_root = appdir / "share"
+    if share_root.is_dir():
+        if (share_root / "mime").is_dir():
+            add_probe(host_root / "usr/share/mime/packages/freedesktop.org.xml")
+            add_probe(host_root / "usr/share/mime/version")
+        seen_locale_domains = set()
+        for root_dir, dirnames, filenames in os.walk(share_root, followlinks=False):
+            rel_dir = Path(root_dir).relative_to(share_root)
+            filtered_dirs = []
+            for name in sorted(dirnames):
+                child_rel = rel_dir / name if rel_dir != Path(".") else Path(name)
+                if child_rel.as_posix() in ("icons/hicolor", "doc/serein"):
+                    continue
+                filtered_dirs.append(name)
+            dirnames[:] = filtered_dirs
+            for filename in sorted(filenames):
+                entry = Path(root_dir) / filename
+                if entry.is_symlink() or not entry.is_file():
+                    continue
+                rel = entry.relative_to(share_root)
+                rel_posix = rel.as_posix()
+                if rel_posix == "licenses/dash-COPYING":
+                    continue
+                if len(rel.parts) >= 3 and rel.parts[-2:] == ("schemas", "gschemas.compiled"):
+                    continue
+                if rel.parts[0] == "locale":
+                    if filename in seen_locale_domains:
+                        continue
+                    candidate = host_root / "usr/share" / rel
+                    if candidate.exists():
+                        seen_locale_domains.add(filename)
+                        add_probe(candidate)
+                    continue
+                candidate = host_root / "usr/share" / rel
+                if candidate.exists():
+                    add_probe(candidate)
+                elif rel_posix == "file/misc/magic.mgc":
+                    add_probe(host_root / "usr/share/file/magic.mgc")
+
+    return probe_paths
+
+
+def _walk_relative_files(root_dir, include_symlinks=True):
+    results = []
+    if not root_dir.is_dir():
+        return results
+    for current, dirnames, filenames in os.walk(root_dir, followlinks=False):
+        dirnames[:] = sorted(dirnames)
+        for filename in sorted(filenames):
+            candidate = Path(current) / filename
+            if include_symlinks or not candidate.is_symlink():
+                results.append(candidate)
+    return results
+
+
+def format_package_inventory(appdir, ldd_output, tools=None, host_root=Path("/")):
     lines = ["# Host executable link closure (ldd)", ldd_output.rstrip(), ""]
     if shutil.which("pacman"):
-        host_paths = re.findall(r"(?:=>\s+|^\s*)(/\S+)", ldd_output, re.MULTILINE)
+        probe_paths = collect_host_package_probe_paths(
+            appdir, ldd_output, tools=tools, host_root=host_root
+        )
         owners = set()
-        for path in sorted(set(host_paths)):
-            if not Path(path).exists():
-                continue
+        for start in range(0, len(probe_paths), 128):
+            chunk = [str(p) for p in probe_paths[start : start + 128]]
             owner = subprocess.run(
-                ["pacman", "-Qqo", path],
+                ["pacman", "-Qqo", *chunk],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,
                 text=True,
                 check=False,
             )
-            if owner.returncode == 0 and owner.stdout.strip():
-                owners.add(owner.stdout.strip())
+            for line in owner.stdout.splitlines():
+                pkg = line.strip()
+                if pkg and re.fullmatch(r"[A-Za-z0-9@._+-]+", pkg):
+                    owners.add(pkg)
         if owners:
             pkg_versions = subprocess.check_output(["pacman", "-Q", *sorted(owners)], text=True)
             lines.extend(["# Host packages queried via pacman -Q", pkg_versions.rstrip(), ""])
-    bundled = sorted(
+
+    bundled_libs = sorted(
         p.relative_to(appdir).as_posix()
-        for p in (appdir / "lib").rglob("*")
-        if p.is_file() or p.is_symlink()
+        for p in _walk_relative_files(appdir / "lib")
     )
-    lines.extend(["# Bundled AppDir lib/ entries", *bundled, ""])
+    lines.extend(["# Bundled AppDir lib/ entries", *bundled_libs, ""])
+
+    bundled_extras = []
+    for candidate in _walk_relative_files(appdir / "shared/bin"):
+        rel = candidate.relative_to(appdir).as_posix()
+        if candidate.name not in ("serein", "qt.conf") and not candidate.name.endswith(".hook"):
+            bundled_extras.append(rel)
+    for candidate in _walk_relative_files(appdir / "etc"):
+        bundled_extras.append(candidate.relative_to(appdir).as_posix())
+    locale_count = 0
+    for candidate in _walk_relative_files(appdir / "share"):
+        rel = candidate.relative_to(appdir).as_posix()
+        if (
+            rel == "share/licenses/dash-COPYING"
+            or rel.startswith(("share/icons/hicolor/", "share/doc/serein/"))
+        ):
+            continue
+        if rel.startswith("share/locale/"):
+            locale_count += 1
+            continue
+        bundled_extras.append(rel)
+    if locale_count:
+        bundled_extras.append(f"share/locale/... ({locale_count} files)")
+    if bundled_extras:
+        lines.extend(["# Bundled AppDir helpers and runtime assets", *sorted(bundled_extras), ""])
+
     return "\n".join(lines)
 
 
@@ -584,6 +914,10 @@ def build(root, version):
             "OUTPUT_APPIMAGE": "0",
             "STRACE_MODE": "0",
             "USE_HOST_DRIVERS": "1",
+            "SHARUN_LINK": "invalid://pinned-offline",
+            "CROSS_LIBC_DLOPEN_LINK": "invalid://pinned-offline",
+            "APPIMAGETOOL_LINK": "invalid://pinned-offline",
+            "ONELF_LINK": "invalid://pinned-offline",
             "PATH": f"{tools / 'bin'}:{os.environ.get('PATH', '')}",
         }
         if deploy_pipewire:
@@ -614,6 +948,7 @@ def build(root, version):
         prune_broken_gstreamer_plugins(appdir, require_gstreamer, deploy_pipewire)
         prune_broken_glycin_loaders(appdir, "libglycin" in libraries)
         subprocess.run([str(appdir / "sharun"), "-g"], check=True, cwd=temporary)
+        verify_pinned_sharun_artifacts(appdir, tools)
         stage_docs_and_icons(appdir, payload_stage, tools, libraries)
         verify_appdir_invariants(appdir)
         verify_elf_closure(appdir)

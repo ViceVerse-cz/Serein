@@ -1,10 +1,12 @@
 """AppImage packaging and updater environment regression checks; never launches Serein."""
 
 import argparse
+import io
 import os
 from pathlib import Path
 import shutil
 import subprocess
+import tarfile
 import tempfile
 import unittest
 from unittest import mock
@@ -25,6 +27,16 @@ def make_minimal_appdir(root):
         path.write_bytes(b"\x7fELFsynthetic")
         path.chmod(0o755)
     return appdir
+
+
+def write_synthetic_tar(tar_path, entries):
+    tar_path.parent.mkdir(parents=True, exist_ok=True)
+    with tarfile.open(tar_path, "w") as archive:
+        for name, data, mode in entries:
+            info = tarfile.TarInfo(name=name)
+            info.size = len(data)
+            info.mode = mode
+            archive.addfile(info, io.BytesIO(data))
 
 
 class AppImagePackagingTest(unittest.TestCase):
@@ -413,11 +425,247 @@ class AppImagePackagingTest(unittest.TestCase):
             custom_cache_parsed = dict(line.split("=", 1) for line in custom_cache_out.splitlines() if "=" in line)
             self.assertEqual(custom_cache_parsed.get("XDG_CACHE_HOME"), "/home/user/.custom-cache")
 
+    def test_verify_pinned_sharun_artifacts_accepts_stripped_and_rejects_tampered(self):
+        if not Path("/bin/true").is_file():
+            self.skipTest("Requires /bin/true")
+        with tempfile.TemporaryDirectory(prefix="serein-sharun-pin-") as directory:
+            root = Path(directory)
+            tools = root / "tools"
+            base_elf = Path("/bin/true").read_bytes()
+            preload_elf = base_elf
+            if shutil.which("objcopy") and shutil.which("strip"):
+                raw_elf_path = root / "raw_preload.so"
+                comment_path = root / "comment.bin"
+                shutil.copyfile("/bin/true", raw_elf_path)
+                comment_path.write_bytes(b"synthetic-preload-comment\0")
+                subprocess.run(
+                    ["objcopy", "--add-section", f".comment={comment_path}", str(raw_elf_path)],
+                    check=True,
+                )
+                preload_elf = raw_elf_path.read_bytes()
+
+            sharun_bytes = b"synthetic-sharun-binary"
+            dash_bytes = b"synthetic-dash-binary"
+            copying_bytes = b"synthetic-dash-license"
+            write_synthetic_tar(
+                tools / appimage_build.SHARUN_TAR,
+                [
+                    ("sharun", sharun_bytes, 0o755),
+                    ("dash", dash_bytes, 0o755),
+                    ("dash-COPYING", copying_bytes, 0o644),
+                    ("anylinux.so", preload_elf, 0o755),
+                    ("glycin-fix.so", preload_elf, 0o755),
+                    ("libsndfile.so.1", preload_elf, 0o755),
+                ],
+            )
+            write_synthetic_tar(
+                tools / appimage_build.CROSS_LIBC_TAR,
+                [
+                    ("cross-libc-dlopen.so", preload_elf, 0o755),
+                    ("egl-fwd.so", preload_elf, 0o755),
+                    ("gl-fwd.so", preload_elf, 0o755),
+                    ("gles-fwd.so", preload_elf, 0o755),
+                ],
+            )
+
+            appdir = make_minimal_appdir(root)
+            for rel, data, mode in (
+                ("AppRun", sharun_bytes, 0o755),
+                ("sharun", sharun_bytes, 0o755),
+                ("bin/serein", sharun_bytes, 0o755),
+                ("dash", dash_bytes, 0o755),
+                ("share/licenses/dash-COPYING", copying_bytes, 0o644),
+            ):
+                target = appdir / rel
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(data)
+                target.chmod(mode)
+
+            preload_dir = appdir / "lib/sharun-preload"
+            preload_dir.mkdir(parents=True)
+            for name in appimage_build.SHARUN_REQUIRED_PRELOAD_LIBS:
+                so_path = preload_dir / name
+                so_path.write_bytes(preload_elf)
+                so_path.chmod(0o755)
+            # Simulate quick-sharun stripping deployed preload .so libraries.
+            if shutil.which("strip"):
+                subprocess.run(
+                    ["strip", "-s", "-R", ".comment", "--strip-unneeded", str(preload_dir / "anylinux.so")],
+                    check=True,
+                )
+
+            appimage_build.verify_pinned_sharun_artifacts(appdir, tools)
+
+            (appdir / "bin/serein").write_bytes(b"latest-downloaded-sharun")
+            with self.assertRaisesRegex(ValueError, "Checksum mismatch.*bin/serein"):
+                appimage_build.verify_pinned_sharun_artifacts(appdir, tools)
+            (appdir / "bin/serein").write_bytes(sharun_bytes)
+
+            (preload_dir / "cross-libc-dlopen.so").write_bytes(b"tampered-preload")
+            with self.assertRaisesRegex(ValueError, "cross-libc-dlopen.so.*does not match pinned"):
+                appimage_build.verify_pinned_sharun_artifacts(appdir, tools)
+            (preload_dir / "cross-libc-dlopen.so").write_bytes(preload_elf)
+
+            (preload_dir / "unexpected.so").write_bytes(b"unexpected")
+            with self.assertRaisesRegex(ValueError, "Unexpected preload library"):
+                appimage_build.verify_pinned_sharun_artifacts(appdir, tools)
+            (preload_dir / "unexpected.so").unlink()
+
+            (preload_dir / "egl-fwd.so").unlink()
+            with self.assertRaisesRegex(ValueError, "Missing required pinned preload libraries: egl-fwd.so"):
+                appimage_build.verify_pinned_sharun_artifacts(appdir, tools)
+
+    def test_package_inventory_covers_plugins_helpers_and_mime_assets(self):
+        with tempfile.TemporaryDirectory(prefix="serein-pkg-inventory-") as directory:
+            root = Path(directory)
+            tools = root / "tools"
+            stub_bytes = (
+                Path("/bin/true").read_bytes()
+                if Path("/bin/true").is_file()
+                else b"\x7fELFstub-sndfile"
+            )
+            write_synthetic_tar(
+                tools / appimage_build.SHARUN_TAR,
+                [
+                    (appimage_build.SHARUN_STUB_TAR_MEMBERS["libsndfile.so.1"], stub_bytes, 0o755),
+                    (appimage_build.SHARUN_STUB_TAR_MEMBERS["libsystemd.so.0"], stub_bytes, 0o755),
+                ],
+            )
+
+            appdir = make_minimal_appdir(root)
+            (appdir / "lib/sharun-preload").mkdir(parents=True)
+            (appdir / "lib/sharun-preload/anylinux.so").write_bytes(b"preload")
+            (appdir / "lib/lib.path").write_text("/lib\n", encoding="utf-8")
+            (appdir / "lib/libc.so.6").write_bytes(b"libc")
+            # Stubbed libsndfile matches SHARUN_TAR stub member -> must NOT query host libsndfile.
+            (appdir / "lib/libsndfile.so.1").write_bytes(stub_bytes)
+
+            # GStreamer plugin + scanner hardlink + glib-networking module
+            (appdir / "lib/gstreamer-1.0").mkdir(parents=True)
+            (appdir / "lib/gstreamer-1.0/libgstcoreelements.so").write_bytes(b"gst")
+            os.link(appdir / "sharun", appdir / "lib/gstreamer-1.0/gst-plugin-scanner")
+            (appdir / "lib/gio/modules").mkdir(parents=True)
+            (appdir / "lib/gio/modules/libgiognutls.so").write_bytes(b"gnutls")
+
+            # Helpers and runtime assets (bwrap, glycin loader, MIME cache, fonts, Serein icons)
+            (appdir / "shared/bin/bwrap").write_bytes(b"bwrap")
+            (appdir / "shared/bin/glycin-image-rs").write_bytes(b"glycin")
+            os.link(appdir / "sharun", appdir / "shared/bin/gio-launch-desktop")
+            (appdir / "share/glycin-loaders/2+/conf.d").mkdir(parents=True)
+            (appdir / "share/glycin-loaders/2+/conf.d/glycin-image-rs.conf").write_text("[loader]\n", encoding="utf-8")
+            (appdir / "share/mime").mkdir(parents=True)
+            (appdir / "share/mime/mime.cache").write_bytes(b"cache")
+            (appdir / "etc/fonts").mkdir(parents=True)
+            (appdir / "etc/fonts/fonts.conf").write_text("<fontconfig/>\n", encoding="utf-8")
+            (appdir / "share/icons/hicolor/256x256/apps").mkdir(parents=True)
+            (appdir / "share/icons/hicolor/256x256/apps/serein.png").write_bytes(b"png")
+            (appdir / "share/licenses").mkdir(parents=True)
+            (appdir / "share/licenses/dash-COPYING").write_text("bsd", encoding="utf-8")
+
+            host_root = root / "host"
+            host_files = {
+                "usr/lib/libc.so.6": "glibc",
+                "usr/lib/gstreamer-1.0/libgstcoreelements.so": "gstreamer",
+                "usr/lib/gstreamer-1.0/gst-plugin-scanner": "gstreamer",
+                "usr/lib/gio/modules/libgiognutls.so": "glib-networking",
+                "usr/bin/bwrap": "bubblewrap",
+                "usr/lib/glycin-loaders/2+/glycin-image-rs": "glycin",
+                "usr/share/glycin-loaders/2+/conf.d/glycin-image-rs.conf": "glycin",
+                "usr/share/mime/packages/freedesktop.org.xml": "shared-mime-info",
+                "etc/fonts/fonts.conf": "fontconfig",
+                # Deliberately present on host; must stay absent from owners due to stub hash match.
+                "usr/lib/libsndfile.so.1": "libsndfile",
+            }
+            for rel, pkg in host_files.items():
+                path = host_root / rel
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(pkg.encode("utf-8"))
+            # Unowned hook-generated mime.cache on host to verify mixed batch + XML fallback.
+            (host_root / "usr/share/mime/mime.cache").write_bytes(b"generated")
+
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            pacman_script = fake_bin / "pacman"
+            pacman_script.write_text(
+                f"""#!/usr/bin/env python3
+from pathlib import Path
+import sys
+
+host = Path({str(host_root)!r})
+owners = {{
+    str(host / "usr/lib/libc.so.6"): "glibc",
+    str(host / "usr/lib/gstreamer-1.0/libgstcoreelements.so"): "gstreamer",
+    str(host / "usr/lib/gstreamer-1.0/gst-plugin-scanner"): "gstreamer",
+    str(host / "usr/lib/gio/modules/libgiognutls.so"): "glib-networking",
+    str(host / "usr/bin/bwrap"): "bubblewrap",
+    str(host / "usr/lib/glycin-loaders/2+/glycin-image-rs"): "glycin",
+    str(host / "usr/share/glycin-loaders/2+/conf.d/glycin-image-rs.conf"): "glycin",
+    str(host / "usr/share/mime/packages/freedesktop.org.xml"): "shared-mime-info",
+    str(host / "etc/fonts/fonts.conf"): "fontconfig",
+    str(host / "usr/lib/libsndfile.so.1"): "libsndfile",
+}}
+if sys.argv[1] == "-Qqo":
+    rc = 0
+    for target in sys.argv[2:]:
+        owner = owners.get(target)
+        if owner:
+            print(owner)
+        else:
+            rc = 1
+    sys.exit(rc)
+if sys.argv[1] == "-Q":
+    for pkg in sys.argv[2:]:
+        print(f"{{pkg}} 1.0-1")
+    sys.exit(0)
+sys.exit(1)
+""",
+                encoding="utf-8",
+            )
+            pacman_script.chmod(0o755)
+
+            ldd_output = "\tlibc.so.6 => /usr/lib/libc.so.6 (0x00007f0000000000)\n"
+            real_which = shutil.which
+            strip_safe_which = (
+                real_which
+                if Path("/bin/true").is_file()
+                else (lambda name: None if name == "strip" else real_which(name))
+            )
+            with (
+                mock.patch.dict(os.environ, {"PATH": f"{fake_bin}:{os.environ.get('PATH', '')}"}),
+                mock.patch.object(appimage_build.shutil, "which", side_effect=strip_safe_which),
+            ):
+                inventory = appimage_build.format_package_inventory(
+                    appdir, ldd_output, tools=tools, host_root=host_root
+                )
+
+            for expected_pkg in (
+                "glibc 1.0-1",
+                "gstreamer 1.0-1",
+                "glib-networking 1.0-1",
+                "bubblewrap 1.0-1",
+                "glycin 1.0-1",
+                "shared-mime-info 1.0-1",
+                "fontconfig 1.0-1",
+            ):
+                self.assertIn(expected_pkg, inventory)
+            self.assertNotIn("libsndfile 1.0-1", inventory)
+            self.assertIn("# Bundled AppDir helpers and runtime assets", inventory)
+            for asset in (
+                "shared/bin/bwrap",
+                "shared/bin/glycin-image-rs",
+                "share/glycin-loaders/2+/conf.d/glycin-image-rs.conf",
+                "share/mime/mime.cache",
+                "etc/fonts/fonts.conf",
+            ):
+                self.assertIn(asset, inventory)
+            self.assertNotIn("share/icons/hicolor/", inventory)
+            self.assertNotIn("share/licenses/dash-COPYING", inventory)
+
     def test_end_to_end_appimage_build_with_pinned_tools(self):
         if not WITH_TOOLS:
             self.skipTest("Pass --with-tools to exercise quick-sharun, appimagetool and uruntime end-to-end")
-        probe_exe = shutil.which("printenv")
-        self.assertIsNotNone(probe_exe, "printenv is required for synthetic AppImage runtime verification")
+        probe_exe = shutil.which("readlink")
+        self.assertIsNotNone(probe_exe, "readlink is required for synthetic AppImage runtime verification")
         with mock.patch.dict(os.environ):
             os.environ.pop("SEREIN_RELEASE_TAG", None)
             with tempfile.TemporaryDirectory(prefix="serein-appimage-e2e-") as directory:
@@ -512,12 +760,24 @@ class AppImagePackagingTest(unittest.TestCase):
                 if lib_path_file.is_file():
                     self.assertNotIn("stubs", lib_path_file.read_text(encoding="utf-8", errors="replace"))
 
-                printed_appdir = subprocess.check_output(
-                    [str(artifact), "APPDIR"],
-                    env={**os.environ, "APPIMAGE_EXTRACT_AND_RUN": "1"},
+                # Updater depends on /proc/self/exe resolving to $APPDIR/bin/serein under sharun.
+                extracted_self_exe = subprocess.check_output(
+                    [str(extracted / "AppRun"), "-f", "/proc/self/exe"],
                     text=True,
                 ).strip()
-                self.assertTrue(Path(printed_appdir).is_absolute())
+                self.assertEqual(Path(extracted_self_exe).resolve(), (extracted / "bin/serein").resolve())
+
+                extract_run_dir = root / "extract-run"
+                runtime_self_exe = subprocess.check_output(
+                    [str(artifact), "-f", "/proc/self/exe"],
+                    env={
+                        **os.environ,
+                        "APPIMAGE_EXTRACT_AND_RUN": "1",
+                        "APPIMAGE_TARGET_DIR": str(extract_run_dir),
+                    },
+                    text=True,
+                ).strip()
+                self.assertEqual(Path(runtime_self_exe).resolve(), (extract_run_dir / "bin/serein").resolve())
 
 
 if __name__ == "__main__":
