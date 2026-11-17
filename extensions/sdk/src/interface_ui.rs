@@ -74,7 +74,38 @@ pub struct InterfaceNode {
 	pub selected: bool,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub tint: Option<InterfaceTint>,
+	/// A native action the host runs itself on a double click or Enter, without an Apply
+	/// step. The host labels such a row with the target's real name (the plugin's `text` is
+	/// ignored), checks access and runs the client's own path. The click still reaches the
+	/// plugin's `interface_click` so it can restate its interface.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub native: Option<InterfaceNative>,
 }
+
+/// Native actions a row can carry; each needs its own capability grant.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum InterfaceNative {
+	/// Join this voice channel with the current mute and deafen state, through the client's
+	/// own join path including its call-switch confirmation. Requires `voice_connect`.
+	JoinVoice { channel_id: String },
+}
+
+/// The window size an interface layout asks for, in logical pixels. The host centers the
+/// window on its monitor (clamped to the monitor) and restores the previous size, position
+/// and maximized state when the layout ends or stops asking. It never saves this size.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InterfaceSize {
+	pub width: u16,
+	pub height: u16,
+}
+
+/// Smallest window side an interface layout may ask for, in logical pixels.
+pub const MIN_INTERFACE_WINDOW_SIDE: u16 = 200;
+/// Largest window width an interface layout may ask for, in logical pixels.
+pub const MAX_INTERFACE_WINDOW_WIDTH: u16 = 1600;
+/// Largest window height an interface layout may ask for, in logical pixels.
+pub const MAX_INTERFACE_WINDOW_HEIGHT: u16 = 1200;
 
 /// A native host window shown beside the tree. The plugin names what to show; the host
 /// renders its own existing call stage or conversation view and rechecks access.
@@ -102,11 +133,29 @@ pub struct InterfaceDockItem {
 	pub selected: bool,
 }
 
+/// A native control the plugin places at the right of the bottom control row. The host
+/// draws and handles each one exactly as its account card does; nothing reaches Wasm.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InterfaceControl {
+	/// Leave the current call; shown only during a call.
+	Disconnect,
+	/// Toggle your microphone.
+	Mute,
+	/// Toggle your headphones.
+	Deafen,
+	/// Open the client's settings.
+	Settings,
+}
+
 /// A complete interface restatement. Every activation, panel or event result of a granted
 /// plugin restates its interface: `Some` replaces the shown tree, `None` restores the normal
 /// layout. `window` asks the host to show one native window beside the tree; `dock` adds
 /// small items to the left of the bottom control row, and `add_server` appends the
 /// client's own add-a-server button after them (handled natively, never routed to Wasm).
+/// `controls` lists the native buttons at the right of that row, left to right; the host
+/// always adds `settings` when it is missing, so the user can still reach the extension
+/// settings to turn the plugin off.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InterfaceUi {
 	pub nodes: Vec<InterfaceNode>,
@@ -116,6 +165,11 @@ pub struct InterfaceUi {
 	pub dock: Vec<InterfaceDockItem>,
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub add_server: bool,
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub controls: Vec<InterfaceControl>,
+	/// Resize the window while this layout shows; omitted keeps the current window.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub size: Option<InterfaceSize>,
 }
 
 fn snowflake(id: &str) -> bool {
@@ -152,6 +206,22 @@ impl InterfaceUi {
 			if node.indent > MAX_INTERFACE_INDENT {
 				return Err("interface row indent exceeds 8");
 			}
+			if let Some(InterfaceNative::JoinVoice { channel_id }) = &node.native
+				&& !snowflake(channel_id)
+			{
+				return Err("interface native join needs a snowflake channel id");
+			}
+		}
+		for (index, control) in self.controls.iter().enumerate() {
+			if self.controls[..index].contains(control) {
+				return Err("interface controls must not repeat");
+			}
+		}
+		if self.size.is_some_and(|size| {
+			!(MIN_INTERFACE_WINDOW_SIDE..=MAX_INTERFACE_WINDOW_WIDTH).contains(&size.width)
+				|| !(MIN_INTERFACE_WINDOW_SIDE..=MAX_INTERFACE_WINDOW_HEIGHT).contains(&size.height)
+		}) {
+			return Err("interface window size must be 200 through 1600 by 200 through 1200");
 		}
 		if self.dock.len() > MAX_INTERFACE_DOCK_ITEMS {
 			return Err("interface dock exceeds 64 items");
@@ -202,6 +272,7 @@ mod tests {
 			emphasis: false,
 			selected: false,
 			tint: None,
+			native: None,
 		}
 	}
 
@@ -221,6 +292,8 @@ mod tests {
 			window: None,
 			dock: Vec::new(),
 			add_server: false,
+			controls: Vec::new(),
+			size: None,
 		};
 		assert!(ui.validate().is_err(), "duplicate ids rejected");
 		ui.nodes[1].id = "b".into();
@@ -271,6 +344,37 @@ mod tests {
 		assert!(ui.validate().is_err(), "oversized dock rejected");
 		ui.dock.clear();
 		assert!(ui.validate().is_ok());
+		ui.controls = vec![
+			InterfaceControl::Mute,
+			InterfaceControl::Settings,
+			InterfaceControl::Mute,
+		];
+		assert!(ui.validate().is_err(), "repeated control rejected");
+		ui.controls.pop();
+		assert!(ui.validate().is_ok(), "distinct controls accepted");
+		ui.nodes[1].native = Some(InterfaceNative::JoinVoice {
+			channel_id: "../x".into(),
+		});
+		assert!(ui.validate().is_err(), "non-snowflake native join rejected");
+		ui.nodes[1].native = Some(InterfaceNative::JoinVoice {
+			channel_id: "30".into(),
+		});
+		assert!(ui.validate().is_ok(), "native join accepted");
+		for (width, height, ok) in [
+			(MIN_INTERFACE_WINDOW_SIDE, MIN_INTERFACE_WINDOW_SIDE, true),
+			(
+				MAX_INTERFACE_WINDOW_WIDTH,
+				MAX_INTERFACE_WINDOW_HEIGHT,
+				true,
+			),
+			(MIN_INTERFACE_WINDOW_SIDE - 1, 600, false),
+			(800, MIN_INTERFACE_WINDOW_SIDE - 1, false),
+			(MAX_INTERFACE_WINDOW_WIDTH + 1, 600, false),
+			(800, MAX_INTERFACE_WINDOW_HEIGHT + 1, false),
+		] {
+			ui.size = Some(InterfaceSize { width, height });
+			assert_eq!(ui.validate().is_ok(), ok, "size {width}x{height}");
+		}
 	}
 
 	#[test]
@@ -280,6 +384,9 @@ mod tests {
 				icon: Some(InterfaceIcon::MicrophoneSlash),
 				tint: Some(InterfaceTint::Danger),
 				badge: Some("You".into()),
+				native: Some(InterfaceNative::JoinVoice {
+					channel_id: "30".into(),
+				}),
 				..node("channel:1", "Lobby")
 			}],
 			window: Some(InterfaceWindow::Chat {
@@ -287,6 +394,16 @@ mod tests {
 			}),
 			dock: vec![dock("dock:1", "Voice club", Some("10"))],
 			add_server: true,
+			controls: vec![
+				InterfaceControl::Disconnect,
+				InterfaceControl::Mute,
+				InterfaceControl::Deafen,
+				InterfaceControl::Settings,
+			],
+			size: Some(InterfaceSize {
+				width: 360,
+				height: 640,
+			}),
 		};
 		let json = serde_json::to_value(&ui).unwrap();
 		assert_eq!(json["nodes"][0]["icon"], "microphone_slash");
@@ -297,16 +414,34 @@ mod tests {
 		assert_eq!(json["dock"][0]["guild_id"], "10");
 		assert!(json["dock"][0].get("selected").is_none());
 		assert_eq!(json["add_server"], true);
+		assert_eq!(
+			json["nodes"][0]["native"],
+			serde_json::json!({"type": "join_voice", "channel_id": "30"})
+		);
+		assert_eq!(
+			json["size"],
+			serde_json::json!({"width": 360, "height": 640})
+		);
+		assert_eq!(
+			json["controls"],
+			serde_json::json!(["disconnect", "mute", "deafen", "settings"])
+		);
 		let call = serde_json::to_value(InterfaceWindow::Call).unwrap();
 		assert_eq!(call, serde_json::json!({"kind": "call"}));
 		let plain = serde_json::to_value(InterfaceUi::default()).unwrap();
 		assert!(plain.get("window").is_none());
 		assert!(plain.get("dock").is_none());
 		assert!(plain.get("add_server").is_none());
+		assert!(plain.get("controls").is_none());
+		assert!(plain.get("size").is_none());
+		let listed: InterfaceUi =
+			serde_json::from_value(serde_json::json!({"nodes": [], "controls": ["mute"]})).unwrap();
+		assert_eq!(listed.controls, [InterfaceControl::Mute]);
 		let plain_node = serde_json::to_value(node("", "row")).unwrap();
 		assert!(plain_node.get("icon").is_none());
 		assert!(plain_node.get("badge").is_none());
 		assert!(plain_node.get("emphasis").is_none());
+		assert!(plain_node.get("native").is_none());
 		assert_eq!(plain_node["id"], "");
 		let wrapper = InterfaceUiOutput {
 			interface_ui: Some(ui),

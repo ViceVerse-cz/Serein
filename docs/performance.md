@@ -2017,25 +2017,25 @@ regressions. Contended samples were discarded and re-measured on an idle desktop
 (11.51% idle CPU) and two after runs (18.91%, and 5.47% while a screenshot capture ran
 concurrently). Frame latency and startup time were not instrumented and are not claimed.
 
-## `start_screen` model raster — November 17, 2026
+## `start_screen` player — November 17, 2026
 
-A plugin start-screen model is software-rasterized off the UI thread. One renderer thread
-exists only while the connecting screen shows a model: it renders at most 30 frames per second
-into a square grid of at most 160×160 cells (3 logical pixels per cell; the on-screen frame is
-capped at 240 pixels, so 80×80 cells at 100% scale), skips frames the UI has not consumed yet,
-renders once for a still model or when animations are off, and stops with the screen. The UI
-thread only uploads the newest frame into one reused nearest-filtered texture (25.6 KiB RGBA at
-80×80, 100 KiB at 160×160); pixel text is rasterized once per text, wrap-width or scale change.
+The host no longer rasterizes anything for a plugin start screen and runs no render thread for
+it: the plugin ships pre-rendered 2-bit frames and the host only plays them back. When a screen is
+loaded or accepted, its frames are decoded once into one palette-index byte per cell (at most
+655,360 cells for the 160 KiB packed limit). While the connecting screen shows, a displayed
+frame change maps at most 160×160 indices per image through its palette into one reused
+nearest-filtered texture (one 100 KiB RGBA upload per changed image, at most four images), and
+each animation asks for a repaint only at its next frame boundary, at most 30 per second. A
+still image uploads once; nothing runs once the screen is gone.
 
 Throwaway timing harness, Windows 11 build 26200, AMD Ryzen 5 7600X (12 threads), 32 GiB RAM,
-300 frames of a 4,096-vertex, 8,064-triangle sphere (the vertex limit; triangle limit 8,192):
+copying the player's decode and palette loops (rustc 1.99.1), 25 frames of 160×160 cells
+(160,000 packed bytes):
 
-| Build | Grid | Raster per frame | Dither per frame | One core at 30 fps |
-| --- | --- | ---: | ---: | ---: |
-| Optimized (release with debug assertions) | 80×80 | 0.40 ms | 0.007 ms | 1.2% |
-| Optimized (release with debug assertions) | 160×160 | 0.78 ms | 0.041 ms | 2.5% |
-| Debug | 80×80 | 5.35 ms | 0.12 ms | 16% |
-| Debug | 160×160 | 8.12 ms | 0.49 ms | 26% |
+| Build | Decode once (640,000 cells) | Map one 160×160 frame | Four images at 30 fps, one core |
+| --- | ---: | ---: | ---: |
+| Release | 0.96 ms | 0.030 ms | 0.36% |
+| Debug | 14.5 ms | 0.24 ms | 2.9% |
 
 Single runs on a shared desktop. Texture upload, GPU time, frame latency and whole-process CPU
 were not instrumented and are not claimed; other screens pay nothing for the feature.

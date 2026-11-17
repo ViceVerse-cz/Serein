@@ -395,6 +395,9 @@ fn interface_ui_is_granted_activation_panel_or_event_output_and_validated() {
 				emphasis: false,
 				selected: false,
 				tint: None,
+				native: Some(sdk::InterfaceNative::JoinVoice {
+					channel_id: "30".into(),
+				}),
 			},
 			sdk::InterfaceNode {
 				id: String::new(),
@@ -405,6 +408,7 @@ fn interface_ui_is_granted_activation_panel_or_event_output_and_validated() {
 				emphasis: false,
 				selected: false,
 				tint: Some(sdk::InterfaceTint::Danger),
+				native: None,
 			},
 		],
 		window: Some(sdk::InterfaceWindow::Chat {
@@ -417,6 +421,11 @@ fn interface_ui_is_granted_activation_panel_or_event_output_and_validated() {
 			selected: true,
 		}],
 		add_server: true,
+		controls: vec![sdk::InterfaceControl::Mute, sdk::InterfaceControl::Settings],
+		size: Some(sdk::InterfaceSize {
+			width: 360,
+			height: 640,
+		}),
 	};
 	let expected: extensions::InterfaceUi =
 		serde_json::from_value(serde_json::to_value(&tree).unwrap()).unwrap();
@@ -427,6 +436,28 @@ fn interface_ui_is_granted_activation_panel_or_event_output_and_validated() {
 	let host: extensions::Output =
 		serde_json::from_slice(&serde_json::to_vec(&output).unwrap()).unwrap();
 	assert_eq!(host.interface_ui.as_ref(), Some(&expected));
+	assert_eq!(
+		expected.controls,
+		[
+			extensions::InterfaceControl::Mute,
+			extensions::InterfaceControl::Settings
+		],
+		"controls reach the host in order"
+	);
+	assert_eq!(
+		expected.nodes[0].native,
+		Some(extensions::InterfaceNative::JoinVoice {
+			channel_id: "30".into()
+		}),
+		"a native join reaches the host"
+	);
+	assert_eq!(
+		expected.size,
+		Some(extensions::InterfaceSize {
+			width: 360,
+			height: 640
+		})
+	);
 	let info = serde_json::to_value(extensions::HostInfo::current()).unwrap();
 	assert!(
 		info["capabilities"]
@@ -483,6 +514,17 @@ fn interface_ui_is_granted_activation_panel_or_event_output_and_validated() {
 		.unwrap();
 	duplicate.interface_ui.as_mut().unwrap().nodes.push(first);
 	assert!(duplicate.validate(&panel, &panel_input).is_err());
+	let mut repeated = interface.clone();
+	repeated
+		.interface_ui
+		.as_mut()
+		.unwrap()
+		.controls
+		.push(extensions::InterfaceControl::Mute);
+	assert!(
+		repeated.validate(&panel, &panel_input).is_err(),
+		"repeated control rejected"
+	);
 	let maximal = extensions::InterfaceUi {
 		nodes: (0..extensions::MAX_INTERFACE_NODES)
 			.map(|row| extensions::InterfaceNode {
@@ -494,11 +536,22 @@ fn interface_ui_is_granted_activation_panel_or_event_output_and_validated() {
 				emphasis: false,
 				selected: false,
 				tint: None,
+				native: None,
 			})
 			.collect(),
 		window: Some(extensions::InterfaceWindow::Call),
 		dock: Vec::new(),
 		add_server: false,
+		controls: vec![
+			extensions::InterfaceControl::Disconnect,
+			extensions::InterfaceControl::Mute,
+			extensions::InterfaceControl::Deafen,
+			extensions::InterfaceControl::Settings,
+		],
+		size: Some(extensions::InterfaceSize {
+			width: extensions::MAX_INTERFACE_WINDOW_WIDTH,
+			height: extensions::MAX_INTERFACE_WINDOW_HEIGHT,
+		}),
 	};
 	assert!(maximal.validate().is_ok());
 	// A chat window must name a snowflake channel id.
@@ -510,6 +563,8 @@ fn interface_ui_is_granted_activation_panel_or_event_output_and_validated() {
 			}),
 			dock: Vec::new(),
 			add_server: false,
+			controls: Vec::new(),
+			size: None,
 		};
 		assert!(chat.validate().is_err(), "{bad:?} rejected");
 	}
@@ -560,23 +615,26 @@ fn interface_ui_is_granted_activation_panel_or_event_output_and_validated() {
 	assert!(clicks.validate().is_err());
 }
 
-/// Checks that the SDK's start screen reaches the host with omitted, `null` and value kept
-/// apart, that only granted activation and panel results may carry it (a clear included),
-/// and that an off-bounds screen is rejected like any invalid output.
+/// Checks that the SDK's start screen reaches the host field for field with omitted, `null`
+/// and value kept apart, that only granted activation and panel results may carry it (a
+/// clear included), and that an off-bounds screen is rejected like any invalid output.
 #[test]
 fn start_screen_is_granted_activation_or_panel_output_and_validated() {
 	let screen = sdk::StartScreen {
+		images: vec![sdk::StartImage {
+			width: 2,
+			height: 2,
+			palette: vec!["#33aa55".into(), "#ffffff80".into()],
+			frames: vec!["bA==".into(), "AA==".into()],
+			fps: 24,
+			cell: 4,
+		}],
 		title: Some("Loading".into()),
-		text_style: sdk::StartTextStyle::Dither,
-		hide_logo: true,
-		model: Some(sdk::StartModel {
-			vertices: vec![[0.0, 1.0, 0.0], [-1.0, -1.0, 0.0], [1.0, -1.0, 0.0]],
-			triangles: vec![[0, 1, 2]],
-			color: Some("#33aa55".into()),
-			spin: 12.0,
-			pitch: 20.0,
+		subtitle: Some("Connecting".into()),
+		window: Some(sdk::StartWindow {
+			width: 480,
+			height: 360,
 		}),
-		..Default::default()
 	};
 	let wire = |start_screen| {
 		let output = sdk::StartScreenOutput {
@@ -588,10 +646,13 @@ fn start_screen_is_granted_activation_or_panel_output_and_validated() {
 	assert!(wire(None).start_screen.is_none(), "omitted keeps it");
 	let cleared = wire(Some(None));
 	assert_eq!(cleared.start_screen, Some(None), "null clears it");
-	let host = wire(Some(Some(screen)));
+	let host = wire(Some(Some(screen.clone())));
 	let value = host.start_screen.clone().flatten().unwrap();
-	assert_eq!(value.title.as_deref(), Some("Loading"));
-	assert_eq!(value.text_style, extensions::StartTextStyle::Dither);
+	assert_eq!(
+		serde_json::to_value(&value).unwrap(),
+		serde_json::to_value(&screen).unwrap(),
+		"every field reaches the host"
+	);
 	let with = |action: &str, surface, granted: bool| {
 		let mut manifest = manifest(action, surface);
 		if granted {
@@ -627,11 +688,11 @@ fn start_screen_is_granted_activation_or_panel_output_and_validated() {
 	let (panel, panel_input) = with("apply", Surface::Panel, true);
 	let mut invalid = host.clone();
 	if let Some(Some(screen)) = &mut invalid.start_screen {
-		screen.model.as_mut().unwrap().triangles[0] = [0, 1, 3];
+		screen.images[0].frames[0] = "bAA=".into();
 	}
 	assert!(
 		invalid.validate(&panel, &panel_input).is_err(),
-		"out-of-range triangle rejected"
+		"a frame longer than its packed cells rejected"
 	);
 }
 

@@ -3,7 +3,8 @@
 //! routes clicks back through the plugin's declared `interface_click` panel action, with
 //! `double_clicked` marking double clicks and Enter on a focused row. The renderer knows
 //! nothing about servers, voice or any particular product: the tree is data; only the
-//! dock's server tiles are the host's own, painted by guild id.
+//! dock's server tiles, the native controls and native join rows are the host's own,
+//! painted and run from its own state.
 use crate::{MessagingUi, design, icons};
 use client_core::{Command, State, voice::Phase};
 use egui::RichText;
@@ -194,7 +195,7 @@ impl MessagingUi {
 		self.conversation(ui, state, channel, commands, None);
 	}
 
-	/// The tree pane: the generic voice-controls strip, then the plugin's rows.
+	/// The tree pane: the plugin's native control row, then its rows.
 	fn plugin_interface_pane(
 		&mut self,
 		ui: &mut egui::Ui,
@@ -209,10 +210,15 @@ impl MessagingUi {
 				self.interface_controls(ui, state, commands, interface)
 			});
 		self.interface_tree(ui, state, interface);
+		// A double-clicked native join row runs the channel list's own join path.
+		self.apply_voice_join(state, commands);
 	}
 
-	/// Settings, the microphone and headphone toggles, and Disconnect during a call: the
-	/// account card's controls, sending the same commands.
+	/// The plugin's chosen native controls, left to right, at the right of the bottom row:
+	/// the account card's own buttons, sending the same commands. Settings is appended when
+	/// missing, so the user can always reach the extension settings and turn the plugin off;
+	/// Disconnect shows only during a call. Every control is as tall as Settings, so the row
+	/// keeps its height whatever the plugin lists.
 	fn interface_controls(
 		&mut self,
 		ui: &mut egui::Ui,
@@ -220,45 +226,78 @@ impl MessagingUi {
 		commands: &mut Vec<Command>,
 		interface: &PluginInterface,
 	) {
+		use extensions::InterfaceControl;
+		let listed = &interface.tree.controls;
+		let appended =
+			(!listed.contains(&InterfaceControl::Settings)).then_some(InterfaceControl::Settings);
+		let in_call = state.voice.active.is_some();
 		ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
 			ui.spacing_mut().item_spacing.x = 2.0;
-			let settings = icons::button(
-				ui,
-				icons::Icon::Gear,
-				32.0,
-				&crate::i18n::translate("user-settings"),
-			);
-			if settings.clicked() {
-				self.settings.open = true;
-				egui::Popup::close_all(ui.ctx());
-			}
-			self.mute_toggle_with_settings(ui, state, commands, true);
-			ui.add_space(4.0);
-			self.mute_toggle_with_settings(ui, state, commands, false);
-			if let Some(phase) = state.voice.active.as_ref().map(|call| call.phase) {
-				ui.add_space(4.0);
-				let leave = ui
-					.add_enabled_ui(!state.demo, |ui| {
-						icons::button(
+			// Right to left: the rightmost control is laid out first.
+			let shown = appended
+				.into_iter()
+				.chain(listed.iter().rev().copied())
+				.filter(|control| in_call || *control != InterfaceControl::Disconnect);
+			for (index, control) in shown.enumerate() {
+				if index > 0 {
+					ui.add_space(4.0);
+				}
+				match control {
+					InterfaceControl::Settings => {
+						let settings = icons::button(
 							ui,
-							icons::Icon::HangUp,
+							icons::Icon::Gear,
 							32.0,
-							&crate::i18n::translate(if phase == Phase::Failed {
-								"voice-voice-card-section-dismiss-call"
-							} else {
-								"voice-voice-card-section-disconnect"
-							}),
-						)
-					})
-					.inner;
-				if leave.clicked()
-					&& let Some(command) = state.leave_call()
-				{
-					commands.push(command);
+							&crate::i18n::translate("user-settings"),
+						);
+						if settings.clicked() {
+							self.settings.open = true;
+							egui::Popup::close_all(ui.ctx());
+						}
+					}
+					InterfaceControl::Deafen => {
+						self.mute_toggle_with_settings(ui, state, commands, true)
+					}
+					InterfaceControl::Mute => {
+						self.mute_toggle_with_settings(ui, state, commands, false)
+					}
+					InterfaceControl::Disconnect => self.interface_disconnect(ui, state, commands),
 				}
 			}
 			self.interface_dock(ui, state, interface);
 		});
+	}
+
+	/// The account card's hang-up button for the active call, or its dismiss button once the
+	/// call failed.
+	fn interface_disconnect(
+		&mut self,
+		ui: &mut egui::Ui,
+		state: &mut State,
+		commands: &mut Vec<Command>,
+	) {
+		let Some(phase) = state.voice.active.as_ref().map(|call| call.phase) else {
+			return;
+		};
+		let leave = ui
+			.add_enabled_ui(!state.demo, |ui| {
+				icons::button(
+					ui,
+					icons::Icon::HangUp,
+					32.0,
+					&crate::i18n::translate(if phase == Phase::Failed {
+						"voice-voice-card-section-dismiss-call"
+					} else {
+						"voice-voice-card-section-disconnect"
+					}),
+				)
+			})
+			.inner;
+		if leave.clicked()
+			&& let Some(command) = state.leave_call()
+		{
+			commands.push(command);
+		}
 	}
 
 	/// The plugin's dock at the left of the control row: small server tiles in dock order,
@@ -344,6 +383,8 @@ impl MessagingUi {
 	/// plugin through its declared `interface_click` panel action. A double click, or Enter
 	/// on a focused row, sets `double_clicked` (the row's primary open action, as in file
 	/// managers); Space on a focused row counts as a single click. Rows without ids are inert.
+	/// A row naming a native voice join shows the channel's real name and, on its open action
+	/// with a `voice_connect` grant, also joins through the client's own path.
 	fn interface_tree(&mut self, ui: &mut egui::Ui, state: &State, interface: &PluginInterface) {
 		if interface.tree.nodes.is_empty() {
 			ui.add_space((ui.available_height() * 0.32).max(24.0));
@@ -369,6 +410,14 @@ impl MessagingUi {
 
 	/// One row of the plugin's tree: glyph, label and badge over an indent step, with the
 	/// selected fill the channel list uses. Clicks route the row's id to the plugin.
+	///
+	/// A native join row is labelled with the loaded, viewable voice channel's own name (the
+	/// plugin's `text` is ignored). Its open action queues the channel list's double-click
+	/// join, with the current mute and deafen state and the call-switch confirmation, when
+	/// the plugin holds `voice_connect`; no Apply step, since the double-clicked row bearing
+	/// the host's own label is the confirmation. The click then routes as usual. A native
+	/// row whose channel is unknown, not a voice channel or not viewable keeps the plugin's
+	/// text and stays inert, so nothing the plugin names can run unverified.
 	fn interface_row(
 		&mut self,
 		ui: &mut egui::Ui,
@@ -378,7 +427,11 @@ impl MessagingUi {
 		index: usize,
 	) {
 		let id = row_id(plugin, node, index);
-		let active = !node.id.is_empty();
+		let join = native_join(state, node);
+		let active = match node.native {
+			Some(_) => join.is_some(),
+			None => !node.id.is_empty(),
+		};
 		let Some((rect, response)) = tree_row(ui, ROW, id, active) else {
 			return;
 		};
@@ -393,10 +446,24 @@ impl MessagingUi {
 		// route it once, flagged.
 		let double = opened(ui, &response);
 		if active && response.clicked() {
-			self.extensions
-				.invoke_interface_row(ui.ctx(), state, plugin, &node.id, double);
+			if double
+				&& let Some(channel) = join
+				&& self.extensions.entries.iter().any(|entry| {
+					entry.manifest.id == plugin
+						&& entry.enabled && entry
+						.manifest
+						.capabilities
+						.contains(&extensions::Capability::VoiceConnect)
+				}) {
+				self.voice_join = Some(channel.id);
+			}
+			if !node.id.is_empty() {
+				self.extensions
+					.invoke_interface_row(ui.ctx(), state, plugin, &node.id, double);
+			}
 			ui.ctx().request_repaint();
 		}
+		let text = join.map_or(node.text.as_str(), |channel| channel.name.as_str());
 		let row = rect.shrink2(egui::vec2(4.0, 0.0));
 		let mut left = row.left() + f32::from(node.indent) * INDENT;
 		let color = if node.selected || hovered || node.emphasis {
@@ -428,14 +495,28 @@ impl MessagingUi {
 		paint_text(
 			ui,
 			row.with_min_x(left).with_max_x(right),
-			&node.text,
+			text,
 			font,
 			color,
 		);
 		response.widget_info(|| {
-			egui::WidgetInfo::selected(egui::Role::Button, active, node.selected, node.text.clone())
+			egui::WidgetInfo::selected(egui::Role::Button, active, node.selected, text)
 		});
 	}
+}
+
+/// The loaded, viewable voice channel a row's native join names, if any.
+fn native_join<'a>(
+	state: &'a State,
+	node: &extensions::InterfaceNode,
+) -> Option<&'a model::Channel> {
+	let Some(extensions::InterfaceNative::JoinVoice { channel_id }) = &node.native else {
+		return None;
+	};
+	let channel = Id(channel_id.parse().ok()?);
+	state
+		.channel(channel)
+		.filter(|known| known.kind == 2 && state.can_view(channel))
 }
 
 /// A tree row's egui id. Actionable rows are keyed by plugin and row id, so focus stays on
@@ -522,7 +603,7 @@ fn paint_badge(ui: &egui::Ui, row: egui::Rect, right: f32, badge: &str) -> f32 {
 mod tests {
 	use super::PluginInterface;
 	use crate::{ExtensionEntry, ExtensionRequest, MessagingUi};
-	use client_core::{Envelope, Event, State};
+	use client_core::{Command, Envelope, Event, State};
 	use extensions::{Capability, Invocation, Surface};
 	use model::{Channel, Guild, Id, User};
 
@@ -638,6 +719,7 @@ mod tests {
 			emphasis: false,
 			selected: false,
 			tint: None,
+			native: None,
 		}
 	}
 
@@ -658,11 +740,31 @@ mod tests {
 	/// Painted texts with a point inside each, and accessible names with their rects.
 	type Frame = (Vec<(String, egui::Pos2)>, Vec<(String, egui::Rect)>);
 
+	/// The `known` accessible names in the bottom control row (centred on the settings
+	/// control's line), left to right.
+	fn control_row(names: &[(String, egui::Rect)], settings: &str, known: &[&str]) -> Vec<String> {
+		let line = names
+			.iter()
+			.find(|(name, _)| name == settings)
+			.map(|(_, bounds)| bounds.center().y)
+			.expect("settings control");
+		let mut row: Vec<_> = names
+			.iter()
+			.filter(|(name, bounds)| {
+				known.contains(&name.as_str()) && (bounds.center().y - line).abs() < 1.0
+			})
+			.collect();
+		row.sort_by(|a, b| a.1.min.x.total_cmp(&b.1.min.x));
+		row.into_iter().map(|(name, _)| name.clone()).collect()
+	}
+
 	/// The client in its own context, drawn frame by frame on a steady clock.
 	struct Client {
 		ctx: egui::Context,
 		view: MessagingUi,
 		time: f64,
+		/// Every command the client issued so far.
+		commands: Vec<Command>,
 	}
 
 	impl Client {
@@ -676,6 +778,7 @@ mod tests {
 				ctx,
 				view,
 				time: 0.0,
+				commands: Vec::new(),
 			}
 		}
 
@@ -684,6 +787,7 @@ mod tests {
 		fn frame(&mut self, state: &mut State, events: Vec<egui::Event>) -> Frame {
 			self.time += 0.05;
 			let view = &mut self.view;
+			let commands = &mut self.commands;
 			let output = self.ctx.run_ui(
 				egui::RawInput {
 					screen_rect: Some(egui::Rect::from_min_size(
@@ -695,7 +799,7 @@ mod tests {
 					..Default::default()
 				},
 				|ui| {
-					view.show(ui, state);
+					commands.extend(view.show(ui, state));
 				},
 			);
 			let mut texts = Vec::new();
@@ -748,7 +852,9 @@ mod tests {
 
 	/// Checks that a granted tree stands in for the main panes: its rows, icons' tinted
 	/// labels and badges render, the usual channel list and composer are gone, and the
-	/// settings control stays reachable. An empty tree shows the generic placeholder instead.
+	/// settings control stays reachable. The control row draws exactly the listed controls
+	/// in order, appends settings when missing, shows disconnect only during a call, and
+	/// keeps its height. An empty tree shows the generic placeholder instead.
 	#[test]
 	fn granted_tree_replaces_the_panes_and_renders_rows() {
 		let mut state = one_server();
@@ -796,6 +902,87 @@ mod tests {
 				.map(|(_, bounds)| *bounds)
 		};
 		let plain = control(&names).expect("settings control");
+		// The plugin picks the native controls. None listed shows only settings; mute and
+		// settings show just those two, in order, with no deafen or hang-up; every list keeps
+		// the row's height.
+		let mute = crate::i18n::translate_if_key("voice-mute-toggle-mute");
+		let deafen = crate::i18n::translate_if_key("voice-mute-toggle-deafen");
+		let hang_up = crate::i18n::translate("voice-voice-card-section-disconnect");
+		let known = [
+			mute.as_str(),
+			deafen.as_str(),
+			hang_up.as_str(),
+			settings.as_str(),
+		];
+		assert_eq!(
+			control_row(&names, &settings, &known),
+			std::slice::from_ref(&settings),
+			"an empty list still shows settings"
+		);
+		let chosen = |controls| {
+			Some(PluginInterface {
+				plugin: "tree-plugin".into(),
+				tree: extensions::InterfaceUi {
+					controls,
+					..interface(vec![node("channel:30", "Lobby")], None).tree
+				},
+			})
+		};
+		use extensions::InterfaceControl as Control;
+		client
+			.view
+			.set_plugin_interface(chosen(vec![Control::Mute, Control::Settings]));
+		client.frame(&mut state, vec![]);
+		let (_, names) = client.frame(&mut state, vec![]);
+		assert_eq!(
+			control_row(&names, &settings, &known),
+			[mute.clone(), settings.clone()],
+			"only the listed controls, in order: {names:?}"
+		);
+		let listed = control(&names).expect("settings control");
+		assert_eq!(
+			(listed.min.y, listed.height()),
+			(plain.min.y, plain.height()),
+			"settings alone keeps the row's height"
+		);
+		// Listed out of order and without settings: drawn in the plugin's order, settings
+		// appended, and disconnect skipped outside a call.
+		client.view.set_plugin_interface(chosen(vec![
+			Control::Deafen,
+			Control::Disconnect,
+			Control::Mute,
+		]));
+		client.frame(&mut state, vec![]);
+		let (_, names) = client.frame(&mut state, vec![]);
+		assert_eq!(
+			control_row(&names, &settings, &known),
+			[deafen.clone(), mute.clone(), settings.clone()],
+			"settings appended, no disconnect outside a call: {names:?}"
+		);
+		let full = control(&names).expect("settings control");
+		assert_eq!(
+			(full.min.y, full.height()),
+			(plain.min.y, plain.height()),
+			"more controls never grow the row"
+		);
+		// During a call the listed disconnect shows; unlisted it stays away.
+		let mut call = test_support::voice_demo_state();
+		let mut in_call = Client::new(chosen(vec![Control::Disconnect, Control::Settings]));
+		in_call.frame(&mut call, vec![]);
+		let (_, names) = in_call.frame(&mut call, vec![]);
+		assert_eq!(
+			control_row(&names, &settings, &known),
+			[hang_up.clone(), settings.clone()],
+			"disconnect during a call: {names:?}"
+		);
+		in_call.view.set_plugin_interface(chosen(Vec::new()));
+		in_call.frame(&mut call, vec![]);
+		let (_, names) = in_call.frame(&mut call, vec![]);
+		assert_eq!(
+			control_row(&names, &settings, &known),
+			std::slice::from_ref(&settings),
+			"no hang-up unless listed: {names:?}"
+		);
 		// The dock renders at the left of the control row: a loaded server paints its
 		// initials through the rail's own painting, an unknown one falls back to the
 		// label's, add-server shows only when asked, and the row's height never grows.
@@ -907,6 +1094,9 @@ mod tests {
 	/// `interface_click` panel action, a double click flags `double_clicked`, rows without ids
 	/// stay inert, and keyboard activation follows the focused row by its id even after a
 	/// row is inserted before it: Enter opens it (`double_clicked`), Space is a single click.
+	/// A native join row shows the host's channel name and, with `voice_connect`, its double
+	/// click joins through the client's own path and still routes; without the grant only the
+	/// click routes, and a native row naming an unknown channel keeps its text and stays inert.
 	#[test]
 	fn row_clicks_route_the_node_id_and_flag_double_clicks() {
 		let mut state = one_server();
@@ -1008,6 +1198,87 @@ mod tests {
 			Some("channel:30")
 		);
 		assert!(!routed[3].double_clicked, "Space is a single click");
+		// Native join rows, outside any call, in a room with space.
+		let mut call = test_support::voice_demo_state();
+		call.demo = false;
+		call.gateway_connected = true;
+		let room = call.channels.iter_mut().find(|c| c.id == Id(37)).unwrap();
+		room.user_limit = None;
+		let joins = || {
+			interface(
+				vec![
+					extensions::InterfaceNode {
+						native: Some(extensions::InterfaceNative::JoinVoice {
+							channel_id: "37".into(),
+						}),
+						..node("join:37", "Plugin label")
+					},
+					extensions::InterfaceNode {
+						native: Some(extensions::InterfaceNative::JoinVoice {
+							channel_id: "424242".into(),
+						}),
+						..node("join:gone", "Missing room")
+					},
+				],
+				None,
+			)
+		};
+		let joined = |client: &Client| {
+			client.commands.iter().any(|command| {
+				matches!(
+					command,
+					Command::Voice(client_core::voice::Command::Join {
+						channel: Id(37),
+						ring: false,
+						..
+					})
+				)
+			})
+		};
+		for granted in [true, false] {
+			call.voice.active = None;
+			let mut client = Client::new(Some(joins()));
+			client.view.voice_available = true;
+			if granted {
+				client.view.extensions.entries[0]
+					.manifest
+					.capabilities
+					.push(Capability::VoiceConnect);
+			}
+			client.frame(&mut call, vec![]);
+			let (texts, _) = client.frame(&mut call, vec![]);
+			let point = |label: &str| {
+				texts
+					.iter()
+					.find(|(text, _)| text == label)
+					.map(|(_, point)| *point)
+			};
+			let quiet = point("Quiet room").expect("the host's channel name labels the row");
+			assert!(
+				point("Plugin label").is_none(),
+				"plugin text ignored: {texts:?}"
+			);
+			let missing = point("Missing room").expect("unknown channel keeps the plugin text");
+			client.frame(&mut call, vec![egui::Event::PointerMoved(quiet)]);
+			click(&mut client, &mut call, quiet);
+			click(&mut client, &mut call, quiet);
+			assert_eq!(
+				joined(&client),
+				granted,
+				"double click joins only with the grant"
+			);
+			let routed = client.routed();
+			assert_eq!(routed.len(), 2, "both clicks still route: {routed:?}");
+			assert_eq!(
+				routed[1].values.get("id").map(String::as_str),
+				Some("join:37")
+			);
+			assert!(routed[1].double_clicked, "second click is double");
+			client.frame(&mut call, vec![egui::Event::PointerMoved(missing)]);
+			click(&mut client, &mut call, missing);
+			click(&mut client, &mut call, missing);
+			assert_eq!(client.routed().len(), 2, "unknown native row stays inert");
+		}
 	}
 
 	/// Checks that clearing the interface restores the normal layout, and that without one

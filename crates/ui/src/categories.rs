@@ -16,75 +16,6 @@ fn sidebar_rank(channel: &Channel) -> (bool, i32, Id) {
 	(voice_lane(channel.kind), channel.position, channel.id)
 }
 
-/// Every loaded channel in the order the sidebar lists it. Per server, in server order:
-/// uncategorized channels, then each category (by position) followed by its channels, each
-/// ranked as the sidebar ranks siblings; a thread follows its parent, newest join first as
-/// in the sidebar's thread rows. Threads whose parent is not loaded follow the server's
-/// channels. Channels outside a known server, such as direct messages, keep their loaded
-/// order at the end.
-pub fn sidebar_order(state: &State) -> Vec<&Channel> {
-	let channels = &state.channels;
-	// Indices in sidebar order; each is emitted once.
-	let mut order = Vec::with_capacity(channels.len());
-	for guild in &state.guilds {
-		let members: Vec<usize> = (0..channels.len())
-			.filter(|index| channels[*index].guild == Some(guild.id))
-			.collect();
-		let mut categories: Vec<usize> = members
-			.iter()
-			.copied()
-			.filter(|index| channels[*index].kind == 4)
-			.collect();
-		categories.sort_unstable_by_key(|index| (channels[*index].position, channels[*index].id));
-		let category_ids: BTreeSet<Id> = categories.iter().map(|i| channels[*i].id).collect();
-		let mut threads: BTreeMap<Option<Id>, Vec<usize>> = BTreeMap::new();
-		let mut groups: BTreeMap<Option<Id>, Vec<usize>> = BTreeMap::new();
-		for &index in &members {
-			let channel = &channels[index];
-			if matches!(channel.kind, 10..=12) {
-				threads.entry(channel.parent_id).or_default().push(index);
-			} else if channel.kind != 4 {
-				let parent = channel.parent_id.filter(|id| category_ids.contains(id));
-				groups.entry(parent).or_default().push(index);
-			}
-		}
-		// The sidebar's sibling-thread rule (`State::sidebar_threads`): newest join first.
-		let joined = |index: usize| {
-			let thread = &channels[index];
-			let joined = state
-				.thread_member(thread.id)
-				.map_or(0, |member| member.joined);
-			std::cmp::Reverse((joined, thread.id))
-		};
-		for list in threads.values_mut() {
-			list.sort_unstable_by_key(|index| joined(*index));
-		}
-		for group in groups.values_mut() {
-			group.sort_unstable_by_key(|index| sidebar_rank(&channels[*index]));
-		}
-		let group = |parent: Option<Id>, order: &mut Vec<usize>| {
-			for &index in groups.get(&parent).into_iter().flatten() {
-				order.push(index);
-				order.extend(threads.get(&Some(channels[index].id)).into_iter().flatten());
-			}
-		};
-		group(None, &mut order);
-		for &category in &categories {
-			order.push(category);
-			group(Some(channels[category].id), &mut order);
-		}
-		// Threads whose parent is not loaded still belong to this server.
-		order.extend(threads.values().flatten());
-	}
-	order.extend(0..channels.len());
-	let mut placed = vec![false; channels.len()];
-	order
-		.into_iter()
-		.filter(|index| !std::mem::replace(&mut placed[*index], true))
-		.map(|index| &channels[index])
-		.collect()
-}
-
 /// Where a channel row came from. A mirrored guild channel differs from its tree copy by slot.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum Slot {
@@ -2421,32 +2352,6 @@ mod tests {
 		assert_eq!(ids(expanded), [28, 4, 7, 9, 8, 10, 11, 12, 13]);
 		let collapsed = tree(&hierarchy_state, BTreeSet::from([Id(4)]));
 		assert_eq!(ids(collapsed), [28, 4]);
-		// The exported order lists sibling threads as the sidebar does (9 before 8), and
-		// threads without a loaded parent row still follow their server's channels.
-		let guild = |id: u64| model::Guild {
-			banner: None,
-			default_message_notifications: None,
-			stickers: None,
-			id: Id(id),
-			name: format!("Synthetic {id}"),
-			icon: None,
-			emojis: None,
-		};
-		let directory = State {
-			guilds: vec![guild(100), guild(101)],
-			channels: hierarchy.clone(),
-			thread_info: hierarchy_state.thread_info.clone(),
-			..State::default()
-		};
-		assert_eq!(
-			sidebar_order(&directory)
-				.into_iter()
-				.map(|c| c.id.0)
-				.collect::<Vec<_>>(),
-			[
-				28, 27, 4, 7, 9, 8, 10, 11, 12, 13, 21, 23, 22, 24, 25, 20, 26
-			]
-		);
 		assert!(!hierarchy[1].supports_text() && !hierarchy[6].supports_text());
 		assert!(hierarchy[2].supports_text());
 		assert_eq!(

@@ -431,9 +431,12 @@ Most new optional fields are omitted by the host. `ReadSnapshot.unread` is the
 exception: unknown unread state is serialized as `null`.
 
 The complete app snapshot is at most 64 KiB serialized. The collector also has
-budgets including item overhead: 10 KiB for channels, 20 KiB for timeline,
-6 KiB each for members, presence and channel-detail recipients, and 8 KiB for
-guilds. Message details and relationships have 8-KiB and 4-KiB group limits
+budgets including item overhead: 10 KiB for channels (plus 48 KiB for the focus
+server's channels, see [ChannelDirectorySnapshot](#channeldirectorysnapshot-loaded-channel-list)),
+20 KiB for timeline, 6 KiB each for members, presence and channel-detail
+recipients, and 8 KiB for guilds. If these groups together would pass the 64-KiB
+cap, channel directory items are dropped from the end until the snapshot fits.
+Message details and relationships have 8-KiB and 4-KiB group limits
 and also consume the remaining shared 64-KiB snapshot budget. They can truncate
 earlier when other groups are present. Channel metadata and member details each
 have a 6-KiB group ceiling and share that remaining global budget too. Member
@@ -511,6 +514,8 @@ removes control characters, keeps at most 128 UTF-8 bytes, and substitutes
 | `guild_id` | `Option<String>` / string or absent | Server ID when this is a guild channel. Normally absent for direct conversations. | `channel.guild_id.as_deref()` |
 | `name` | `String` / string | Required host-supplied channel label. | `channel.name.as_str()` |
 | `kind` | `u8` / integer | Service channel-type number carried by the host. Its presence does not mean every operation is supported for that type. | `channel.kind == 1` |
+| `parent_id` | `Option<String>` / string or absent | The category this channel sits under or, for a thread, its parent channel; absent when there is none or it is not viewable. | `channel.parent_id.as_deref()` |
+| `position` | `i32` / integer | The channel's position among its siblings as the server orders them; `0` when unknown. Not an index into the directory. | `channel.position` |
 
 The host recognizes these channel kinds. Keep a fallback for other `u8` values;
 the snapshot contract does not reject an otherwise valid unknown kind.
@@ -768,8 +773,8 @@ Discord. In the examples, `directory` is the borrowed group.
 
 | Wire field | SDK Rust / JSON type | Meaning | Reading it |
 | --- | --- | --- | --- |
-| `items` | `Vec<ChannelSnapshot>` / array | Up to 100 distinct loaded, visible channel records, further limited by the byte budget. Items follow the client's sidebar order: per server, uncategorized channels first, then each category followed by its channels (text before voice, then by position); a thread follows its parent, and direct messages come after server channels. | `directory.items.iter().find(\|channel\| channel.id == "100")` |
-| `truncated` | `bool` / boolean | The collector stopped because a list or byte limit was reached. | `directory.truncated` |
+| `items` | `Vec<ChannelSnapshot>` / array | Distinct loaded, visible channel records. Every channel of the focus server comes first, up to 250 records within its own 48-KiB budget; up to 100 records from other servers and direct conversations then fill the shared 10-KiB budget. The focus server is the server of the dock item an `interface_click` names (its `guild_id`), otherwise the `guild_id` of the selected dock item in the plugin's last restated interface, otherwise the server of the natively selected channel. No ordering is promised beyond the focus server coming first; each item carries `parent_id` and `position` so plugins sort it themselves. | `directory.items.iter().find(\|channel\| channel.id == "100")` |
+| `truncated` | `bool` / boolean | The collector stopped because a list or byte limit was reached, for the focus server or the rest. | `directory.truncated` |
 
 ### TimelineSnapshot and MessageSnapshot: loaded messages
 
@@ -1311,3 +1316,19 @@ The wrapper flattens its `output: Output` field into the same response document
 and keeps existing `Output` struct literals and compiled ABI v1 plugins compatible.
 Use `export!(handle)` for this handler.
 It does not grant proxy capability or account access implicitly.
+
+## Start screen output (preview)
+
+| Wire field | SDK Rust / JSON type | Meaning |
+| --- | --- | --- |
+| `start_screen` | `StartScreenOutput.start_screen: Option<Option<StartScreen>>` / object or `null` | Set (`Some(Some)`), clear (`Some(None)`, JSON `null`) or keep (`None`, omitted) this plugin's device-level start screen from a granted `activation` or `panel` action. |
+| `start_screen.images` | `Vec<StartImage>` / array | At most 4 pre-rendered cell images, stacked top to bottom in place of the client logo. |
+| `start_screen.title`, `start_screen.subtitle` | `Option<String>` / string | Plain text in the client's normal font, 1-64 and 1-128 bytes, in place of the default copy. |
+| `start_screen.window` | `Option<StartWindow>` / object with `width` and `height` numbers | Window size in logical pixels while the screen shows, 240-1,600 by 240-1,200; clamped to the monitor and centered, never saved. |
+| Image `width`, `height`, `palette`, `frames`, `fps`, `cell` | `u16`, `u16`, `Vec<String>`, `Vec<String>`, `u8`, `u8` | 1-160 cells per side; 1-3 colors for cell values 1-3 (0 is transparent), each `#RRGGBB[AA]` or `accent` / `accent:AA` for the client's current accent; 1-120 base64 frames of 2-bit cells packed four per byte, first cell in the high bits; 1-30 fps when animated (default 12); 1-8 logical pixels per cell (default 3). |
+
+All frames of a screen hold at most 160 KiB of packed bytes. The host draws nothing
+of its own design and only plays these frames back; see
+[Start screen](extension-sdk-actions.md#start-screen-preview) for the exact packing,
+scaling and window behavior with a complete example. Use `export!(handle)` for this
+handler; the wrapper flattens its `output: Output` field like the other wrappers.

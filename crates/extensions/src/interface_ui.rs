@@ -74,7 +74,38 @@ pub struct InterfaceNode {
 	pub selected: bool,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub tint: Option<InterfaceTint>,
+	/// A native action the host runs itself on a double click or Enter, without an Apply
+	/// step. The host labels such a row with the target's real name (the plugin's `text` is
+	/// ignored), checks access and runs the client's own path. The click still reaches the
+	/// plugin's `interface_click` so it can restate its interface.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub native: Option<InterfaceNative>,
 }
+
+/// Native actions a row can carry; each needs its own capability grant.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum InterfaceNative {
+	/// Join this voice channel with the current mute and deafen state, through the client's
+	/// own join path including its call-switch confirmation. Requires `voice_connect`.
+	JoinVoice { channel_id: String },
+}
+
+/// The window size an interface layout asks for, in logical pixels. The host centers the
+/// window on its monitor (clamped to the monitor) and restores the previous size, position
+/// and maximized state when the layout ends or stops asking. It never saves this size.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InterfaceSize {
+	pub width: u16,
+	pub height: u16,
+}
+
+/// Smallest window side an interface layout may ask for, in logical pixels.
+pub const MIN_INTERFACE_WINDOW_SIDE: u16 = 200;
+/// Largest window width an interface layout may ask for, in logical pixels.
+pub const MAX_INTERFACE_WINDOW_WIDTH: u16 = 1600;
+/// Largest window height an interface layout may ask for, in logical pixels.
+pub const MAX_INTERFACE_WINDOW_HEIGHT: u16 = 1200;
 
 /// A native host window shown beside the tree. The plugin names what to show; the host
 /// renders its own existing call stage or conversation view and rechecks access.
@@ -102,11 +133,29 @@ pub struct InterfaceDockItem {
 	pub selected: bool,
 }
 
+/// A native control the plugin places at the right of the bottom control row. The host
+/// draws and handles each one exactly as its account card does; nothing reaches Wasm.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InterfaceControl {
+	/// Leave the current call; shown only during a call.
+	Disconnect,
+	/// Toggle your microphone.
+	Mute,
+	/// Toggle your headphones.
+	Deafen,
+	/// Open the client's settings.
+	Settings,
+}
+
 /// A complete interface restatement. Every activation, panel or event result of a granted
 /// plugin restates its interface: `Some` replaces the shown tree, `None` restores the normal
 /// layout. `window` asks the host to show one native window beside the tree; `dock` adds
 /// small items to the left of the bottom control row, and `add_server` appends the
 /// client's own add-a-server button after them (handled natively, never routed to Wasm).
+/// `controls` lists the native buttons at the right of that row, left to right; the host
+/// always adds `settings` when it is missing, so the user can still reach the extension
+/// settings to turn the plugin off.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InterfaceUi {
 	pub nodes: Vec<InterfaceNode>,
@@ -116,6 +165,11 @@ pub struct InterfaceUi {
 	pub dock: Vec<InterfaceDockItem>,
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub add_server: bool,
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub controls: Vec<InterfaceControl>,
+	/// Resize the window while this layout shows; omitted keeps the current window.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub size: Option<InterfaceSize>,
 }
 
 fn snowflake(id: &str) -> bool {
@@ -152,6 +206,22 @@ impl InterfaceUi {
 			if node.indent > MAX_INTERFACE_INDENT {
 				return Err("interface row indent exceeds 8");
 			}
+			if let Some(InterfaceNative::JoinVoice { channel_id }) = &node.native
+				&& !snowflake(channel_id)
+			{
+				return Err("interface native join needs a snowflake channel id");
+			}
+		}
+		for (index, control) in self.controls.iter().enumerate() {
+			if self.controls[..index].contains(control) {
+				return Err("interface controls must not repeat");
+			}
+		}
+		if self.size.is_some_and(|size| {
+			!(MIN_INTERFACE_WINDOW_SIDE..=MAX_INTERFACE_WINDOW_WIDTH).contains(&size.width)
+				|| !(MIN_INTERFACE_WINDOW_SIDE..=MAX_INTERFACE_WINDOW_HEIGHT).contains(&size.height)
+		}) {
+			return Err("interface window size must be 200 through 1600 by 200 through 1200");
 		}
 		if self.dock.len() > MAX_INTERFACE_DOCK_ITEMS {
 			return Err("interface dock exceeds 64 items");

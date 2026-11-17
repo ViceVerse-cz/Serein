@@ -282,14 +282,14 @@ pub fn update_window_minimum(
 	*applied = Some(minimum);
 }
 
-/// Logical inner size of the compact splash window a plugin start screen may ask for: room
-/// for the model, one title line, the progress bar and the button with padding below it.
-const SPLASH_SIZE: [u32; 2] = [360, 480];
-
-/// The window's normal placement while a compact start screen shows it as a small splash.
+/// The user's own window placement while a plugin sizes the window: a start screen's `window`
+/// while that screen shows, otherwise the shown interface layout's `size`.
 #[derive(Default)]
-pub struct Splash {
+pub struct PluginWindowSize {
+	/// The placement from before the first plugin size took over.
 	normal: Option<Placement>,
+	/// The plugin size last applied, in logical pixels.
+	applied: Option<winit::dpi::LogicalSize<u32>>,
 }
 
 #[derive(Clone, Copy)]
@@ -299,65 +299,87 @@ struct Placement {
 	maximized: bool,
 }
 
-impl Splash {
-	/// Whether the window shows the splash: its placement is not saved and the usual minimum
-	/// size waits until the normal placement returns.
+impl PluginWindowSize {
+	/// Whether a plugin sizes the window: its placement is not saved and the usual minimum
+	/// size waits until the user's own placement returns.
 	pub fn active(&self) -> bool {
 		self.normal.is_some()
 	}
 
-	/// Shrinks the window into a centred splash while `compact` holds, and restores its
-	/// previous size, position and maximized state once it no longer does.
+	/// Gives the window the logical size a plugin asks for, clamped to its monitor and centered
+	/// there, again whenever the request changes. The user's own size, position and maximized
+	/// state are kept from when the first request takes over and restored once none asks.
 	pub fn sync(
 		&mut self,
 		window: &winit::window::Window,
-		compact: bool,
+		requested: Option<winit::dpi::LogicalSize<u32>>,
 		minimum: &mut Option<winit::dpi::PhysicalSize<u32>>,
 	) {
-		match (compact, self.normal) {
-			(true, None) => {
-				self.normal = Some(Placement {
-					size: window.inner_size(),
-					position: window.outer_position().ok(),
-					maximized: window.is_maximized(),
-				});
-				if window.is_maximized() {
-					window.set_maximized(false);
-				}
-				let size = winit::dpi::LogicalSize::new(SPLASH_SIZE[0], SPLASH_SIZE[1])
-					.to_physical::<u32>(window.scale_factor());
-				window.set_min_inner_size(Some(size));
-				let _ = window.request_inner_size(size);
-				if let (Some(monitor), true) =
-					(window.current_monitor(), window.outer_position().is_ok())
-				{
-					let (origin, available) = (monitor.position(), monitor.size());
-					let (inner, outer) = (window.inner_size(), window.outer_size());
-					let width = size.width + outer.width.saturating_sub(inner.width);
-					let height = size.height + outer.height.saturating_sub(inner.height);
-					window.set_outer_position(winit::dpi::PhysicalPosition::new(
-						origin.x + (available.width.saturating_sub(width) / 2) as i32,
-						origin.y + (available.height.saturating_sub(height) / 2) as i32,
-					));
-				}
+		let Some(requested) = requested else {
+			self.applied = None;
+			let Some(normal) = self.normal.take() else {
+				return;
+			};
+			window.set_min_inner_size(None::<winit::dpi::PhysicalSize<u32>>);
+			let _ = window.request_inner_size(normal.size);
+			if let Some(position) = normal.position {
+				window.set_outer_position(position);
 			}
-			(false, Some(normal)) => {
-				self.normal = None;
-				window.set_min_inner_size(None::<winit::dpi::PhysicalSize<u32>>);
-				let _ = window.request_inner_size(normal.size);
-				if let Some(position) = normal.position {
-					window.set_outer_position(position);
-				}
-				// Maximize after placing the normal geometry, which moving a maximized window resets.
-				if normal.maximized {
-					window.set_maximized(true);
-				}
-				*minimum = None;
-				if let Some(monitor) = window.current_monitor() {
-					update_window_minimum(window, &monitor, minimum);
-				}
+			// Maximize after placing the normal geometry, which moving a maximized window resets.
+			if normal.maximized {
+				window.set_maximized(true);
 			}
-			_ => {}
+			*minimum = None;
+			if let Some(monitor) = window.current_monitor() {
+				update_window_minimum(window, &monitor, minimum);
+			}
+			return;
+		};
+		if self.applied == Some(requested) {
+			return;
+		}
+		self.applied = Some(requested);
+		if self.normal.is_none() {
+			self.normal = Some(Placement {
+				size: window.inner_size(),
+				position: window.outer_position().ok(),
+				maximized: window.is_maximized(),
+			});
+		}
+		if window.is_maximized() {
+			window.set_maximized(false);
+		}
+		let (inner, outer) = (window.inner_size(), window.outer_size());
+		let frame = [
+			outer.width.saturating_sub(inner.width),
+			outer.height.saturating_sub(inner.height),
+		];
+		let monitor = window.current_monitor().filter(|monitor| {
+			let available = monitor.size();
+			available.width > 0 && available.height > 0
+		});
+		let mut size = requested.to_physical::<u32>(window.scale_factor());
+		if let Some(monitor) = &monitor {
+			let available = monitor.size();
+			size.width = size
+				.width
+				.min(available.width.saturating_sub(frame[0]).max(1));
+			size.height = size
+				.height
+				.min(available.height.saturating_sub(frame[1]).max(1));
+		}
+		window.set_min_inner_size(Some(size));
+		let _ = window.request_inner_size(size);
+		if let Some(monitor) = monitor
+			&& window.outer_position().is_ok()
+		{
+			let (origin, available) = (monitor.position(), monitor.size());
+			let width = size.width.saturating_add(frame[0]);
+			let height = size.height.saturating_add(frame[1]);
+			window.set_outer_position(winit::dpi::PhysicalPosition::new(
+				origin.x + (available.width.saturating_sub(width) / 2) as i32,
+				origin.y + (available.height.saturating_sub(height) / 2) as i32,
+			));
 		}
 	}
 }

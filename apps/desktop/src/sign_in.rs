@@ -398,8 +398,8 @@ impl Desktop {
 					ui.add_space(
 						(ui.available_height() * 0.5 - 140.0 - self.start_screen.lift()).max(12.0),
 					);
-					// A granted plugin may restyle the mark, copy and model; the bar and the
-					// way out below always stay.
+					// A granted plugin's screen replaces the mark and copy with its own images
+					// and text; the bar and the way out below always stay.
 					self.start_screen.header(
 						ui,
 						screen,
@@ -452,7 +452,7 @@ impl Desktop {
 							}
 						},
 					);
-					// Sizes a plugin model so the button keeps clear padding below it.
+					// Sizes plugin images so the button keeps clear padding below it.
 					self.start_screen.end(ui);
 				});
 			});

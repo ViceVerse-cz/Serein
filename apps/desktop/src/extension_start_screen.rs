@@ -1,9 +1,9 @@
 //! The device-level start screen a granted plugin last set. It shows before any account loads,
 //! so the accepted value is kept in one bounded file beside the other extension state and read
-//! at launch without running plugin code. When several plugins set one, the lowest plugin id
-//! wins, like custom Rich Presence and interface replacement. Disabling, removing or failing
-//! the owning plugin, revoking its grant, ending its account session or its explicit `null`
-//! clears it.
+//! at launch without running plugin code; its frames are decoded once, when it is loaded or
+//! accepted. When several plugins set one, the lowest plugin id wins, like custom Rich Presence
+//! and interface replacement. Disabling, removing or failing the owning plugin, revoking its
+//! grant, ending its account session or its explicit `null` clears it.
 
 use crate::extensions::{account_key, read_bounded, write_device_file};
 use eframe::egui;
@@ -19,8 +19,9 @@ use std::{
 
 /// File beside the extension directories.
 const FILE: &str = "start-screen.json";
-/// Largest saved file: one plugin result's screen, its owner and re-encoding headroom.
-pub const MAX_FILE_BYTES: usize = extensions::MAX_IO_BYTES + 64 * 1024;
+/// Largest saved file: the base64 of the most packed frame bytes a valid screen holds (about
+/// 214 KiB), plus 16 KiB for its JSON structure, text, palettes, window size and owner.
+pub const MAX_FILE_BYTES: usize = extensions::MAX_START_FRAME_BYTES.div_ceil(3) * 4 + 16 * 1024;
 
 /// The saved screen and its owner. The account is the SHA-256 key that also names the
 /// account's extension directory, so the file holds no account identifier.
@@ -43,7 +44,7 @@ struct SavedRef<'a> {
 struct Owner {
 	account: String,
 	plugin: String,
-	screen: Arc<StartScreen>,
+	screen: Arc<ui::DecodedStartScreen>,
 }
 
 impl Owner {
@@ -86,12 +87,13 @@ impl DeviceStartScreen {
 				saved.account.len() == 64
 					&& saved.account.bytes().all(|byte| byte.is_ascii_hexdigit())
 					&& extensions::valid_id(&saved.plugin)
-					&& saved.screen.validate().is_ok()
 			})
-			.map(|saved| Owner {
-				account: saved.account,
-				plugin: saved.plugin,
-				screen: Arc::new(saved.screen),
+			.and_then(|saved| {
+				Some(Owner {
+					screen: Arc::new(ui::DecodedStartScreen::new(saved.screen)?),
+					account: saved.account,
+					plugin: saved.plugin,
+				})
 			});
 		Self {
 			path: Some(path),
@@ -101,7 +103,7 @@ impl DeviceStartScreen {
 		}
 	}
 
-	pub fn current(&self) -> Option<Arc<StartScreen>> {
+	pub fn current(&self) -> Option<Arc<ui::DecodedStartScreen>> {
 		self.owner.as_ref().map(|owner| owner.screen.clone())
 	}
 
@@ -121,9 +123,9 @@ impl DeviceStartScreen {
 		if let Some(owner) = self.owner.as_ref().filter(|owner| owner.account == key) {
 			match plugins.clone().find(|(id, _)| *id == owner.plugin) {
 				None | Some((_, Some(None))) => next = None,
-				Some((_, Some(Some(screen)))) if *owner.screen != *screen => {
-					next = Some(Owner {
-						screen: Arc::new(screen.clone()),
+				Some((_, Some(Some(screen)))) if owner.screen.screen() != screen => {
+					next = ui::DecodedStartScreen::new(screen.clone()).map(|screen| Owner {
+						screen: Arc::new(screen),
 						..owner.clone()
 					});
 				}
@@ -136,11 +138,12 @@ impl DeviceStartScreen {
 		if let Some((id, screen)) = candidate
 			&& next.as_ref().is_none_or(|owner| {
 				id < owner.plugin.as_str() || id == owner.plugin && owner.account != key
-			}) {
+			}) && let Some(screen) = ui::DecodedStartScreen::new(screen.clone())
+		{
 			next = Some(Owner {
 				account: key,
 				plugin: id.to_owned(),
-				screen: Arc::new(screen.clone()),
+				screen: Arc::new(screen),
 			});
 		}
 		if !Owner::same(next.as_ref(), self.owner.as_ref()) {
@@ -226,11 +229,49 @@ fn write(path: &Path, owner: Option<&Owner>) -> Result<(), String> {
 	let bytes = serde_json::to_vec(&SavedRef {
 		account: &owner.account,
 		plugin: &owner.plugin,
-		screen: &owner.screen,
+		screen: owner.screen.screen(),
 	})
 	.map_err(|_| "Cannot encode the start screen")?;
 	if bytes.len() > MAX_FILE_BYTES {
 		return Err("Start screen exceeds its device storage budget".into());
 	}
 	write_device_file(path, Some(&bytes))
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	/// Checks that the largest valid screen, saved with its owner, fits the file cap: every
+	/// frame byte the limit allows, the most frames and images, fully escaped text and the
+	/// longest palette colors and plugin id.
+	#[test]
+	fn largest_valid_screen_fits_the_file_cap() {
+		// 31×44 cells pack into 341 bytes: 480 frames hold 163,680 of the 163,840 allowed.
+		let image = extensions::StartImage {
+			width: 31,
+			height: 44,
+			palette: vec!["#00000000".into(); extensions::MAX_START_PALETTE],
+			frames: vec![format!("{}=", "A".repeat(455)); extensions::MAX_START_FRAMES],
+			fps: extensions::MAX_START_FPS,
+			cell: extensions::MAX_START_CELL_PIXELS,
+		};
+		let screen = StartScreen {
+			images: vec![image; extensions::MAX_START_IMAGES],
+			title: Some("\"".repeat(extensions::MAX_START_TITLE_BYTES)),
+			subtitle: Some("\\".repeat(extensions::MAX_START_SUBTITLE_BYTES)),
+			window: Some(extensions::StartWindow {
+				width: extensions::MAX_START_WINDOW_WIDTH,
+				height: extensions::MAX_START_WINDOW_HEIGHT,
+			}),
+		};
+		assert_eq!(screen.validate(), Ok(()));
+		let bytes = serde_json::to_vec(&SavedRef {
+			account: &"0".repeat(64),
+			plugin: &"a".repeat(64),
+			screen: &screen,
+		})
+		.unwrap();
+		assert!(bytes.len() <= MAX_FILE_BYTES, "{} bytes", bytes.len());
+	}
 }

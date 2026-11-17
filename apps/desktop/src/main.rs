@@ -1024,7 +1024,7 @@ struct Desktop {
 	proxy_auth: proxy_auth::Authentication,
 	api_proxy: tokio::sync::watch::Sender<Option<discord_api::proxy::ApiProxy>>,
 	extensions: extension_bridge::Bridge,
-	/// Plugin start-screen rendering; its model thread runs only while that screen shows.
+	/// Plugin start-screen playback; its textures exist only while that screen shows.
 	start_screen: ui::StartScreenView,
 	extension_close_pending: bool,
 	login: Option<platform::LoginView>,
@@ -1072,8 +1072,8 @@ struct Desktop {
 	window_minimum: Option<winit::dpi::PhysicalSize<u32>>,
 	/// A sampled placement waiting to remain unchanged for the rest interval.
 	geometry_rest: app_settings::GeometryRest,
-	/// The normal placement while a compact plugin start screen shows the window as a splash.
-	splash: app_settings::Splash,
+	/// The user's own placement while a plugin start screen or interface layout sizes the window.
+	plugin_size: app_settings::PluginWindowSize,
 	#[cfg(feature = "demo")]
 	rendering_demo: Option<rendering_demo::RenderingDemo>,
 	avatars: Option<avatars::AvatarWorker>,
@@ -2573,7 +2573,7 @@ impl Desktop {
 			frame_metrics: FrameMetrics::new(frame_sample),
 			window_minimum: None,
 			geometry_rest: app_settings::GeometryRest::default(),
-			splash: app_settings::Splash::default(),
+			plugin_size: app_settings::PluginWindowSize::default(),
 			#[cfg(feature = "demo")]
 			rendering_demo: (demo && std::env::args().any(|arg| arg == "--demo-rendering"))
 				.then(rendering_demo::RenderingDemo::default),
@@ -5761,8 +5761,8 @@ impl Desktop {
 	}
 	fn refresh_monitor(&mut self) -> Option<Duration> {
 		let monitor = self.window.current_monitor()?;
-		// The splash keeps its own small minimum until it restores the normal placement.
-		if !self.splash.active() {
+		// A plugin window size keeps its own minimum until the user's placement returns.
+		if !self.plugin_size.active() {
 			app_settings::update_window_minimum(&self.window, &monitor, &mut self.window_minimum);
 		}
 		let millihertz = monitor.refresh_rate_millihertz()?;
@@ -5833,7 +5833,7 @@ impl eframe::App for Desktop {
 		self.sync_system_theme(ctx);
 		if self.maximize_after_show
 			&& self.window.is_visible() == Some(true)
-			&& !self.splash.active()
+			&& !self.plugin_size.active()
 		{
 			self.maximize_after_show = false;
 			self.window.set_maximized(true);
@@ -5846,7 +5846,7 @@ impl eframe::App for Desktop {
 			&& !self.state.demo
 			&& self.app_settings.loaded
 			&& !self.maximize_after_show
-			&& !self.splash.active()
+			&& !self.plugin_size.active()
 			&& let Some(viewport) = raw_input.viewports.get(&raw_input.viewport_id)
 			&& viewport.minimized != Some(true)
 			&& viewport.fullscreen != Some(true)
@@ -6594,6 +6594,8 @@ impl eframe::App for Desktop {
 			ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
 			self.confirming_close = true;
 		}
+		// The window size the interface layout shown this frame asks for.
+		let mut interface_size = None;
 		if self.login.is_some() {
 			let p = ui::design::palette(ui);
 			egui::Panel::top("login-header")
@@ -6684,6 +6686,7 @@ impl eframe::App for Desktop {
 				self.messaging.notification_sound_status = "Could not save device notification settings. Changes apply only until restart.";
 			}
 			let mut commands = self.messaging.show(ui, &mut self.state);
+			interface_size = self.messaging.plugin_interface_size();
 			self.extensions.cancel_stale_message_events(&self.state);
 			self.choose_interaction_files(&ctx);
 			if let Some(command) = self.captcha.sync(
@@ -7168,10 +7171,18 @@ impl eframe::App for Desktop {
 		} else {
 			self.sign_in_screen(ui);
 		}
-		let compact = self.start_screen.compact();
+		// A start screen's window size while it shows, otherwise the interface layout's.
+		let requested = self
+			.start_screen
+			.window()
+			.map(|window| (window.width, window.height))
+			.or_else(|| interface_size.map(|size| (size.width, size.height)))
+			.map(|(width, height)| {
+				winit::dpi::LogicalSize::new(u32::from(width), u32::from(height))
+			});
 		self.start_screen.retire();
-		self.splash
-			.sync(&self.window, compact, &mut self.window_minimum);
+		self.plugin_size
+			.sync(&self.window, requested, &mut self.window_minimum);
 		// Outside the signed-in branch so leaving an account still restores the window mode.
 		let video = self.messaging.video().take_fullscreen_request();
 		let voice = self.messaging.take_voice_fullscreen_request();

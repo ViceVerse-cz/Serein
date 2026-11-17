@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 
 pub const MAX_APP_SNAPSHOT_BYTES: usize = 64 * 1024;
 pub const MAX_APP_CHANNELS: usize = 100;
+/// Channel directory items allowed for the one focus server, listed before the others.
+pub const MAX_APP_FOCUS_CHANNELS: usize = 250;
 pub const MAX_APP_GUILDS: usize = 100;
 pub const MAX_CHANNEL_RECIPIENTS: usize = 32;
 pub const MAX_APP_MESSAGES: usize = 50;
@@ -207,6 +209,12 @@ pub struct ChannelSnapshot {
 	pub guild_id: Option<String>,
 	pub name: String,
 	pub kind: u8,
+	/// The category (or, for a thread, the parent channel) this channel sits under.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub parent_id: Option<String>,
+	/// The channel's position among its siblings, as the server orders them.
+	#[serde(default)]
+	pub position: i32,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

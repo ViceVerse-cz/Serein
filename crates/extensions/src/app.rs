@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 
 pub const MAX_APP_SNAPSHOT_BYTES: usize = 64 * 1024;
 pub const MAX_APP_CHANNELS: usize = 100;
+/// Channel directory items allowed for the one focus server, listed before the others.
+pub const MAX_APP_FOCUS_CHANNELS: usize = 250;
 pub const MAX_APP_GUILDS: usize = 100;
 pub const MAX_CHANNEL_RECIPIENTS: usize = 32;
 pub const MAX_APP_MESSAGES: usize = 50;
@@ -223,6 +225,10 @@ pub struct ChannelSnapshot {
 	pub guild_id: Option<String>,
 	pub name: String,
 	pub kind: u8,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub parent_id: Option<String>,
+	#[serde(default)]
+	pub position: i32,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -1039,8 +1045,11 @@ pub(crate) fn user(user: &UserSnapshot) -> Result<(), Error> {
 
 pub(crate) fn channel(channel: &ChannelSnapshot) -> Result<(), Error> {
 	entity_id(&channel.id)?;
-	if let Some(guild) = &channel.guild_id {
-		entity_id(guild)?;
+	for id in [&channel.guild_id, &channel.parent_id]
+		.into_iter()
+		.flatten()
+	{
+		entity_id(id)?;
 	}
 	label(&channel.name, 256)
 }
@@ -1341,8 +1350,22 @@ impl AppSnapshot {
 		if let Some(directory) = &self.channels {
 			ids(
 				directory.items.iter().map(|item| item.id.as_str()),
-				MAX_APP_CHANNELS,
+				MAX_APP_FOCUS_CHANNELS + MAX_APP_CHANNELS,
 			)?;
+			// A focus server's channels lead the list and have their own, larger item cap.
+			let focus = directory
+				.items
+				.first()
+				.and_then(|item| item.guild_id.as_deref());
+			let inside = directory
+				.items
+				.iter()
+				.filter(|item| focus.is_some() && item.guild_id.as_deref() == focus)
+				.count();
+			if inside > MAX_APP_FOCUS_CHANNELS || directory.items.len() - inside > MAX_APP_CHANNELS
+			{
+				return Err(Error::Limit);
+			}
 			for item in &directory.items {
 				channel(item)?;
 			}

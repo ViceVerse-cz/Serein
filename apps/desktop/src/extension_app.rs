@@ -81,12 +81,18 @@ fn user(value: &model::User) -> UserSnapshot {
 	}
 }
 
-fn channel(value: &model::Channel) -> ChannelSnapshot {
+/// A channel record; `parent_id` names only a parent the user can view.
+fn channel(state: &State, value: &model::Channel) -> ChannelSnapshot {
 	ChannelSnapshot {
 		id: value.id.0.to_string(),
 		guild_id: value.guild.map(|id| id.0.to_string()),
 		name: name(&value.name),
 		kind: value.kind,
+		parent_id: value
+			.parent_id
+			.filter(|id| id.0 != 0 && state.can_view(*id))
+			.map(|id| id.0.to_string()),
+		position: value.position,
 	}
 }
 
@@ -307,8 +313,8 @@ fn channel_metadata(state: &State) -> Option<ChannelMetadataSnapshot> {
 	Some(ChannelMetadataSnapshot {
 		channel_id: id.0.to_string(),
 		guild_id: guild.0.to_string(),
-		parent: parent.map(channel),
-		category: category.map(channel),
+		parent: parent.map(|value| channel(state, value)),
+		category: category.map(|value| channel(state, value)),
 		topic: loaded.map(|d| text(&d.topic, 2048)),
 		topic_truncated: loaded.is_some_and(|d| d.topic.len() > 2048),
 		slowmode_seconds: loaded.map(|d| d.slowmode),
@@ -328,11 +334,47 @@ fn channel_metadata(state: &State) -> Option<ChannelMetadataSnapshot> {
 }
 
 const PAIRED_MESSAGE_ROWS: usize = 12;
+/// Channel directory bytes reserved for the focus server, beyond the shared 10 KiB.
+const FOCUS_CHANNEL_BYTES: usize = 48 * 1024;
 
+/// The server whose channels the channel directory lists in full: the dock item an
+/// interface click names, else the selected dock item of the plugin's last restated
+/// interface, else the natively selected server.
+pub fn focus_guild(
+	state: &State,
+	invocation: &Invocation,
+	interface: Option<&InterfaceUi>,
+) -> Option<Id> {
+	let dock = interface.map_or(&[][..], |tree| &tree.dock);
+	let guild = |item: &InterfaceDockItem| {
+		item.guild_id
+			.as_deref()
+			.and_then(|id| id.parse::<u64>().ok())
+			.filter(|id| *id != 0)
+			.map(Id)
+	};
+	let clicked = (invocation.action == INTERFACE_CLICK_ACTION)
+		.then(|| invocation.values.get("id"))
+		.flatten();
+	clicked
+		.and_then(|id| dock.iter().find(|item| item.id == *id))
+		.and_then(guild)
+		.or_else(|| dock.iter().filter(|item| item.selected).find_map(guild))
+		.or_else(|| {
+			state
+				.selected
+				.and_then(|id| state.channel(id))
+				.and_then(|c| c.guild)
+		})
+}
+
+/// `focus` is the server whose channels the directory lists first and in full
+/// ([`focus_guild`]); `None` lists every channel on the shared bounds.
 pub fn snapshot(
 	state: &State,
 	messaging: &ui::MessagingUi,
 	manifest: &Manifest,
+	focus: Option<Id>,
 ) -> Option<Box<AppSnapshot>> {
 	if !available(state) || !uses_app(&manifest.capabilities) {
 		return None;
@@ -352,7 +394,9 @@ pub fn snapshot(
 		app.context = Some(AppContextSnapshot {
 			connected,
 			user: state.user.as_ref().map(user),
-			channel: selected.and_then(|id| state.channel(id)).map(channel),
+			channel: selected
+				.and_then(|id| state.channel(id))
+				.map(|value| channel(state, value)),
 		});
 	}
 	if connected && granted(Capability::AccountProfile) {
@@ -431,7 +475,7 @@ pub fn snapshot(
 		}
 		let can_read_history = state.can_read_history(value.id);
 		app.channel_details = Some(ChannelDetailsSnapshot {
-			channel: channel(value),
+			channel: channel(state, value),
 			parent_id: value
 				.parent_id
 				.filter(|id| state.can_view(*id))
@@ -453,17 +497,44 @@ pub fn snapshot(
 			items: Vec::new(),
 			truncated: false,
 		};
-		let mut budget = 10 * 1024;
-		// Items follow the client's sidebar order.
-		for value in ui::sidebar_order(state).into_iter().filter(|c| {
+		let listed = |c: &&model::Channel| {
 			state.can_view(c.id)
 				&& !(state.selected == Some(c.id) && state.freshness == Freshness::Unavailable)
-		}) {
+		};
+		// The focus server comes first on its own budget, so it stays complete however many
+		// other servers are loaded. Items otherwise keep the client's loaded order.
+		if let Some(focus) = focus {
+			let mut budget = FOCUS_CHANNEL_BYTES;
+			for value in state
+				.channels
+				.iter()
+				.filter(|c| c.guild == Some(focus))
+				.filter(listed)
+			{
+				if !push(
+					&mut directory.items,
+					channel(state, value),
+					&mut budget,
+					MAX_APP_FOCUS_CHANNELS,
+				) {
+					directory.truncated = true;
+					break;
+				}
+			}
+		}
+		let max = directory.items.len() + MAX_APP_CHANNELS;
+		let mut budget = 10 * 1024;
+		for value in state
+			.channels
+			.iter()
+			.filter(|c| focus.is_none() || c.guild != focus)
+			.filter(listed)
+		{
 			if !push(
 				&mut directory.items,
-				channel(value),
+				channel(state, value),
 				&mut budget,
-				MAX_APP_CHANNELS,
+				max,
 			) {
 				directory.truncated = true;
 				break;
@@ -670,6 +741,14 @@ pub fn snapshot(
 		if presence.validate().is_ok() {
 			app.own_presence = Some(presence);
 		}
+	}
+	// With the focus server's extra directory budget the fixed-budget groups can exceed the
+	// snapshot cap; drop directory items from the end (other servers first) until it fits.
+	while matches!(app.bytes(), Err(Error::Limit))
+		&& let Some(group) = app.channels.as_mut()
+		&& group.items.pop().is_some()
+	{
+		group.truncated = true;
 	}
 	if granted(Capability::MessageDetails)
 		&& let Some(id) = readable
@@ -891,7 +970,7 @@ pub fn query_snapshot(state: &State, manifest: &Manifest) -> Option<Box<QuerySna
 			.into_iter()
 			.flat_map(|page| page.threads.iter())
 			.take(20)
-			.map(channel)
+			.map(|value| channel(state, value))
 			.collect(),
 		next: view.page.as_ref().and_then(|page| {
 			page.next.map(|cursor| match cursor {
@@ -1350,7 +1429,7 @@ mod tests {
 		let mut messaging = ui::MessagingUi::default();
 		messaging.voice_speaking = vec![Id(1), Id(2), Id(4)];
 		let voice = manifest(vec![Capability::VoiceState]);
-		let app = snapshot(&state, &messaging, &voice).unwrap();
+		let app = snapshot(&state, &messaging, &voice, None).unwrap();
 		let roster = &app.voice.as_ref().unwrap().roster;
 		assert_eq!(roster.len(), 5, "every voice channel, not just the call");
 		let row = |user: &str| roster.iter().find(|row| row.user_id == user).unwrap();
@@ -1364,7 +1443,7 @@ mod tests {
 		assert!(!row("4").speaking, "only the active call reports speaking");
 		let before = ChangeKey::capture(&state, &messaging);
 		messaging.set_voice_user_mutes(&[1]);
-		let app = snapshot(&state, &messaging, &voice).unwrap();
+		let app = snapshot(&state, &messaging, &voice, None).unwrap();
 		let roster = &app.voice.as_ref().unwrap().roster;
 		assert!(
 			!roster
@@ -1379,10 +1458,15 @@ mod tests {
 			Some(AppEventKind::Voice)
 		);
 		assert!(
-			snapshot(&state, &messaging, &manifest(vec![Capability::AppContext]))
-				.unwrap()
-				.voice
-				.is_none(),
+			snapshot(
+				&state,
+				&messaging,
+				&manifest(vec![Capability::AppContext]),
+				None
+			)
+			.unwrap()
+			.voice
+			.is_none(),
 			"roster needs the voice grant"
 		);
 		// A nickname with control characters is cleaned, an empty one is left out and a long
@@ -1398,7 +1482,8 @@ mod tests {
 				.unwrap();
 			entry.member.as_mut().unwrap().nick = Some(nick.into());
 		}
-		let app = snapshot(&state, &messaging, &voice).expect("bad nicknames keep the snapshot");
+		let app =
+			snapshot(&state, &messaging, &voice, None).expect("bad nicknames keep the snapshot");
 		let roster = &app.voice.as_ref().unwrap().roster;
 		let row = |user: &str| roster.iter().find(|row| row.user_id == user).unwrap();
 		assert_eq!(roster.len(), 5, "every entry still listed");
@@ -1406,43 +1491,140 @@ mod tests {
 		assert_eq!(row("5").name, None, "an empty nickname is left out");
 		let bounded = row("3").name.as_deref().unwrap();
 		assert!(bounded.len() <= 128 && long.starts_with(bounded));
-		// The channel directory follows the sidebar: a category precedes its channels, and
-		// within one parent text channels precede voice channels.
+		// The channel directory keeps the loaded order and carries each channel's visible
+		// parent and position for plugins to sort by.
 		state.gateway_connected = true;
-		let directory = snapshot(
-			&state,
-			&messaging,
-			&manifest(vec![Capability::ChannelDirectory]),
-		)
-		.unwrap()
-		.channels
-		.unwrap();
-		let ids: Vec<Id> = directory
-			.items
+		let directory = |state: &State, focus| {
+			snapshot(
+				state,
+				&messaging,
+				&manifest(vec![Capability::ChannelDirectory]),
+				focus,
+			)
+			.unwrap()
+			.channels
+			.unwrap()
+		};
+		let plain = directory(&state, None);
+		let visible: Vec<&model::Channel> = state
+			.channels
 			.iter()
-			.map(|item| Id(item.id.parse().unwrap()))
+			.filter(|c| state.can_view(c.id))
 			.collect();
-		assert_eq!(
-			ids,
-			ui::sidebar_order(&state)
-				.into_iter()
-				.filter(|c| state.can_view(c.id))
-				.map(|c| c.id)
-				.take(ids.len())
-				.collect::<Vec<_>>()
-		);
-		let at = |id: Id| ids.iter().position(|item| *item == id);
-		for (index, id) in ids.iter().enumerate() {
-			let known = state.channel(*id).unwrap();
-			if let Some(parent) = known.parent_id.and_then(at) {
-				assert!(parent < index, "{id:?} follows its parent");
+		assert!(!plain.truncated);
+		assert_eq!(plain.items.len(), visible.len());
+		for (item, known) in plain.items.iter().zip(&visible) {
+			assert_eq!(item.id, known.id.0.to_string(), "loaded order");
+			assert_eq!(
+				item.parent_id,
+				known
+					.parent_id
+					.filter(|id| state.can_view(*id))
+					.map(|id| id.0.to_string())
+			);
+			assert_eq!(item.position, known.position);
+		}
+		let room = plain.items.iter().find(|item| item.id == "37").unwrap();
+		assert_eq!((room.parent_id.as_deref(), room.position), (Some("24"), 2));
+		// Past the shared bounds, the focus server is still listed in full, beyond the
+		// shared item cap, and the other servers fill the rest.
+		let template = state.channel(Id(21)).unwrap().clone();
+		for guild in [200, 201, 202] {
+			state.guilds.push(model::Guild {
+				banner: None,
+				default_message_notifications: None,
+				stickers: None,
+				id: Id(guild),
+				name: format!("Synthetic {guild}"),
+				icon: None,
+				emojis: None,
+			});
+			for index in 0..if guild == 202 { 110 } else { 40 } {
+				let mut value = template.clone();
+				value.id = Id(guild * 1000 + index);
+				value.guild = Some(Id(guild));
+				value.parent_id = None;
+				value.position = index as i32;
+				value.name = "c".into();
+				state.channels.push(value);
 			}
 		}
-		let text = at(Id(21)).expect("text channel listed");
-		let voice = at(Id(37)).expect("voice channel listed");
+		state
+			.permissions
+			.replace(test_support::permission_snapshot(&state))
+			.unwrap();
+		let in_focus = |directory: &ChannelDirectorySnapshot| {
+			directory
+				.items
+				.iter()
+				.filter(|item| item.guild_id.as_deref() == Some("202"))
+				.count()
+		};
+		let plain = directory(&state, None);
+		assert!(plain.truncated && plain.items.len() <= MAX_APP_CHANNELS);
 		assert!(
-			text < voice,
-			"text before voice under one category: {ids:?}"
+			in_focus(&plain) < 110,
+			"without focus the late server is cut"
+		);
+		// A dock click picks the focus over the selected dock item, which in turn beats the
+		// natively selected server.
+		let tree: InterfaceUi = serde_json::from_value(serde_json::json!({
+			"nodes": [],
+			"dock": [
+				{"id": "server:200", "label": "Two hundred", "guild_id": "200", "selected": true},
+				{"id": "server:202", "label": "Two hundred two", "guild_id": "202"}
+			]
+		}))
+		.unwrap();
+		let click = |id: &str| Invocation {
+			action: INTERFACE_CLICK_ACTION.into(),
+			values: [("id".into(), id.into())].into(),
+			..Default::default()
+		};
+		let event = Invocation {
+			action: "app-event".into(),
+			app_event: Some(AppEventKind::Channels),
+			..Default::default()
+		};
+		let focus = focus_guild(&state, &click("server:202"), Some(&tree));
+		assert_eq!(
+			focus,
+			Some(Id(202)),
+			"a dock click beats the selected dock item"
+		);
+		assert_eq!(
+			focus_guild(&state, &click("channel:25"), Some(&tree)),
+			Some(Id(200)),
+			"a row click keeps the selected dock item"
+		);
+		assert_eq!(focus_guild(&state, &event, Some(&tree)), Some(Id(200)));
+		assert_eq!(
+			focus_guild(&state, &click("server:202"), None),
+			Some(Id(10)),
+			"without an interface the natively selected server"
+		);
+		let focused = directory(&state, focus);
+		assert_eq!(in_focus(&focused), 110);
+		assert!(
+			focused.items[..110]
+				.iter()
+				.all(|item| item.guild_id.as_deref() == Some("202")),
+			"the focus server comes first"
+		);
+		assert!(focused.truncated, "the other servers still overflow");
+		assert!(focused.items.len() - 110 <= MAX_APP_CHANNELS);
+		state
+			.channels
+			.retain(|c| !matches!(c.guild, Some(Id(200 | 201))));
+		let focused = directory(&state, focus);
+		assert!(!focused.truncated, "everything fits");
+		assert_eq!(
+			focused.items.len(),
+			state
+				.channels
+				.iter()
+				.filter(|c| state.can_view(c.id))
+				.count()
 		);
 	}
 
@@ -1452,12 +1634,17 @@ mod tests {
 		let mut messaging = ui::MessagingUi::default();
 		messaging.voice_processing.profile = model::voice_settings::InputProfile::Studio;
 		messaging.own_presence.custom_status = "Synthetic status".into();
-		let ungranted =
-			snapshot(&state, &messaging, &manifest(vec![Capability::AppContext])).unwrap();
+		let ungranted = snapshot(
+			&state,
+			&messaging,
+			&manifest(vec![Capability::AppContext]),
+			None,
+		)
+		.unwrap();
 		assert!(ungranted.audio_settings.is_none() && ungranted.own_presence.is_none());
 		let audio = manifest(vec![Capability::AudioSettings]);
 		assert!(uses_app(&audio.capabilities));
-		let app = snapshot(&state, &messaging, &audio).unwrap();
+		let app = snapshot(&state, &messaging, &audio, None).unwrap();
 		assert!(app.own_presence.is_none());
 		let settings = app.audio_settings.unwrap();
 		assert_eq!(settings.input_profile, "studio");
@@ -1465,7 +1652,7 @@ mod tests {
 		assert_eq!(settings.sensitivity_db, None);
 		let account = manifest(vec![Capability::AccountControl]);
 		assert!(uses_app(&account.capabilities));
-		let app = snapshot(&state, &messaging, &account).unwrap();
+		let app = snapshot(&state, &messaging, &account, None).unwrap();
 		assert!(app.audio_settings.is_none());
 		assert_eq!(app.own_presence.unwrap().custom_status, "Synthetic status");
 		let before = ChangeKey::capture(&state, &messaging);
@@ -1488,7 +1675,7 @@ mod tests {
 		);
 		messaging.own_presence.custom_status = "x".repeat(129);
 		assert!(
-			snapshot(&state, &messaging, &account)
+			snapshot(&state, &messaging, &account, None)
 				.unwrap()
 				.own_presence
 				.is_none()
@@ -1501,13 +1688,14 @@ mod tests {
 				&state,
 				&messaging,
 				&manifest(vec![Capability::LocalSettings]),
+				None,
 			)
 			.unwrap();
 			assert!(reading.notification_settings.is_none());
 			assert_eq!(reading.settings.unwrap().scroll_speed_percent, Some(100));
 			let caps = manifest(vec![Capability::NotificationSettings]);
 			assert!(uses_app(&caps.capabilities));
-			let app = snapshot(&state, &messaging, &caps).unwrap();
+			let app = snapshot(&state, &messaging, &caps, None).unwrap();
 			assert!(app.settings.is_none() && app.context.is_none());
 			assert_eq!(
 				app.notification_settings.unwrap(),
@@ -1653,7 +1841,7 @@ mod tests {
 				event: client_core::Event::UserAction(event),
 			});
 		}
-		let app = snapshot(&state, &messaging, &caps).unwrap();
+		let app = snapshot(&state, &messaging, &caps, None).unwrap();
 		assert!(app.bytes().unwrap() <= MAX_APP_SNAPSHOT_BYTES);
 		let details = app.message_details.as_ref().unwrap();
 		assert!(details.items.iter().any(|m| m.id == "9000"));
@@ -1672,18 +1860,23 @@ mod tests {
 		assert_eq!(relationships.items.len(), 5);
 		assert_eq!(relationships.items[0].kind, RelationshipKind::Friend);
 		assert_eq!(relationships.items[4].kind, RelationshipKind::Ignored);
-		let no_grants =
-			snapshot(&state, &messaging, &manifest(vec![Capability::AppContext])).unwrap();
+		let no_grants = snapshot(
+			&state,
+			&messaging,
+			&manifest(vec![Capability::AppContext]),
+			None,
+		)
+		.unwrap();
 		assert!(no_grants.message_details.is_none() && no_grants.relationships.is_none());
 		state.freshness = Freshness::Stale;
 		assert!(
-			snapshot(&state, &messaging, &caps)
+			snapshot(&state, &messaging, &caps, None)
 				.unwrap()
 				.message_details
 				.is_none()
 		);
 		state.gateway_connected = false;
-		let disconnected = snapshot(&state, &messaging, &caps).unwrap();
+		let disconnected = snapshot(&state, &messaging, &caps, None).unwrap();
 		assert!(disconnected.message_details.is_none() && disconnected.relationships.is_none());
 	}
 	#[test]
@@ -1772,7 +1965,7 @@ mod tests {
 			Capability::LocalSettings,
 			Capability::NotificationSettings,
 		]);
-		let app = snapshot(&state, &messaging, &caps).unwrap();
+		let app = snapshot(&state, &messaging, &caps, None).unwrap();
 		assert!(app.relationships.as_ref().unwrap().truncated);
 		assert!(app.message_details.is_some());
 
@@ -1784,8 +1977,13 @@ mod tests {
 		let details = app.channel_details.as_ref().unwrap();
 		assert!(details.recipients_truncated && details.recipients.len() <= MAX_CHANNEL_RECIPIENTS);
 		assert!(app.bytes().unwrap() <= MAX_APP_SNAPSHOT_BYTES);
-		let ungranted =
-			snapshot(&state, &messaging, &manifest(vec![Capability::AppContext])).unwrap();
+		let ungranted = snapshot(
+			&state,
+			&messaging,
+			&manifest(vec![Capability::AppContext]),
+			None,
+		)
+		.unwrap();
 		assert!(
 			ungranted.account_profile.is_none()
 				&& ungranted.guilds.is_none()
@@ -1793,7 +1991,7 @@ mod tests {
 		);
 		state.own_profile.data.as_mut().unwrap().user.id = Id(999);
 		assert!(
-			snapshot(&state, &messaging, &caps)
+			snapshot(&state, &messaging, &caps, None)
 				.unwrap()
 				.account_profile
 				.as_ref()
@@ -1803,13 +2001,13 @@ mod tests {
 		);
 		state.freshness = Freshness::Unavailable;
 		assert!(
-			snapshot(&state, &messaging, &caps)
+			snapshot(&state, &messaging, &caps, None)
 				.unwrap()
 				.channel_details
 				.is_none()
 		);
 		state.gateway_connected = false;
-		let app = snapshot(&state, &messaging, &caps).unwrap();
+		let app = snapshot(&state, &messaging, &caps, None).unwrap();
 		assert!(
 			app.account_profile.is_none() && app.guilds.is_none() && app.channel_details.is_none()
 		);
@@ -1881,7 +2079,13 @@ mod tests {
 			"../../../examples/extensions/packages/conversation-inspector.serein-extension"
 		))
 		.unwrap();
-		let app = snapshot(&state, &ui::MessagingUi::default(), &inspector.manifest).unwrap();
+		let app = snapshot(
+			&state,
+			&ui::MessagingUi::default(),
+			&inspector.manifest,
+			None,
+		)
+		.unwrap();
 		assert!(
 			app.message_content.is_some()
 				&& app.forum_data.is_some()
@@ -1901,6 +2105,7 @@ mod tests {
 			&state,
 			&ui::MessagingUi::default(),
 			&manifest(vec![Capability::ConversationActivity]),
+			None,
 		)
 		.unwrap();
 		assert!(granted.conversation_activity.is_some());
@@ -1908,7 +2113,8 @@ mod tests {
 			snapshot(
 				&state,
 				&ui::MessagingUi::default(),
-				&manifest(vec![Capability::AppContext])
+				&manifest(vec![Capability::AppContext]),
+				None,
 			)
 			.unwrap()
 			.conversation_activity
@@ -1976,6 +2182,7 @@ mod tests {
 			&state,
 			&messaging,
 			&manifest(vec![Capability::ChannelMetadata]),
+			None,
 		)
 		.unwrap();
 		assert!(granted.channel_metadata.is_some());
@@ -1997,6 +2204,7 @@ mod tests {
 			&state,
 			&messaging,
 			&manifest(vec![Capability::ChannelDetails]),
+			None,
 		)
 		.unwrap();
 		assert!(denied.channel_metadata.is_none());
@@ -2038,7 +2246,15 @@ mod tests {
 	fn extension_app_snapshot_is_granted_current_and_byte_bounded() {
 		let mut state = test_support::demo_state();
 		let messaging = ui::MessagingUi::default();
-		assert!(snapshot(&state, &messaging, &manifest(vec![Capability::Storage])).is_none());
+		assert!(
+			snapshot(
+				&state,
+				&messaging,
+				&manifest(vec![Capability::Storage]),
+				None
+			)
+			.is_none()
+		);
 		let caps = manifest(vec![
 			Capability::AccountProfile,
 			Capability::MessageDetails,
@@ -2055,7 +2271,7 @@ mod tests {
 			Capability::LocalSettings,
 			Capability::NotificationSettings,
 		]);
-		let app = snapshot(&state, &messaging, &caps).unwrap();
+		let app = snapshot(&state, &messaging, &caps, None).unwrap();
 		assert_eq!(
 			app.context.as_ref().unwrap().channel.as_ref().unwrap().id,
 			"20"
@@ -2089,6 +2305,7 @@ mod tests {
 			&state,
 			&messaging,
 			&manifest(vec![Capability::LocalSettings]),
+			None,
 		)
 		.unwrap();
 		assert!(app.context.is_none() && app.channels.is_none() && app.timeline.is_none());
@@ -2123,11 +2340,11 @@ mod tests {
 			ChangeKey::capture(&state, &messaging).changed(&loading),
 			Some(AppEventKind::Context)
 		);
-		let app = snapshot(&state, &messaging, &caps).unwrap();
+		let app = snapshot(&state, &messaging, &caps, None).unwrap();
 		assert_eq!(app.members.as_ref().unwrap().items.len(), 1);
 		assert_eq!(app.presence.as_ref().unwrap().items.len(), 1);
 		state.freshness = Freshness::Unavailable;
-		let app = snapshot(&state, &messaging, &caps).unwrap();
+		let app = snapshot(&state, &messaging, &caps, None).unwrap();
 		assert!(app.context.as_ref().unwrap().channel.is_none());
 		assert!(app.members.is_none() && app.presence.is_none() && app.timeline.is_none());
 		assert!(
@@ -2139,7 +2356,7 @@ mod tests {
 				.all(|channel| channel.id != "20")
 		);
 		state.gateway_connected = false;
-		let app = snapshot(&state, &messaging, &caps).unwrap();
+		let app = snapshot(&state, &messaging, &caps, None).unwrap();
 		assert!(!app.context.as_ref().unwrap().connected);
 		assert!(
 			app.channels.is_none()
@@ -2149,7 +2366,7 @@ mod tests {
 		);
 		state.demo = false;
 		state.auth = AuthState::Unauthenticated;
-		assert!(snapshot(&state, &messaging, &caps).is_none());
+		assert!(snapshot(&state, &messaging, &caps, None).is_none());
 	}
 	#[test]
 	fn extension_app_timeline_excludes_private_deleted_and_oversized_rows() {
@@ -2177,7 +2394,7 @@ mod tests {
 				id: Id(2003),
 			},
 		});
-		let app = snapshot(&state, &ui::MessagingUi::default(), &caps).unwrap();
+		let app = snapshot(&state, &ui::MessagingUi::default(), &caps, None).unwrap();
 		let timeline = app.timeline.as_ref().unwrap();
 		assert!(timeline.messages.iter().any(|m| m.id == "2004"));
 		assert!(
@@ -2189,7 +2406,7 @@ mod tests {
 		assert!(timeline.truncated);
 		state.freshness = Freshness::Unavailable;
 		assert!(
-			snapshot(&state, &ui::MessagingUi::default(), &caps)
+			snapshot(&state, &ui::MessagingUi::default(), &caps, None)
 				.unwrap()
 				.timeline
 				.is_none()

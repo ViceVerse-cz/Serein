@@ -3311,7 +3311,7 @@ fn capability_label(capability: Capability) -> &'static str {
 		Capability::InterfaceTweaks => "Change how parts of the interface look or behave",
 		Capability::InterfaceUi => "Replace the main panes with the plugin's own list of rows",
 		Capability::StartScreen => {
-			"Customize the start screen (text, style and an optional 3D model)"
+			"Replace the start screen's logo and text with the plugin's images and text"
 		}
 		Capability::Composer => "Read my draft and propose text changes",
 		Capability::Storage => "Store up to 1 MiB of local data for this account",

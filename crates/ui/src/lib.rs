@@ -51,7 +51,7 @@ pub mod proxy_auth;
 mod rich_presence;
 mod start_screen;
 mod theme_editor;
-pub use start_screen::StartScreenView;
+pub use start_screen::{DecodedStartScreen, StartScreenView};
 mod thread_create;
 pub use extensions_ui::{ExtensionContext, ExtensionEntry, ExtensionRequest, ExtensionUi};
 pub use interface_ui::PluginInterface;
@@ -146,7 +146,6 @@ mod user_direct;
 mod user_menu;
 mod verification;
 mod voice;
-pub use categories::sidebar_order;
 use client_core::{Command, MAX_DRAFT_BYTES, NavStep, State};
 use egui::{RichText, TextEdit};
 use model::{Freshness, Id};
@@ -1497,166 +1496,211 @@ impl MessagingUi {
 				ui.style_mut().interaction.selectable_labels = false;
 				let rect = ui.max_rect();
 				design::window_drag(ui, rect);
-				let title_rect = egui::Rect::from_center_size(
-					rect.center(),
-					egui::vec2(rect.width() * 0.3, rect.height()),
-				);
-				ui.scope_builder(
-					egui::UiBuilder::new()
-						.max_rect(egui::Rect::from_min_max(
-							egui::pos2(rect.left() + design::TRAFFIC_LIGHT_INSET + 8.0, rect.top()),
-							egui::pos2(title_rect.left() - 10.0, rect.bottom()),
-						))
-						.layout(egui::Layout::left_to_right(egui::Align::Center)),
-					|ui| {
-						ui.spacing_mut().item_spacing.x = 4.0;
-						if ui
-							.add_enabled_ui(
-								self.settings.open
-									|| self.server_settings.is_open()
-									|| state.trail.can_go_back(),
-								|ui| icons::button(ui, icons::Icon::ArrowLeft, 28.0, "Back"),
-							)
-							.inner
-							.clicked()
-						{
-							self.navigate_history(state, commands, true);
-						}
-						if ui
-							.add_enabled_ui(
-								!self.settings.open
-									&& !self.server_settings.is_open()
-									&& state.trail.can_go_forward(),
-								|ui| icons::button(ui, icons::Icon::ArrowRight, 28.0, "Forward"),
-							)
-							.inner
-							.clicked()
-						{
-							self.navigate_history(state, commands, false);
-						}
-					},
-				);
-				ui.scope_builder(
-					egui::UiBuilder::new().max_rect(title_rect).layout(
-						egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
-					),
-					|ui| {
-						ui.add(
-							egui::Label::new(design::semibold(ui, title, 13.0).color(colors.text))
-								.truncate(),
-						);
-					},
-				);
-
+				let left_end = ui
+					.scope_builder(
+						egui::UiBuilder::new()
+							.max_rect(egui::Rect::from_min_max(
+								egui::pos2(
+									rect.left() + design::TRAFFIC_LIGHT_INSET + 8.0,
+									rect.top(),
+								),
+								rect.right_bottom(),
+							))
+							.layout(egui::Layout::left_to_right(egui::Align::Center)),
+						|ui| {
+							ui.spacing_mut().item_spacing.x = 4.0;
+							if ui
+								.add_enabled_ui(
+									self.settings.open
+										|| self.server_settings.is_open()
+										|| state.trail.can_go_back(),
+									|ui| icons::button(ui, icons::Icon::ArrowLeft, 28.0, "Back"),
+								)
+								.inner
+								.clicked()
+							{
+								self.navigate_history(state, commands, true);
+							}
+							if ui
+								.add_enabled_ui(
+									!self.settings.open
+										&& !self.server_settings.is_open()
+										&& state.trail.can_go_forward(),
+									|ui| {
+										icons::button(ui, icons::Icon::ArrowRight, 28.0, "Forward")
+									},
+								)
+								.inner
+								.clicked()
+							{
+								self.navigate_history(state, commands, false);
+							}
+						},
+					)
+					.response
+					.rect
+					.right();
 				let right_inset = if design::WINDOW_CONTROLS_WIDTH > 0.0 {
 					0.0
 				} else {
 					12.0
 				};
-				ui.scope_builder(
-					egui::UiBuilder::new()
-						.max_rect(egui::Rect::from_min_max(
-							egui::pos2(title_rect.right() + 10.0, rect.top()),
-							rect.right_bottom() - egui::vec2(right_inset, 0.0),
-						))
-						.layout(egui::Layout::right_to_left(egui::Align::Center)),
-					|ui| {
-						if !cfg!(target_os = "linux") || self.uses_custom_title_bar() {
-							design::window_controls(ui);
-						}
-						ui.spacing_mut().item_spacing.x = 10.0;
-						if self.updates.available || self.updates.ready {
-							let (label, icon) = if self.updates.ready {
-								(
-									"updates-shows-update-banner-restart-to-update",
-									icons::Icon::Reload,
-								)
-							} else if self.updates.busy {
-								(
-									"updates-shows-update-banner-updating",
-									icons::Icon::Download,
-								)
-							} else {
-								(
-									"updates-shows-update-banner-update-available",
-									icons::Icon::Download,
-								)
-							};
-							let label = crate::i18n::translate(label);
-							let font = egui::FontId::new(12.0, design::medium_family(ui.ctx()));
-							let galley =
-								ui.painter()
-									.layout_no_wrap(label.clone(), font, colors.accent);
-							let icon_size = 13.0;
-							let gap = 5.0;
-							let pad = egui::vec2(6.0, 2.0);
-							let size = egui::vec2(
-								galley.size().x + icon_size + gap + pad.x * 2.0,
-								galley.size().y.max(icon_size) + pad.y * 2.0,
-							);
-							let (rect, response) =
-								ui.allocate_exact_size(size, egui::Sense::click());
-							ui.painter().rect_filled(
-								rect,
-								255,
-								colors.accent.gamma_multiply(if response.hovered() {
-									0.24
-								} else {
-									0.16
-								}),
-							);
-							let icon_rect = egui::Rect::from_center_size(
-								egui::pos2(rect.left() + pad.x + icon_size / 2.0, rect.center().y),
-								egui::Vec2::splat(icon_size),
-							);
-							icons::paint(ui.painter(), icon, icon_rect, colors.accent);
-							ui.painter().galley(
-								egui::pos2(
-									icon_rect.right() + gap,
-									rect.center().y - galley.size().y / 2.0,
-								),
-								galley,
-								colors.accent,
-							);
-							if response
-								.on_hover_text(crate::i18n::translate_if_key(&self.updates.status))
-								.clicked()
-							{
-								self.open_update_settings();
+				// The right side lays out before the title so the title takes only the space
+				// left between both sides; badges that would not fit a narrow window are left out.
+				let badge_room = 120.0;
+				let right_start = ui
+					.scope_builder(
+						egui::UiBuilder::new()
+							.max_rect(egui::Rect::from_min_max(
+								egui::pos2(left_end + 10.0, rect.top()),
+								rect.right_bottom() - egui::vec2(right_inset, 0.0),
+							))
+							.layout(egui::Layout::right_to_left(egui::Align::Center)),
+						|ui| {
+							if !cfg!(target_os = "linux") || self.uses_custom_title_bar() {
+								design::window_controls(ui);
 							}
-						} else {
-							design::build_badge(ui, self.build);
-						}
-						if state.demo && !self.updates.available && !self.updates.ready {
-							egui::Frame::new()
-								.stroke(egui::Stroke::new(1.0, colors.border))
-								.corner_radius(10)
-								.inner_margin(egui::Margin::symmetric(8, 3))
-								.show(ui, |ui| {
-									ui.label(
-										design::semibold(
-											ui,
-											crate::i18n::translate("lib-title-bar-offline-preview"),
-											10.0,
-										)
-										.color(colors.muted),
-									);
-								})
-								.response
-								.on_hover_text(crate::i18n::translate(
-									"lib-title-bar-synthetic-data-no-network-or-local-storage",
-								));
-						}
-						if !state.demo
-							&& state.auth != client_core::auth::AuthState::Authenticated
-							&& ui
-								.small_button(crate::i18n::translate("lib-title-bar-sign-in-again"))
-								.clicked()
-						{
-							self.reconnect_requested = true;
-						}
-					},
-				);
+							ui.spacing_mut().item_spacing.x = 10.0;
+							if ui.available_width() < badge_room {
+							} else if self.updates.available || self.updates.ready {
+								let (label, icon) = if self.updates.ready {
+									(
+										"updates-shows-update-banner-restart-to-update",
+										icons::Icon::Reload,
+									)
+								} else if self.updates.busy {
+									(
+										"updates-shows-update-banner-updating",
+										icons::Icon::Download,
+									)
+								} else {
+									(
+										"updates-shows-update-banner-update-available",
+										icons::Icon::Download,
+									)
+								};
+								let label = crate::i18n::translate(label);
+								let font = egui::FontId::new(12.0, design::medium_family(ui.ctx()));
+								let galley =
+									ui.painter()
+										.layout_no_wrap(label.clone(), font, colors.accent);
+								let icon_size = 13.0;
+								let gap = 5.0;
+								let pad = egui::vec2(6.0, 2.0);
+								let size = egui::vec2(
+									galley.size().x + icon_size + gap + pad.x * 2.0,
+									galley.size().y.max(icon_size) + pad.y * 2.0,
+								);
+								let (rect, response) =
+									ui.allocate_exact_size(size, egui::Sense::click());
+								ui.painter().rect_filled(
+									rect,
+									255,
+									colors.accent.gamma_multiply(if response.hovered() {
+										0.24
+									} else {
+										0.16
+									}),
+								);
+								let icon_rect = egui::Rect::from_center_size(
+									egui::pos2(
+										rect.left() + pad.x + icon_size / 2.0,
+										rect.center().y,
+									),
+									egui::Vec2::splat(icon_size),
+								);
+								icons::paint(ui.painter(), icon, icon_rect, colors.accent);
+								ui.painter().galley(
+									egui::pos2(
+										icon_rect.right() + gap,
+										rect.center().y - galley.size().y / 2.0,
+									),
+									galley,
+									colors.accent,
+								);
+								if response
+									.on_hover_text(crate::i18n::translate_if_key(
+										&self.updates.status,
+									))
+									.clicked()
+								{
+									self.open_update_settings();
+								}
+							} else {
+								design::build_badge(ui, self.build);
+							}
+							if state.demo
+								&& !self.updates.available
+								&& !self.updates.ready && ui.available_width() >= badge_room
+							{
+								egui::Frame::new()
+									.stroke(egui::Stroke::new(1.0, colors.border))
+									.corner_radius(10)
+									.inner_margin(egui::Margin::symmetric(8, 3))
+									.show(ui, |ui| {
+										ui.label(
+											design::semibold(
+												ui,
+												crate::i18n::translate(
+													"lib-title-bar-offline-preview",
+												),
+												10.0,
+											)
+											.color(colors.muted),
+										);
+									})
+									.response
+									.on_hover_text(crate::i18n::translate(
+										"lib-title-bar-synthetic-data-no-network-or-local-storage",
+									));
+							}
+							if !state.demo
+								&& state.auth != client_core::auth::AuthState::Authenticated
+								&& ui
+									.small_button(crate::i18n::translate(
+										"lib-title-bar-sign-in-again",
+									))
+									.clicked()
+							{
+								self.reconnect_requested = true;
+							}
+						},
+					)
+					.response
+					.rect
+					.left();
+				// Centred on the window while both sides leave room; otherwise the title uses all
+				// the space between them, so narrow windows show more of it.
+				let (start, end) = (left_end + 10.0, right_start - 10.0);
+				let half = (rect.center().x - start)
+					.min(end - rect.center().x)
+					.min(rect.width() * 0.15);
+				let title_rect = if half >= 80.0 {
+					egui::Rect::from_center_size(
+						rect.center(),
+						egui::vec2(half * 2.0, rect.height()),
+					)
+				} else {
+					egui::Rect::from_min_max(
+						egui::pos2(start, rect.top()),
+						egui::pos2(end, rect.bottom()),
+					)
+				};
+				if title_rect.width() >= 24.0 {
+					ui.scope_builder(
+						egui::UiBuilder::new().max_rect(title_rect).layout(
+							egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+						),
+						|ui| {
+							ui.add(
+								egui::Label::new(
+									design::semibold(ui, title, 13.0).color(colors.text),
+								)
+								.truncate(),
+							);
+						},
+					);
+				}
 			});
 	}
 	fn navigate_history(&mut self, state: &mut State, commands: &mut Vec<Command>, back: bool) {
@@ -4892,6 +4936,12 @@ impl MessagingUi {
 			self.interface_chat = None;
 		}
 		self.plugin_interface = interface.map(std::sync::Arc::new);
+	}
+	/// The window size the plugin interface in place of the main panes asks for.
+	pub fn plugin_interface_size(&self) -> Option<extensions::InterfaceSize> {
+		self.plugin_interface
+			.as_ref()
+			.and_then(|interface| interface.tree.size)
 	}
 	/// Draws one frame of the signed-in client and returns the commands it produced for the
 	/// service layer.

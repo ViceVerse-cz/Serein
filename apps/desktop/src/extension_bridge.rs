@@ -111,13 +111,17 @@ const MAX_MESSAGE_EVENTS: usize = 32;
 const MAX_MESSAGE_EVENT_BYTES: usize = 64 * 1024;
 const MESSAGE_EVENT_INTERVAL: Duration = Duration::from_millis(100);
 
+/// `interface` is the plugin's last restated interface; with the invocation it picks the
+/// channel directory's focus server.
 fn attach_app_data(
 	invocation: &mut Invocation,
 	state: &State,
 	messaging: &ui::MessagingUi,
 	manifest: &Manifest,
+	interface: Option<&extensions::InterfaceUi>,
 ) {
-	invocation.app = crate::extension_app::snapshot(state, messaging, manifest);
+	let focus = crate::extension_app::focus_guild(state, invocation, interface);
+	invocation.app = crate::extension_app::snapshot(state, messaging, manifest, focus);
 	invocation.queries = crate::extension_app::query_snapshot(state, manifest);
 	invocation.messaging_settings =
 		crate::extension_app::messaging_settings_snapshot(state, manifest);
@@ -264,8 +268,8 @@ impl Bridge {
 	}
 
 	/// The start screen the enabled granted plugin with the lowest id last set, kept on this
-	/// device so it shows before any account loads.
-	pub fn start_screen(&self) -> Option<Arc<extensions::StartScreen>> {
+	/// device so it shows before any account loads, with its frames decoded for playback.
+	pub fn start_screen(&self) -> Option<Arc<ui::DecodedStartScreen>> {
 		self.start_screen.current()
 	}
 	/// Reconciles the device start screen with the account's working, granted plugins once
@@ -1333,14 +1337,16 @@ impl Bridge {
 							&& entry.manifest.capabilities.contains(&Capability::ApiProxy)
 					});
 					if account.is_some() || connection_plugin {
-						let manifest = &self
-							.installed
-							.iter()
-							.find(|e| e.manifest.id == id)
-							.unwrap()
-							.manifest;
+						let entry = self.installed.iter().find(|e| e.manifest.id == id).unwrap();
+						let manifest = &entry.manifest;
 						if !connection_plugin {
-							attach_app_data(&mut invocation, state, messaging, manifest);
+							attach_app_data(
+								&mut invocation,
+								state,
+								messaging,
+								manifest,
+								entry.interface_ui.as_ref(),
+							);
 						}
 						if crate::extension_app::uses_app(&manifest.capabilities) {
 							// App snapshots and proposals belong to the conversation that produced them.
@@ -1488,24 +1494,34 @@ impl Bridge {
 						}
 						ReactiveEvent::App(kind) => {
 							invocation.app_event = Some(kind);
-							let manifest = &self
+							let entry = self
 								.installed
 								.iter()
 								.find(|e| e.manifest.id == queued.id)
-								.unwrap()
-								.manifest;
-							attach_app_data(&mut invocation, state, messaging, manifest);
+								.unwrap();
+							attach_app_data(
+								&mut invocation,
+								state,
+								messaging,
+								&entry.manifest,
+								entry.interface_ui.as_ref(),
+							);
 						}
 						ReactiveEvent::ActionResult(result) => {
 							invocation.app_event = Some(AppEventKind::Context);
 							invocation.action_result = Some(result);
-							let manifest = &self
+							let entry = self
 								.installed
 								.iter()
 								.find(|e| e.manifest.id == queued.id)
-								.unwrap()
-								.manifest;
-							attach_app_data(&mut invocation, state, messaging, manifest);
+								.unwrap();
+							attach_app_data(
+								&mut invocation,
+								state,
+								messaging,
+								&entry.manifest,
+								entry.interface_ui.as_ref(),
+							);
 						}
 					}
 					let pending = Some((
@@ -2093,9 +2109,9 @@ mod tests {
 		assert!(bridge.plugin_interface().is_none());
 	}
 
-	/// Checks the device start screen across a restart: it needs the capability, the lowest
-	/// plugin id wins, a result without one keeps it, the owner's `null` hands it to the next
-	/// plugin, and disabling the last owner removes the saved file.
+	/// Checks the device start screen across a restart: an image screen reloads, it needs the
+	/// capability, the lowest plugin id wins, a result without one keeps it, the owner's `null`
+	/// hands it to the next plugin, and disabling the last owner removes the saved file.
 	#[test]
 	fn start_screen_persists_lowest_id_wins_and_clears_on_disable() {
 		use crate::extension_start_screen::DeviceStartScreen;
@@ -2110,10 +2126,18 @@ mod tests {
 		let saved = || {
 			DeviceStartScreen::load(&root, &ctx)
 				.current()
-				.and_then(|screen| screen.title.clone())
+				.and_then(|screen| screen.screen().title.clone())
 		};
 		let screen = |title: &str| {
 			Some(Some(extensions::StartScreen {
+				images: vec![extensions::StartImage {
+					width: 2,
+					height: 2,
+					palette: vec!["#33aa55".into()],
+					frames: vec!["bA==".into()],
+					fps: 12,
+					cell: 3,
+				}],
 				title: Some(title.into()),
 				..Default::default()
 			}))
@@ -2234,7 +2258,13 @@ mod tests {
 			app_event: Some(AppEventKind::Ready),
 			..Default::default()
 		};
-		attach_app_data(&mut invocation, &state, &messaging, &manifest);
+		attach_app_data(
+			&mut invocation,
+			&state,
+			&messaging,
+			&manifest,
+			bridge.installed[0].interface_ui.as_ref(),
+		);
 		let names: Vec<&str> = invocation
 			.app
 			.as_ref()

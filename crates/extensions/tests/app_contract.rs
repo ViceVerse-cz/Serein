@@ -133,6 +133,8 @@ fn snapshot() -> AppSnapshot {
 		guild_id: Some("4".into()),
 		name: "General".into(),
 		kind: 0,
+		parent_id: Some("3".into()),
+		position: 2,
 	};
 	AppSnapshot {
 		message_content: Some(MessageContentSnapshot {
@@ -400,6 +402,7 @@ fn each_snapshot_group_requires_its_own_grant_and_typed_sdk_roundtrips() {
 	output.validate(&manifest, &input).unwrap();
 	assert_eq!(sdk::MAX_APP_SNAPSHOT_BYTES, MAX_APP_SNAPSHOT_BYTES);
 	assert_eq!(sdk::MAX_APP_CHANNELS, MAX_APP_CHANNELS);
+	assert_eq!(sdk::MAX_APP_FOCUS_CHANNELS, MAX_APP_FOCUS_CHANNELS);
 	assert_eq!(sdk::MAX_APP_MESSAGES, MAX_APP_MESSAGES);
 	assert_eq!(sdk::MAX_APP_MEMBERS, MAX_APP_MEMBERS);
 	assert_eq!(sdk::MAX_APP_PRESENCES, MAX_APP_PRESENCES);
