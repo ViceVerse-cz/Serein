@@ -105,16 +105,6 @@ impl DeviceStartScreen {
 		self.owner.as_ref().map(|owner| owner.screen.clone())
 	}
 
-	/// Shows `screen` without saving it, as if a plugin had set it; fixture runs only.
-	#[cfg(feature = "demo")]
-	pub fn preview(&mut self, screen: StartScreen) {
-		self.owner = Some(Owner {
-			account: String::new(),
-			plugin: "start-screen-demo".into(),
-			screen: Arc::new(screen),
-		});
-	}
-
 	/// Reconciles the screen with one account's working, granted plugins and the start screen
 	/// each last restated (`None`: nothing this session). The owner's own value replaces or
 	/// clears it; an owner missing from `plugins` was disabled, removed, failed or lost its
@@ -243,77 +233,4 @@ fn write(path: &Path, owner: Option<&Owner>) -> Result<(), String> {
 		return Err("Start screen exceeds its device storage budget".into());
 	}
 	write_device_file(path, Some(&bytes))
-}
-
-/// Synthetic plugin result for `--demo-start-screen`: "Loading..." in pixel text under a
-/// spinning spiky star (an icosahedron with a spike raised from every face), in the compact
-/// splash window, with the SDK's default spin and pitch.
-#[cfg(feature = "demo")]
-pub fn demo_screen() -> StartScreen {
-	const SPIKE: f32 = 1.9;
-	let golden = (1.0 + 5f32.sqrt()) / 2.0;
-	let unit = |[x, y, z]: [f32; 3]| {
-		let length = (x * x + y * y + z * z).sqrt();
-		[x / length, y / length, z / length]
-	};
-	let mut vertices: Vec<[f32; 3]> = [
-		[-1.0, golden, 0.0],
-		[1.0, golden, 0.0],
-		[-1.0, -golden, 0.0],
-		[1.0, -golden, 0.0],
-		[0.0, -1.0, golden],
-		[0.0, 1.0, golden],
-		[0.0, -1.0, -golden],
-		[0.0, 1.0, -golden],
-		[golden, 0.0, -1.0],
-		[golden, 0.0, 1.0],
-		[-golden, 0.0, -1.0],
-		[-golden, 0.0, 1.0],
-	]
-	.map(unit)
-	.to_vec();
-	let faces: [[u16; 3]; 20] = [
-		[0, 11, 5],
-		[0, 5, 1],
-		[0, 1, 7],
-		[0, 7, 10],
-		[0, 10, 11],
-		[1, 5, 9],
-		[5, 11, 4],
-		[11, 10, 2],
-		[10, 7, 6],
-		[7, 1, 8],
-		[3, 9, 4],
-		[3, 4, 2],
-		[3, 2, 6],
-		[3, 6, 8],
-		[3, 8, 9],
-		[4, 9, 5],
-		[2, 4, 11],
-		[6, 2, 10],
-		[8, 6, 7],
-		[9, 8, 1],
-	];
-	let mut triangles = Vec::with_capacity(faces.len() * 3);
-	for [a, b, c] in faces {
-		let [pa, pb, pc] = [a, b, c].map(|index| vertices[usize::from(index)]);
-		let tip = unit(std::array::from_fn(|axis| pa[axis] + pb[axis] + pc[axis]));
-		let index = vertices.len() as u16;
-		vertices.push(tip.map(|value| value * SPIKE));
-		triangles.extend([[a, b, index], [b, c, index], [c, a, index]]);
-	}
-	StartScreen {
-		title: Some("Loading...".into()),
-		subtitle: None,
-		text_style: extensions::StartTextStyle::Dither,
-		hide_logo: true,
-		compact: true,
-		model: Some(extensions::StartModel {
-			vertices,
-			triangles,
-			color: None,
-			spin: 12.0,
-			pitch: 20.0,
-		}),
-	}
 }

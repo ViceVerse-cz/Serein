@@ -2403,12 +2403,6 @@ impl Desktop {
 			}
 		}
 		#[cfg(feature = "demo")]
-		if demo && std::env::args().any(|arg| arg == "--demo-start-screen") {
-			// Fixture-only: hold the connecting screen with a synthetic plugin start screen.
-			state.user = None;
-			state.status = "Disconnected";
-		}
-		#[cfg(feature = "demo")]
 		if demo && std::env::args().any(|arg| arg.starts_with("--demo-onboarding")) {
 			onboarding_demo::open(&mut state);
 		}

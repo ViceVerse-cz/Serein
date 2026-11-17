@@ -635,12 +635,6 @@ impl Bridge {
 				return;
 			};
 			self.start_screen = crate::extension_start_screen::DeviceStartScreen::load(&root, ctx);
-			// Fixture-only: a synthetic plugin start screen, e.g. `--demo --demo-start-screen`.
-			#[cfg(feature = "demo")]
-			if demo && std::env::args().any(|arg| arg == "--demo-start-screen") {
-				self.start_screen
-					.preview(crate::extension_start_screen::demo_screen());
-			}
 			self.host = Some(ExtensionHost::new(root));
 		}
 		let scope = (state.generation, account.clone());

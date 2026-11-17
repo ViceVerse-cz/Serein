@@ -318,13 +318,9 @@ impl Desktop {
 	/// Boot stage while a saved login is being restored, so launch shows progress
 	/// instead of a welcome card the user cannot act on yet.
 	pub(super) fn restoring(&self) -> Option<String> {
-		// Fixture-only preview of the restore screen, e.g. `--demo --demo-restoring`;
-		// `--demo-start-screen` adds a synthetic plugin start screen.
+		// Fixture-only preview of the restore screen, e.g. `--demo --demo-restoring`.
 		#[cfg(feature = "demo")]
-		if self.fixture_only
-			&& std::env::args()
-				.any(|arg| matches!(arg.as_str(), "--demo-restoring" | "--demo-start-screen"))
-		{
+		if self.fixture_only && std::env::args().any(|arg| arg == "--demo-restoring") {
 			return Some(ui::i18n::translate(
 				"main-restoring-checking-your-saved-login",
 			));
