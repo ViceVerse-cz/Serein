@@ -113,11 +113,15 @@ fn link(value: Option<Lenient<String>>) -> Option<String> {
 		return None;
 	}
 	let url = url::Url::parse(&value).ok()?;
+	// The normalized form is what the panel shows and what `valid()` re-checks, so an
+	// encoded expansion drops the link instead of the whole classification.
+	let normalized = url.to_string();
 	(url.scheme() == "https"
 		&& url.host_str().is_some()
 		&& url.username().is_empty()
-		&& url.password().is_none())
-	.then(|| url.to_string())
+		&& url.password().is_none()
+		&& normalized.len() <= MAX_LINK)
+		.then_some(normalized)
 }
 fn action(dto: ActionDto) -> Option<Action> {
 	let mut descriptions = Vec::with_capacity(MAX_ACTION_DESCRIPTIONS);
@@ -327,6 +331,29 @@ mod tests {
 			Some("https://example.com/why")
 		);
 		assert!(snapshot.classifications[3].actions.is_empty());
+	}
+
+	/// A link whose percent-encoded form exceeds `MAX_LINK` must drop only the link, so the
+	/// classification stays available instead of being rejected by `valid()`.
+	#[test]
+	fn an_expanded_normalized_link_drops_the_link_and_keeps_the_row() {
+		// 400 `é` characters: 800 raw bytes pass the input cap, but the normalized form is
+		// 2400 bytes, which must not reject the row.
+		let expanded = "é".repeat(400);
+		let body = serde_json::json!({
+			"account_standing": {"state": 100},
+			"classifications": [{
+				"id": "11",
+				"description": "encoded",
+				"explainer_link": format!("https://example.com/{expanded}"),
+			}]
+		})
+		.to_string();
+		assert!(body.len() <= MAX_WIRE);
+		let snapshot = decode_hub(body.as_bytes()).unwrap();
+		assert_eq!(snapshot.classifications.len(), 1, "the row survives");
+		assert!(snapshot.classifications[0].explainer_link.is_none());
+		assert!(snapshot.valid());
 	}
 
 	#[test]

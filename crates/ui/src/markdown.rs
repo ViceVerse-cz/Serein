@@ -553,7 +553,7 @@ pub(super) fn confirm_external_link(
 	opening: &mut Option<String>,
 	confirm_links: bool,
 ) {
-	confirm_external_link_noting(ctx, opening, confirm_links, false);
+	confirm_external_link_inner(ctx, opening, confirm_links, false, true);
 }
 
 /// Like [`confirm_external_link`]; `truncated` always asks first and says that only the start
@@ -563,6 +563,23 @@ pub(super) fn confirm_external_link_noting(
 	opening: &mut Option<String>,
 	confirm_links: bool,
 	truncated: bool,
+) {
+	confirm_external_link_inner(ctx, opening, confirm_links, truncated, true);
+}
+
+/// A destination the service supplied always asks first, even when its host is one of
+/// Discord's: the URL is unverified wire data, and a look-alike host must not skip the
+/// confirmation the compatibility document promises.
+pub(super) fn confirm_wire_link(ctx: &egui::Context, opening: &mut Option<String>) {
+	confirm_external_link_inner(ctx, opening, true, false, false);
+}
+
+fn confirm_external_link_inner(
+	ctx: &egui::Context,
+	opening: &mut Option<String>,
+	confirm_links: bool,
+	truncated: bool,
+	trusted: bool,
 ) {
 	let Some(target) = opening.as_deref().and_then(external_url) else {
 		*opening = None;
@@ -587,7 +604,7 @@ pub(super) fn confirm_external_link_noting(
 				})
 			})
 	});
-	if !truncated && (!confirm_links || discord) {
+	if !truncated && trusted && (!confirm_links || discord) {
 		ctx.open_url(egui::OpenUrl::new_tab(target));
 		*opening = None;
 		return;

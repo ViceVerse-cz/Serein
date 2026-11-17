@@ -650,10 +650,10 @@ impl DiscordApi {
 			Extras {
 				retry,
 				challenge,
-				..Extras::default()
 				context: None,
 				prepare: None,
 				single_attempt: false,
+				..Extras::default()
 			},
 		)
 		.await
@@ -677,9 +677,9 @@ impl DiscordApi {
 					retry,
 					challenge,
 					context: Some(context),
-					..Extras::default()
 					prepare: None,
 					single_attempt: false,
+					..Extras::default()
 				},
 			)
 			.await?;

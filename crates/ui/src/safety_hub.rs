@@ -2,7 +2,7 @@
 //! after an explicit click and is never inferred from flags, DMs or the profile.
 use crate::{MessagingUi, design, i18n};
 use client_core::{Command, State};
-use model::safety_hub::{AccountStanding, AppealStatus, Snapshot};
+use model::safety_hub::{AccountStanding, AppealEligibility, AppealStatus, Snapshot};
 
 /// Discord's official support article for the warning system and account standing. No public
 /// Safety Hub web URL is documented, so this is the official reference the app can offer.
@@ -122,10 +122,21 @@ impl MessagingUi {
 					}
 					ui.add_space(4.0);
 				}
-				if snapshot.is_appeal_eligible || !snapshot.appeal_eligibility.is_empty() {
+				// Each hint follows the variant the decoder retained: only the in-app
+				// eligibility reports an appeal in the official client, and only DSA
+				// eligibility reports the DSA route. AgeVerification reports neither.
+				if snapshot.is_appeal_eligible
+					|| snapshot
+						.appeal_eligibility
+						.contains(&AppealEligibility::InApp)
+				{
 					design::hint(ui, &i18n::translate("settings-safety-hub-appeal-eligible"));
 				}
-				if snapshot.is_dsa_eligible {
+				if snapshot.is_dsa_eligible
+					|| snapshot
+						.appeal_eligibility
+						.contains(&AppealEligibility::Dsa)
+				{
 					design::hint(ui, &i18n::translate("settings-safety-hub-dsa-eligible"));
 				}
 			}
@@ -143,11 +154,7 @@ impl MessagingUi {
 		if requested && let Some(command) = state.load_safety_hub() {
 			commands.push(command);
 		}
-		crate::markdown::confirm_external_link(
-			ui.ctx(),
-			&mut self.settings.safety_hub_opening,
-			true,
-		);
+		crate::markdown::confirm_wire_link(ui.ctx(), &mut self.settings.safety_hub_opening);
 	}
 }
 
@@ -351,5 +358,93 @@ mod tests {
 				"every retained description is shown: {description}"
 			);
 		}
+	}
+
+	/// Each appeal hint follows the variant the decoder retained: a DSA entry must show the
+	/// DSA route, and neither a DSA nor an age-verification entry may claim an in-app appeal.
+	#[test]
+	fn appeal_hints_follow_the_retained_variant() {
+		let ctx = egui::Context::default();
+		let mut view = MessagingUi::default();
+		let mut state = State {
+			demo: true,
+			..Default::default()
+		};
+		let render = |view: &mut MessagingUi, state: &mut State| {
+			let mut labels = Vec::new();
+			let mut commands = Vec::new();
+			let output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(720.0, 1400.0),
+					)),
+					focused: true,
+					..Default::default()
+				},
+				|ui| {
+					view.safety_hub_settings(ui, state, &mut commands);
+				},
+			);
+			for shape in &output.shapes {
+				collect_text(&shape.shape, &mut labels);
+			}
+			output.drop_without_applying_deltas();
+			labels
+		};
+		let mut hints = |snapshot| {
+			state.safety_hub.snapshot = Some(snapshot);
+			let labels = render(&mut view, &mut state);
+			(
+				labels
+					.iter()
+					.any(|label| label == "Discord reports DSA appeal eligibility."),
+				labels.iter().any(|label| {
+					label == "Discord reports that an appeal may be available in its own client."
+				}),
+			)
+		};
+
+		// Only a DSA entry: the DSA hint shows, the in-app appeal hint does not.
+		let (dsa, in_app) = hints(Snapshot {
+			appeal_eligibility: vec![AppealEligibility::Dsa],
+			..Default::default()
+		});
+		assert!(dsa && !in_app, "a DSA entry never claims an in-app appeal");
+
+		// Only an age-verification entry: neither hint shows.
+		let (dsa, in_app) = hints(Snapshot {
+			appeal_eligibility: vec![AppealEligibility::AgeVerification],
+			..Default::default()
+		});
+		assert!(!dsa && !in_app, "age verification reports neither route");
+
+		// An in-app entry keeps its own hint.
+		let (dsa, in_app) = hints(Snapshot {
+			appeal_eligibility: vec![AppealEligibility::InApp],
+			..Default::default()
+		});
+		assert!(!dsa && in_app);
+	}
+
+	/// A destination the service supplied asks before it opens, even when its host is one of
+	/// Discord's, so a look-alike host cannot skip the confirmation.
+	#[test]
+	fn a_wire_destination_confirms_even_on_a_discord_host() {
+		let ctx = egui::Context::default();
+		// Fonts exist only after a first run pass, which the confirmation dialog needs.
+		// Dropping the pass's texture deltas is intentional: no pixels are kept here.
+		let output = ctx.run_ui(egui::RawInput::default(), |_| {});
+		output.drop_without_applying_deltas();
+		let mut opening = Some("https://support.discord.com/hc/articles/1".into());
+		crate::markdown::confirm_wire_link(&ctx, &mut opening);
+		assert!(
+			opening.is_some(),
+			"a Discord-hosted wire link must not open without confirmation"
+		);
+		// The rendered-text path keeps its trusted-host shortcut for comparison.
+		let mut trusted = Some("https://support.discord.com/hc/articles/1".into());
+		crate::markdown::confirm_external_link(&ctx, &mut trusted, true);
+		assert!(trusted.is_none(), "trusted path opens directly as before");
 	}
 }
