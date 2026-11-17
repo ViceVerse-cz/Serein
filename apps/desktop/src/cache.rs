@@ -1669,9 +1669,6 @@ fn execute_sync(
 						&request.users,
 					);
 				}
-				if let Ok(user) = request.query.parse::<Id>() {
-					return store.load_member_displays_for_users(account, request.guild, &[user]);
-				}
 				store.search_member_displays(account, request.guild, &request.query, 100)
 			});
 			Outcome::MemberDisplaysFound {

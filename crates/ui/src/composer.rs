@@ -1252,10 +1252,11 @@ impl MessagingUi {
 			.and_then(|s| s.cursor.char_range())
 			.filter(|r| r.is_empty())
 			.map(|r| r.primary.index.0);
-		let mut mention_users = if composer_content.contains("<@")
-			|| (mention_enabled && mentions::needs_users(composer_content, cursor))
-		{
-			mentions::known_users(state, channel)
+		let active_cursor = cursor.filter(|_| mention_enabled);
+		let mention_query =
+			mentions::user_query(composer_content, active_cursor).map(str::to_owned);
+		let mut mention_users = if composer_content.contains("<@") || mention_query.is_some() {
+			mentions::matching_users(state, channel, mention_query.as_deref())
 		} else {
 			Vec::new()
 		};
@@ -1269,7 +1270,7 @@ impl MessagingUi {
 			state,
 			channel,
 			composer_content,
-			cursor.filter(|_| mention_enabled),
+			active_cursor,
 			&mention_users,
 		);
 		if state.game_mentions.status == client_core::game_mentions::Status::Idle
@@ -1716,11 +1717,14 @@ impl MessagingUi {
                             .map(|r| r.primary.index.0)
                             .or(cursor.filter(|_| suggestion_pointer))
                             .filter(|_| mention_enabled);
-                        if mention_users.is_empty() && mentions::needs_users(draft, mention_cursor) {
-                            mention_users = mentions::known_users(state, channel);
+                        if output.response.changed() || mention_changed || mention_cursor != active_cursor {
+                            if let Some(query) = mentions::user_query(draft, mention_cursor)
+                                && mention_query.as_deref() != Some(query) {
+                                mention_users = mentions::matching_users(state, channel, Some(query));
+                            }
+                            self.mention_menu
+                                .refresh(state, channel, draft, mention_cursor, &mention_users);
                         }
-                        self.mention_menu
-                            .refresh(state, channel, draft, mention_cursor, &mention_users);
                         if let Some(pick) = self.mention_menu.show(ui, composer_anchor, &mut self.avatars, demo)
                             && let Some(cursor) = mentions::insert_checked(state, channel, draft, pick, editing_here)
                         {
@@ -2112,6 +2116,61 @@ pub(crate) mod tests {
 		output.drop_without_applying_deltas();
 		ctx.input_mut(|input| input.keys_down.clear());
 		labels
+	}
+
+	#[test]
+	fn composer_can_mention_an_older_author_by_nickname_username_and_id() {
+		let mut state = composer_pressure_state();
+		let channel = state.selected.unwrap();
+		let old_id = Id(1_000_100);
+		let mut old = state.timeline.get(old_id).unwrap().clone();
+		let target = old.author.id;
+		old.author_nick = Some("Third Shift".into());
+		old.author.username = Some("casey_account".into());
+		state.timeline.insert(old, false, false).unwrap();
+		assert!(
+			!mentions::known_users(&state, channel)
+				.iter()
+				.any(|user| user.id == target)
+		);
+
+		for query in [
+			"third sh".to_owned(),
+			"casey_ac".to_owned(),
+			target.to_string(),
+		] {
+			let ctx = egui::Context::default();
+			let mut view = MessagingUi {
+				focus_switched_composer: true,
+				..Default::default()
+			};
+			state.drafts.insert(channel, String::new());
+			composer_input_frame(&ctx, &mut view, &mut state, vec![]);
+			let labels = composer_input_frame(
+				&ctx,
+				&mut view,
+				&mut state,
+				vec![egui::Event::Text(format!("@{query}"))],
+			);
+			assert!(
+				labels.iter().any(|label| label == "Third Shift"),
+				"{query}: {labels:?}"
+			);
+			assert!(labels.iter().any(|label| label == "casey_account"));
+			composer_input_frame(
+				&ctx,
+				&mut view,
+				&mut state,
+				vec![egui::Event::Key {
+					key: egui::Key::Enter,
+					physical_key: None,
+					pressed: true,
+					repeat: false,
+					modifiers: egui::Modifiers::NONE,
+				}],
+			);
+			assert_eq!(state.drafts[&channel], mentions::user_mention_token(target));
+		}
 	}
 
 	#[test]
