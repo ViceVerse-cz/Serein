@@ -2009,6 +2009,7 @@ mod tests {
 		let tree = extensions::InterfaceUi {
 			nodes: Vec::new(),
 			window: Some(extensions::InterfaceWindow::Call),
+			..Default::default()
 		};
 		bridge.installed[0].interface_ui = Some(tree.clone());
 		assert!(bridge.plugin_interface().is_none());
@@ -2034,67 +2035,107 @@ mod tests {
 		assert!(bridge.plugin_interface().is_none());
 	}
 
-	/// Checks the shipped Ventrilo-style example end to end on the host: its manifest passes
-	/// host validation (including the reserved row action), its activation returns a granted
-	/// tree, and the bridge publishes that tree for the plugin.
+	/// Checks a granted interface plugin's host wiring without a shipped package: a manifest
+	/// declaring the reserved `interface_click` action validates, a panel result combining an
+	/// interface tree with dock and add-server and an effect parses and validates, the bridge
+	/// publishes that tree for the plugin, and the follow-up app event carries the channel
+	/// directory snapshot the tree is built from.
 	#[test]
-	fn packaged_interface_plugin_activation_publishes_its_tree() {
-		let package = extensions::parse_package(include_bytes!(
-			"../../../examples/extensions/packages/ventrilo.serein-extension"
-		))
-		.expect("packaged plugin passes host validation");
-		let activation = package
-			.manifest
-			.actions
-			.iter()
-			.find(|action| action.surface == Surface::Activation)
-			.unwrap()
-			.id
-			.clone();
-		let output = extensions::invoke(
-			&package,
-			&Invocation {
-				action: activation,
-				..Default::default()
-			},
+	fn granted_interface_plugin_result_publishes_its_tree() {
+		let manifest = extensions::Manifest {
+			api_version: extensions::API_VERSION,
+			id: "interface-plugin".into(),
+			name: "Interface plugin".into(),
+			version: "1.0.0".into(),
+			author: "Serein contributors".into(),
+			license: "MIT".into(),
+			source: "https://example.org/source".into(),
+			kind: extensions::ExtensionKind::Plugin,
+			capabilities: vec![
+				Capability::InterfaceUi,
+				Capability::AppEvents,
+				Capability::ChannelDirectory,
+				Capability::MessageSend,
+			],
+			actions: vec![
+				extensions::Action {
+					id: "activate".into(),
+					label: "Activate".into(),
+					surface: Surface::Activation,
+				},
+				extensions::Action {
+					id: extensions::INTERFACE_CLICK_ACTION.into(),
+					label: "Interface row".into(),
+					surface: Surface::Panel,
+				},
+				extensions::Action {
+					id: "app-event".into(),
+					label: "Observe".into(),
+					surface: Surface::AppEvent,
+				},
+			],
+		};
+		manifest
+			.validate()
+			.expect("manifest with the reserved row action validates");
+		let result: extensions::Output = serde_json::from_str(
+			r#"{
+				"interface_ui": {
+					"nodes": [{"id": "channel:25", "icon": "speaker", "text": "Room 3,5"}],
+					"dock": [{"id": "server:10", "label": "Voice club", "guild_id": "10", "selected": true}],
+					"add_server": true
+				},
+				"effects": [{
+					"type": "app_action",
+					"action": {"type": "send_message", "channel_id": "20", "content": "Room open"}
+				}]
+			}"#,
 		)
-		.expect("activation output passes host validation");
-		assert!(output.interface_ui.is_some(), "activation restates a tree");
+		.expect("combined interface and effects result parses");
+		let click = Invocation {
+			action: extensions::INTERFACE_CLICK_ACTION.into(),
+			values: [("id".into(), "channel:25".into())].into(),
+			..Default::default()
+		};
+		result
+			.validate(&manifest, &click)
+			.expect("combined result passes host validation");
+		let tree = result.interface_ui.clone().expect("result restates a tree");
+		assert_eq!(tree.dock.len(), 1);
+		assert!(tree.add_server);
 		let (mut bridge, _, _) = message_events_fixture();
-		bridge.installed[0].manifest = package.manifest.clone();
-		bridge.installed[0].interface_ui = output.interface_ui.clone();
+		bridge.installed[0].manifest = manifest.clone();
+		bridge.installed[0].interface_ui = Some(tree.clone());
 		assert_eq!(
 			bridge.plugin_interface().map(|shown| shown.tree),
-			output.interface_ui
+			Some(tree)
 		);
-		// The follow-up app event carries the granted snapshot the tree is built from.
+		// The follow-up app event carries the channel directory the tree is built from.
 		// Directories are snapshotted only while connected, as in a live session.
 		let mut state = test_support::voice_demo_state();
 		state.gateway_connected = true;
 		let messaging = ui::MessagingUi::default();
-		let refresh = package
-			.manifest
-			.actions
-			.iter()
-			.find(|action| action.surface == Surface::AppEvent)
-			.unwrap();
 		let mut invocation = Invocation {
-			action: refresh.id.clone(),
+			action: "app-event".into(),
 			app_event: Some(AppEventKind::Ready),
 			..Default::default()
 		};
-		attach_app_data(&mut invocation, &state, &messaging, &package.manifest);
-		let output = extensions::invoke(&package, &invocation).expect("refresh output");
-		let texts: Vec<_> = output
-			.interface_ui
-			.expect("refresh restates a tree")
-			.nodes
-			.into_iter()
-			.map(|node| node.text)
-			.collect();
+		attach_app_data(&mut invocation, &state, &messaging, &manifest);
+		let names: Vec<&str> = invocation
+			.app
+			.as_ref()
+			.and_then(|app| app.channels.as_ref())
+			.map(|directory| {
+				directory
+					.items
+					.iter()
+					.map(|channel| channel.name.as_str())
+					.collect()
+			})
+			.unwrap_or_default();
 		assert!(
-			texts.iter().any(|text| text == "Room 3,5"),
-			"voice channels listed: {texts:?}"
+			names.contains(&"Room 3,5"),
+			"voice channels listed in the snapshot: {names:?}"
 		);
 	}
 

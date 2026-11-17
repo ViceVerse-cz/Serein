@@ -20,6 +20,8 @@ pub const MAX_INTERFACE_BADGE_BYTES: usize = 32;
 pub const MAX_INTERFACE_ID_BYTES: usize = 64;
 /// Maximum indent step of a row.
 pub const MAX_INTERFACE_INDENT: u8 = 8;
+/// Maximum items in the bottom control row's dock.
+pub const MAX_INTERFACE_DOCK_ITEMS: usize = 64;
 
 /// Generic glyph names the host already paints; unknown names are rejected at validation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -82,14 +84,38 @@ pub enum InterfaceWindow {
 	Chat { channel_id: String },
 }
 
+/// One small clickable item in the dock at the left of the tree pane's bottom control row.
+/// `id` routes clicks exactly like a row id (unique across rows and dock items). With
+/// `guild_id` the host paints that loaded server's icon (or its initials); `label` is the
+/// hover text and the initials source. `selected` marks the item as current.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InterfaceDockItem {
+	pub id: String,
+	pub label: String,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub guild_id: Option<String>,
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub selected: bool,
+}
+
 /// A complete interface restatement. Every activation, panel or event result of a granted
 /// plugin restates its interface: `Some` replaces the shown tree, `None` restores the normal
-/// layout. `window` asks the host to show one native window beside the tree.
+/// layout. `window` asks the host to show one native window beside the tree; `dock` adds
+/// small items to the left of the bottom control row, and `add_server` appends the
+/// client's own add-a-server button after them (handled natively, never routed to Wasm).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InterfaceUi {
 	pub nodes: Vec<InterfaceNode>,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub window: Option<InterfaceWindow>,
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub dock: Vec<InterfaceDockItem>,
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub add_server: bool,
+}
+
+fn snowflake(id: &str) -> bool {
+	(1..=20).contains(&id.len()) && id.bytes().all(|b| b.is_ascii_digit())
 }
 
 impl InterfaceUi {
@@ -123,10 +149,25 @@ impl InterfaceUi {
 				return Err("interface row indent exceeds 8");
 			}
 		}
+		if self.dock.len() > MAX_INTERFACE_DOCK_ITEMS {
+			return Err("interface dock exceeds 64 items");
+		}
+		for item in &self.dock {
+			if item.id.is_empty() || item.id.len() > MAX_INTERFACE_ID_BYTES {
+				return Err("interface dock id must be 1 through 64 bytes");
+			}
+			if !ids.insert(item.id.as_str()) {
+				return Err("interface row ids must be unique");
+			}
+			if item.label.is_empty() || item.label.len() > MAX_INTERFACE_TEXT_BYTES {
+				return Err("interface dock label must be 1 through 256 bytes");
+			}
+			if item.guild_id.as_deref().is_some_and(|id| !snowflake(id)) {
+				return Err("interface dock guild id must be a snowflake");
+			}
+		}
 		if let Some(InterfaceWindow::Chat { channel_id }) = &self.window
-			&& (channel_id.is_empty()
-				|| channel_id.len() > 20
-				|| !channel_id.bytes().all(|b| b.is_ascii_digit()))
+			&& !snowflake(channel_id)
 		{
 			return Err("interface chat window needs a snowflake channel id");
 		}
@@ -160,11 +201,22 @@ mod tests {
 		}
 	}
 
+	fn dock(id: &str, label: &str, guild_id: Option<&str>) -> InterfaceDockItem {
+		InterfaceDockItem {
+			id: id.into(),
+			label: label.into(),
+			guild_id: guild_id.map(str::to_owned),
+			selected: false,
+		}
+	}
+
 	#[test]
 	fn bounds_and_unique_ids_are_enforced() {
 		let mut ui = InterfaceUi {
 			nodes: vec![node("a", "one"), node("a", "two")],
 			window: None,
+			dock: Vec::new(),
+			add_server: false,
 		};
 		assert!(ui.validate().is_err(), "duplicate ids rejected");
 		ui.nodes[1].id = "b".into();
@@ -187,6 +239,34 @@ mod tests {
 			channel_id: "20".into(),
 		});
 		assert!(ui.validate().is_ok());
+		ui.dock = vec![dock("dock:a", "Alpha", Some("10"))];
+		assert!(ui.validate().is_ok(), "valid dock item accepted");
+		ui.dock.push(dock("", "Empty", None));
+		assert!(ui.validate().is_err(), "empty dock id rejected");
+		ui.dock[1].id = "a".into();
+		assert!(
+			ui.validate().is_err(),
+			"dock id duplicating a row id rejected"
+		);
+		ui.dock[1].id = "dock:b".into();
+		ui.dock.push(dock("dock:b", "Duplicate", None));
+		assert!(ui.validate().is_err(), "duplicate dock id rejected");
+		ui.dock.pop();
+		ui.dock[1].label = String::new();
+		assert!(ui.validate().is_err(), "empty dock label rejected");
+		ui.dock[1].label = "Beta".into();
+		ui.dock[1].guild_id = Some("../guild".into());
+		assert!(
+			ui.validate().is_err(),
+			"non-snowflake dock guild id rejected"
+		);
+		ui.dock[1].guild_id = None;
+		assert!(ui.validate().is_ok());
+		ui.dock
+			.extend((0..MAX_INTERFACE_DOCK_ITEMS).map(|i| dock(&format!("dock:{i}"), "Row", None)));
+		assert!(ui.validate().is_err(), "oversized dock rejected");
+		ui.dock.clear();
+		assert!(ui.validate().is_ok());
 	}
 
 	#[test]
@@ -201,16 +281,24 @@ mod tests {
 			window: Some(InterfaceWindow::Chat {
 				channel_id: "20".into(),
 			}),
+			dock: vec![dock("dock:1", "Voice club", Some("10"))],
+			add_server: true,
 		};
 		let json = serde_json::to_value(&ui).unwrap();
 		assert_eq!(json["nodes"][0]["icon"], "microphone_slash");
 		assert_eq!(json["nodes"][0]["tint"], "danger");
 		assert_eq!(json["window"]["kind"], "chat");
 		assert_eq!(json["window"]["channel_id"], "20");
+		assert_eq!(json["dock"][0]["id"], "dock:1");
+		assert_eq!(json["dock"][0]["guild_id"], "10");
+		assert!(json["dock"][0].get("selected").is_none());
+		assert_eq!(json["add_server"], true);
 		let call = serde_json::to_value(InterfaceWindow::Call).unwrap();
 		assert_eq!(call, serde_json::json!({"kind": "call"}));
 		let plain = serde_json::to_value(InterfaceUi::default()).unwrap();
 		assert!(plain.get("window").is_none());
+		assert!(plain.get("dock").is_none());
+		assert!(plain.get("add_server").is_none());
 		let plain_node = serde_json::to_value(node("", "row")).unwrap();
 		assert!(plain_node.get("icon").is_none());
 		assert!(plain_node.get("badge").is_none());

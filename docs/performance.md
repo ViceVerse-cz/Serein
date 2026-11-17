@@ -1990,14 +1990,15 @@ hold only their route/bucket, while 429 responses retain the existing conservati
 shared cooldown. Synthetic regressions cover independent-channel progress,
 queued verification expiry, aliases, major resources, eviction and terminal wakeup.
 
-## Ventrilo layout through `interface_ui` — November 17, 2026
+## `interface_ui` extension layout — November 17, 2026
 
 Baseline `789d8300`, task branch `feat/ventrilo-extension` (after commit recorded in the PR).
 Windows 11 build 26200, AMD Ryzen 5 7600X (12 threads), 32 GiB RAM, 3840×2160 at 100% scale,
-wgpu default backend, pinned toolchain and lockfile. The example plugin
-`examples/extensions/ventrilo` uses the generic `interface_ui` capability to replace the main
-panes with a declarative tree of servers, text and voice channels and voice participants; no
-window shows beside the tree until a channel is double-clicked.
+wgpu default backend, pinned toolchain and lockfile. Measured with the external reference
+plugin [`abilliontokens/serein-ventrilo`](https://github.com/abilliontokens/serein-ventrilo),
+which uses the generic `interface_ui` capability to replace the main panes with a declarative
+tree of text and voice channels and voice participants; no window shows beside the tree until
+a channel is double-clicked.
 
 Idle process samples of the native `--demo --demo-voice` fixture: 25 s warmup, then 30 samples
 at 1 s intervals; CPU is process processor-time delta over wall time, memory is working set and

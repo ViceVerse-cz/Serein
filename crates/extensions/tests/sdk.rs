@@ -410,6 +410,13 @@ fn interface_ui_is_granted_activation_panel_or_event_output_and_validated() {
 		window: Some(sdk::InterfaceWindow::Chat {
 			channel_id: "20".into(),
 		}),
+		dock: vec![sdk::InterfaceDockItem {
+			id: "dock:10".into(),
+			label: "Voice club".into(),
+			guild_id: Some("10".into()),
+			selected: true,
+		}],
+		add_server: true,
 	};
 	let expected: extensions::InterfaceUi =
 		serde_json::from_value(serde_json::to_value(&tree).unwrap()).unwrap();
@@ -490,6 +497,8 @@ fn interface_ui_is_granted_activation_panel_or_event_output_and_validated() {
 			})
 			.collect(),
 		window: Some(extensions::InterfaceWindow::Call),
+		dock: Vec::new(),
+		add_server: false,
 	};
 	assert!(maximal.validate().is_ok());
 	// A chat window must name a snowflake channel id.
@@ -499,6 +508,8 @@ fn interface_ui_is_granted_activation_panel_or_event_output_and_validated() {
 			window: Some(extensions::InterfaceWindow::Chat {
 				channel_id: bad.into(),
 			}),
+			dock: Vec::new(),
+			add_server: false,
 		};
 		assert!(chat.validate().is_err(), "{bad:?} rejected");
 	}

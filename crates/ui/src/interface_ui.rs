@@ -2,7 +2,8 @@
 //! the host paints rows with indent, icon, tint, badge, emphasis and a selected fill, and
 //! routes clicks back through the plugin's declared `interface_click` panel action, with
 //! `double_clicked` distinguishing double clicks. The renderer knows nothing about servers,
-//! voice or any particular product: the tree is data.
+//! voice or any particular product: the tree is data; only the dock's server tiles are the
+//! host's own, painted by guild id.
 use crate::{MessagingUi, design, icons};
 use client_core::{Command, State, voice::Phase};
 use egui::RichText;
@@ -14,6 +15,8 @@ const ROW: f32 = 22.0;
 const INDENT: f32 = 14.0;
 /// Row glyphs.
 const GLYPH: f32 = 14.0;
+/// Dock tiles in the bottom control row.
+const DOCK: f32 = 24.0;
 
 /// The interface one enabled granted plugin last returned, with its owning plugin id.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -183,7 +186,9 @@ impl MessagingUi {
 		egui::Panel::bottom("plugin-interface-controls")
 			.show_separator_line(!design::has_window_background(ui))
 			.frame(egui::Frame::new().inner_margin(egui::Margin::symmetric(8, 4)))
-			.show(ui, |ui| self.interface_controls(ui, state, commands));
+			.show(ui, |ui| {
+				self.interface_controls(ui, state, commands, interface)
+			});
 		self.interface_tree(ui, state, interface);
 	}
 
@@ -194,6 +199,7 @@ impl MessagingUi {
 		ui: &mut egui::Ui,
 		state: &mut State,
 		commands: &mut Vec<Command>,
+		interface: &PluginInterface,
 	) {
 		ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
 			ui.spacing_mut().item_spacing.x = 2.0;
@@ -210,30 +216,108 @@ impl MessagingUi {
 			self.mute_toggle_with_settings(ui, state, commands, true);
 			ui.add_space(4.0);
 			self.mute_toggle_with_settings(ui, state, commands, false);
-			let Some(phase) = state.voice.active.as_ref().map(|call| call.phase) else {
-				return;
-			};
-			ui.add_space(4.0);
-			let leave = ui
-				.add_enabled_ui(!state.demo, |ui| {
-					icons::button(
-						ui,
-						icons::Icon::HangUp,
-						32.0,
-						&crate::i18n::translate(if phase == Phase::Failed {
-							"voice-voice-card-section-dismiss-call"
-						} else {
-							"voice-voice-card-section-disconnect"
-						}),
-					)
-				})
-				.inner;
-			if leave.clicked()
-				&& let Some(command) = state.leave_call()
-			{
-				commands.push(command);
+			if let Some(phase) = state.voice.active.as_ref().map(|call| call.phase) {
+				ui.add_space(4.0);
+				let leave = ui
+					.add_enabled_ui(!state.demo, |ui| {
+						icons::button(
+							ui,
+							icons::Icon::HangUp,
+							32.0,
+							&crate::i18n::translate(if phase == Phase::Failed {
+								"voice-voice-card-section-dismiss-call"
+							} else {
+								"voice-voice-card-section-disconnect"
+							}),
+						)
+					})
+					.inner;
+				if leave.clicked()
+					&& let Some(command) = state.leave_call()
+				{
+					commands.push(command);
+				}
 			}
+			self.interface_dock(ui, state, interface);
 		});
+	}
+
+	/// The plugin's dock at the left of the control row: small server tiles in dock order,
+	/// then the client's own add-a-server tile when asked. Items overflow into horizontal
+	/// scrolling without wrapping, and the row's height never grows.
+	fn interface_dock(&mut self, ui: &mut egui::Ui, state: &State, interface: &PluginInterface) {
+		if interface.tree.dock.is_empty() && !interface.tree.add_server {
+			return;
+		}
+		let area = ui.available_rect_before_wrap();
+		ui.scope_builder(egui::UiBuilder::new().max_rect(area), |ui| {
+			egui::ScrollArea::horizontal()
+				.id_salt("plugin-interface-dock")
+				.auto_shrink([false, false])
+				.scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
+				.show(ui, |ui| {
+					ui.set_min_height(area.height());
+					ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+						ui.spacing_mut().item_spacing.x = 6.0;
+						for item in &interface.tree.dock {
+							self.interface_dock_item(ui, state, &interface.plugin, item);
+						}
+						if interface.tree.add_server {
+							self.add_server_tile(ui, state, DOCK);
+						}
+					});
+				});
+		});
+	}
+
+	/// One dock item: the loaded server's icon through the rail's own painting and cache, the
+	/// label's initials otherwise, an accent ring when selected, and the label on hover.
+	/// Clicks and double clicks route the item's id exactly like a row click.
+	fn interface_dock_item(
+		&mut self,
+		ui: &mut egui::Ui,
+		state: &State,
+		plugin: &str,
+		item: &extensions::InterfaceDockItem,
+	) {
+		let unknown;
+		let guild = item
+			.guild_id
+			.as_deref()
+			.and_then(|id| id.parse().ok())
+			.and_then(|id| state.guild(Id(id)));
+		let guild = match guild {
+			Some(known) => known,
+			None => {
+				unknown = model::Guild {
+					default_message_notifications: None,
+					stickers: None,
+					emojis: None,
+					id: Id(0),
+					name: item.label.clone(),
+					icon: None,
+					banner: None,
+				};
+				&unknown
+			}
+		};
+		let response =
+			self.avatars
+				.show_guild_dock(ui, guild, item.selected, state.demo, DOCK, &item.label);
+		if item.selected {
+			ui.painter().rect_stroke(
+				response.rect,
+				(DOCK * 0.3) as u8,
+				egui::Stroke::new(2.0, design::palette(ui).accent),
+				egui::StrokeKind::Inside,
+			);
+		}
+		let double = response.double_clicked();
+		if response.clicked() {
+			self.extensions
+				.invoke_interface_row(ui.ctx(), state, plugin, &item.id, double);
+			ui.ctx().request_repaint();
+		}
 	}
 
 	/// The plugin's rows in a scrolling tree. A click on a row with an id routes to the owning
@@ -528,9 +612,16 @@ mod tests {
 	) -> PluginInterface {
 		PluginInterface {
 			plugin: "tree-plugin".into(),
-			tree: extensions::InterfaceUi { nodes, window },
+			tree: extensions::InterfaceUi {
+				nodes,
+				window,
+				..Default::default()
+			},
 		}
 	}
+
+	/// Painted texts with a point inside each, and accessible names with their rects.
+	type Frame = (Vec<(String, egui::Pos2)>, Vec<(String, egui::Rect)>);
 
 	/// The client in its own context, drawn frame by frame on a steady clock.
 	struct Client {
@@ -554,12 +645,8 @@ mod tests {
 		}
 
 		/// One frame with `events`: each painted text with a point inside it, and the
-		/// accessible names.
-		fn frame(
-			&mut self,
-			state: &mut State,
-			events: Vec<egui::Event>,
-		) -> (Vec<(String, egui::Pos2)>, Vec<String>) {
+		/// accessible names with their rects.
+		fn frame(&mut self, state: &mut State, events: Vec<egui::Event>) -> Frame {
 			self.time += 0.05;
 			let view = &mut self.view;
 			let output = self.ctx.run_ui(
@@ -593,7 +680,18 @@ mod tests {
 				.accesskit_update
 				.iter()
 				.flat_map(|update| update.nodes.iter())
-				.filter_map(|(_, node)| node.label().map(str::to_owned))
+				.filter_map(|(_, node)| {
+					let bounds = node.bounds()?;
+					node.label().map(|label| {
+						(
+							label.to_owned(),
+							egui::Rect::from_min_max(
+								egui::pos2(bounds.x0 as f32, bounds.y0 as f32),
+								egui::pos2(bounds.x1 as f32, bounds.y1 as f32),
+							),
+						)
+					})
+				})
 				.collect();
 			output.drop_without_applying_deltas();
 			(texts, names)
@@ -652,7 +750,107 @@ mod tests {
 		);
 		assert!(!shown(&placeholder), "composer hidden: {texts:?}");
 		let settings = crate::i18n::translate("user-settings");
-		assert!(names.contains(&settings), "settings reachable: {names:?}");
+		assert!(
+			names.iter().any(|(name, _)| *name == settings),
+			"settings reachable: {names:?}"
+		);
+		let control = |names: &[(String, egui::Rect)]| {
+			names
+				.iter()
+				.find(|(name, _)| *name == settings)
+				.map(|(_, bounds)| *bounds)
+		};
+		let plain = control(&names).expect("settings control");
+		// The dock renders at the left of the control row: a loaded server paints its
+		// initials through the rail's own painting, an unknown one falls back to the
+		// label's, add-server shows only when asked, and the row's height never grows.
+		let add_server = crate::i18n::translate("notifications-notification-rail-add-a-server");
+		let docked = extensions::InterfaceUi {
+			dock: vec![
+				extensions::InterfaceDockItem {
+					id: "dock:voice".into(),
+					label: "Voice club".into(),
+					guild_id: Some("10".into()),
+					selected: true,
+				},
+				extensions::InterfaceDockItem {
+					id: "dock:island".into(),
+					label: "Island hub".into(),
+					guild_id: Some("424242".into()),
+					selected: false,
+				},
+			],
+			add_server: true,
+			..interface(vec![node("channel:30", "Lobby")], None).tree
+		};
+		client.view.set_plugin_interface(Some(PluginInterface {
+			plugin: "tree-plugin".into(),
+			tree: docked.clone(),
+		}));
+		client.frame(&mut state, vec![]);
+		let (texts, names) = client.frame(&mut state, vec![]);
+		assert!(
+			texts.iter().any(|(text, _)| text == "Vc"),
+			"loaded guild initials in the dock: {texts:?}"
+		);
+		let island = texts
+			.iter()
+			.find(|(text, _)| text == "Ih")
+			.map(|(_, point)| *point)
+			.expect("unknown guild falls back to the label's initials");
+		assert!(
+			names.iter().any(|(name, _)| *name == add_server),
+			"add-server offered when asked: {names:?}"
+		);
+		let grown = control(&names).expect("settings control");
+		assert_eq!(
+			(grown.min.y, grown.height()),
+			(plain.min.y, plain.height()),
+			"the dock never grows the control row"
+		);
+		// A dock click routes the item's id through the same action as a row click.
+		client.frame(&mut state, vec![egui::Event::PointerMoved(island)]);
+		for pressed in [true, false] {
+			client.frame(
+				&mut state,
+				vec![egui::Event::PointerButton {
+					pos: island,
+					button: egui::PointerButton::Primary,
+					pressed,
+					modifiers: egui::Modifiers::NONE,
+				}],
+			);
+		}
+		let routed = client.routed();
+		assert_eq!(
+			routed.len(),
+			1,
+			"one dock click, one invocation: {routed:?}"
+		);
+		assert_eq!(routed[0].action, extensions::INTERFACE_CLICK_ACTION);
+		assert_eq!(
+			routed[0].values.get("id").map(String::as_str),
+			Some("dock:island")
+		);
+		assert!(!routed[0].double_clicked, "first dock click is single");
+		// Without the flag the dock stays but the client's add-server tile goes away.
+		client.view.set_plugin_interface(Some(PluginInterface {
+			plugin: "tree-plugin".into(),
+			tree: extensions::InterfaceUi {
+				add_server: false,
+				..docked
+			},
+		}));
+		client.frame(&mut state, vec![]);
+		let (texts, names) = client.frame(&mut state, vec![]);
+		assert!(
+			texts.iter().any(|(text, _)| text == "Vc"),
+			"dock stays without the flag: {texts:?}"
+		);
+		assert!(
+			!names.iter().any(|(name, _)| *name == add_server),
+			"add-server only on request: {names:?}"
+		);
 		// An empty tree keeps the panes replaced and says so generically.
 		client
 			.view

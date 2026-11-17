@@ -1558,6 +1558,22 @@ impl Avatars {
 	) -> egui::Response {
 		self.guild_avatar(ui, guild, selected, demo, size, true)
 	}
+
+	/// A small guild tile for the plugin interface dock: the rail's animated face at a chosen
+	/// size, with the plugin's dock label for the hover name instead of the guild name.
+	pub fn show_guild_dock(
+		&mut self,
+		ui: &mut egui::Ui,
+		guild: &model::Guild,
+		selected: bool,
+		demo: bool,
+		size: f32,
+		label: &str,
+	) -> egui::Response {
+		let response = self.guild_avatar(ui, guild, selected, demo, size, false);
+		crate::design::rail_name(&response, label);
+		response
+	}
 	fn guild_avatar(
 		&mut self,
 		ui: &mut egui::Ui,

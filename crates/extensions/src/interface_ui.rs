@@ -19,6 +19,8 @@ pub const MAX_INTERFACE_BADGE_BYTES: usize = 32;
 pub const MAX_INTERFACE_ID_BYTES: usize = 64;
 /// Maximum indent step of a row.
 pub const MAX_INTERFACE_INDENT: u8 = 8;
+/// Maximum items in the bottom control row's dock.
+pub const MAX_INTERFACE_DOCK_ITEMS: usize = 64;
 
 /// The declared panel action the host invokes when an interface row is clicked, with the
 /// row's id in `Invocation::values["id"]` and `double_clicked` set for double clicks. Rows
@@ -86,14 +88,38 @@ pub enum InterfaceWindow {
 	Chat { channel_id: String },
 }
 
+/// One small clickable item in the dock at the left of the tree pane's bottom control row.
+/// `id` routes clicks exactly like a row id (unique across rows and dock items). With
+/// `guild_id` the host paints that loaded server's icon (or its initials); `label` is the
+/// hover text and the initials source. `selected` marks the item as current.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InterfaceDockItem {
+	pub id: String,
+	pub label: String,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub guild_id: Option<String>,
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub selected: bool,
+}
+
 /// A complete interface restatement. Every activation, panel or event result of a granted
 /// plugin restates its interface: `Some` replaces the shown tree, `None` restores the normal
-/// layout. `window` asks the host to show one native window beside the tree.
+/// layout. `window` asks the host to show one native window beside the tree; `dock` adds
+/// small items to the left of the bottom control row, and `add_server` appends the
+/// client's own add-a-server button after them (handled natively, never routed to Wasm).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InterfaceUi {
 	pub nodes: Vec<InterfaceNode>,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub window: Option<InterfaceWindow>,
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub dock: Vec<InterfaceDockItem>,
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub add_server: bool,
+}
+
+fn snowflake(id: &str) -> bool {
+	(1..=20).contains(&id.len()) && id.bytes().all(|b| b.is_ascii_digit())
 }
 
 impl InterfaceUi {
@@ -127,10 +153,25 @@ impl InterfaceUi {
 				return Err("interface row indent exceeds 8");
 			}
 		}
+		if self.dock.len() > MAX_INTERFACE_DOCK_ITEMS {
+			return Err("interface dock exceeds 64 items");
+		}
+		for item in &self.dock {
+			if item.id.is_empty() || item.id.len() > MAX_INTERFACE_ID_BYTES {
+				return Err("interface dock id must be 1 through 64 bytes");
+			}
+			if !ids.insert(item.id.as_str()) {
+				return Err("interface row ids must be unique");
+			}
+			if item.label.is_empty() || item.label.len() > MAX_INTERFACE_TEXT_BYTES {
+				return Err("interface dock label must be 1 through 256 bytes");
+			}
+			if item.guild_id.as_deref().is_some_and(|id| !snowflake(id)) {
+				return Err("interface dock guild id must be a snowflake");
+			}
+		}
 		if let Some(InterfaceWindow::Chat { channel_id }) = &self.window
-			&& (channel_id.is_empty()
-				|| channel_id.len() > 20
-				|| !channel_id.bytes().all(|b| b.is_ascii_digit()))
+			&& !snowflake(channel_id)
 		{
 			return Err("interface chat window needs a snowflake channel id");
 		}
