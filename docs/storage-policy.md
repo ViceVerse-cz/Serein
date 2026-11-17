@@ -1662,7 +1662,8 @@ Larger responses still require range support. This fallback has the same cancell
 checks and request timeout; it does not create a file cache. Explicit embed playback prefers
 Discord's external media proxy and retains at most two validated candidates for one
 proxy-to-original retry. Signed Discord attachment URLs, Twitter public MP4 paths,
-OGInstagram offloads and Instagram CDN MP4 files are admitted. Attachment-host normalization
+OGInstagram offloads, Instagram CDN MP4 files and direct Reddit video files are admitted.
+Provider pages open via an explicit browser action. Attachment-host normalization
 preserves signatures. Requests identify Serein without sending a message URL or credentials. At most three
 redirects may stay within these approved HTTPS media origins; credentials, arbitrary hosts,
 loopback URLs and provider HTML pages are refused. Signed queries remain opaque and unlogged.
