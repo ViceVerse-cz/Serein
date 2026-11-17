@@ -72,9 +72,10 @@ pub fn install(ctx: &Context, backend: Backend) {
 	entries();
 }
 
-/// Whether Unicode emoji can be drawn as artwork in this context.
-pub(crate) fn installed(ctx: &Context) -> bool {
-	raster::service(ctx).is_some()
+/// For layout caches: changes when Unicode emoji start laying out differently, because the
+/// service was installed or an emoji's artwork failed and now lays out as text.
+pub(crate) fn layout_revision(ctx: &Context) -> Option<usize> {
+	raster::service(ctx).map(|service| service.failures())
 }
 
 /// The bundled artwork cell to reserve a slot for: a known emoji whose artwork can be drawn
@@ -312,17 +313,26 @@ mod tests {
 /// Installs a synthetic rasteriser without worker threads; [`run_jobs`] renders queued work.
 #[cfg(test)]
 pub(crate) fn install_for_tests(ctx: &Context) {
+	install_rasteriser_for_tests(ctx, true);
+}
+
+/// [`install_for_tests`] with a rasteriser that succeeds or fails for every emoji.
+#[cfg(test)]
+pub(crate) fn install_rasteriser_for_tests(ctx: &Context, succeeds: bool) {
 	raster::install_inline(
 		ctx,
 		Backend {
-			rasterize: std::sync::Arc::new(|_, edge| {
-				Some(egui::ColorImage::filled(
-					[edge as usize; 2],
-					egui::Color32::WHITE,
-				))
+			rasterize: std::sync::Arc::new(move |_, edge| {
+				succeeds.then(|| egui::ColorImage::filled([edge as usize; 2], egui::Color32::WHITE))
 			}),
 			on_worker_start: || {},
 		},
 	);
 	entries();
+}
+
+/// Renders every queued raster on the calling thread.
+#[cfg(test)]
+pub(crate) fn run_jobs(ctx: &Context) {
+	raster::run_jobs(ctx);
 }

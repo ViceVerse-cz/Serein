@@ -165,7 +165,7 @@ impl Layout {
 		colors.mention_bg.hash(&mut key);
 		colors.muted.hash(&mut key);
 		avatars.revision.hash(&mut key);
-		emoji::installed(ui.ctx()).hash(&mut key);
+		emoji::layout_revision(ui.ctx()).hash(&mut key);
 		demo.hash(&mut key);
 		if text.contains("<:") || text.contains("<a:") || text.contains("](https://") {
 			static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
@@ -986,6 +986,30 @@ mod tests {
 			primary_guild: None,
 			cosmetics: None,
 		}]
+	}
+
+	/// Artwork that fails after a draft was laid out lays the draft out again with the emoji
+	/// as text, instead of keeping its empty slot.
+	#[test]
+	fn failed_emoji_artwork_relays_the_draft_out_as_text() {
+		let ctx = egui::Context::default();
+		crate::fonts::install(&ctx);
+		emoji::install_rasteriser_for_tests(&ctx, false);
+		let mut avatars = Avatars::default();
+		let mut layout = Layout::default();
+		let mut frame = |layout: &mut Layout| {
+			ctx.run_ui(Default::default(), |ui| {
+				layout.galley(ui, "hi 🙂", 300.0, &[], &[], &[], false, &mut avatars, true);
+				emoji::image(ui.ctx(), "🙂", emoji::inline_size(ui));
+			})
+			.drop_without_applying_deltas();
+		};
+		frame(&mut layout);
+		assert!(layout.inlines.iter().any(|inline| inline.unicode.is_some()));
+		emoji::run_jobs(&ctx);
+		frame(&mut layout);
+		frame(&mut layout);
+		assert!(layout.inlines.iter().all(|inline| inline.unicode.is_none()));
 	}
 
 	/// #918: right-to-left drafts read in visual order, and the caret and pointer follow it.

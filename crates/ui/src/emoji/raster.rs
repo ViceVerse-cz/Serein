@@ -25,6 +25,10 @@ const IDLE: Duration = Duration::from_secs(60);
 /// Prefetching pauses above this share of [`TEXTURE_BYTES`], so speculative work never
 /// evicts what is on screen.
 const PREFETCH_BYTES: usize = TEXTURE_BYTES / 4 * 3;
+/// Rasters above which prefetching pauses, as for [`PREFETCH_BYTES`].
+const PREFETCH_ITEMS: usize = TEXTURES / 4 * 3;
+/// Least time between two idle sweeps.
+const SWEEP: Duration = Duration::from_secs(1);
 /// Painted rasters refused for want of space are not requested again until space frees.
 const REFUSED: usize = 4096;
 /// Finished rasters uploaded per pass; the rest wait for the next pass.
@@ -256,7 +260,7 @@ impl Cache {
 	fn sweep(&mut self, now: Instant, pass: u64) {
 		if self
 			.swept
-			.is_some_and(|swept| now.saturating_duration_since(swept) < Duration::from_secs(1))
+			.is_some_and(|swept| now.saturating_duration_since(swept) < SWEEP)
 		{
 			return;
 		}
@@ -277,11 +281,13 @@ impl Cache {
 		}
 		self.pages.release_empty();
 	}
-	/// When an undrawn raster next becomes idle, for the host's maintenance deadline.
+	/// When an undrawn raster next becomes idle, for the host's maintenance deadline. A raster
+	/// that became idle while sweeps were throttled is released at the next allowed sweep.
 	fn next_release(&self, now: Instant) -> Option<Instant> {
+		let sweep = self.swept.map_or(now, |swept| swept + SWEEP);
 		self.rasters
 			.values()
-			.map(|raster| raster.used + IDLE)
+			.map(|raster| (raster.used + IDLE).max(sweep))
 			.filter(|release| *release > now)
 			.min()
 	}
@@ -383,7 +389,7 @@ impl Service {
 		for (key, image, painted) in finished {
 			match image {
 				// A prefetch that does not fit is dropped; prefetching pauses while the cache
-				// is this full, so it is not requested again in a loop.
+				// is this full by bytes or rasters, so it is not requested again in a loop.
 				Some(image) => {
 					if !cache.insert(ctx, key, &image, (now, pass), painted) && painted {
 						if cache.refused.len() >= REFUSED {
@@ -392,8 +398,11 @@ impl Service {
 						cache.refused.insert(key);
 					}
 				}
+				// Layout caches keyed on the failure count lay the emoji out as text next pass.
 				None => {
-					cache.failed.insert(key.0);
+					if cache.failed.insert(key.0) {
+						ctx.request_repaint();
+					}
 				}
 			}
 		}
@@ -429,6 +438,7 @@ impl Service {
 		if cache.failed.contains(&key.0)
 			|| cache.rasters.contains_key(&key)
 			|| cache.bytes > PREFETCH_BYTES
+			|| cache.rasters.len() > PREFETCH_ITEMS
 		{
 			return;
 		}
@@ -445,6 +455,10 @@ impl Service {
 	/// Whether the artwork of `cell` failed to rasterise this session.
 	pub(super) fn failed(&self, cell: usize) -> bool {
 		self.cache().failed.contains(&cell)
+	}
+	/// How many artwork cells have failed this session.
+	pub(super) fn failures(&self) -> usize {
+		self.cache().failed.len()
 	}
 	fn request(&self, ctx: &Context, key: Key, later: bool) {
 		let mut state = self.shared.lock();
@@ -631,6 +645,70 @@ mod tests {
 		.drop_without_applying_deltas();
 		assert!(service.cache().bytes <= UPLOAD_BYTES);
 		assert!(!service.shared.lock().finished.is_empty());
+	}
+
+	/// Two rasters idle 100 ms apart: the second is not stranded by the sweep throttle.
+	#[test]
+	fn rasters_idle_during_a_throttled_sweep_are_still_released() {
+		let ctx = Context::default();
+		let start = Instant::now();
+		let mut cache = Cache::default();
+		let image = ColorImage::filled([16, 16], egui::Color32::WHITE);
+		let later = start + Duration::from_millis(100);
+		assert!(cache.insert(&ctx, (0, 16), &image, (start, 1), false));
+		assert!(cache.insert(&ctx, (1, 16), &image, (later, 1), false));
+		cache.sweep(start + IDLE, 5);
+		assert_eq!(cache.rasters.len(), 1);
+		let now = later + IDLE;
+		cache.sweep(now, 5);
+		assert_eq!(cache.rasters.len(), 1, "throttled");
+		let retry = cache
+			.next_release(now)
+			.expect("a deadline for the idle raster");
+		cache.sweep(retry, 5);
+		assert!(cache.rasters.is_empty());
+		assert_eq!(cache.next_release(retry), None);
+	}
+
+	/// Prefetching pauses when painted rasters near the item cap, not only the byte cap, so
+	/// small prefetches cannot evict each other and be requested again in a loop.
+	#[test]
+	fn prefetch_pauses_near_the_raster_cap() {
+		let ctx = Context::default();
+		install_inline(
+			&ctx,
+			Backend {
+				rasterize: Arc::new(|_, edge| {
+					Some(ColorImage::filled([edge as usize; 2], egui::Color32::WHITE))
+				}),
+				on_worker_start: || {},
+			},
+		);
+		let service = service(&ctx).unwrap();
+		let painted: Vec<Key> = (0..=PREFETCH_ITEMS).map(|cell| (cell, 16)).collect();
+		let frame = |prefetch: bool| {
+			ctx.run_ui(Default::default(), |ui| {
+				for &key in &painted {
+					service.paint(ui.ctx(), key);
+				}
+				if prefetch {
+					for cell in 0..300 {
+						service.prefetch(ui.ctx(), (TEXTURES + cell, 16));
+					}
+				}
+			})
+			.drop_without_applying_deltas();
+		};
+		// The painted keys outnumber a queue, so they arrive over a few passes.
+		for _ in 0..3 {
+			frame(false);
+			run_jobs(&ctx);
+		}
+		frame(false);
+		assert!(service.cache().bytes <= PREFETCH_BYTES);
+		assert_eq!(service.cache().rasters.len(), PREFETCH_ITEMS + 1);
+		frame(true);
+		assert!(service.shared.lock().queues.idle(), "nothing prefetched");
 	}
 
 	/// More distinct emoji on screen than the cache holds, by raster count (small emoji) or

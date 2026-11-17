@@ -777,8 +777,10 @@ impl Avatars {
 			self.accept(_ctx, key.clone(), Some(image));
 		}
 		if let Some((cached, cached_edge)) = self.cached_custom(id, edge) {
-			// GPU minification of more than one step aliases; it only bridges the exact size.
-			if cached_edge > edge * 2 && !demo {
+			// GPU minification of more than one step aliases, and a smaller rendition stands in
+			// only after the exact one failed; both bridge until the drawn size arrives, which
+			// `request` retries after [`RETRY`].
+			if (cached_edge > edge * 2 || cached_edge < edge) && !demo {
 				self.request(key);
 			}
 			let entry = self.emoji_textures.get_mut(&cached).expect("cached emoji");
@@ -959,8 +961,8 @@ impl Avatars {
 				{
 					*used = Instant::now();
 				}
-				// A much larger rendition only bridges until the drawn size arrives.
-				let exact = cached.is_some_and(|(_, cached)| cached <= edge * 2);
+				// A much larger or a smaller rendition only bridges until the drawn size arrives.
+				let exact = cached.is_some_and(|(_, cached)| (edge..=edge * 2).contains(&cached));
 				(format!("emoji-{id}@{edge}"), exact)
 			}
 			model::ImageShare::Sticker { id, format_type } => {
@@ -3378,6 +3380,18 @@ mod tests {
 				.custom_image(&ctx, model::Id(9001), 100.0, false)
 				.is_some()
 		);
+		assert!(
+			avatars.take_requests().is_empty(),
+			"retried only after RETRY"
+		);
+		avatars.attempts.get_mut("emoji-9001@128").unwrap().0 -= RETRY + Duration::from_secs(1);
+		assert!(
+			avatars
+				.custom_image(&ctx, model::Id(9001), 100.0, false)
+				.is_some(),
+			"the smaller rendition stays while the drawn size is retried"
+		);
+		assert_eq!(avatars.take_requests(), ["emoji-9001@128"]);
 		assert_eq!(custom_emoji_edge(10.0, 1.0), 32);
 		assert_eq!(custom_emoji_edge(400.0, 2.0), 256);
 		assert_eq!(custom_emoji_edge(f32::NAN, 1.0), 64);
