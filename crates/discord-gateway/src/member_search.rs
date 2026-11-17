@@ -77,8 +77,6 @@ impl Search {
 		if !resumable {
 			self.following = None;
 			self.users.clear();
-			self.cooldowns.clear();
-			self.blocked_until = None;
 		}
 	}
 	pub fn watch(&mut self, watch: &Option<crate::MemberWatch>) -> u8 {
@@ -351,8 +349,6 @@ impl Search {
 		for (request, deadline) in self.active.iter_mut().flatten() {
 			if request.nonce == nonce && deadline.is_none() {
 				*deadline = Some(sent + Duration::from_secs(15));
-				self.cooldowns
-					.insert(request.guild, sent + Duration::from_secs(30));
 			}
 		}
 	}
@@ -1001,15 +997,44 @@ mod tests {
 		assert_eq!(search.active[0].as_ref().unwrap().0.nonce, 2);
 	}
 	#[test]
-	fn resume_preserves_cooldown_and_fresh_identify_resets_it() {
+	fn resume_and_fresh_identify_preserve_member_cooldowns() {
 		let mut search = Search::default();
 		let now = Instant::now();
 		search.next_send = now;
 		search.update(&[Some(request(1, 1)), None]);
 		search.tick_at(now, &|_| Ok(())).unwrap();
-		search.reconnect(true);
-		assert!(search.cooldowns.contains_key(&Id(1)));
-		search.reconnect(false);
-		assert!(search.cooldowns.is_empty());
+		for (resumable, nonce) in [(true, 2), (false, 3)] {
+			search.reconnect(resumable);
+			search.update(&[Some(request(1, nonce)), None]);
+			assert!(
+				search
+					.tick_at(now + Duration::from_secs(2), &|_| Ok(()))
+					.unwrap()
+					.is_none()
+			);
+		}
+		assert!(
+			search
+				.tick_at(now + Duration::from_secs(30), &|_| Ok(()))
+				.unwrap()
+				.is_some()
+		);
+	}
+	#[test]
+	fn send_receipt_cannot_shorten_an_existing_service_penalty() {
+		let mut search = Search::default();
+		let now = search.next_send;
+		search.update(&[Some(request(1, 1)), None]);
+		search.tick_at(now, &|_| Ok(())).unwrap();
+		search
+			.limited(Some(Id(1)), Some("0"), Duration::from_secs(60), &|_| Ok(()))
+			.unwrap();
+		let until = search.cooldowns[&Id(1)];
+		search.sent(Id(1), 1, now + Duration::from_secs(1));
+		assert_eq!(search.cooldowns[&Id(1)], until);
+		assert_eq!(
+			search.active[0].as_ref().unwrap().1,
+			Some(now + Duration::from_secs(16))
+		);
 	}
 }

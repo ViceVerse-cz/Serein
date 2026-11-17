@@ -1,7 +1,7 @@
 //! REST admission, response limits, cooldown and protected-request handling.
 use super::{
 	ADMIN_READ, AUTHORIZATION, CONTENT_TYPE, Client, DiscordApi, FOREGROUND_PERMITS, Failure,
-	HeaderValue, Instant, MAX_READ_RATE_LIMIT_WAIT, Method, Ordering, READ_RATE_LIMIT_RETRIES,
+	HeaderValue, Instant, MAX_RATE_LIMIT_WAIT, Method, Ordering, READ_RATE_LIMIT_RETRIES,
 	RequestContent, ResponsePolicy, SPECULATIVE, StatusCode, api_client, invite_captcha, mfa,
 	proxy, safe_delay, sleep_until,
 };
@@ -234,6 +234,7 @@ impl DiscordApi {
 		let mut body = body;
 		let route = super::rate_limits::Route::new(&method, path);
 		let mut rate_limits = 0u8;
+		let mut admission_deadline = None;
 		let mut mfa_replay: Option<reqwest::RequestBuilder> = None;
 		let mut mfa_resumed = false;
 		let mut mfa_deadline: Option<Instant> = None;
@@ -248,6 +249,8 @@ impl DiscordApi {
 			} else {
 				self.rest_client().await?
 			};
+			let rate_deadline =
+				*admission_deadline.get_or_insert_with(|| Instant::now() + MAX_RATE_LIMIT_WAIT);
 			loop {
 				let stopped = self.stop_signal.notified();
 				tokio::pin!(stopped);
@@ -257,16 +260,19 @@ impl DiscordApi {
 					return Err(Failure::Expired);
 				}
 				let next = self.cooldown.lock().await.deadline(&route)?;
-				if speculative && Instant::now() < next {
+				if Instant::now() >= next {
+					break;
+				}
+				if speculative {
 					return Err(Failure::Capacity);
+				}
+				if next > rate_deadline {
+					return Err(Failure::RateLimited);
 				}
 				if let Some(deadline) = mfa_deadline {
 					tokio::select! { _=&mut stopped=>return Err(Failure::Expired), _=sleep_until(deadline)=>return Err(Failure::ProtocolAt("Verification expired before the request could resume")), _=sleep_until(next)=>{} }
 				} else {
 					tokio::select! { _=&mut stopped=>return Err(Failure::Expired), _=sleep_until(next)=>{} }
-				}
-				if Instant::now() >= self.cooldown.lock().await.deadline(&route)? {
-					break;
 				}
 			}
 			// Acquire at the HTTP boundary only: nested adapter methods cannot hold a permit
@@ -294,6 +300,12 @@ impl DiscordApi {
 			if self.stopped() {
 				return Err(Failure::Expired);
 			}
+			if mfa_deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+				return Err(Failure::ProtocolAt(
+					"Verification expired before the request could resume",
+				));
+			}
+			admission_deadline = None;
 			let mut authorization = HeaderValue::from_str(self.secret.expose())
 				.map_err(|_| Failure::InvalidCredential)?;
 			authorization.set_sensitive(true);
@@ -583,7 +595,7 @@ impl DiscordApi {
 						)?;
 					}
 					if idempotent
-						&& delay <= MAX_READ_RATE_LIMIT_WAIT
+						&& delay <= MAX_RATE_LIMIT_WAIT
 						&& rate_limits < READ_RATE_LIMIT_RETRIES
 					{
 						rate_limits += 1;

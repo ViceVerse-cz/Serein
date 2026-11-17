@@ -82,8 +82,8 @@ tokio::task_local! {
 /// REST permits a preload must leave free for requests the user is waiting for.
 const FOREGROUND_PERMITS: usize = 2;
 const READ_RATE_LIMIT_RETRIES: u8 = 2;
-/// Longer JSON limits fail the read at once, so sign-in never stalls silently.
-const MAX_READ_RATE_LIMIT_WAIT: Duration = Duration::from_secs(10);
+/// Bound the time a cooled-down route can hold a foreground operation.
+const MAX_RATE_LIMIT_WAIT: Duration = Duration::from_secs(10);
 const API_ORIGINS: [&str; 2] = [
 	"https://discord.com/api/v10",
 	"https://ptb.discord.com/api/v10",
@@ -707,7 +707,7 @@ mod tests {
 			.observe(
 				&rate_limits::Route::new(&Method::GET, "/channels/1/messages"),
 				Some("messages"),
-				Some(Duration::from_secs(60)),
+				Some(Duration::from_secs(5)),
 				false,
 			)
 			.unwrap();
@@ -742,6 +742,43 @@ mod tests {
 			);
 		};
 		tokio::time::timeout(Duration::from_secs(2),async {tokio::select! {()=waiting=>panic!("cooling route sent early"), _=async {tokio::join!(server,foreground);}=>{}}}).await.unwrap();
+		assert_eq!(api.requests.available_permits(), 4);
+		assert!(!api.stopped());
+	}
+	#[tokio::test]
+	async fn long_cooldown_rejects_an_unsent_write_without_releasing_the_penalty() {
+		let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+		let mut api = DiscordApi::new(Arc::new(
+			SessionSecret::from_owner_input("synthetic-long-cooldown".into()).unwrap(),
+		))
+		.unwrap();
+		api.base = format!("http://{}", listener.local_addr().unwrap());
+		let path = "/channels/1/messages";
+		let route = rate_limits::Route::new(&Method::POST, path);
+		api.cooldown
+			.lock()
+			.await
+			.observe(&route, Some("send"), Some(Duration::from_secs(60)), false)
+			.unwrap();
+		let result = tokio::time::timeout(
+			Duration::from_secs(2),
+			api.request(
+				Method::POST,
+				path,
+				Some(serde_json::json!({"content":"fixture"})),
+			),
+		)
+		.await;
+		assert!(matches!(result, Ok(Err(Failure::RateLimited))));
+		assert!(
+			api.cooldown.lock().await.deadline(&route).unwrap()
+				> Instant::now() + MAX_RATE_LIMIT_WAIT
+		);
+		assert!(
+			tokio::time::timeout(Duration::from_millis(30), listener.accept())
+				.await
+				.is_err()
+		);
 		assert_eq!(api.requests.available_permits(), 4);
 		assert!(!api.stopped());
 	}
