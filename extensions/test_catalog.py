@@ -43,6 +43,8 @@ for data, mutate in (
     (theme, lambda p: p["manifest"].update(capabilities=["composer"])),
     (theme, lambda p: p.update(cover_image=[256])),
     (plugin, lambda p: p["manifest"].update(source="https://user:secret@example.com")),
+    (plugin, lambda p: p["manifest"].update(source="https://example.com:invalid/project")),
+    (plugin, lambda p: p["manifest"].update(source="https://example.com:65536/project")),
     (plugin, lambda p: p.update(wasm=[0, 1])),
     (plugin, lambda p: p["manifest"].update(capabilities=["unknown"])),
     (plugin, lambda p: p["manifest"]["actions"][0].update(surface="composer")),

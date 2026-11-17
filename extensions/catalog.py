@@ -74,7 +74,12 @@ def validate(data):
         require(isinstance(value, str) and 0 < len(value.encode()) <= 128 and not any(ord(c) < 32 or 127 <= ord(c) <= 159 for c in value), f"invalid {key}")
     require(isinstance(manifest["source"], str), "invalid source")
     source = urlsplit(manifest["source"])
-    require(len(manifest["source"].encode()) <= 2048 and source.scheme == "https" and source.hostname and not source.username and source.password is None, "credential-free HTTPS source required")
+    require(len(manifest["source"].encode()) <= 2048 and source.scheme == "https" and source.hostname
+            and not source.username and source.password is None, "credential-free HTTPS source required")
+    try:
+        _ = source.port
+    except ValueError as error:
+        raise ValueError("invalid source URL port") from error
     capabilities = manifest.get("capabilities", [])
     actions = manifest.get("actions", [])
     require(isinstance(capabilities, list) and len(capabilities) <= MAX_CAPABILITIES
