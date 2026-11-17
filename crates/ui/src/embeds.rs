@@ -819,6 +819,14 @@ fn browser_video_preview(
 		)
 	});
 	let painter = ui.painter().with_clip_rect(response.rect);
+	if response.has_focus() {
+		painter.rect_stroke(
+			response.rect,
+			5,
+			egui::Stroke::new(2.0, crate::design::palette(ui).accent),
+			egui::StrokeKind::Inside,
+		);
+	}
 	let center = response.rect.center();
 	if provider.is_none() {
 		crate::icons::paint(
