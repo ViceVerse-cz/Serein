@@ -208,6 +208,20 @@ Normal-account use remains unofficial. Local WebSocket regressions exercise the
 recovery policy; they do not establish the cause of issue #577's macOS Wi-Fi
 failure or prove live Discord recovery.
 
+After READY, Gateway traffic Serein cannot read no longer ends the connection:
+a corrupt compressed frame, an unreadable packet or dispatch (a failed READY
+included), or an unsupported opcode starts a fresh session. It identifies again
+and never resumes, because the resume cursor has already moved past the unread
+event. The waits are 30, 60 and 120 seconds, and the fourth failure within 30
+minutes stops the connection as before. That limit is local policy, not a
+verified Discord quota; how the service weighs repeated identifies from a normal
+account is unverified. Stop-listed close codes, capacity limits, a refusing event
+queue and Serein's own input faults still stop without a retry, and the initial
+login is unchanged. Each close, recovery and stop is recorded with fixed labels
+(cause, close code or opcode, handled dispatch name) for the diagnostics log and
+report. Local WebSocket regressions cover this policy; the cause of issue #1043
+is not established.
+
 ## Profile boards — October 7, 2026
 
 The full profile reads game widgets from the existing on-demand profile response,
@@ -3245,10 +3259,17 @@ does not establish the current Electron application's complete behavior.
   account attention required. Pending requests recheck the latch after admission,
   cooldown and proxy configuration waits. Already dispatched requests may finish.
   40001 stops the session as expired; 40012 remains a linked-resource refusal; a guild ban (40007) remains local.
+- HTTP 401 stops the session as expired and records the response's JSON error code
+  with the redacted route. The exception is 401 with code 60003, which the
+  unofficial user-API notes describe as an MFA check on a valid token: it stops
+  the session as a security challenge and keeps the saved login. Unverified
+  against a live account.
 - Gateway 4001–4005 and 4008 stop recovery. Discord permits reconnection for
   several of these; Serein deliberately requires explicit reconnection so a bad
   producer cannot repeatedly send invalid or rate-limited payloads. Normal
-  network recovery and 4007/4009 fresh identification remain supported.
+  network recovery and 4007/4009 fresh identification remain supported. 4015
+  (unofficial: too many open user-account sessions) stops as well, because each
+  new identify would add another session.
 - Voice 4021 (rate limit) and 4022 (call terminated) join 4014 in terminal call
   handling, preventing the desktop automatic rejoin loop.
 - Attachment staging and storage PUT remain single-attempt, with one explicit

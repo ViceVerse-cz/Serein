@@ -88,17 +88,23 @@ impl Failure {
 	}
 }
 /// Which response ended a session as expired, for the copyable failure report. `source` is a
-/// fixed label; `route` keeps only static path words, never IDs, codes, queries or remote text.
+/// fixed label; `route` keeps only static path words, never IDs, invite codes, queries or
+/// remote text. `code` is the response's numeric JSON error code, which tells one 401 from another.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Expiry {
 	pub source: &'static str,
+	pub code: Option<u32>,
 	pub route: Option<Box<str>>,
 }
 impl fmt::Display for Expiry {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		f.write_str(self.source)?;
+		if let Some(code) = self.code {
+			write!(f, " code {code}")?;
+		}
 		match &self.route {
-			Some(route) => write!(f, "{} on {route}", self.source),
-			None => f.write_str(self.source),
+			Some(route) => write!(f, " on {route}"),
+			None => Ok(()),
 		}
 	}
 }

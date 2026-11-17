@@ -230,6 +230,21 @@ fn invite_captcha(bytes: &[u8]) -> Option<client_core::captcha::Challenge> {
 		c.should_serve_invisible,
 	)
 }
+/// The JSON error code of a rejected request, read from at most 4 KiB of body. `None` when
+/// the body is missing, larger or not the service's error shape.
+async fn error_code(response: wreq::Response) -> Option<u64> {
+	const MAX_BYTES: usize = 4096;
+	let mut bytes = Vec::new();
+	let mut body = std::pin::pin!(response.bytes_stream());
+	while let Some(chunk) = futures_util::StreamExt::next(&mut body).await {
+		let chunk = chunk.ok()?;
+		if bytes.len() + chunk.len() > MAX_BYTES {
+			return None;
+		}
+		bytes.extend_from_slice(&chunk);
+	}
+	decode::<ErrorBody>(&bytes).ok()?.code
+}
 /// Headers the web client was observed sending on every REST call (unofficial). How the
 /// service weighs them is unverified. Locale and timezone are the operating system's.
 fn fingerprint_headers() -> Result<wreq::header::HeaderMap, Failure> {
@@ -488,10 +503,25 @@ impl DiscordApi {
 	}
 	/// Keeps the first cause only, so later teardown cannot mask the response that ended it.
 	pub fn note_expiry(&self, source: &'static str, route: Option<Box<str>>) {
-		let _ = self.expiry.set(Expiry { source, route });
+		let _ = self.expiry.set(Expiry {
+			source,
+			code: None,
+			route,
+		});
 	}
-	fn expire(&self, source: &'static str, method: &Method, path: &str) -> Failure {
-		self.note_expiry(source, Some(route_label(method, path)));
+	fn expire(
+		&self,
+		source: &'static str,
+		code: Option<u64>,
+		method: &Method,
+		path: &str,
+	) -> Failure {
+		let _ = self.expiry.set(Expiry {
+			source,
+			// A JSON error code is a small number; anything larger is not one.
+			code: code.and_then(|code| u32::try_from(code).ok()),
+			route: Some(route_label(method, path)),
+		});
 		self.stop();
 		Failure::Expired
 	}
@@ -800,7 +830,14 @@ impl DiscordApi {
 				if advisory {
 					return Err(Failure::Expired);
 				}
-				return Err(self.expire("REST HTTP 401", &method, path));
+				let code = error_code(response).await;
+				// Unofficial: a route that wants a fresh MFA check answers a valid token with
+				// 401 and code 60003. That is a challenge, not an expired session.
+				if code == Some(60003) {
+					self.stop_with(Failure::Challenged);
+					return Err(Failure::Challenged);
+				}
+				return Err(self.expire("REST HTTP 401", code, &method, path));
 			}
 			let cloudflare_block = response
 				.headers()
@@ -856,7 +893,7 @@ impl DiscordApi {
 					if advisory {
 						return Err(Failure::Expired);
 					}
-					return Err(self.expire("REST code 40001", &method, path));
+					return Err(self.expire("REST code 40001", None, &method, path));
 				}
 
 				if error.code == Some(40012) {
@@ -4051,7 +4088,13 @@ mod tests {
 		}
 		for (status, body, expected) in [
 			("302 Found", "", Failure::Protocol),
-			("401 Unauthorized", "{}", Failure::Expired),
+			(
+				"401 Unauthorized",
+				"{\"message\":\"401: Unauthorized\",\"code\":0}",
+				Failure::Expired,
+			),
+			// A valid token asked for a fresh MFA check is challenged, not expired.
+			("401 Unauthorized", "{\"code\":60003}", Failure::Challenged),
 			(
 				"403 Forbidden",
 				"{\"captcha_key\":[\"challenge\"]}",
@@ -4081,6 +4124,11 @@ mod tests {
 			if expected.ends_session() {
 				assert!(api.stopped());
 			}
+			// Only a real expiry records a cause, with the code that tells one 401 from another.
+			assert_eq!(
+				api.expiry.get().map(|expiry| expiry.code),
+				(expected == Failure::Expired).then_some(Some(0))
+			);
 			task.await.unwrap();
 		}
 		// Regression (#1003): a 401 on the advisory pre-READY status read must not end the

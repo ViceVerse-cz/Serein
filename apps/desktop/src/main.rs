@@ -1141,6 +1141,8 @@ struct Desktop {
 	/// Saved account awaiting the owner's confirmation before it is forgotten.
 	confirming_forget: Option<model::Id>,
 	credential_status: &'static str,
+	/// Why the last connection ended, kept for the diagnostics report after it is dropped.
+	last_stop: Option<SessionStop>,
 	/// Until when the sign-in failure copy button reads "Copied".
 	sign_in_copied: Option<f64>,
 	forgetting: bool,
@@ -1165,6 +1167,46 @@ struct Desktop {
 	#[cfg(feature = "demo")]
 	synthetic_id: u64,
 	token_input: Zeroizing<String>,
+}
+/// Why a connection ended. Fixed labels, flags and redacted details only, so the diagnostics
+/// report can show it whether or not logging was on.
+struct SessionStop {
+	reason: &'static str,
+	detail: Option<Box<str>>,
+	/// Whether the connection had reached READY.
+	ready: bool,
+	gateway: Option<(discord_gateway::Report, std::time::Instant)>,
+	at: std::time::Instant,
+}
+/// One Gateway report as a diagnostics line: its own constants and numbers.
+fn describe_gateway_report(
+	(report, at): &(discord_gateway::Report, std::time::Instant),
+	now: std::time::Instant,
+) -> String {
+	use discord_gateway::Action;
+	use std::fmt::Write;
+	let mut line = match report.action {
+		Action::Reconnecting => "closed, reconnecting".to_owned(),
+		Action::Recovering { wait_secs } => {
+			format!("fresh session {} after {wait_secs} s", report.recoveries)
+		}
+		Action::BudgetSpent => "fresh-session budget spent".to_owned(),
+		Action::Stopped => "stopped".to_owned(),
+	};
+	let _ = write!(line, " · {}", report.cause);
+	if let Some(code) = report.code {
+		let _ = write!(line, " {code}");
+	}
+	if !report.dispatch.is_empty() {
+		let _ = write!(line, " {}", report.dispatch);
+	}
+	let _ = write!(
+		line,
+		" · ready={} · {} s ago",
+		report.ready,
+		now.duration_since(*at).as_secs()
+	);
+	line
 }
 /// Records the few session and gateway milestones that explain a reconnect. Payloads, identifiers
 /// and credentials never reach the log: only fixed labels and the event's own kind.
@@ -2629,6 +2671,7 @@ impl Desktop {
 			presence_saved: None,
 			confirming_forget: sign_in_forget,
 			sign_in_copied: None,
+			last_stop: None,
 			credential_status: if demo {
 				"Fixture mode skips saved login; extensions use public GitHub downloads"
 			} else if loading_saved {
@@ -2796,9 +2839,47 @@ impl Desktop {
 		let _ = writeln!(report, "- **Saved login:** {}", self.credential_status);
 		let _ = writeln!(
 			report,
-			"- **Session:** authenticated={} gateway={}",
+			"- **Session:** authenticated={} gateway={} connection={}",
 			self.state.auth == AuthState::Authenticated,
-			self.state.gateway_connected
+			self.state.gateway_connected,
+			self.connection.is_some()
+		);
+		let now = std::time::Instant::now();
+		let or_none = |text: &str| if text.is_empty() { "none" } else { text }.to_owned();
+		let _ = writeln!(report, "- **Status:** {}", or_none(self.state.status));
+		let _ = writeln!(
+			report,
+			"- **Failure detail:** {}",
+			or_none(self.state.failure_detail.as_deref().unwrap_or_default())
+		);
+		let stop = self.last_stop.as_ref();
+		let _ = writeln!(
+			report,
+			"- **Last stop:** {}",
+			stop.map_or_else(
+				|| "none".to_owned(),
+				|stop| format!(
+					"{} · {} · ready={} · {} s ago",
+					stop.reason,
+					or_none(stop.detail.as_deref().unwrap_or_default()),
+					stop.ready,
+					now.duration_since(stop.at).as_secs()
+				)
+			)
+		);
+		// A live connection's latest Gateway report, else the one its stop kept.
+		let gateway = self
+			.connection
+			.as_ref()
+			.and_then(|connection| *connection.gateway_report.lock().ok()?)
+			.or_else(|| stop?.gateway);
+		let _ = writeln!(
+			report,
+			"- **Gateway:** {}",
+			gateway.map_or_else(
+				|| "no close, recovery or stop recorded".to_owned(),
+				|gateway| describe_gateway_report(&gateway, now)
+			)
 		);
 		let call = match self.state.voice.active.as_ref() {
 			Some(call) if call.phase == client_core::voice::Phase::Failed => "failed",
@@ -5266,6 +5347,7 @@ impl Desktop {
 		let mut events = Vec::new();
 		let mut terminal = None;
 		let mut expiry = None;
+		let mut stopped = None;
 		if let Some(connection) = &mut self.connection {
 			for _ in 0..client_core::EVENT_SLOTS {
 				match connection.events.try_recv() {
@@ -5293,9 +5375,13 @@ impl Desktop {
 				events.push(failure);
 			}
 			terminal = *connection.terminal.borrow();
-			if terminal == Some(Failure::Expired) {
+			if terminal.is_some() {
 				let ready = connection.ready.load(std::sync::atomic::Ordering::Relaxed);
-				expiry = Some((connection.expiry.get().cloned(), ready));
+				let gateway = connection.gateway_report.lock().ok().and_then(|slot| *slot);
+				stopped = Some((ready, gateway));
+				if terminal == Some(Failure::Expired) {
+					expiry = Some((connection.expiry.get().cloned(), ready));
+				}
 			}
 		}
 		let mut persist_timeline = false;
@@ -5576,6 +5662,7 @@ impl Desktop {
 							.map_or("unrecorded", |cause| cause.source)
 							.into(),
 					),
+					("ready", stopped.is_some_and(|(ready, _)| ready).into()),
 				],
 			);
 			for (setting, scope) in [
@@ -5600,6 +5687,14 @@ impl Desktop {
 			self.voice.stop();
 			self.messaging.camera_test_requested = false;
 			self.messaging.camera_test_texture = None;
+			// The transport is gone whatever the failure: a stop that does not end the session
+			// in shared state must still stop reporting a connected Gateway.
+			if !failure.ends_session() {
+				self.state.apply(Envelope {
+					generation: self.state.generation,
+					event: Event::Disconnected,
+				});
+			}
 			self.state.apply(Envelope {
 				generation: self.state.generation,
 				event: Event::Failure(failure),
@@ -5623,6 +5718,14 @@ impl Desktop {
 			if !matches!(self.state.auth, AuthState::Expired | AuthState::Challenged) {
 				self.state.auth = AuthState::Failed;
 			}
+			let (ready, gateway) = stopped.unwrap_or_default();
+			self.last_stop = Some(SessionStop {
+				reason: failure.label(),
+				detail: self.state.failure_detail.clone(),
+				ready,
+				gateway,
+				at: std::time::Instant::now(),
+			});
 			for pending in &mut self.state.pending {
 				if pending.delivery == Delivery::Sending {
 					pending.delivery = Delivery::Ambiguous;
