@@ -146,6 +146,8 @@ struct Extras<'a> {
 	context: Option<client_core::fingerprint::MessageContext>,
 	/// Builds the JSON body after cooldown and route admission.
 	prepare: Option<&'a mut (dyn FnMut() -> Result<serde_json::Value, Failure> + Send)>,
+	/// A rejected token returns `Expired` without ending the session; the Gateway decides.
+	advisory: bool,
 }
 
 enum RequestContent {
@@ -594,8 +596,7 @@ impl DiscordApi {
 			Extras {
 				retry,
 				challenge,
-				context: None,
-				prepare: None,
+				..Extras::default()
 			},
 		)
 		.await
@@ -619,7 +620,7 @@ impl DiscordApi {
 					retry,
 					challenge,
 					context: Some(context),
-					prepare: None,
+					..Extras::default()
 				},
 			)
 			.await?;
@@ -642,6 +643,7 @@ impl DiscordApi {
 			mut challenge,
 			context,
 			mut prepare,
+			advisory,
 		} = extras;
 		// Only typed adapter methods construct paths. Never accept a URL or route from UI/content.
 		if !path.starts_with('/')
@@ -795,6 +797,9 @@ impl DiscordApi {
 				.and_then(|s| s.parse::<f64>().ok());
 
 			if status == StatusCode::UNAUTHORIZED {
+				if advisory {
+					return Err(Failure::Expired);
+				}
 				return Err(self.expire("REST HTTP 401", &method, path));
 			}
 			let cloudflare_block = response
@@ -848,6 +853,9 @@ impl DiscordApi {
 			if !status.is_success() {
 				let error = decode::<ErrorBody>(&bytes).unwrap_or_default();
 				if matches!(error.code, Some(40001)) {
+					if advisory {
+						return Err(Failure::Expired);
+					}
 					return Err(self.expire("REST code 40001", &method, path));
 				}
 
@@ -4073,6 +4081,36 @@ mod tests {
 			if expected.ends_session() {
 				assert!(api.stopped());
 			}
+			task.await.unwrap();
+		}
+		// Regression (#1003): a 401 on the advisory pre-READY status read must not end the
+		// session before the Gateway answers; the same 401 on an ordinary read still does.
+		{
+			let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+			let address = listener.local_addr().unwrap();
+			let task = tokio::spawn(async move {
+				for _ in 0..2 {
+					let (mut socket, _) = listener.accept().await.unwrap();
+					let mut buffer = [0; 4096];
+					let _ = socket.read(&mut buffer).await.unwrap();
+					socket
+						.write_all(b"HTTP/1.1 401 Unauthorized\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}")
+						.await
+						.unwrap();
+				}
+			});
+			let mut api = DiscordApi::new(Arc::new(
+				SessionSecret::from_owner_input("SYNTHETIC_SECRET_MARKER".into()).unwrap(),
+			))
+			.unwrap();
+			api.base = format!("http://{address}");
+			assert_eq!(
+				api.account_status_before_ready().await.unwrap_err(),
+				Failure::Expired
+			);
+			assert!(!api.stopped());
+			assert_eq!(api.account_status().await.unwrap_err(), Failure::Expired);
+			assert!(api.stopped());
 			task.await.unwrap();
 		}
 		fn limited(status: &str, body: &str) -> String {

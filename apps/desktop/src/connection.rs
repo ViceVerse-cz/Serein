@@ -290,6 +290,7 @@ impl Connection {
 		let gateway_reconnect = reconnect.clone();
 		let status_changed = Arc::new(tokio::sync::Notify::new());
 		let status_refresh = status_changed.clone();
+		let ready_refresh = status_changed.clone();
 		let task=runtime.spawn(async move {
             let emit=move |event:Event| -> Result<(),Failure> {
                 if let Event::AccountSettings { status: true, .. } = &event { status_changed.notify_one(); }
@@ -351,7 +352,7 @@ impl Connection {
 				let chosen = if cached.is_some() {
 					None
 				} else {
-					resolve_account_presence(&api, &presence_send, cached, &idle_timeout_send).await
+					resolve_account_presence(&api, &presence_send, None, &idle_timeout_send).await
 				};
                 let (idle_api, idle_identity, idle_wake) = (api.clone(), identity.clone(), wake.clone());
                 let _idle_timeout_task = AbortTask(tokio::spawn(async move {
@@ -361,8 +362,18 @@ impl Connection {
 				if chosen.is_some() {
 					wake.request_repaint();
 					let _ = account_presence_send.send_replace(chosen);
+				} else if cached.is_none() {
+					// Status unknown: identify invisible, then read it again once READY arrives.
+					let baseline = model::OwnPresence::default();
+					presence_send.send_if_modified(|slot| {
+						let unedited = *slot == baseline;
+						if unedited {
+							slot.status = model::PresenceStatus::Invisible;
+						}
+						unedited
+					});
+					ready_refresh.notify_one();
 				}
-				// The status read above already learned that the token was rejected.
 				if let Some(failure)=api.stop_reason() {return Err(failure);}
                 let emit=Arc::new(emit);
                 let (member_send,member_receive)=watch::channel(None);
@@ -979,7 +990,7 @@ async fn resolve_account_presence(
 	idle_timeout: &watch::Sender<Option<u32>>,
 ) -> Option<model::OwnPresence> {
 	let baseline = presence.borrow().clone();
-	let remote = tokio::time::timeout(Duration::from_secs(8), api.account_status())
+	let remote = tokio::time::timeout(Duration::from_secs(8), api.account_status_before_ready())
 		.await
 		.ok()
 		.and_then(Result::ok)
