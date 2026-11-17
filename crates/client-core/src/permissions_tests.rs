@@ -3168,6 +3168,68 @@ fn partial_member_snapshot_across_subscriptions_preserves_labels_but_explicit_cl
 }
 
 #[test]
+fn cached_history_supplies_role_colors_before_the_member_list_arrives() {
+	let mut state = state();
+	let mut role = state.guild_roles(Id(10)).unwrap()[1].clone();
+	role.color = 0x112233;
+	permission(
+		&mut state,
+		PermissionEvent::Role {
+			guild: Id(10),
+			role,
+		},
+	);
+	let mut first = message(101, Id(20));
+	first.author = cached_person(7, "Server nickname").user;
+	first.author_roles = vec![Id(11)];
+	let mut second = first.clone();
+	second.id = Id(102);
+	second.author_roles.clear();
+	state.timeline.clear();
+	state
+		.timeline
+		.seed_cache(vec![first, second.clone()])
+		.unwrap();
+	let loaded = state.timeline.get(second.id).unwrap();
+	assert!(loaded.author_roles.is_empty());
+	assert_eq!(state.message_author_color(loaded), Some(0x112233));
+	let mut other = second.clone();
+	other.channel = Id(21);
+	assert_eq!(state.message_author_color(&other), None);
+	other.channel = Id(20);
+	other.author.webhook = true;
+	assert_eq!(state.message_author_color(&other), None);
+	second.author_roles = vec![Id(11)];
+	for departed in [true, false] {
+		apply(
+			&mut state,
+			Event::MemberIdentity(Box::new(model::MemberIdentity {
+				guild: Id(10),
+				user: second.author.id,
+				profile: None,
+				global_name: model::GlobalNameUpdate::Unchanged,
+				avatar: Patch::Absent,
+				nick: if departed { Patch::Null } else { Patch::Absent },
+				roles: if departed {
+					Patch::Absent
+				} else {
+					Patch::Value(vec![])
+				},
+				departed,
+			})),
+		);
+		assert_eq!(
+			state
+				.member_identity(Id(20), second.author.id)
+				.unwrap()
+				.departed,
+			departed
+		);
+		assert_eq!(state.message_author_color(&second), None);
+	}
+}
+
+#[test]
 fn an_unknown_sidebar_row_does_not_mask_the_message_identity() {
 	let mut state = state();
 	let mut colored = state.guild_roles(Id(10)).unwrap()[1].clone();
