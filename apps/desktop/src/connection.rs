@@ -2801,6 +2801,7 @@ mod tests {
 			generation: 1,
 			event: client_core::Event::ChannelCreated(model::Channel {
 				user_limit: None,
+				slowmode: 0,
 				id: model::Id(id),
 				guild: Some(model::Id(1)),
 				parent_id: None,
@@ -3109,6 +3110,7 @@ mod tests {
 				.enumerate()
 				.map(|(index, kind)| Channel {
 					user_limit: None,
+					slowmode: 0,
 					id: Id(11 + index as u64),
 					guild: None,
 					parent_id: None,

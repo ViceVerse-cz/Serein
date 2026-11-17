@@ -11,7 +11,7 @@ Squashed from https://github.com/emilk/egui/pull/8801 at a299c9799688.
  2 files changed, 21 insertions(+), 1 deletion(-)
 
 diff --git a/crates/egui-wgpu/src/lib.rs b/crates/egui-wgpu/src/lib.rs
-index cb2b3a422..4bcc6dca0 100644
+index 64348247..43a4b488 100644
 --- a/crates/egui-wgpu/src/lib.rs
 +++ b/crates/egui-wgpu/src/lib.rs
 @@ -78,6 +78,21 @@ pub struct SurfaceConfig {
@@ -53,7 +53,7 @@ index cb2b3a422..4bcc6dca0 100644
  }
  
 diff --git a/crates/egui-wgpu/src/winit.rs b/crates/egui-wgpu/src/winit.rs
-index 37cb7dd08..14503ccc1 100644
+index d07ca504..e746b17e 100644
 --- a/crates/egui-wgpu/src/winit.rs
 +++ b/crates/egui-wgpu/src/winit.rs
 @@ -117,6 +117,7 @@ impl Painter {
@@ -64,7 +64,7 @@ index 37cb7dd08..14503ccc1 100644
          } = *config;
  
          // Transaction presentation can hold a drawable during AppKit live resize. Keep the
-@@ -784,7 +785,9 @@ impl Painter {
+@@ -788,7 +789,9 @@ impl Painter {
          }
  
          if let Some(output_frame) = output_frame {

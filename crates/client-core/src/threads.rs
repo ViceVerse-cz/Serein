@@ -255,6 +255,7 @@ mod tests {
 	fn thread_snapshots_preserve_other_scopes_and_cancel_removed_history() {
 		let channel = |id, guild, parent_id: Option<u64>, kind| Channel {
 			user_limit: None,
+			slowmode: 0,
 			id: Id(id),
 			guild: Some(Id(guild)),
 			parent_id: parent_id.map(Id),
@@ -281,6 +282,7 @@ mod tests {
 			}),
 			guilds: vec![
 				Guild {
+					banner: None,
 					default_message_notifications: None,
 					stickers: None,
 					emojis: None,
@@ -289,6 +291,7 @@ mod tests {
 					icon: None,
 				},
 				Guild {
+					banner: None,
 					default_message_notifications: None,
 					stickers: None,
 					emojis: None,
@@ -519,6 +522,7 @@ mod tests {
 	fn invalid_thread_snapshots_leave_navigation_and_drafts_unchanged() {
 		let channel = |id, guild, parent_id: Option<u64>, kind| Channel {
 			user_limit: None,
+			slowmode: 0,
 			id: Id(id),
 			guild: Some(Id(guild)),
 			parent_id: parent_id.map(Id),
@@ -566,6 +570,7 @@ mod tests {
 		] {
 			let mut state = State {
 				guilds: vec![Guild {
+					banner: None,
 					default_message_notifications: None,
 					stickers: None,
 					emojis: None,
@@ -617,6 +622,7 @@ mod tests {
 				guilds: [1, 2]
 					.into_iter()
 					.map(|id| Guild {
+						banner: None,
 						default_message_notifications: None,
 						stickers: None,
 						id: Id(id),

@@ -310,6 +310,8 @@ struct Guild<'a> {
 	properties: Option<crate::GuildProperties>,
 	#[serde(default)]
 	icon: Option<String>,
+	#[serde(default)]
+	banner: Option<String>,
 	#[serde(default, deserialize_with = "null_default")]
 	name: String,
 	#[serde(default)]
@@ -371,6 +373,7 @@ impl<'de> Deserialize<'de> for Guilds {
 						emojis: optional(guild.emojis, &mut unavailable),
 						properties: guild.properties,
 						icon: guild.icon,
+						banner: guild.banner,
 						name: guild.name,
 						channels: guild.channels.items,
 						stickers: optional::<crate::stickers::Catalog>(
@@ -571,6 +574,7 @@ mod tests {
 				ready.guilds[0].channels = (0..count)
 					.map(|index| ChannelDto {
 						user_limit: 0,
+						rate_limit_per_user: 0,
 						id: Id(index as u64 + 100),
 						guild_id: Some(Id(1)),
 						name: None,

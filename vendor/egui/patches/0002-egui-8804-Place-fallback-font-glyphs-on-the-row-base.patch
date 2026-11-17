@@ -1,9 +1,9 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: x <x@x>
-Date: Mon, 9 Nov 2026 12:43:54 +0100
+Date: Mon, 16 Nov 2026 11:04:47 +0800
 Subject: [PATCH] egui#8804: Place fallback-font glyphs on the row baseline
 
-Squashed from https://github.com/emilk/egui/pull/8804 at 328448754e1d.
+Squashed from https://github.com/emilk/egui/pull/8804 at 3327c427485b.
 ---
  .../tests/snapshots/color_picker.png          |  4 +-
  .../tests/snapshots/demos/Band.png            |  4 +-
@@ -47,14 +47,14 @@ Squashed from https://github.com/emilk/egui/pull/8804 at 328448754e1d.
  .../snapshots/widget_gallery_dark_x2.png      |  4 +-
  .../snapshots/widget_gallery_light_x1.png     |  4 +-
  .../snapshots/widget_gallery_light_x2.png     |  4 +-
- crates/epaint/src/text/text_layout.rs         | 54 ++++++++++++++++---
+ crates/epaint/src/text/text_layout.rs         | 47 +++++++++++++++----
  .../layout/button_image_shortcut.png          |  4 +-
  .../visuals/button_image_shortcut.png         |  4 +-
  .../button_image_shortcut_selected.png        |  4 +-
- 46 files changed, 136 insertions(+), 98 deletions(-)
+ 46 files changed, 129 insertions(+), 98 deletions(-)
 
 diff --git a/crates/egui_demo_lib/tests/snapshots/color_picker.png b/crates/egui_demo_lib/tests/snapshots/color_picker.png
-index cf3e9583f..984439de3 100644
+index cf3e9583..984439de 100644
 --- a/crates/egui_demo_lib/tests/snapshots/color_picker.png
 +++ b/crates/egui_demo_lib/tests/snapshots/color_picker.png
 @@ -1,3 +1,3 @@
@@ -64,7 +64,7 @@ index cf3e9583f..984439de3 100644
 +oid sha256:d8858709c39c6624b0d10dbd92bd4db125110be5bedf79b538f621a3c38d999d
 +size 143746
 diff --git a/crates/egui_demo_lib/tests/snapshots/demos/Band.png b/crates/egui_demo_lib/tests/snapshots/demos/Band.png
-index d140c66e0..d0b5763bd 100644
+index d140c66e..d0b5763b 100644
 --- a/crates/egui_demo_lib/tests/snapshots/demos/Band.png
 +++ b/crates/egui_demo_lib/tests/snapshots/demos/Band.png
 @@ -1,3 +1,3 @@
@@ -74,7 +74,7 @@ index d140c66e0..d0b5763bd 100644
 +oid sha256:a65396d80746ad6751cb2e2443892de8600a2132acfa0c30ac07b848ad633a93
 +size 50108
 diff --git "a/crates/egui_demo_lib/tests/snapshots/demos/B\303\251zier Curve.png" "b/crates/egui_demo_lib/tests/snapshots/demos/B\303\251zier Curve.png"
-index 2183097ba..a1c808981 100644
+index 2183097b..a1c80898 100644
 --- "a/crates/egui_demo_lib/tests/snapshots/demos/B\303\251zier Curve.png"	
 +++ "b/crates/egui_demo_lib/tests/snapshots/demos/B\303\251zier Curve.png"	
 @@ -1,3 +1,3 @@
@@ -84,7 +84,7 @@ index 2183097ba..a1c808981 100644
 +oid sha256:8ff9037aab34c0ef81a6fcee16f00fd7fdd6ccfd3a6f04c76c606a8b89bed729
 +size 32824
 diff --git a/crates/egui_demo_lib/tests/snapshots/demos/Code Editor.png b/crates/egui_demo_lib/tests/snapshots/demos/Code Editor.png
-index 5113734ab..5db3ab946 100644
+index 5113734a..5db3ab94 100644
 --- a/crates/egui_demo_lib/tests/snapshots/demos/Code Editor.png	
 +++ b/crates/egui_demo_lib/tests/snapshots/demos/Code Editor.png	
 @@ -1,3 +1,3 @@
@@ -94,7 +94,7 @@ index 5113734ab..5db3ab946 100644
 +oid sha256:519486d9a5538cd2ee4235a811293103119dd6e8243510e5950d75ef2172bd1a
 +size 27462
 diff --git a/crates/egui_demo_lib/tests/snapshots/demos/Code Example.png b/crates/egui_demo_lib/tests/snapshots/demos/Code Example.png
-index c5e9a048e..9dd5a983a 100644
+index c5e9a048..9dd5a983 100644
 --- a/crates/egui_demo_lib/tests/snapshots/demos/Code Example.png	
 +++ b/crates/egui_demo_lib/tests/snapshots/demos/Code Example.png	
 @@ -1,3 +1,3 @@
@@ -104,17 +104,17 @@ index c5e9a048e..9dd5a983a 100644
 +oid sha256:29763987f2bfe188f20c6f07fa20b2affbbcd7788be9e7152461c2b18f2aa1e6
 +size 75444
 diff --git a/crates/egui_demo_lib/tests/snapshots/demos/Completion.png b/crates/egui_demo_lib/tests/snapshots/demos/Completion.png
-index 743a8c75b..972be6e6d 100644
+index 689b6e7e..6e7e89c9 100644
 --- a/crates/egui_demo_lib/tests/snapshots/demos/Completion.png
 +++ b/crates/egui_demo_lib/tests/snapshots/demos/Completion.png
 @@ -1,3 +1,3 @@
  version https://git-lfs.github.com/spec/v1
--oid sha256:3fa78bb2b76e334c79662053b79b2144d973eb586bb4d4ea3eaad8ae3c865f61
--size 25022
-+oid sha256:78255fd89ce5ca9d7f7dc047aecc5a15e1d5400680e01cbb8d678beada5c4777
-+size 25011
+-oid sha256:ebbbc33d245be89fbed3c7236b7fe2160d8db2fb97f5dcf44de986b555536e1b
+-size 25233
++oid sha256:1eee838c1bbb104f06c4d874e1c96f0360d2db18ce07f85f34cd45ad294270bf
++size 25222
 diff --git a/crates/egui_demo_lib/tests/snapshots/demos/Dancing Strings.png b/crates/egui_demo_lib/tests/snapshots/demos/Dancing Strings.png
-index 03838dc96..18837d0ba 100644
+index 03838dc9..18837d0b 100644
 --- a/crates/egui_demo_lib/tests/snapshots/demos/Dancing Strings.png	
 +++ b/crates/egui_demo_lib/tests/snapshots/demos/Dancing Strings.png	
 @@ -1,3 +1,3 @@
@@ -124,7 +124,7 @@ index 03838dc96..18837d0ba 100644
 +oid sha256:56a65b27e6c605f1c87c003335a85ba89337f0757c34f2d0244e7b594eff7389
 +size 27471
 diff --git a/crates/egui_demo_lib/tests/snapshots/demos/Drag and Drop.png b/crates/egui_demo_lib/tests/snapshots/demos/Drag and Drop.png
-index 64581eb94..e33d93564 100644
+index 64581eb9..e33d9356 100644
 --- a/crates/egui_demo_lib/tests/snapshots/demos/Drag and Drop.png	
 +++ b/crates/egui_demo_lib/tests/snapshots/demos/Drag and Drop.png	
 @@ -1,3 +1,3 @@
@@ -134,7 +134,7 @@ index 64581eb94..e33d93564 100644
 +oid sha256:8ad2bef72f65dcc6ba6d57b03b678f1e2d339f83b0253ecc8a9c32e809bec94c
 +size 21007
 diff --git a/crates/egui_demo_lib/tests/snapshots/demos/Extra Viewport.png b/crates/egui_demo_lib/tests/snapshots/demos/Extra Viewport.png
-index b3169021a..5cafe2f48 100644
+index b3169021..5cafe2f4 100644
 --- a/crates/egui_demo_lib/tests/snapshots/demos/Extra Viewport.png	
 +++ b/crates/egui_demo_lib/tests/snapshots/demos/Extra Viewport.png	
 @@ -1,3 +1,3 @@
@@ -144,7 +144,7 @@ index b3169021a..5cafe2f48 100644
 +oid sha256:d87a2ed1ca8522db864e15c48f93708c8c75d4426f8f6b44a976b020954bcfc8
 +size 11065
 diff --git a/crates/egui_demo_lib/tests/snapshots/demos/Font Book.png b/crates/egui_demo_lib/tests/snapshots/demos/Font Book.png
-index eb1dbe5c6..ac5b64e18 100644
+index eb1dbe5c..ac5b64e1 100644
 --- a/crates/egui_demo_lib/tests/snapshots/demos/Font Book.png	
 +++ b/crates/egui_demo_lib/tests/snapshots/demos/Font Book.png	
 @@ -1,3 +1,3 @@
@@ -154,7 +154,7 @@ index eb1dbe5c6..ac5b64e18 100644
 +oid sha256:ee15589121ce9d3fb222aa3b2e5f6a9629f881a80d74fafd408b6f5ddef7ab1b
 +size 55803
 diff --git a/crates/egui_demo_lib/tests/snapshots/demos/Frame.png b/crates/egui_demo_lib/tests/snapshots/demos/Frame.png
-index 21d98a827..186df7aec 100644
+index 21d98a82..186df7ae 100644
 --- a/crates/egui_demo_lib/tests/snapshots/demos/Frame.png
 +++ b/crates/egui_demo_lib/tests/snapshots/demos/Frame.png
 @@ -1,3 +1,3 @@
@@ -164,7 +164,7 @@ index 21d98a827..186df7aec 100644
 +oid sha256:1061d5fb4eea74acebf4af21b88ad9186367cc73d1d0511b8cec06b07b8675ce
 +size 27126
 diff --git a/crates/egui_demo_lib/tests/snapshots/demos/Highlighting.png b/crates/egui_demo_lib/tests/snapshots/demos/Highlighting.png
-index 495366760..114decd3f 100644
+index 49536676..114decd3 100644
 --- a/crates/egui_demo_lib/tests/snapshots/demos/Highlighting.png
 +++ b/crates/egui_demo_lib/tests/snapshots/demos/Highlighting.png
 @@ -1,3 +1,3 @@
@@ -174,17 +174,17 @@ index 495366760..114decd3f 100644
 +oid sha256:da37e3efca9195100a5e030f3430c165be40296e276af0e5faf3f32f6e30bddc
 +size 18603
 diff --git a/crates/egui_demo_lib/tests/snapshots/demos/Interactive Container.png b/crates/egui_demo_lib/tests/snapshots/demos/Interactive Container.png
-index 9672ef1f1..a4a92bfd0 100644
+index 91747c0f..3a5536e0 100644
 --- a/crates/egui_demo_lib/tests/snapshots/demos/Interactive Container.png	
 +++ b/crates/egui_demo_lib/tests/snapshots/demos/Interactive Container.png	
 @@ -1,3 +1,3 @@
  version https://git-lfs.github.com/spec/v1
--oid sha256:48e08ec1fbcddd6cfb76851f7014f761c8408ac5952835d5002f02fab35bc1aa
--size 22152
-+oid sha256:48595510f8a3f0b8a5e15b0c1ea2142a56df5f8adad29c7ba87e26ae33f32dc0
-+size 22131
+-oid sha256:e97e8621f5a5abf49c184ee7f4b00854d7d587dfcc89c05c566b61daee872b7a
+-size 22231
++oid sha256:53f97576f70af367cd33bf98a5dc4835e1f128373ba17a62d97e7d91a93c33c5
++size 22211
 diff --git a/crates/egui_demo_lib/tests/snapshots/demos/Misc Demos.png b/crates/egui_demo_lib/tests/snapshots/demos/Misc Demos.png
-index 88c7e7642..775d6eac6 100644
+index 88c7e764..775d6eac 100644
 --- a/crates/egui_demo_lib/tests/snapshots/demos/Misc Demos.png	
 +++ b/crates/egui_demo_lib/tests/snapshots/demos/Misc Demos.png	
 @@ -1,3 +1,3 @@
@@ -194,7 +194,7 @@ index 88c7e7642..775d6eac6 100644
 +oid sha256:2a60a4b7630c77d3021c7515759b016037936af48301dea30b65886b3c247464
 +size 59978
 diff --git a/crates/egui_demo_lib/tests/snapshots/demos/Modals.png b/crates/egui_demo_lib/tests/snapshots/demos/Modals.png
-index 2e3e32096..d81903525 100644
+index 2e3e3209..d8190352 100644
 --- a/crates/egui_demo_lib/tests/snapshots/demos/Modals.png
 +++ b/crates/egui_demo_lib/tests/snapshots/demos/Modals.png
 @@ -1,3 +1,3 @@
@@ -204,7 +204,7 @@ index 2e3e32096..d81903525 100644
 +oid sha256:25c718fc899ab80e8050157c79ead118692e9cb8bde0ae4c7442ffb845936fa5
 +size 34234
 diff --git a/crates/egui_demo_lib/tests/snapshots/demos/Multi Touch.png b/crates/egui_demo_lib/tests/snapshots/demos/Multi Touch.png
-index b5ded57f2..0cf3d0595 100644
+index b5ded57f..0cf3d059 100644
 --- a/crates/egui_demo_lib/tests/snapshots/demos/Multi Touch.png	
 +++ b/crates/egui_demo_lib/tests/snapshots/demos/Multi Touch.png	
 @@ -1,3 +1,3 @@
@@ -214,7 +214,7 @@ index b5ded57f2..0cf3d0595 100644
 +oid sha256:a23d80949123a41b8aca54842a459a868d9ff2e3c0b0c070e3c6df1a79e77c9c
 +size 35458
 diff --git a/crates/egui_demo_lib/tests/snapshots/demos/Painting.png b/crates/egui_demo_lib/tests/snapshots/demos/Painting.png
-index 562165f76..8f335e5b6 100644
+index 562165f7..8f335e5b 100644
 --- a/crates/egui_demo_lib/tests/snapshots/demos/Painting.png
 +++ b/crates/egui_demo_lib/tests/snapshots/demos/Painting.png
 @@ -1,3 +1,3 @@
@@ -224,7 +224,7 @@ index 562165f76..8f335e5b6 100644
 +oid sha256:d2a575db6c6855bcd13b610b17f6f0c10aee00edacc3a71c5e3dc79c1f0bcf9d
 +size 18216
 diff --git a/crates/egui_demo_lib/tests/snapshots/demos/Popups.png b/crates/egui_demo_lib/tests/snapshots/demos/Popups.png
-index 34162df7c..5697f84be 100644
+index 34162df7..5697f84b 100644
 --- a/crates/egui_demo_lib/tests/snapshots/demos/Popups.png
 +++ b/crates/egui_demo_lib/tests/snapshots/demos/Popups.png
 @@ -1,3 +1,3 @@
@@ -234,17 +234,17 @@ index 34162df7c..5697f84be 100644
 +oid sha256:b61d9bf0f920a5d9100ec9631879fe6ae72ea3da265e3f317b3eabadd9707c16
 +size 59102
 diff --git a/crates/egui_demo_lib/tests/snapshots/demos/Screenshot.png b/crates/egui_demo_lib/tests/snapshots/demos/Screenshot.png
-index 29699810c..51b1c5a3b 100644
+index 6c828645..995abfb6 100644
 --- a/crates/egui_demo_lib/tests/snapshots/demos/Screenshot.png
 +++ b/crates/egui_demo_lib/tests/snapshots/demos/Screenshot.png
 @@ -1,3 +1,3 @@
  version https://git-lfs.github.com/spec/v1
--oid sha256:fccda10cefcb96d73ce06752df292e6ed18186bce66a4ef6888b28011871721b
--size 24186
-+oid sha256:7a0250e5c3e6f102e2e785858075aed709e77e9ed32142fb5c95e301f54a3024
-+size 24167
+-oid sha256:12049733b0fb0ef431931845c5bfd4bb09e469beebe7892cb01db65d61bb3c4d
+-size 24321
++oid sha256:4f5299a76d4af73be0d85adb0415e143cd368796d79bca92efcc3254d04aee16
++size 24302
 diff --git a/crates/egui_demo_lib/tests/snapshots/demos/Scrolling.png b/crates/egui_demo_lib/tests/snapshots/demos/Scrolling.png
-index aef7f7dfc..af2133c75 100644
+index aef7f7df..af2133c7 100644
 --- a/crates/egui_demo_lib/tests/snapshots/demos/Scrolling.png
 +++ b/crates/egui_demo_lib/tests/snapshots/demos/Scrolling.png
 @@ -1,3 +1,3 @@
@@ -254,7 +254,7 @@ index aef7f7dfc..af2133c75 100644
 +oid sha256:1956b279f78b1a1e6613231c7b7e78620dd4d3e3e2500fcf9eec9ede9d6f118b
 +size 149527
 diff --git a/crates/egui_demo_lib/tests/snapshots/demos/Sliders.png b/crates/egui_demo_lib/tests/snapshots/demos/Sliders.png
-index 96684070a..fddc8fa96 100644
+index 96684070..fddc8fa9 100644
 --- a/crates/egui_demo_lib/tests/snapshots/demos/Sliders.png
 +++ b/crates/egui_demo_lib/tests/snapshots/demos/Sliders.png
 @@ -1,3 +1,3 @@
@@ -264,7 +264,7 @@ index 96684070a..fddc8fa96 100644
 +oid sha256:1f320135411654f0fbf83ffa66ad02647db51ae30bf864250a05d525d7e15aa2
 +size 120227
 diff --git a/crates/egui_demo_lib/tests/snapshots/demos/Strip.png b/crates/egui_demo_lib/tests/snapshots/demos/Strip.png
-index f71a46708..51051596a 100644
+index f71a4670..51051596 100644
 --- a/crates/egui_demo_lib/tests/snapshots/demos/Strip.png
 +++ b/crates/egui_demo_lib/tests/snapshots/demos/Strip.png
 @@ -1,3 +1,3 @@
@@ -274,7 +274,7 @@ index f71a46708..51051596a 100644
 +oid sha256:5706272754d1fae8a91cf7c7a121d29bae0a76f7834fff5ce9b6bf1864231de1
 +size 26050
 diff --git a/crates/egui_demo_lib/tests/snapshots/demos/Table.png b/crates/egui_demo_lib/tests/snapshots/demos/Table.png
-index 15606dcd6..2ca9e339e 100644
+index 15606dcd..2ca9e339 100644
 --- a/crates/egui_demo_lib/tests/snapshots/demos/Table.png
 +++ b/crates/egui_demo_lib/tests/snapshots/demos/Table.png
 @@ -1,3 +1,3 @@
@@ -284,7 +284,7 @@ index 15606dcd6..2ca9e339e 100644
 +oid sha256:a9d0a4f7e086eb193f02114a93790f25bea639c7a61727feb1afdf851b490b71
 +size 66211
 diff --git a/crates/egui_demo_lib/tests/snapshots/demos/Text Layout.png b/crates/egui_demo_lib/tests/snapshots/demos/Text Layout.png
-index 5d27821fe..2d9129855 100644
+index 5d27821f..2d912985 100644
 --- a/crates/egui_demo_lib/tests/snapshots/demos/Text Layout.png	
 +++ b/crates/egui_demo_lib/tests/snapshots/demos/Text Layout.png	
 @@ -1,3 +1,3 @@
@@ -294,17 +294,17 @@ index 5d27821fe..2d9129855 100644
 +oid sha256:db87a40d7b7f7401201dac35c08e45d6c8b459d474610dccaca9e727b4e0f41f
 +size 79579
 diff --git a/crates/egui_demo_lib/tests/snapshots/demos/TextEdit.png b/crates/egui_demo_lib/tests/snapshots/demos/TextEdit.png
-index 595bca2ac..3846a16ab 100644
+index 03903809..ddf7bdf9 100644
 --- a/crates/egui_demo_lib/tests/snapshots/demos/TextEdit.png
 +++ b/crates/egui_demo_lib/tests/snapshots/demos/TextEdit.png
 @@ -1,3 +1,3 @@
  version https://git-lfs.github.com/spec/v1
--oid sha256:9367a23a365643b7f1c811c1ad2e53f9e78e4ef429d7cd39467f6a620a88b1ce
--size 31222
-+oid sha256:fb1b19f44ae24d26b3eb10d9921138bc8bd3b0d70ae2a339e6781bbfdc559a00
-+size 31212
+-oid sha256:47afd0b60c449523c6f65e365ad36b2a19bc2598a98027c2a2e817a1969b7e0e
+-size 31269
++oid sha256:7844ef9b6126335a063dffd2d3f1a8a1aa8a4b924f61ed72df8308c1eddf2084
++size 31258
 diff --git a/crates/egui_demo_lib/tests/snapshots/demos/Undo Redo.png b/crates/egui_demo_lib/tests/snapshots/demos/Undo Redo.png
-index ccb206298..67e12c48e 100644
+index ccb20629..67e12c48 100644
 --- a/crates/egui_demo_lib/tests/snapshots/demos/Undo Redo.png	
 +++ b/crates/egui_demo_lib/tests/snapshots/demos/Undo Redo.png	
 @@ -1,3 +1,3 @@
@@ -314,7 +314,7 @@ index ccb206298..67e12c48e 100644
 +oid sha256:25db319f8efc4ae8d31f9bdaff846d1b315d53fbb51068a11da520b154dc159f
 +size 14340
 diff --git a/crates/egui_demo_lib/tests/snapshots/demos/Window Options.png b/crates/egui_demo_lib/tests/snapshots/demos/Window Options.png
-index e88b1e506..9ab5c199a 100644
+index e88b1e50..9ab5c199 100644
 --- a/crates/egui_demo_lib/tests/snapshots/demos/Window Options.png	
 +++ b/crates/egui_demo_lib/tests/snapshots/demos/Window Options.png	
 @@ -1,3 +1,3 @@
@@ -324,7 +324,7 @@ index e88b1e506..9ab5c199a 100644
 +oid sha256:a149838f381718076c18026bba854a533d344ff1f38376b628ba08359f9c0bbb
 +size 43942
 diff --git a/crates/egui_demo_lib/tests/snapshots/demos/Window Resize Test.png b/crates/egui_demo_lib/tests/snapshots/demos/Window Resize Test.png
-index 9ad0ff3db..24d2afbd8 100644
+index 9ad0ff3d..24d2afbd 100644
 --- a/crates/egui_demo_lib/tests/snapshots/demos/Window Resize Test.png	
 +++ b/crates/egui_demo_lib/tests/snapshots/demos/Window Resize Test.png	
 @@ -1,3 +1,3 @@
@@ -334,7 +334,7 @@ index 9ad0ff3db..24d2afbd8 100644
 +oid sha256:536cb5baee6350c9fc1cf3a85f95ab74aa33465035947e9b55d8cece98e4815b
 +size 449053
 diff --git a/crates/egui_demo_lib/tests/snapshots/modals_1.png b/crates/egui_demo_lib/tests/snapshots/modals_1.png
-index 8bc08523a..8a92f0ecf 100644
+index 8bc08523..8a92f0ec 100644
 --- a/crates/egui_demo_lib/tests/snapshots/modals_1.png
 +++ b/crates/egui_demo_lib/tests/snapshots/modals_1.png
 @@ -1,3 +1,3 @@
@@ -344,7 +344,7 @@ index 8bc08523a..8a92f0ecf 100644
 +oid sha256:3cceb704a981c32e123ca934de74b1ed59b91b9a7b7d50524b00ea57266c9d41
 +size 48414
 diff --git a/crates/egui_demo_lib/tests/snapshots/modals_2.png b/crates/egui_demo_lib/tests/snapshots/modals_2.png
-index 6669fcc61..364b163dc 100644
+index 6669fcc6..364b163d 100644
 --- a/crates/egui_demo_lib/tests/snapshots/modals_2.png
 +++ b/crates/egui_demo_lib/tests/snapshots/modals_2.png
 @@ -1,3 +1,3 @@
@@ -354,7 +354,7 @@ index 6669fcc61..364b163dc 100644
 +oid sha256:7272d32f47dcfaead22efdd42b16e57c439173c6dd4d0dbfcef167bf5b3dcf58
 +size 49351
 diff --git a/crates/egui_demo_lib/tests/snapshots/modals_3.png b/crates/egui_demo_lib/tests/snapshots/modals_3.png
-index e7d73aced..dba4e24ce 100644
+index e7d73ace..dba4e24c 100644
 --- a/crates/egui_demo_lib/tests/snapshots/modals_3.png
 +++ b/crates/egui_demo_lib/tests/snapshots/modals_3.png
 @@ -1,3 +1,3 @@
@@ -364,7 +364,7 @@ index e7d73aced..dba4e24ce 100644
 +oid sha256:fe55d3d3bc3aa1abdebbacf1a9daa6e4acf31c1a7b70fa3c5fc9df5d6db15999
 +size 44741
 diff --git a/crates/egui_demo_lib/tests/snapshots/modals_backdrop_should_prevent_focusing_lower_area.png b/crates/egui_demo_lib/tests/snapshots/modals_backdrop_should_prevent_focusing_lower_area.png
-index 231f01485..e93a852e6 100644
+index 231f0148..e93a852e 100644
 --- a/crates/egui_demo_lib/tests/snapshots/modals_backdrop_should_prevent_focusing_lower_area.png
 +++ b/crates/egui_demo_lib/tests/snapshots/modals_backdrop_should_prevent_focusing_lower_area.png
 @@ -1,3 +1,3 @@
@@ -374,7 +374,7 @@ index 231f01485..e93a852e6 100644
 +oid sha256:1a003df115d821ee18eebdc60593f584c792cc143541ee403025b6a0fd623994
 +size 44690
 diff --git a/crates/egui_demo_lib/tests/snapshots/rendering_test/dpi_1.00.png b/crates/egui_demo_lib/tests/snapshots/rendering_test/dpi_1.00.png
-index 50b5c2629..a4a19d18f 100644
+index 50b5c262..a4a19d18 100644
 --- a/crates/egui_demo_lib/tests/snapshots/rendering_test/dpi_1.00.png
 +++ b/crates/egui_demo_lib/tests/snapshots/rendering_test/dpi_1.00.png
 @@ -1,3 +1,3 @@
@@ -384,7 +384,7 @@ index 50b5c2629..a4a19d18f 100644
 +oid sha256:18049f89eb8ce3c640811df367856b2049813763bb71c731b576b1f54558f69e
 +size 567785
 diff --git a/crates/egui_demo_lib/tests/snapshots/rendering_test/dpi_1.25.png b/crates/egui_demo_lib/tests/snapshots/rendering_test/dpi_1.25.png
-index 4b73cb9d1..2bca0236b 100644
+index 4b73cb9d..2bca0236 100644
 --- a/crates/egui_demo_lib/tests/snapshots/rendering_test/dpi_1.25.png
 +++ b/crates/egui_demo_lib/tests/snapshots/rendering_test/dpi_1.25.png
 @@ -1,3 +1,3 @@
@@ -394,7 +394,7 @@ index 4b73cb9d1..2bca0236b 100644
 +oid sha256:4bcce604ffe34dc312d3a487ab0fc044d0539307cd4e50a4d4d04ffd16f1594c
 +size 715505
 diff --git a/crates/egui_demo_lib/tests/snapshots/rendering_test/dpi_1.50.png b/crates/egui_demo_lib/tests/snapshots/rendering_test/dpi_1.50.png
-index 1261e5dae..7f8307198 100644
+index 1261e5da..7f830719 100644
 --- a/crates/egui_demo_lib/tests/snapshots/rendering_test/dpi_1.50.png
 +++ b/crates/egui_demo_lib/tests/snapshots/rendering_test/dpi_1.50.png
 @@ -1,3 +1,3 @@
@@ -404,7 +404,7 @@ index 1261e5dae..7f8307198 100644
 +oid sha256:476cc7b3baabe2f3830c7e67554eeff55b1e9d8fe48ef9b068ed36a2d36c6e7b
 +size 933481
 diff --git a/crates/egui_demo_lib/tests/snapshots/rendering_test/dpi_1.67.png b/crates/egui_demo_lib/tests/snapshots/rendering_test/dpi_1.67.png
-index 32a5da2d5..99d99ceda 100644
+index 32a5da2d..99d99ced 100644
 --- a/crates/egui_demo_lib/tests/snapshots/rendering_test/dpi_1.67.png
 +++ b/crates/egui_demo_lib/tests/snapshots/rendering_test/dpi_1.67.png
 @@ -1,3 +1,3 @@
@@ -414,7 +414,7 @@ index 32a5da2d5..99d99ceda 100644
 +oid sha256:1fd936c0bf8e0d57064f719b83309f9de986364a18beed437b7e21ed3437cddc
 +size 1036123
 diff --git a/crates/egui_demo_lib/tests/snapshots/rendering_test/dpi_1.75.png b/crates/egui_demo_lib/tests/snapshots/rendering_test/dpi_1.75.png
-index 85733c98e..49c81edf8 100644
+index 85733c98..49c81edf 100644
 --- a/crates/egui_demo_lib/tests/snapshots/rendering_test/dpi_1.75.png
 +++ b/crates/egui_demo_lib/tests/snapshots/rendering_test/dpi_1.75.png
 @@ -1,3 +1,3 @@
@@ -424,7 +424,7 @@ index 85733c98e..49c81edf8 100644
 +oid sha256:31bd38a4615e30368f51f09f5ddc51841f9633e09df8bd43dc5bf93acccfab84
 +size 1082754
 diff --git a/crates/egui_demo_lib/tests/snapshots/rendering_test/dpi_2.00.png b/crates/egui_demo_lib/tests/snapshots/rendering_test/dpi_2.00.png
-index f2fa7b994..e8ee92592 100644
+index f2fa7b99..e8ee9259 100644
 --- a/crates/egui_demo_lib/tests/snapshots/rendering_test/dpi_2.00.png
 +++ b/crates/egui_demo_lib/tests/snapshots/rendering_test/dpi_2.00.png
 @@ -1,3 +1,3 @@
@@ -434,7 +434,7 @@ index f2fa7b994..e8ee92592 100644
 +oid sha256:e13100fb4a56f2ee70268fd8d681c18abfea8699572d9f423a4b95855fc00447
 +size 1305789
 diff --git a/crates/egui_demo_lib/tests/snapshots/widget_gallery_dark_x1.png b/crates/egui_demo_lib/tests/snapshots/widget_gallery_dark_x1.png
-index 3a085b7c3..4a24721a4 100644
+index 3a085b7c..4a24721a 100644
 --- a/crates/egui_demo_lib/tests/snapshots/widget_gallery_dark_x1.png
 +++ b/crates/egui_demo_lib/tests/snapshots/widget_gallery_dark_x1.png
 @@ -1,3 +1,3 @@
@@ -444,7 +444,7 @@ index 3a085b7c3..4a24721a4 100644
 +oid sha256:9e92b66b6935438e739539f54621c8438ed064420238289a3e2842b4885d0753
 +size 71836
 diff --git a/crates/egui_demo_lib/tests/snapshots/widget_gallery_dark_x2.png b/crates/egui_demo_lib/tests/snapshots/widget_gallery_dark_x2.png
-index a952ba318..6e9c7a6be 100644
+index a952ba31..6e9c7a6b 100644
 --- a/crates/egui_demo_lib/tests/snapshots/widget_gallery_dark_x2.png
 +++ b/crates/egui_demo_lib/tests/snapshots/widget_gallery_dark_x2.png
 @@ -1,3 +1,3 @@
@@ -454,7 +454,7 @@ index a952ba318..6e9c7a6be 100644
 +oid sha256:da244d59463cb962e912b2fd5a53c665eca24b855a13d42a637140e6a44c5a0d
 +size 167984
 diff --git a/crates/egui_demo_lib/tests/snapshots/widget_gallery_light_x1.png b/crates/egui_demo_lib/tests/snapshots/widget_gallery_light_x1.png
-index c9cc04640..6e4138bd4 100644
+index c9cc0464..6e4138bd 100644
 --- a/crates/egui_demo_lib/tests/snapshots/widget_gallery_light_x1.png
 +++ b/crates/egui_demo_lib/tests/snapshots/widget_gallery_light_x1.png
 @@ -1,3 +1,3 @@
@@ -464,7 +464,7 @@ index c9cc04640..6e4138bd4 100644
 +oid sha256:9a8e422e229928f8afedd2af0be81a4d20d44111e255ef7f9a5e3662cc720dd0
 +size 66157
 diff --git a/crates/egui_demo_lib/tests/snapshots/widget_gallery_light_x2.png b/crates/egui_demo_lib/tests/snapshots/widget_gallery_light_x2.png
-index a60fa085e..62c31ebcf 100644
+index a60fa085..62c31ebc 100644
 --- a/crates/egui_demo_lib/tests/snapshots/widget_gallery_light_x2.png
 +++ b/crates/egui_demo_lib/tests/snapshots/widget_gallery_light_x2.png
 @@ -1,3 +1,3 @@
@@ -474,19 +474,18 @@ index a60fa085e..62c31ebcf 100644
 +oid sha256:5c3570fcef854374540fa9978f3c854ab01d36a5c5f319b5fab68c0109cd17a4
 +size 161282
 diff --git a/crates/epaint/src/text/text_layout.rs b/crates/epaint/src/text/text_layout.rs
-index d3a31cad7..453ad20a6 100644
+index c6542d4a..93fe685f 100644
 --- a/crates/epaint/src/text/text_layout.rs
 +++ b/crates/epaint/src/text/text_layout.rs
-@@ -1097,20 +1097,18 @@ fn galley_from_rows(
+@@ -1098,20 +1098,17 @@ fn galley_from_rows(
          for glyph in &mut row.glyphs {
              let format = &job.sections[glyph.section_index as usize].format;
  
 -            glyph.pos.y = glyph.font_face_ascent
 -
-+            // `font_ascent` is the ascent of the primary face of the family, i.e. the
-+            // baseline of this section's row. Every glyph belongs on that baseline,
-+            // whichever fallback face it came from. Text that mixes scripts (latin and
-+            // CJK, say) would otherwise end up on several different baselines.
++            // `font_ascent` is the ascent of the *primary* face, i.e. this row's
++            // baseline. Every glyph goes on it, whichever fallback face it came from,
++            // so that mixed scripts (latin and CJK, say) share one baseline.
 +            glyph.pos.y = glyph.font_ascent
                  // Apply valign to the difference in height of the entire row,
                  // and the line height of this glyph (which is the font height, unless explicitly set):
@@ -504,46 +503,40 @@ index d3a31cad7..453ad20a6 100644
  
              glyph.pos.y = point_scale.round_to_pixel(glyph.pos.y);
          }
-@@ -1655,6 +1653,46 @@ mod tests {
+@@ -1678,6 +1675,40 @@ mod tests {
          }
      }
  
 +    /// Glyphs from a fallback face must sit on the baseline of the primary face.
 +    ///
-+    /// The y position used to come from the ascent of whichever face the glyph was
-+    /// found in, plus a term centering that face's box in the row. So as soon as a row
-+    /// mixed scripts, its glyphs landed on different baselines, and a face much taller
-+    /// than the primary one (a CJK fallback, say) was pushed above the row, clipping
-+    /// the top of its glyphs.
++    /// The y position used to come from the ascent of whichever face the glyph was found
++    /// in, plus a term centering that face's box in the row. So as soon as a row mixed
++    /// scripts, its glyphs landed on different baselines, and a face much taller than the
++    /// primary one (a CJK fallback, say) was pushed above the row, clipping its glyphs.
 +    #[test]
 +    #[cfg(feature = "monochrome_emoji_fonts")] // Needs a fallback face with non-latin metrics
 +    fn glyphs_from_different_faces_share_one_baseline() {
 +        let mut fonts = Fonts::new(TextOptions::default(), FontDefinitions::default());
-+        let mut fonts = fonts.with_pixels_per_point(1.0);
++        let font_id = FontId::proportional(40.0);
++        let mut view = fonts.with_pixels_per_point(1.0);
 +
 +        // The primary face alone decides the baseline, so latin-only text tells us the
 +        // y position that every other glyph in the same section has to share:
-+        let latin =
-+            fonts.layout_no_wrap("Ag".to_owned(), FontId::proportional(40.0), Color32::WHITE);
++        let latin = view.layout_no_wrap("Ag".to_owned(), font_id.clone(), Color32::WHITE);
 +        let expected_y = latin.rows[0].row.glyphs[0].pos.y;
 +
-+        // The same text again, now with an emoji from a fallback face:
-+        let galley = fonts.layout_no_wrap(
-+            "Ag👋".to_owned(),
-+            FontId::proportional(40.0),
-+            Color32::WHITE,
-+        );
++        let galley = view.layout_no_wrap("Ag👋".to_owned(), font_id, Color32::WHITE);
 +        let glyphs = &galley.rows[0].row.glyphs;
 +        // Without this the test would pass trivially if no fallback face was involved:
 +        assert!(
 +            glyphs.iter().any(|g| g.font_face_ascent != g.font_ascent),
-+            "expected a glyph from a fallback face with different metrics, but got none"
++            "no glyph came from a fallback face with different metrics"
 +        );
 +        for glyph in glyphs {
 +            assert_eq!(
 +                glyph.pos.y, expected_y,
-+                "glyph {:?} is not on the baseline of the primary face: {} != {expected_y}",
-+                glyph.chr, glyph.pos.y,
++                "{:?} is not on the baseline of the primary face",
++                glyph.chr
 +            );
 +        }
 +    }
@@ -552,7 +545,7 @@ index d3a31cad7..453ad20a6 100644
      /// or text cursors get clamped to 0 and text edits lose their contents.
      #[test]
 diff --git a/tests/egui_tests/tests/snapshots/layout/button_image_shortcut.png b/tests/egui_tests/tests/snapshots/layout/button_image_shortcut.png
-index 4438ddc0b..0a70c486e 100644
+index 4438ddc0..0a70c486 100644
 --- a/tests/egui_tests/tests/snapshots/layout/button_image_shortcut.png
 +++ b/tests/egui_tests/tests/snapshots/layout/button_image_shortcut.png
 @@ -1,3 +1,3 @@
@@ -562,7 +555,7 @@ index 4438ddc0b..0a70c486e 100644
 +oid sha256:087fbc8c90bc8ba9e73684870e2ee1542d27f0880ad7ea0a0e89e373e554dedc
 +size 457412
 diff --git a/tests/egui_tests/tests/snapshots/visuals/button_image_shortcut.png b/tests/egui_tests/tests/snapshots/visuals/button_image_shortcut.png
-index 781659dbe..2d4bc0eb2 100644
+index 781659db..2d4bc0eb 100644
 --- a/tests/egui_tests/tests/snapshots/visuals/button_image_shortcut.png
 +++ b/tests/egui_tests/tests/snapshots/visuals/button_image_shortcut.png
 @@ -1,3 +1,3 @@
@@ -572,7 +565,7 @@ index 781659dbe..2d4bc0eb2 100644
 +oid sha256:c5afb2c3db399c6785092daf941d93574750a7844e378af97f0370195bba646c
 +size 15951
 diff --git a/tests/egui_tests/tests/snapshots/visuals/button_image_shortcut_selected.png b/tests/egui_tests/tests/snapshots/visuals/button_image_shortcut_selected.png
-index d997d88cd..e568da337 100644
+index d997d88c..e568da33 100644
 --- a/tests/egui_tests/tests/snapshots/visuals/button_image_shortcut_selected.png
 +++ b/tests/egui_tests/tests/snapshots/visuals/button_image_shortcut_selected.png
 @@ -1,3 +1,3 @@

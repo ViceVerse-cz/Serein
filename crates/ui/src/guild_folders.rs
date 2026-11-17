@@ -989,6 +989,7 @@ mod tests {
 		test_support::seed_demo_folder_mosaic(&mut state);
 		state.channels.push(Channel {
 			user_limit: None,
+			slowmode: 0,
 			id: Id(111),
 			guild: Some(Id(11)),
 			parent_id: None,
@@ -1277,6 +1278,7 @@ mod tests {
 				demo: true,
 				guilds: (1..=3)
 					.map(|id| model::Guild {
+						banner: None,
 						default_message_notifications: None,
 						stickers: None,
 						id: Id(id),

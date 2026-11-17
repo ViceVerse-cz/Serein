@@ -11,7 +11,7 @@ Squashed from https://github.com/emilk/egui/pull/8810 at e2728d9ca000.
  2 files changed, 89 insertions(+), 8 deletions(-)
 
 diff --git a/crates/eframe/src/native/glow_integration.rs b/crates/eframe/src/native/glow_integration.rs
-index 59567badd..e3d4a51d0 100644
+index a876cde4..41ef7aa1 100644
 --- a/crates/eframe/src/native/glow_integration.rs
 +++ b/crates/eframe/src/native/glow_integration.rs
 @@ -111,6 +111,10 @@ struct GlutinWindowContext {
@@ -68,7 +68,7 @@ index 59567badd..e3d4a51d0 100644
          )?;
          let gl = Arc::clone(painter.gl());
  
-@@ -951,6 +968,9 @@ impl GlowWinitRunning<'_> {
+@@ -952,6 +969,9 @@ impl GlowWinitRunning<'_> {
                  }
  
                  integration.post_rendering(&window);
@@ -78,7 +78,7 @@ index 59567badd..e3d4a51d0 100644
              }
  
              {
-@@ -1198,6 +1218,7 @@ impl GlutinWindowContext {
+@@ -1199,6 +1219,7 @@ impl GlutinWindowContext {
          viewport_builder: ViewportBuilder,
          native_options: &NativeOptions,
          event_loop: &ActiveEventLoop,
@@ -86,7 +86,7 @@ index 59567badd..e3d4a51d0 100644
      ) -> Result<Self> {
          profiling::function_scope!();
  
-@@ -1350,6 +1371,7 @@ impl GlutinWindowContext {
+@@ -1351,6 +1372,7 @@ impl GlutinWindowContext {
                  gl_surface: None,
                  window: window.map(Arc::new),
                  egui_winit: None,
@@ -94,7 +94,7 @@ index 59567badd..e3d4a51d0 100644
              },
          );
  
-@@ -1369,6 +1391,8 @@ impl GlutinWindowContext {
+@@ -1370,6 +1392,8 @@ impl GlutinWindowContext {
              viewport_from_window,
              max_texture_side: None,
              clipboard_shortcuts: native_options.clipboard_shortcuts,
@@ -103,7 +103,7 @@ index 59567badd..e3d4a51d0 100644
              window_from_viewport,
              focused_viewport: Some(ViewportId::ROOT),
          };
-@@ -1406,17 +1430,22 @@ impl GlutinWindowContext {
+@@ -1407,17 +1431,22 @@ impl GlutinWindowContext {
              .viewports
              .get_mut(&viewport_id)
              .expect("viewport doesn't exist");
@@ -132,7 +132,7 @@ index 59567badd..e3d4a51d0 100644
              viewport.info = viewport_info;
              viewport.window.insert(window)
          };
-@@ -1432,6 +1461,10 @@ impl GlutinWindowContext {
+@@ -1433,6 +1462,10 @@ impl GlutinWindowContext {
                  self.max_texture_side,
              );
              egui_winit.set_clipboard_shortcuts(self.clipboard_shortcuts);
@@ -143,7 +143,7 @@ index 59567badd..e3d4a51d0 100644
              egui_winit
          });
  
-@@ -1675,6 +1708,7 @@ fn initialize_or_update_viewport<'a>(
+@@ -1676,6 +1709,7 @@ fn initialize_or_update_viewport<'a>(
                  window: None,
                  egui_winit: None,
                  gl_surface: None,
@@ -151,7 +151,7 @@ index 59567badd..e3d4a51d0 100644
              })
          }
  
-@@ -1879,6 +1913,9 @@ fn render_immediate_viewport(
+@@ -1880,6 +1914,9 @@ fn render_immediate_viewport(
              log::error!("swap_buffers failed: {err}");
          }
      }
@@ -162,7 +162,7 @@ index 59567badd..e3d4a51d0 100644
      egui_winit.handle_platform_output(window, platform_output);
  
 diff --git a/crates/eframe/src/native/wgpu_integration.rs b/crates/eframe/src/native/wgpu_integration.rs
-index f58f30755..2476e79d2 100644
+index deb2496e..febd435c 100644
 --- a/crates/eframe/src/native/wgpu_integration.rs
 +++ b/crates/eframe/src/native/wgpu_integration.rs
 @@ -93,6 +93,10 @@ pub struct SharedState {
@@ -222,7 +222,7 @@ index f58f30755..2476e79d2 100644
          );
      }
  
-@@ -373,6 +388,7 @@ impl<'app> WgpuWinitApp<'app> {
+@@ -374,6 +389,7 @@ impl<'app> WgpuWinitApp<'app> {
                  window: Some(window),
                  egui_winit: Some(egui_winit),
                  pending_delta: Default::default(),
@@ -230,7 +230,7 @@ index f58f30755..2476e79d2 100644
              },
          );
  
-@@ -384,6 +400,8 @@ impl<'app> WgpuWinitApp<'app> {
+@@ -385,6 +401,8 @@ impl<'app> WgpuWinitApp<'app> {
              focused_viewport: Some(ViewportId::ROOT),
              resized_viewport: None,
              clipboard_shortcuts: self.native_options.clipboard_shortcuts,
@@ -239,7 +239,7 @@ index f58f30755..2476e79d2 100644
          }));
  
          {
-@@ -884,6 +902,9 @@ impl WgpuWinitRunning<'_> {
+@@ -885,6 +903,9 @@ impl WgpuWinitRunning<'_> {
              }
  
              integration.post_rendering(window);
@@ -249,7 +249,7 @@ index f58f30755..2476e79d2 100644
  
              vsync_secs
          } else {
-@@ -1135,6 +1156,7 @@ impl Viewport {
+@@ -1136,6 +1157,7 @@ impl Viewport {
          windows_id: &mut HashMap<WindowId, ViewportId>,
          painter: &mut egui_wgpu::winit::Painter,
          clipboard_shortcuts: bool,
@@ -257,7 +257,7 @@ index f58f30755..2476e79d2 100644
      ) {
          if self.window.is_some() {
              return; // we already have one
-@@ -1143,8 +1165,18 @@ impl Viewport {
+@@ -1144,8 +1166,18 @@ impl Viewport {
          profiling::function_scope!();
  
          let viewport_id = self.ids.this;
@@ -277,7 +277,7 @@ index f58f30755..2476e79d2 100644
              Ok(window) => {
                  windows_id.insert(window.id(), viewport_id);
  
-@@ -1165,6 +1197,10 @@ impl Viewport {
+@@ -1166,6 +1198,10 @@ impl Viewport {
                      painter.max_texture_side(),
                  );
                  egui_winit.set_clipboard_shortcuts(clipboard_shortcuts);
@@ -288,7 +288,7 @@ index f58f30755..2476e79d2 100644
                  self.egui_winit = Some(egui_winit);
  
                  egui_winit::update_viewport_info(&mut self.info, egui_ctx, &window, true);
-@@ -1238,6 +1274,8 @@ fn render_immediate_viewport(
+@@ -1239,6 +1275,8 @@ fn render_immediate_viewport(
              painter,
              viewport_from_window,
              clipboard_shortcuts,
@@ -297,7 +297,7 @@ index f58f30755..2476e79d2 100644
              ..
          } = &mut *shared.borrow_mut();
  
-@@ -1257,6 +1295,8 @@ fn render_immediate_viewport(
+@@ -1258,6 +1296,8 @@ fn render_immediate_viewport(
                      viewport_from_window,
                      painter,
                      *clipboard_shortcuts,
@@ -306,8 +306,8 @@ index f58f30755..2476e79d2 100644
                  );
              });
          }
-@@ -1333,6 +1373,9 @@ fn render_immediate_viewport(
-         vec![],
+@@ -1344,6 +1384,9 @@ fn render_immediate_viewport(
+         screenshot_commands,
          window,
      );
 +    if core::mem::take(&mut viewport.show_after_first_paint) {
@@ -316,7 +316,7 @@ index f58f30755..2476e79d2 100644
  
      egui_winit.handle_platform_output(window, platform_output);
  
-@@ -1442,6 +1485,7 @@ fn initialize_or_update_viewport<'a>(
+@@ -1453,6 +1496,7 @@ fn initialize_or_update_viewport<'a>(
                  window: None,
                  egui_winit: None,
                  pending_delta: Default::default(),

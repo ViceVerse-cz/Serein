@@ -4881,6 +4881,7 @@ profiles-status-clear = Durumu temizle
 send-throttled-title = Hop, biraz yavaş!
 send-throttled-body = Mesajları çok hızlı gönderiyorsun!
 send-throttled-dismiss = Tamam, yavaşlıyorum
+slowmode-enabled = Yavaş mod etkin
 profiles-private-profile = Gizli Profil
 profiles-private-notice = { $name } adlı kullanıcının profili gizli, bu yüzden bazı bilgiler saklı. Daha fazlasını görmek için arkadaş olarak ekle.
 settings-cosmetics-name-styles = Ad stilleri

@@ -1,6 +1,6 @@
 # Serein's egui fork
 
-Source: GitHub `emilk/egui`, commit `cd5caec79c9e6683dd793e25b4e7b287ccdd7061` (egui 0.37.0
+Source: GitHub `emilk/egui`, commit `c61b45f6570465f6445d6fc4251d1395db440223` (egui 0.37.0
 plus unreleased `main`), MIT OR Apache-2.0. Each crate directory is the output of
 `cargo package --no-verify` for that crate after applying `patches/` on top of that commit:
 it keeps upstream sources, the original manifest (`Cargo.toml.orig`) and both license files.
@@ -41,7 +41,7 @@ requests are squashed from the PR head that was reviewed; all of them are unmerg
 | 0021 | [#8814](https://github.com/emilk/egui/pull/8814) | `egui` | Requesting focus for the widget that already has it no longer interrupts IME composition. |
 | 0022 | Serein | `egui` | Fixes 0019 for a right-click whose press and release arrive in one pass: it checked the button's state after the pass, so the cursor still moved. Adds `tests/text_edit_right_click.rs`; suggest upstream on #5180. |
 | 0023 | Serein | `epaint`, `egui_system_font_provider` | Emoji-presentation clusters (🆕, or ♾ with U+FE0F) use a face that draws them in color instead of an earlier text font's plain glyph, and the system font provider asks for the emoji font first. Text presentation is unchanged. Fixes #913. |
-| 0024 | [#8698](https://github.com/emilk/egui/pull/8698) | `epaint`, `egui` | Right-to-left runs get one glyph per char instead of `2n - 1`, so editor cursors stay inside the text (End then Ctrl+ArrowLeft in Arabic text no longer overflows). Merged with 0009's direction override. |
+| 0024 | [#8698](https://github.com/emilk/egui/pull/8698) | `epaint`, `egui` | Right-to-left runs get one glyph per char instead of `2n - 1`, so editor cursors stay inside the text (End then Ctrl+ArrowLeft in Arabic text no longer overflows). Merged with 0009's direction override, and ported to harfrust 0.15's in-place `Buffer`, which the PR head predates. |
 | 0025 | Serein | `epaint` | Laying out a multi-paragraph job one paragraph at a time keeps an empty first section, which carries `Label`'s wrap indentation, so text continuing a line after an inline widget (a heading after a channel chip) is no longer painted over that line. |
 
 ## Serein patch: RTL shaping metadata
@@ -54,7 +54,8 @@ testing and logical selection/copy. The single-line path skips upstream's ascend
 continuation-glyph bookkeeping, which misplaces RTL clusters. `FontsView::layout_generation`
 is a process-wide counter that changes whenever fonts are rebuilt or native galleys are
 invalidated (including atlas resets), so Serein's bounded layout cache never reuses meshes with
-stale atlas UVs. Default `LayoutJob` layout is unchanged. Remove this patch when upstream exposes
+stale atlas UVs. Default `LayoutJob` layout is unchanged. The direction override is set on
+harfrust 0.15's in-place `Buffer` (upstream #8874). Remove this patch when upstream exposes
 equivalent direction and cluster-mapping APIs with correct wrapped bidi layout. It does not
 provide bidirectional `TextEdit`, IME or screen-reader parity.
 

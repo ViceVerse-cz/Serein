@@ -64,6 +64,7 @@ pub fn channel(state: &State, user: Id) -> Result<Channel, Failure> {
 		.cloned()
 		.unwrap_or_else(|| Channel {
 			user_limit: None,
+			slowmode: 0,
 			id: Id(100_000 + user.0),
 			guild: None,
 			name: recipient.name.clone(),
@@ -87,6 +88,7 @@ pub fn group(state: &State, recipients: &[Id], request: u64) -> Result<Channel, 
 		.collect::<Result<Vec<_>, _>>()?;
 	Ok(Channel {
 		user_limit: None,
+		slowmode: 0,
 		id: Id(200_000 + request),
 		guild: None,
 		name: String::new(),

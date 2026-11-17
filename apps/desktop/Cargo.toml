@@ -55,7 +55,7 @@ arboard = "=3.7.0"
 fontique = { version = "=0.11.1", default-features = false, features = ["system", "fontconfig-dlopen"] }
 # Serein never installs a `log` logger, so dependency log calls (wgpu, winit, wreq, ...)
 # are dead code; this feature compiles them out of release builds instead of shipping them.
-log = { version = "=0.4.34", features = ["release_max_level_off"] }
+log = { version = "=0.4.35", features = ["release_max_level_off"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # Use Adwaita decorations when the Wayland compositor does not provide a frame (GNOME).

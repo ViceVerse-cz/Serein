@@ -1225,6 +1225,7 @@ mod tests {
 			gateway_connected: true,
 			auth: crate::auth::AuthState::Authenticated,
 			guilds: vec![Guild {
+				banner: None,
 				default_message_notifications: None,
 				stickers: None,
 				id: Id(1),
@@ -1236,6 +1237,7 @@ mod tests {
 				.into_iter()
 				.map(|id| Channel {
 					user_limit: None,
+					slowmode: 0,
 					id: Id(id),
 					guild: Some(Id(1)),
 					kind: 0,

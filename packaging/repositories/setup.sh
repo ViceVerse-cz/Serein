@@ -196,7 +196,22 @@ case "$DISTRO_ID" in
                 $SUDO tee -a "$PACMAN_CONF" >/dev/null
         fi
 
-        INSTALL_CMD="$SUDO pacman -Syu serein"
+        # Refresh the Serein database alone. Refreshing every database without upgrading
+        # (`pacman -Sy`) is a partial upgrade, which Arch does not support, and installing
+        # Serein should not force a full system upgrade either.
+        SEREIN_CONF="$TEMP_DIR/pacman-serein.conf"
+        # Keep the system's options and the Serein section only; an Include among the options
+        # could bring other repositories back in.
+        awk '/^\[options\]/ { part = 1; print; next }
+             /^\[serein\]/ { part = 2; print; next }
+             /^\[/ { part = 0 }
+             part == 1 && /^[[:space:]]*Include[[:space:]]*=/ { next }
+             part' "$PACMAN_CONF" > "$SEREIN_CONF"
+        log "Refreshing the Serein package database..."
+        $SUDO pacman -Sy --config "$SEREIN_CONF" >/dev/null 2>&1 || \
+            warn "Could not refresh the Serein package database; run 'sudo pacman -Syu' before installing."
+
+        INSTALL_CMD="$SUDO pacman -S serein"
         ;;
 
     *)

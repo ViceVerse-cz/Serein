@@ -4997,6 +4997,7 @@ profiles-status-clear = Vymazat stav
 send-throttled-title = Hola hola, moc pálivé
 send-throttled-body = Posíláte zprávy příliš rychle!
 send-throttled-dismiss = Vstoupit do zóny klidu
+slowmode-enabled = Pomalý režim je zapnutý
 profiles-private-profile = Soukromý profil
 profiles-private-notice = Profil uživatele { $name } je soukromý, takže některé informace jsou skryté. Pošlete žádost o přátelství, abyste viděli víc.
 settings-cosmetics-name-styles = Styly jmen

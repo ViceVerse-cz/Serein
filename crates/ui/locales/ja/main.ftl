@@ -4878,6 +4878,7 @@ profiles-status-clear = ステータスを消去
 send-throttled-title = ちょっと待って、刺激が強すぎ
 send-throttled-body = メッセージの送信が速すぎます！
 send-throttled-dismiss = チルゾーンへ
+slowmode-enabled = スローモードが有効です
 profiles-private-profile = 非公開プロフィール
 profiles-private-notice = { $name } さんのプロフィールは非公開のため、一部の情報が表示されません。フレンドに追加すると詳しく見られます。
 settings-cosmetics-name-styles = 名前のスタイル

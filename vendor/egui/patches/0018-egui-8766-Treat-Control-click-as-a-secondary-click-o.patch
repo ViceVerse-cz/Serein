@@ -12,10 +12,10 @@ Squashed from https://github.com/emilk/egui/pull/8766 at f3abe4b0b9d2.
  4 files changed, 90 insertions(+), 2 deletions(-)
 
 diff --git a/crates/egui/src/context.rs b/crates/egui/src/context.rs
-index 123e2f050..05a4641fa 100644
+index 5745ff7d..6c07e4ec 100644
 --- a/crates/egui/src/context.rs
 +++ b/crates/egui/src/context.rs
-@@ -501,6 +501,13 @@ impl ContextImpl {
+@@ -508,6 +508,13 @@ impl ContextImpl {
  
          self.memory.begin_pass(&new_raw_input, &all_viewport_ids);
  
@@ -30,7 +30,7 @@ index 123e2f050..05a4641fa 100644
              new_raw_input,
              viewport.repaint.requested_immediate_repaint_prev_pass(),
 diff --git a/crates/egui/src/input_state/mod.rs b/crates/egui/src/input_state/mod.rs
-index 197318981..a47d6bf4f 100644
+index 19731898..a47d6bf4 100644
 --- a/crates/egui/src/input_state/mod.rs
 +++ b/crates/egui/src/input_state/mod.rs
 @@ -1105,6 +1105,11 @@ pub struct PointerState {
@@ -99,7 +99,7 @@ index 197318981..a47d6bf4f 100644
      }
  }
 diff --git a/crates/egui/src/response.rs b/crates/egui/src/response.rs
-index 5948f2134..c3c81bfdb 100644
+index 369eba1e..42123fe8 100644
 --- a/crates/egui/src/response.rs
 +++ b/crates/egui/src/response.rs
 @@ -210,7 +210,8 @@ impl Response {
@@ -113,7 +113,7 @@ index 5948f2134..c3c81bfdb 100644
      pub fn secondary_clicked(&self) -> bool {
          self.flags.contains(Flags::LONG_TOUCHED) || self.clicked_by(PointerButton::Secondary)
 diff --git a/crates/egui_kittest/tests/popup.rs b/crates/egui_kittest/tests/popup.rs
-index 7452ed5a5..45df6f2d0 100644
+index 7452ed5a..45df6f2d 100644
 --- a/crates/egui_kittest/tests/popup.rs
 +++ b/crates/egui_kittest/tests/popup.rs
 @@ -1,6 +1,6 @@

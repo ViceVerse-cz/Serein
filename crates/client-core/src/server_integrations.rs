@@ -207,6 +207,7 @@ mod tests {
 				webhook: false,
 			}),
 			guilds: vec![model::Guild {
+				banner: None,
 				default_message_notifications: None,
 				stickers: None,
 				id: Id(2),
@@ -216,6 +217,7 @@ mod tests {
 			}],
 			channels: vec![model::Channel {
 				user_limit: None,
+				slowmode: 0,
 				id: Id(3),
 				guild: Some(Id(2)),
 				parent_id: None,

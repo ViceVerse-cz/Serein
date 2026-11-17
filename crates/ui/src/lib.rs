@@ -125,6 +125,7 @@ mod settings;
 mod setup;
 mod shortcuts;
 mod skeleton;
+mod slowmode;
 mod switcher;
 mod text_menu;
 mod thumbhash;
@@ -322,6 +323,10 @@ pub struct MessagingUi {
 	rail_cache: notifications::RailCache,
 	composer_layout: composer_text::Layout,
 	channel_cache: categories::Cache,
+	/// Rows the server banner holds at the head of the channel list; zero without one.
+	banner_rows: usize,
+	/// The channel list's viewport and scroll offset as last drawn, for the banner riding it.
+	channel_list_view: Option<(egui::Rect, f32)>,
 	channel_move: Option<(Id, client_core::channel_actions::Action)>,
 	search: search::SearchUi,
 	settings: settings::Settings,
@@ -2132,15 +2137,67 @@ impl MessagingUi {
 	) {
 		let colors = design::palette(ui);
 		let language = self.language;
+		const HEADER: f32 = 48.0;
+		let banner = self
+			.guild
+			.and_then(|guild| state.guild(guild))
+			.and_then(model::Guild::banner_key);
+		// Discord's 16:9 server banner starts behind the header and holds whole rows at the head
+		// of the channel list, so it scrolls away with the channels. 8px part it from them.
+		let column = ui.available_rect_before_wrap();
+		let rows = (((column.width() * 9.0 / 16.0).min(135.0) - HEADER) / categories::CHANNEL_ROW)
+			.round()
+			.max(1.0);
+		let below = rows * categories::CHANNEL_ROW - 8.0;
+		let scrolled = self
+			.channel_list_view
+			.map_or(0.0, |(_, offset)| offset.max(0.0));
+		let art = banner.map(|key| {
+			let seen = egui::Rect::from_min_max(
+				column.min,
+				egui::pos2(
+					column.right(),
+					column.top() + (HEADER + below - scrolled).max(HEADER),
+				),
+			);
+			// An animated banner plays only under the pointer.
+			let hovered = ui.rect_contains_pointer(seen);
+			let color = colors.accent.gamma_multiply(0.4);
+			self.avatars
+				.guild_banner(ui.ctx(), key, hovered, color, state.demo)
+		});
+		// A banner that failed to load gives its rows back.
+		self.banner_rows = match art {
+			Some(Ok(_) | Err(true)) => rows as usize,
+			_ => 0,
+		};
+		// How far the header has turned from the banner's top into the plain bar: not at all at
+		// rest, fully once the banner has scrolled away, and ahead of the scroll in between.
+		let bar = |offset: f32| {
+			let left = 1.0 - (offset / below).clamp(0.0, 1.0);
+			1.0 - left * left
+		};
+		let on_banner = matches!(art, Some(Ok(_))) && bar(scrolled) < 0.5;
+		let rule = if matches!(art, Some(Ok(_))) {
+			bar(scrolled)
+		} else {
+			1.0
+		};
+		// Reserved under the name and under the list; filled once the list reports its scroll.
+		let mut backdrop = None;
 		egui::Panel::top("sidebar-header")
-			.exact_size(48.0)
+			.exact_size(HEADER)
 			.show_separator_line(false)
 			.frame(egui::Frame::new().inner_margin(egui::Margin::symmetric(16, 0)))
 			.show(ui, |ui| {
 				let rect = ui.max_rect();
+				backdrop = Some((
+					ui.painter().add(egui::Shape::Noop),
+					rect.expand2(egui::vec2(16.0, 0.0)),
+				));
 				ui.horizontal_centered(|ui| {
 					if let Some(guild) = self.guild {
-						self.server_menu.header(ui, state, guild, title);
+						self.server_menu.header(ui, state, guild, title, on_banner);
 						return;
 					}
 					ui.add(
@@ -2154,14 +2211,15 @@ impl MessagingUi {
 				ui.painter().hline(
 					rect.x_range().expand(16.0),
 					rect.bottom(),
-					egui::Stroke::new(1.0, colors.border),
+					egui::Stroke::new(1.0, colors.border.gamma_multiply(rule)),
 				);
 			});
+		let under_list = ui.painter().add(egui::Shape::Noop);
 		egui::Frame::new()
 			.inner_margin(egui::Margin {
 				left: 8,
 				right: 8,
-				top: 8,
+				top: if self.banner_rows > 0 { 0 } else { 8 },
 				bottom: 0,
 			})
 			.show(ui, |ui| {
@@ -2297,6 +2355,82 @@ impl MessagingUi {
 					commands.push(command);
 				}
 			});
+		if self.banner_rows > 0
+			&& let Some(art) = art
+			&& let Some((under_name, header)) = backdrop
+			&& let Some((list, offset)) = self.channel_list_view
+		{
+			let top = list.top() - offset;
+			let frame = egui::Rect::from_min_max(
+				egui::pos2(header.left(), top - HEADER),
+				egui::pos2(header.right(), top + below),
+			);
+			let listed = ui.painter().with_clip_rect(egui::Rect::from_min_max(
+				egui::pos2(header.left(), list.top()),
+				egui::pos2(header.right(), list.bottom()),
+			));
+			match art {
+				Ok(texture) => {
+					let uv = avatars::cover_uv(texture.resolution_vec2(), frame.size());
+					listed.set(
+						under_list,
+						egui::Shape::image(texture.id(), frame, uv, egui::Color32::WHITE),
+					);
+					// At rest the name sits on the banner under a shade that fades out by the
+					// header's lower edge. Scrolling thins both away, leaving the plain bar.
+					let fade = 1.0 - bar(offset.max(0.0));
+					let seen = header.intersect(frame);
+					if fade > 0.0 && seen.is_positive() {
+						// One mesh carries the image, its shade and the rounded corner of the
+						// surface the lists sit on, which a plain image would square off.
+						let radius = if design::has_window_background(ui) {
+							0.0
+						} else {
+							8.0f32.min(seen.height())
+						};
+						const STEPS: usize = 8;
+						let mut outline = Vec::with_capacity(STEPS + 4);
+						for step in 0..=STEPS {
+							let angle = std::f32::consts::FRAC_PI_2 * step as f32 / STEPS as f32;
+							outline.push(
+								seen.left_top()
+									+ egui::vec2(1.0 - angle.cos(), 1.0 - angle.sin()) * radius,
+							);
+						}
+						outline.extend([seen.right_top(), seen.right_bottom(), seen.left_bottom()]);
+						let mut mesh = egui::Mesh::with_texture(texture.id());
+						for pos in std::iter::once(seen.center()).chain(outline) {
+							let at = (pos - frame.min) / frame.size();
+							let shade = 150.0 / 255.0
+								* fade * (1.0 - (pos.y - header.top()) / header.height())
+								.clamp(0.0, 1.0);
+							let level = (255.0 * fade * (1.0 - shade)) as u8;
+							mesh.vertices.push(egui::epaint::Vertex {
+								pos,
+								uv: uv.min + at * uv.size(),
+								color: egui::Color32::from_rgba_premultiplied(
+									level,
+									level,
+									level,
+									(255.0 * fade) as u8,
+								),
+							});
+						}
+						let rim = mesh.vertices.len() as u32 - 1;
+						for point in 1..=rim {
+							mesh.add_triangle(0, point, point % rim + 1);
+						}
+						ui.painter()
+							.with_clip_rect(header)
+							.set(under_name, egui::Shape::mesh(mesh));
+					}
+				}
+				Err(_) => listed.set(
+					under_list,
+					egui::Shape::rect_filled(frame, 0, skeleton::fill(ui)),
+				),
+			}
+		}
 	}
 	/// Account card; while in a call it grows upward with the call header and quick actions.
 	fn account_card(&mut self, ui: &mut egui::Ui, state: &mut State, commands: &mut Vec<Command>) {
@@ -4255,7 +4389,15 @@ impl MessagingUi {
                             && self.slash_commands.can_submit(state, channel);
                         if (send || slash_run) && !cancel_edit {
                             if let Some((edit_channel, message, content)) = &editing {
-                                if state.freshness == Freshness::Fresh
+                                // Like the official client, saving an emptied edit asks to delete the
+                                // message. Attachments would outlive the text, so those keep the edit.
+                                if content.trim().is_empty()
+                                    && state.timeline.get(*message).is_some_and(|target| {
+                                        target.channel == *edit_channel && target.attachments.is_empty()
+                                    })
+                                {
+                                    self.deleting = Some((*edit_channel, *message));
+                                } else if state.freshness == Freshness::Fresh
                                     && let Some(command) = state.prepare_edit(*edit_channel, *message,
                                         if self.convert_emoticons { emoticons::convert(content) } else { content.clone() })
                                 {
@@ -5681,12 +5823,14 @@ impl MessagingUi {
 						{
 							commands.push(command);
 						}
-						crate::reactions::show_users(
+						if let Some(user) = crate::reactions::show_users(
 							ui.ctx(),
 							state,
 							&mut self.avatars,
 							&mut commands,
-						);
+						) {
+							self.profile.open_full(user);
+						}
 						if let Some((channel, message)) = self.timeline.quick_delete.take()
 							&& let Some(command) = state.prepare_delete(channel, message)
 						{
@@ -6197,6 +6341,13 @@ impl MessagingUi {
 				Some(dialog::Choice::Confirmed) => {
 					if let Some(command) = state.prepare_delete(channel, message) {
 						commands.push(command);
+						// An emptied edit has nothing left to keep once its message goes.
+						if self.editing.as_ref().is_some_and(|(c, id, text)| {
+							*c == channel && *id == message && text.trim().is_empty()
+						}) {
+							self.editing = None;
+							self.edit_sent = None;
+						}
 					}
 					self.deleting = None;
 				}
@@ -6898,6 +7049,28 @@ mod composer_tests {
 	}
 
 	#[test]
+	fn saving_an_emptied_edit_asks_to_delete_and_keeps_the_edit_open() {
+		let mut state = edit_state();
+		let mut view = MessagingUi {
+			editing: Some((Id(10), Id(20), String::new())),
+			..Default::default()
+		};
+		let ctx = egui::Context::default();
+		edit_frame(&ctx, &mut view, &mut state, vec![]);
+		let commands = edit_frame(
+			&ctx,
+			&mut view,
+			&mut state,
+			vec![edit_key(egui::Key::Enter)],
+		);
+		// Nothing leaves before the confirmation, and declining it must not lose the edit.
+		assert!(commands.is_empty());
+		assert_eq!(view.deleting, Some((Id(10), Id(20))));
+		assert!(view.has_edit());
+		assert_eq!(state.timeline.get(Id(20)).unwrap().content, "Original");
+	}
+
+	#[test]
 	fn emoticon_conversion_edits_wait_for_confirmation_and_keep_raw_text_on_failure() {
 		for success in [false, true] {
 			let mut state = edit_state();
@@ -7020,6 +7193,7 @@ mod composer_tests {
 			selected: Some(Id(10)),
 			channels: vec![model::Channel {
 				user_limit: None,
+				slowmode: 0,
 				id: Id(10),
 				guild: None,
 				parent_id: None,
@@ -7350,6 +7524,7 @@ mod composer_tests {
 		let mut state = edit_state();
 		state.demo = false;
 		state.guilds.push(model::Guild {
+			banner: None,
 			default_message_notifications: None,
 			stickers: None,
 			id: Id(100),
@@ -7501,6 +7676,7 @@ mod composer_tests {
 			target.kind = 0;
 			state.channels.push(target);
 			state.guilds.push(model::Guild {
+				banner: None,
 				default_message_notifications: None,
 				stickers: None,
 				id: Id(100),
@@ -7632,6 +7808,7 @@ mod composer_tests {
 				target.name = "Malformed-origin cached target".into();
 				state.channels.push(target);
 				state.guilds.push(model::Guild {
+					banner: None,
 					id: Id(100),
 					name: "Malformed-origin cached server".into(),
 					icon: None,
@@ -8969,6 +9146,7 @@ mod composer_tests {
 			state.selected = Some(Id(11));
 			state.channels.push(model::Channel {
 				user_limit: None,
+				slowmode: 0,
 				id: Id(11),
 				guild: None,
 				kind: 1,
@@ -9043,6 +9221,7 @@ mod composer_tests {
 			selected: Some(Id(1)),
 			channels: vec![model::Channel {
 				user_limit: None,
+				slowmode: 0,
 				last_message: None,
 				id: Id(1),
 				guild: Some(Id(2)),
@@ -9237,6 +9416,7 @@ mod composer_tests {
 			}),
 			channels: vec![model::Channel {
 				user_limit: None,
+				slowmode: 0,
 				last_message: None,
 				id: Id(1),
 				guild: None,
@@ -9639,6 +9819,7 @@ mod composer_tests {
 				selected: Some(Id(1)),
 				channels: vec![model::Channel {
 					user_limit: None,
+					slowmode: 0,
 					last_message: None,
 					id: Id(1),
 					guild,
@@ -10130,6 +10311,7 @@ mod composer_tests {
 			selected: Some(Id(1)),
 			channels: vec![model::Channel {
 				user_limit: None,
+				slowmode: 0,
 				last_message: None,
 				id: Id(1),
 				guild: None,

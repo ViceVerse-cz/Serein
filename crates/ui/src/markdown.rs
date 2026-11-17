@@ -7,6 +7,8 @@ use unicode_segmentation::UnicodeSegmentation;
 
 /// Maximum rendered source bytes; metadata fingerprints use the same boundary.
 pub(crate) const MAX_INPUT: usize = 8192;
+/// Corners of the plate behind inline code, timestamps, mentions and revealed spoilers.
+pub(crate) const INLINE_PLATE_RADIUS: egui::CornerRadius = egui::CornerRadius::same(4);
 const MAX_EVENTS: usize = 512;
 const MAX_DEPTH: usize = 16;
 const MAX_LINKS: usize = 16;
@@ -783,15 +785,15 @@ fn invisible(chr: char) -> bool {
 		|| matches!(chr, '\u{200b}'..='\u{200f}' | '\u{2060}'..='\u{2064}' | '\u{feff}')
 }
 
-/// Text and background of a role or mass mention: the role's own color, like Discord,
-/// with the text adjusted for contrast. Uncolored roles use the mention palette.
+/// Text and background of a role or mass mention: the role's own color, like Discord.
+/// Colored text is adjusted for contrast against the tinted pill, not the bare panel.
+/// Uncolored roles use the mention palette.
 fn mention_colors(ui: &egui::Ui, role_color: Option<u32>) -> (egui::Color32, egui::Color32) {
 	let colors = crate::design::palette(ui);
 	match role_color.filter(|rgb| *rgb != 0) {
 		Some(rgb) => {
-			let [r, g, b] = [(rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8];
-			let background = egui::Color32::from_rgba_unmultiplied(r, g, b, 38);
-			let behind = ui.visuals().panel_fill;
+			let (background, behind) =
+				crate::design::role_mention_fill(rgb, ui.visuals().panel_fill);
 			(
 				crate::design::role_name_color(rgb, behind, colors.mention_text),
 				background,
@@ -2108,7 +2110,7 @@ impl Formatted {
 				ui.set_width(width);
 				ui.add_space(4.0);
 				let frame = egui::Frame::new()
-					.fill(card_surface.fill(ui, ui.visuals().code_bg_color))
+					.fill(card_surface.fill(ui, ui.visuals().code.bg_color))
 					.stroke(Stroke::new(1.0, colors.border))
 					.corner_radius(6)
 					.inner_margin(egui::Margin::symmetric(10, 8));
@@ -3128,6 +3130,7 @@ impl Formatted {
 			font_id: FontId::proportional(PREVIEW_TEXT_SIZE),
 			color: colors.mention_text,
 			background: colors.mention_bg,
+			background_corner_radius: INLINE_PLATE_RADIUS,
 			..Default::default()
 		};
 		let mut remaining: usize = 120;
@@ -3457,10 +3460,11 @@ impl Formatted {
 				// Only revealed spoilers reach the formatter.
 				colors.muted.gamma_multiply(0.15)
 			} else if style.timestamp.is_some() || style.code {
-				visuals.code_bg_color
+				visuals.code.bg_color
 			} else {
 				egui::Color32::TRANSPARENT
 			},
+			background_corner_radius: INLINE_PLATE_RADIUS,
 			italics: style.italic,
 			strikethrough: if style.strike {
 				Stroke::new(1.0, color)
@@ -4043,6 +4047,7 @@ mod tests {
 		{
 			let mut channel = model::Channel {
 				user_limit: None,
+				slowmode: 0,
 				id: Id(10),
 				guild: Some(Id(20)),
 				kind: 0,
@@ -4992,6 +4997,7 @@ mod tests {
 		.into_iter()
 		.map(|(id, kind, guild)| model::Channel {
 			user_limit: None,
+			slowmode: 0,
 			id: Id(id),
 			kind,
 			guild,
@@ -6389,6 +6395,7 @@ mod tests {
 				crate::fonts::install(&ctx);
 				let channels = [model::Channel {
 					user_limit: None,
+					slowmode: 0,
 					id: Id(2),
 					kind: 2,
 					guild: Some(Id(1)),
@@ -6785,6 +6792,7 @@ mod tests {
 		));
 		let channels = [model::Channel {
 			user_limit: None,
+			slowmode: 0,
 			id: Id(2),
 			kind: 0,
 			guild: Some(Id(1)),

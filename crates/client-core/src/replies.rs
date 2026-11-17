@@ -599,6 +599,7 @@ mod tests {
 			channels: (1..=3)
 				.map(|id| Channel {
 					user_limit: None,
+					slowmode: 0,
 					id: Id(id),
 					guild: None,
 					parent_id: None,
@@ -690,6 +691,7 @@ mod tests {
 		state.guilds = [10, 20]
 			.into_iter()
 			.map(|id| model::Guild {
+				banner: None,
 				default_message_notifications: None,
 				stickers: None,
 				id: Id(id),

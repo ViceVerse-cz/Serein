@@ -1076,16 +1076,19 @@ pub fn viewer(
 	demo: bool,
 ) -> Option<Id> {
 	let mut current = current;
-	if ui
-		.ctx()
-		.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowLeft))
-	{
+	// Arrows, or A and D, step through the gallery. Both keys of a pair are consumed even when
+	// the first matched, so a same-frame press of the other key is not left for the next frame.
+	let pressed = |first: egui::Key, second: egui::Key| {
+		ui.ctx().input_mut(|i| {
+			let first = i.consume_key(egui::Modifiers::NONE, first);
+			let second = i.consume_key(egui::Modifiers::NONE, second);
+			first || second
+		})
+	};
+	if pressed(egui::Key::ArrowLeft, egui::Key::A) {
 		current = gallery_step(attachments, current, true)?;
 	}
-	if ui
-		.ctx()
-		.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowRight))
-	{
+	if pressed(egui::Key::ArrowRight, egui::Key::D) {
 		current = gallery_step(attachments, current, false)?;
 	}
 	let gallery: Vec<&Attachment> = attachments.iter().filter(|a| a.is_image()).collect();

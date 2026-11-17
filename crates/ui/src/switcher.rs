@@ -706,6 +706,7 @@ mod tests {
 		state.channels = (1..=30)
 			.map(|id| Channel {
 				user_limit: None,
+				slowmode: 0,
 				id: Id(id),
 				guild: None,
 				parent_id: None,

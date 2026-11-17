@@ -520,6 +520,8 @@ fn shelf_row(rows: &[CachedRow], index: usize) -> bool {
 
 /// Thread rows start after the spine's elbow, aligned under their parent's name.
 const THREAD_INDENT: f32 = 26.0;
+/// Height of a server channel row; a server banner holds whole rows of it.
+pub(super) const CHANNEL_ROW: f32 = 34.0;
 
 /// The tree line from the parent's icon: a rounded elbow into this thread, continuing
 /// down when another thread follows.
@@ -724,53 +726,26 @@ impl MessagingUi {
 		}
 		let colors = design::palette(ui);
 		let mut selected = None;
-		if let Some(guild) = self.guild
-			&& state.channel_list_opt_in(guild) == Some(true)
-		{
-			let response = ui
-				.scope(|ui| {
-					ui.spacing_mut().button_padding = egui::vec2(36.0, 8.0);
-					ui.add(
-						egui::Button::new(())
-							.left_text(
-								design::medium(
-									ui,
-									crate::i18n::translate("channel-browser-title"),
-									15.0,
-								)
-								.color(colors.muted),
-							)
-							.min_size(egui::vec2(ui.available_width(), 34.0))
-							.frame_when_inactive(false)
-							.corner_radius(4),
-					)
-				})
-				.inner;
-			crate::icons::paint(
-				ui.painter(),
-				crate::icons::Icon::Search,
-				egui::Rect::from_center_size(
-					egui::pos2(response.rect.left() + 18.0, response.rect.center().y),
-					egui::Vec2::splat(18.0),
-				),
-				colors.muted,
-			);
-			if response.clicked() {
-				self.channel_browser.open(state, guild);
-			}
-		}
 		if self.guild.is_some() && self.channel_cache.rows.is_empty() {
 			ui.label(RichText::new(language.text("no-conversations")).color(colors.muted));
 		}
 		let dm_list = self.guild.is_none();
-		let row_height = if dm_list { 44.0 } else { 34.0 };
+		let row_height = if dm_list { 44.0 } else { CHANNEL_ROW };
 		// An empty DM remainder still gets its "no conversations" line under the heading.
 		let empty_dms = dm_list
 			&& matches!(
 				self.channel_cache.rows.last(),
 				None | Some(CachedRow::Heading(Heading::DirectMessages))
 			);
-		let row_count = self.channel_cache.rows.len() + usize::from(empty_dms);
+		// A server banner's rows and Browse Channels lead the list and scroll with it.
+		let banner_rows = self.banner_rows;
+		let browse = self
+			.guild
+			.filter(|guild| state.channel_list_opt_in(*guild) == Some(true));
+		let row_count = self.channel_cache.rows.len()
+			+ usize::from(empty_dms)
+			+ banner_rows
+			+ usize::from(browse.is_some());
 		let previous_spacing = ui.spacing().item_spacing.y;
 		ui.spacing_mut().item_spacing.y = 0.0;
 		let mut drop_rows = Vec::new();
@@ -783,6 +758,53 @@ impl MessagingUi {
 			)
 			.show_rows(ui, row_height, row_count, |ui, range| {
 				for index in range {
+					let Some(mut index) = index.checked_sub(banner_rows) else {
+						ui.allocate_exact_size(
+							egui::vec2(ui.available_width(), row_height),
+							egui::Sense::hover(),
+						);
+						continue;
+					};
+					if let Some(guild) = browse {
+						if index == 0 {
+							let response = ui
+								.scope(|ui| {
+									ui.spacing_mut().button_padding = egui::vec2(36.0, 8.0);
+									ui.add(
+										egui::Button::new(())
+											.left_text(
+												design::medium(
+													ui,
+													crate::i18n::translate("channel-browser-title"),
+													15.0,
+												)
+												.color(colors.muted),
+											)
+											.min_size(egui::vec2(ui.available_width(), 34.0))
+											.frame_when_inactive(false)
+											.corner_radius(4),
+									)
+								})
+								.inner;
+							crate::icons::paint(
+								ui.painter(),
+								crate::icons::Icon::Search,
+								egui::Rect::from_center_size(
+									egui::pos2(
+										response.rect.left() + 18.0,
+										response.rect.center().y,
+									),
+									egui::Vec2::splat(18.0),
+								),
+								colors.muted,
+							);
+							if response.clicked() {
+								self.channel_browser.open(state, guild);
+							}
+							continue;
+						}
+						index -= 1;
+					}
 					let Some(row) = self.channel_cache.rows.get(index).copied() else {
 						ui.label(
 							RichText::new(language.text("no-conversations")).color(colors.muted),
@@ -1484,6 +1506,7 @@ impl MessagingUi {
 					}
 				}
 			});
+		self.channel_list_view = Some((output.inner_rect, output.state.unclamped_offset().y));
 		if let Some(source) = egui::DragAndDrop::payload::<ChannelDrag>(ui.ctx())
 			&& let Some(pointer) = ui.ctx().pointer_hover_pos()
 			&& output.inner_rect.contains(pointer)
@@ -1881,6 +1904,7 @@ mod tests {
 	fn channel(id: u64, kind: u8, position: i32, parent_id: Option<Id>) -> Channel {
 		Channel {
 			user_limit: None,
+			slowmode: 0,
 			last_message: None,
 			id: Id(id),
 			guild: Some(Id(100)),
@@ -2181,6 +2205,7 @@ mod tests {
 				cosmetics: None,
 			}),
 			guilds: vec![model::Guild {
+				banner: None,
 				default_message_notifications: None,
 				stickers: None,
 				id: Id(100),
@@ -2350,6 +2375,7 @@ mod tests {
 				cosmetics: None,
 			}),
 			guilds: vec![model::Guild {
+				banner: None,
 				default_message_notifications: None,
 				stickers: None,
 				id: Id(100),

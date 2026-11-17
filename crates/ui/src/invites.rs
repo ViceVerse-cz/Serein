@@ -344,6 +344,7 @@ fn server_card(
 			match (preview, preview.and_then(|p| p.guild)) {
 				(Some(preview), Some(guild)) if preview.guild_icon.is_some() => {
 					let guild = model::Guild {
+						banner: None,
 						default_message_notifications: None,
 						stickers: None,
 						emojis: None,

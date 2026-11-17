@@ -1404,6 +1404,7 @@ mod tests {
 		state.apply(client_core::Envelope {
 			generation: state.generation,
 			event: client_core::Event::GuildChanged(model::GuildPatch {
+				banner: model::Patch::Absent,
 				id: Id(10),
 				name: model::Patch::Value("Longer foreign server name".into()),
 				icon: model::Patch::Value("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".into()),
@@ -1590,6 +1591,7 @@ mod tests {
 			guilds: [20, 10]
 				.into_iter()
 				.map(|id| model::Guild {
+					banner: None,
 					default_message_notifications: None,
 					stickers: None,
 					id: Id(id),
@@ -1682,6 +1684,7 @@ mod tests {
 			};
 			state.channels.push(model::Channel {
 				user_limit: None,
+				slowmode: 0,
 				last_message: None,
 				id: Id(1),
 				guild,
@@ -1699,6 +1702,7 @@ mod tests {
 				use model::permissions as p;
 				state.channels.push(channel(42, Some(guild), 0, "Zoe"));
 				state.guilds.push(model::Guild {
+					banner: None,
 					default_message_notifications: None,
 					stickers: None,
 					id: guild,
@@ -1979,6 +1983,7 @@ mod tests {
 	fn channel(id: u64, guild: Option<Id>, kind: u8, name: &str) -> Channel {
 		Channel {
 			user_limit: None,
+			slowmode: 0,
 			id: Id(id),
 			guild,
 			kind,
@@ -2063,6 +2068,7 @@ mod tests {
 		assert_eq!(query(":+1", 3), Some((0..3, "+1", Kind::Emoji)));
 		assert_eq!(query(":-1", 3), Some((0..3, "-1", Kind::Emoji)));
 		let guilds = vec![model::Guild {
+			banner: None,
 			default_message_notifications: None,
 			stickers: None,
 			id: Id(9),
@@ -2560,8 +2566,8 @@ pub fn debug_role_mentions_check(state: &mut State) {
 		let mut role_color = egui::Color32::TRANSPARENT;
 		let output = ctx.run_ui(Default::default(), |ui| {
 			let colors = crate::design::palette(ui);
-			role_color =
-				crate::design::role_name_color(0xe67e22, colors.mention_bg, colors.mention_text);
+			let (_, surface) = crate::design::role_mention_fill(0xe67e22, ui.visuals().panel_fill);
+			role_color = crate::design::role_name_color(0xe67e22, surface, colors.mention_text);
 			assert_ne!(role_color, colors.mention_text);
 			let roles = known_roles(state, channel);
 			let mut preview = egui::text::LayoutJob::default();

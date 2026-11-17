@@ -5289,9 +5289,12 @@ impl TimelineView {
 			crate::design::ImageSection::MessageList,
 		);
 		let see_through = surface.a() < 255;
+		let slowmode = state
+			.selected
+			.filter(|channel| state.slowmode(*channel).is_some() && state.can_compose(*channel));
 		let fade_height = if see_through && self.following {
 			0.0
-		} else if typing.is_some() {
+		} else if typing.is_some() || slowmode.is_some() {
 			crate::typing::OVERLAY_HEIGHT + 8.0
 		} else {
 			20.0
@@ -5326,20 +5329,20 @@ impl TimelineView {
 		ui.painter()
 			.with_clip_rect(area)
 			.add(egui::Shape::mesh(fade));
+		let mut strip = egui::Rect::from_min_max(
+			egui::pos2(
+				area.left() + 16.0,
+				(area.bottom() - crate::typing::OVERLAY_HEIGHT).max(area.top()),
+			),
+			egui::pos2(area.right() - 16.0, area.bottom()),
+		);
+		if let Some(channel) = slowmode {
+			// The typing line stops short of the slowmode notice at the strip's end.
+			let taken = crate::slowmode::overlay(ui, strip, state, channel, now);
+			strip.max.x = (strip.max.x - taken - 12.0).max(strip.min.x);
+		}
 		if let Some(channel) = typing {
-			crate::typing::overlay(
-				ui,
-				egui::Rect::from_min_max(
-					egui::pos2(
-						area.left() + 16.0,
-						(area.bottom() - crate::typing::OVERLAY_HEIGHT).max(area.top()),
-					),
-					egui::pos2(area.right() - 16.0, area.bottom()),
-				),
-				state,
-				channel,
-				now,
-			);
+			crate::typing::overlay(ui, strip, state, channel, now);
 		}
 		let browsing_history = state.history_targeted
 			|| state.history_before.is_some()
@@ -6147,6 +6150,7 @@ mod tests {
 			selected: Some(Id(20)),
 			channels: vec![model::Channel {
 				user_limit: None,
+				slowmode: 0,
 				id: Id(20),
 				guild: None,
 				parent_id: None,
@@ -6417,6 +6421,7 @@ mod tests {
 			state.older_exhausted = true;
 			state.channels = vec![model::Channel {
 				user_limit: None,
+				slowmode: 0,
 				id: Id(20),
 				guild: None,
 				parent_id: None,
@@ -7477,6 +7482,7 @@ mod tests {
 				result: Ok(client_core::thread_previews::Loaded {
 					channel: Some(model::Channel {
 						user_limit: None,
+						slowmode: 0,
 						id: thread,
 						guild: Some(Id(10)),
 						parent_id: Some(parent),
@@ -8218,6 +8224,7 @@ mod tests {
 				search_target: Some(Id(19)),
 				channels: vec![model::Channel {
 					user_limit: None,
+					slowmode: 0,
 					id: Id(20),
 					guild: None,
 					parent_id: None,
@@ -8352,6 +8359,7 @@ mod tests {
 			.into_iter()
 			.map(|(id, guild)| model::Channel {
 				user_limit: None,
+				slowmode: 0,
 				id: Id(id),
 				guild: Some(Id(guild)),
 				parent_id: None,
@@ -8392,6 +8400,7 @@ mod tests {
 			guilds: [1, 2]
 				.into_iter()
 				.map(|id| model::Guild {
+					banner: None,
 					default_message_notifications: None,
 					stickers: None,
 					emojis: None,
@@ -8630,6 +8639,7 @@ mod tests {
 				selected: Some(Id(20)),
 				channels: vec![model::Channel {
 					user_limit: None,
+					slowmode: 0,
 					id: Id(20),
 					guild: None,
 					parent_id: None,
@@ -8731,6 +8741,7 @@ mod tests {
 			selected: Some(Id(20)),
 			channels: vec![model::Channel {
 				user_limit: None,
+				slowmode: 0,
 				id: Id(20),
 				guild: None,
 				parent_id: None,
@@ -8836,6 +8847,7 @@ mod tests {
 			selected: Some(Id(20)),
 			channels: vec![model::Channel {
 				user_limit: None,
+				slowmode: 0,
 				id: Id(20),
 				guild: None,
 				parent_id: None,
@@ -9077,6 +9089,7 @@ mod tests {
 			selected: Some(Id(20)),
 			channels: vec![model::Channel {
 				user_limit: None,
+				slowmode: 0,
 				id: Id(20),
 				guild: None,
 				parent_id: None,
@@ -10302,6 +10315,7 @@ mod tests {
 		};
 		state.channels.push(model::Channel {
 			user_limit: None,
+			slowmode: 0,
 			id: Id(4),
 			guild: Some(Id(5)),
 			name: "a".into(),
@@ -10327,6 +10341,7 @@ mod tests {
 			cosmetics: None,
 		});
 		state.guilds.push(model::Guild {
+			banner: None,
 			id: Id(5),
 			name: "Synthetic".into(),
 			icon: None,
@@ -10393,6 +10408,7 @@ mod tests {
 			generation: state.generation,
 			event: client_core::Event::ChannelChanged(model::ChannelPatch {
 				user_limit: model::Patch::Absent,
+				slowmode: model::Patch::Absent,
 				id: Id(4),
 				name: model::Patch::Value("a-much-longer-channel-reference".into()),
 				last_message: model::Patch::Absent,
@@ -11003,6 +11019,7 @@ mod tests {
 			freshness: model::Freshness::Fresh,
 			channels: vec![model::Channel {
 				user_limit: None,
+				slowmode: 0,
 				id: Id(channel),
 				guild: None,
 				parent_id: None,
