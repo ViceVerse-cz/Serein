@@ -1,20 +1,21 @@
 //! Shared texture pages for emoji rasters.
 //!
 //! Small textures each cost a padded GPU allocation, so rasters share up to [`PAGES`] pages of
-//! [`PAGE`]² pixels. Each page is a quad-tree buddy allocator over power-of-two square blocks.
+//! [`PAGE`]² pixels. Pages are kept small so the first one fits in memory the GPU allocator
+//! already holds instead of reserving a new block. Each page is a quad-tree buddy allocator over power-of-two square blocks.
 //! A raster takes the smallest block at least as large as its edge, from the block's corner.
 //! Its outermost pixel ring is made transparent and its whole block is uploaded with the rest
 //! transparent, so linear filtering at its edge never samples a neighbour or old pixels.
 use egui::{ColorImage, Context, TextureHandle};
 use std::collections::BTreeSet;
 
-/// Page edge in pixels: 4 MiB of RGBA each.
-pub(super) const PAGE: u32 = 1024;
+/// Page edge in pixels: 1 MiB of RGBA each.
+pub(super) const PAGE: u32 = 512;
 /// Most pages alive at once (16 MiB).
-pub(super) const PAGES: usize = 4;
+pub(super) const PAGES: usize = 16;
 const MIN_BLOCK: u32 = 16;
-/// Block orders: 16, 32, ... 1024 pixels.
-const ORDERS: usize = 7;
+/// Block orders: 16, 32, ... 512 pixels.
+const ORDERS: usize = 6;
 
 fn block(order: usize) -> u32 {
 	MIN_BLOCK << order
@@ -248,17 +249,18 @@ mod tests {
 	fn pages_are_bounded_and_released_when_empty() {
 		let ctx = Context::default();
 		let mut pages = Pages::default();
-		// A 256 px raster fills a 256 px block: 16 per page.
+		// A 256 px raster fills a 256 px block.
+		let per_page = ((PAGE / 256) * (PAGE / 256)) as usize;
 		let slots: Vec<_> = std::iter::from_fn(|| pages.alloc(&ctx, 256)).collect();
-		assert_eq!(slots.len(), PAGES * 16);
+		assert_eq!(slots.len(), PAGES * per_page);
 		assert_eq!(pages.count(), PAGES);
 		assert!(pages.alloc(&ctx, 16).is_none());
-		for slot in &slots[..16] {
+		for slot in &slots[..per_page] {
 			pages.free(*slot);
 		}
 		assert!(pages.release_empty());
 		assert_eq!(pages.count(), PAGES - 1);
-		for slot in &slots[16..] {
+		for slot in &slots[per_page..] {
 			pages.free(*slot);
 		}
 		pages.release_empty();

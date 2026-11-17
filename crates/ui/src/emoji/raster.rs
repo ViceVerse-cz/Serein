@@ -638,7 +638,13 @@ mod tests {
 	/// and repaints stop instead of evicting and re-rendering.
 	#[test]
 	fn more_painted_emoji_than_fit_settle_without_evicting_visible_ones() {
-		for (capacity, edge) in [(TEXTURES, 16), (pages::PAGES * 16, 254)] {
+		for (capacity, edge) in [
+			(TEXTURES, 16),
+			(
+				pages::PAGES * ((pages::PAGE / 256) * (pages::PAGE / 256)) as usize,
+				254,
+			),
+		] {
 			settle_without_evicting_visible_ones(capacity, edge);
 		}
 	}

@@ -1025,12 +1025,12 @@ run at the lowest OS priority (Windows `THREAD_PRIORITY_LOWEST`, Linux nice 10, 
 utility QoS). Painted and prefetched requests wait in two queues of at most 512 jobs each;
 a full queue drops its oldest job, and painted jobs not requested in the current or
 previous frame are skipped. Finished rasters wait in a queue of at most 1,024 items /
-16 MiB. They are packed into shared 1,024×1,024 RGBA texture pages (4 MiB each, at most
-four, created on demand), each divided by a buddy allocator into power-of-two square blocks
+16 MiB. They are packed into shared 512×512 RGBA texture pages (1 MiB each, at most
+sixteen, created on demand; small pages fit memory the GPU allocator already holds), each divided by a buddy allocator into power-of-two square blocks
 of 16 to 256 pixels; a raster takes the smallest block at least its edge, its outermost pixel
 ring is made transparent, and its whole block is uploaded with the rest transparent, at most
 4 MiB of blocks per frame. At
-most 1,024 rasters are kept. When no block is free and four pages exist, the least recently
+most 1,024 rasters are kept. When no block is free and sixteen pages exist, the least recently
 drawn rasters are evicted, undrawn prefetches first, but never rasters drawn in the current or
 previous frame: a painted raster that does not fit beside them stays an empty slot, without
 being requested again, until idle release frees space, and a prefetched one is dropped.
