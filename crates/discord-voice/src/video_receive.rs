@@ -130,9 +130,23 @@ impl DecoderQueue {
 	}
 }
 
-#[cfg(test)]
 impl Drop for DecoderQueue {
 	fn drop(&mut self) {
+		let sources = self
+			.active
+			.get_mut()
+			.unwrap_or_else(|error| error.into_inner());
+		for source in sources.values() {
+			source.lifetime.active.store(false, Ordering::Release);
+		}
+		#[cfg(test)]
+		self.join_worker();
+	}
+}
+
+#[cfg(test)]
+impl DecoderQueue {
+	fn join_worker(&mut self) {
 		let Some((worker, completed)) = self.worker.take() else {
 			return;
 		};
@@ -1453,6 +1467,9 @@ fn decode_loop_on_adapter(
 		let decoder = decoders.get_mut(&frame.user).expect("decoder inserted");
 		let hardware = decoder.hardware();
 		let mut outcome = decoder.decode(&data, i64::from(frame.timestamp), &mut scratch);
+		if !lifetime.active.load(Ordering::Acquire) {
+			continue;
+		}
 		if hardware && frame.keyframe && outcome.is_err() && outcome != Err(DecodeError::Busy) {
 			decoders.remove(&frame.user);
 			if !software_only.contains(&frame.user) {
@@ -2094,11 +2111,15 @@ mod tests {
 			let current = queue.source_lifetime(7);
 			let bytes = queue.bytes.clone();
 			let counters = queue.counters.clone();
-			drop(queue);
 			let seen = Arc::new(Mutex::new(Vec::new()));
 			let pictures = seen.clone();
+			let (drain, pending) = sync_channel(3);
+			for message in receive.try_iter() {
+				drain.send(message).unwrap();
+			}
+			drop(drain);
 			decode_loop(
-				receive,
+				pending,
 				Arc::new(move |frame| pictures.lock().unwrap().push(frame.user)),
 				Arc::default(),
 				counters.clone(),
@@ -2113,6 +2134,37 @@ mod tests {
 			assert_eq!(counters.software.load(Ordering::Relaxed), u64::from(!full));
 			assert_eq!(bytes.available_permits(), QUEUE_BYTES);
 		}
+	}
+
+	#[test]
+	fn closing_video_decoder_discards_queued_pictures_and_releases_their_permits() {
+		let (queue, receive) = decoder_cleanup_queue(2);
+		assert!(
+			offer(
+				&queue,
+				Encoded {
+					timestamp: 0,
+					codec: model::voice_settings::VideoCodec::H264,
+					user: 7,
+					data: decoder_cleanup_keyframe(32, 32),
+					keyframe: true,
+				}
+			)
+			.unwrap()
+		);
+		let source = queue.source_lifetime(7).unwrap();
+		let bytes = queue.bytes.clone();
+		let counters = queue.counters.clone();
+		drop(queue);
+		assert!(!source.active.load(Ordering::Acquire));
+		decode_loop(
+			receive,
+			Arc::new(|_| panic!("picture delivered after call ended")),
+			Arc::default(),
+			counters,
+			false,
+		);
+		assert_eq!(bytes.available_permits(), QUEUE_BYTES);
 	}
 
 	#[test]
