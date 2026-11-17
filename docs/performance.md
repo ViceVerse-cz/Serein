@@ -2017,3 +2017,26 @@ Single-run samples on a shared desktop: deltas of this size are noise, not impro
 regressions. Contended samples were discarded and re-measured on an idle desktop: one baseline
 (11.51% idle CPU) and two after runs (18.91%, and 5.47% while a screenshot capture ran
 concurrently). Frame latency and startup time were not instrumented and are not claimed.
+
+## `start_screen` model raster — November 17, 2026
+
+A plugin start-screen model is software-rasterized off the UI thread. One renderer thread
+exists only while the connecting screen shows a model: it renders at most 30 frames per second
+into a square grid of at most 160×160 cells (3 logical pixels per cell; the on-screen frame is
+capped at 240 pixels, so 80×80 cells at 100% scale), skips frames the UI has not consumed yet,
+renders once for a still model or when animations are off, and stops with the screen. The UI
+thread only uploads the newest frame into one reused nearest-filtered texture (25.6 KiB RGBA at
+80×80, 100 KiB at 160×160); pixel text is rasterized once per text, wrap-width or scale change.
+
+Throwaway timing harness, Windows 11 build 26200, AMD Ryzen 5 7600X (12 threads), 32 GiB RAM,
+300 frames of a 4,096-vertex, 8,064-triangle sphere (the vertex limit; triangle limit 8,192):
+
+| Build | Grid | Raster per frame | Dither per frame | One core at 30 fps |
+| --- | --- | ---: | ---: | ---: |
+| Optimized (release with debug assertions) | 80×80 | 0.40 ms | 0.007 ms | 1.2% |
+| Optimized (release with debug assertions) | 160×160 | 0.78 ms | 0.041 ms | 2.5% |
+| Debug | 80×80 | 5.35 ms | 0.12 ms | 16% |
+| Debug | 160×160 | 8.12 ms | 0.49 ms | 26% |
+
+Single runs on a shared desktop. Texture upload, GPU time, frame latency and whole-process CPU
+were not instrumented and are not claimed; other screens pay nothing for the feature.

@@ -282,6 +282,86 @@ pub fn update_window_minimum(
 	*applied = Some(minimum);
 }
 
+/// Logical inner size of the compact splash window a plugin start screen may ask for: room
+/// for the model, one title line, the progress bar and the button with padding below it.
+const SPLASH_SIZE: [u32; 2] = [360, 480];
+
+/// The window's normal placement while a compact start screen shows it as a small splash.
+#[derive(Default)]
+pub struct Splash {
+	normal: Option<Placement>,
+}
+
+#[derive(Clone, Copy)]
+struct Placement {
+	size: winit::dpi::PhysicalSize<u32>,
+	position: Option<winit::dpi::PhysicalPosition<i32>>,
+	maximized: bool,
+}
+
+impl Splash {
+	/// Whether the window shows the splash: its placement is not saved and the usual minimum
+	/// size waits until the normal placement returns.
+	pub fn active(&self) -> bool {
+		self.normal.is_some()
+	}
+
+	/// Shrinks the window into a centred splash while `compact` holds, and restores its
+	/// previous size, position and maximized state once it no longer does.
+	pub fn sync(
+		&mut self,
+		window: &winit::window::Window,
+		compact: bool,
+		minimum: &mut Option<winit::dpi::PhysicalSize<u32>>,
+	) {
+		match (compact, self.normal) {
+			(true, None) => {
+				self.normal = Some(Placement {
+					size: window.inner_size(),
+					position: window.outer_position().ok(),
+					maximized: window.is_maximized(),
+				});
+				if window.is_maximized() {
+					window.set_maximized(false);
+				}
+				let size = winit::dpi::LogicalSize::new(SPLASH_SIZE[0], SPLASH_SIZE[1])
+					.to_physical::<u32>(window.scale_factor());
+				window.set_min_inner_size(Some(size));
+				let _ = window.request_inner_size(size);
+				if let (Some(monitor), true) =
+					(window.current_monitor(), window.outer_position().is_ok())
+				{
+					let (origin, available) = (monitor.position(), monitor.size());
+					let (inner, outer) = (window.inner_size(), window.outer_size());
+					let width = size.width + outer.width.saturating_sub(inner.width);
+					let height = size.height + outer.height.saturating_sub(inner.height);
+					window.set_outer_position(winit::dpi::PhysicalPosition::new(
+						origin.x + (available.width.saturating_sub(width) / 2) as i32,
+						origin.y + (available.height.saturating_sub(height) / 2) as i32,
+					));
+				}
+			}
+			(false, Some(normal)) => {
+				self.normal = None;
+				window.set_min_inner_size(None::<winit::dpi::PhysicalSize<u32>>);
+				let _ = window.request_inner_size(normal.size);
+				if let Some(position) = normal.position {
+					window.set_outer_position(position);
+				}
+				// Maximize after placing the normal geometry, which moving a maximized window resets.
+				if normal.maximized {
+					window.set_maximized(true);
+				}
+				*minimum = None;
+				if let Some(monitor) = window.current_monitor() {
+					update_window_minimum(window, &monitor, minimum);
+				}
+			}
+			_ => {}
+		}
+	}
+}
+
 /// A placement must stay put this long before it is saved; a drag samples a new one per frame.
 pub const GEOMETRY_REST_DELAY: std::time::Duration = std::time::Duration::from_millis(500);
 

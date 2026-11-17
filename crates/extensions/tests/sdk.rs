@@ -560,6 +560,81 @@ fn interface_ui_is_granted_activation_panel_or_event_output_and_validated() {
 	assert!(clicks.validate().is_err());
 }
 
+/// Checks that the SDK's start screen reaches the host with omitted, `null` and value kept
+/// apart, that only granted activation and panel results may carry it (a clear included),
+/// and that an off-bounds screen is rejected like any invalid output.
+#[test]
+fn start_screen_is_granted_activation_or_panel_output_and_validated() {
+	let screen = sdk::StartScreen {
+		title: Some("Loading".into()),
+		text_style: sdk::StartTextStyle::Dither,
+		hide_logo: true,
+		model: Some(sdk::StartModel {
+			vertices: vec![[0.0, 1.0, 0.0], [-1.0, -1.0, 0.0], [1.0, -1.0, 0.0]],
+			triangles: vec![[0, 1, 2]],
+			color: Some("#33aa55".into()),
+			spin: 12.0,
+			pitch: 20.0,
+		}),
+		..Default::default()
+	};
+	let wire = |start_screen| {
+		let output = sdk::StartScreenOutput {
+			start_screen,
+			..Default::default()
+		};
+		serde_json::from_slice::<Output>(&serde_json::to_vec(&output).unwrap()).unwrap()
+	};
+	assert!(wire(None).start_screen.is_none(), "omitted keeps it");
+	let cleared = wire(Some(None));
+	assert_eq!(cleared.start_screen, Some(None), "null clears it");
+	let host = wire(Some(Some(screen)));
+	let value = host.start_screen.clone().flatten().unwrap();
+	assert_eq!(value.title.as_deref(), Some("Loading"));
+	assert_eq!(value.text_style, extensions::StartTextStyle::Dither);
+	let with = |action: &str, surface, granted: bool| {
+		let mut manifest = manifest(action, surface);
+		if granted {
+			manifest.capabilities.push(Capability::StartScreen);
+		}
+		let input = Invocation {
+			action: action.into(),
+			..Default::default()
+		};
+		(manifest, input)
+	};
+	for (action, surface, allowed) in [
+		("activate", Surface::Activation, true),
+		("apply", Surface::Panel, true),
+		("message-event", Surface::MessageEvent, false),
+		("app-event", Surface::AppEvent, false),
+		("tick", Surface::Tick, false),
+	] {
+		let (granted, input) = with(action, surface, true);
+		for output in [&host, &cleared] {
+			assert_eq!(
+				output.validate(&granted, &input).is_ok(),
+				allowed,
+				"{action}"
+			);
+		}
+		let (ungranted, input) = with(action, surface, false);
+		assert!(
+			host.validate(&ungranted, &input).is_err(),
+			"{action} without grant"
+		);
+	}
+	let (panel, panel_input) = with("apply", Surface::Panel, true);
+	let mut invalid = host.clone();
+	if let Some(Some(screen)) = &mut invalid.start_screen {
+		screen.model.as_mut().unwrap().triangles[0] = [0, 1, 3];
+	}
+	assert!(
+		invalid.validate(&panel, &panel_input).is_err(),
+		"out-of-range triangle rejected"
+	);
+}
+
 /// Checks that the voice roster stays absent from older snapshots, serializes only when
 /// populated, and is bounded and id-checked by the host validator.
 #[test]

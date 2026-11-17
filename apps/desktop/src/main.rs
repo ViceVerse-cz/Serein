@@ -26,6 +26,7 @@ mod extension_events;
 mod extension_forum_data;
 mod extension_member_details;
 mod extension_message_content;
+mod extension_start_screen;
 mod extensions;
 mod font_import;
 mod game_activity;
@@ -1023,6 +1024,8 @@ struct Desktop {
 	proxy_auth: proxy_auth::Authentication,
 	api_proxy: tokio::sync::watch::Sender<Option<discord_api::proxy::ApiProxy>>,
 	extensions: extension_bridge::Bridge,
+	/// Plugin start-screen rendering; its model thread runs only while that screen shows.
+	start_screen: ui::StartScreenView,
 	extension_close_pending: bool,
 	login: Option<platform::LoginView>,
 	captcha: captcha::Captcha,
@@ -1069,6 +1072,8 @@ struct Desktop {
 	window_minimum: Option<winit::dpi::PhysicalSize<u32>>,
 	/// A sampled placement waiting to remain unchanged for the rest interval.
 	geometry_rest: app_settings::GeometryRest,
+	/// The normal placement while a compact plugin start screen shows the window as a splash.
+	splash: app_settings::Splash,
 	#[cfg(feature = "demo")]
 	rendering_demo: Option<rendering_demo::RenderingDemo>,
 	avatars: Option<avatars::AvatarWorker>,
@@ -2398,6 +2403,12 @@ impl Desktop {
 			}
 		}
 		#[cfg(feature = "demo")]
+		if demo && std::env::args().any(|arg| arg == "--demo-start-screen") {
+			// Fixture-only: hold the connecting screen with a synthetic plugin start screen.
+			state.user = None;
+			state.status = "Disconnected";
+		}
+		#[cfg(feature = "demo")]
 		if demo && std::env::args().any(|arg| arg.starts_with("--demo-onboarding")) {
 			onboarding_demo::open(&mut state);
 		}
@@ -2517,6 +2528,7 @@ impl Desktop {
 			proxy_auth: proxy_auth::Authentication::default(),
 			api_proxy: tokio::sync::watch::channel(None).0,
 			extensions: extension_bridge::Bridge::default(),
+			start_screen: ui::StartScreenView::default(),
 			extension_close_pending: false,
 			login: None,
 			captcha: captcha::Captcha::default(),
@@ -2567,6 +2579,7 @@ impl Desktop {
 			frame_metrics: FrameMetrics::new(frame_sample),
 			window_minimum: None,
 			geometry_rest: app_settings::GeometryRest::default(),
+			splash: app_settings::Splash::default(),
 			#[cfg(feature = "demo")]
 			rendering_demo: (demo && std::env::args().any(|arg| arg == "--demo-rendering"))
 				.then(rendering_demo::RenderingDemo::default),
@@ -5754,7 +5767,10 @@ impl Desktop {
 	}
 	fn refresh_monitor(&mut self) -> Option<Duration> {
 		let monitor = self.window.current_monitor()?;
-		app_settings::update_window_minimum(&self.window, &monitor, &mut self.window_minimum);
+		// The splash keeps its own small minimum until it restores the normal placement.
+		if !self.splash.active() {
+			app_settings::update_window_minimum(&self.window, &monitor, &mut self.window_minimum);
+		}
 		let millihertz = monitor.refresh_rate_millihertz()?;
 		(1_000..=1_000_000)
 			.contains(&millihertz)
@@ -5821,7 +5837,10 @@ impl eframe::App for Desktop {
 	fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
 		// Before the pass begins, so the whole frame resolves System to the same theme.
 		self.sync_system_theme(ctx);
-		if self.maximize_after_show && self.window.is_visible() == Some(true) {
+		if self.maximize_after_show
+			&& self.window.is_visible() == Some(true)
+			&& !self.splash.active()
+		{
 			self.maximize_after_show = false;
 			self.window.set_maximized(true);
 		}
@@ -5833,6 +5852,7 @@ impl eframe::App for Desktop {
 			&& !self.state.demo
 			&& self.app_settings.loaded
 			&& !self.maximize_after_show
+			&& !self.splash.active()
 			&& let Some(viewport) = raw_input.viewports.get(&raw_input.viewport_id)
 			&& viewport.minimized != Some(true)
 			&& viewport.fullscreen != Some(true)
@@ -7154,6 +7174,10 @@ impl eframe::App for Desktop {
 		} else {
 			self.sign_in_screen(ui);
 		}
+		let compact = self.start_screen.compact();
+		self.start_screen.retire();
+		self.splash
+			.sync(&self.window, compact, &mut self.window_minimum);
 		// Outside the signed-in branch so leaving an account still restores the window mode.
 		let video = self.messaging.video().take_fullscreen_request();
 		let voice = self.messaging.take_voice_fullscreen_request();

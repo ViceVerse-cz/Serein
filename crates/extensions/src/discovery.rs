@@ -72,6 +72,7 @@ impl HostInfo {
 				Capability::ContextMenus,
 				Capability::InterfaceTweaks,
 				Capability::InterfaceUi,
+				Capability::StartScreen,
 			],
 			app_events: &[
 				AppEventKind::Ready,

@@ -59,17 +59,19 @@ pub fn uses_app(capabilities: &[Capability]) -> bool {
 	})
 }
 
-pub(crate) fn name(value: &str) -> String {
+/// A display name bounded to 128 bytes without control characters; `None` when nothing
+/// printable remains.
+fn bounded_name(value: &str) -> Option<String> {
 	let mut end = value.len().min(128);
 	while !value.is_char_boundary(end) {
 		end -= 1;
 	}
 	let name: String = value[..end].chars().filter(|c| !c.is_control()).collect();
-	if name.trim().is_empty() {
-		"Unnamed".into()
-	} else {
-		name
-	}
+	(!name.trim().is_empty()).then_some(name)
+}
+
+pub(crate) fn name(value: &str) -> String {
+	bounded_name(value).unwrap_or_else(|| "Unnamed".into())
 }
 
 fn user(value: &model::User) -> UserSnapshot {
@@ -632,7 +634,9 @@ pub fn snapshot(
 					guild_id: row.entry.guild.0.to_string(),
 					channel_id: row.entry.channel.0.to_string(),
 					user_id: row.entry.participant.user.0.to_string(),
-					name: row.name.map(str::to_owned),
+					// One gateway nickname with control characters or nothing printable must
+					// not invalidate the whole snapshot; such a name is left out instead.
+					name: row.name.and_then(bounded_name),
 					muted: row.shown.muted,
 					deafened: row.shown.deafened,
 					server_muted: row.shown.server_muted,
@@ -1381,9 +1385,29 @@ mod tests {
 				.is_none(),
 			"roster needs the voice grant"
 		);
+		// A nickname with control characters is cleaned, an empty one is left out and a long
+		// one is bounded, so one bad name never invalidates the whole snapshot.
+		let mut state = state;
+		let long = "é".repeat(200);
+		for (user, nick) in [(4, "Ash\u{0}\u{1b}"), (5, ""), (3, long.as_str())] {
+			let entry = state
+				.voice
+				.roster
+				.iter_mut()
+				.find(|entry| entry.participant.user == Id(user))
+				.unwrap();
+			entry.member.as_mut().unwrap().nick = Some(nick.into());
+		}
+		let app = snapshot(&state, &messaging, &voice).expect("bad nicknames keep the snapshot");
+		let roster = &app.voice.as_ref().unwrap().roster;
+		let row = |user: &str| roster.iter().find(|row| row.user_id == user).unwrap();
+		assert_eq!(roster.len(), 5, "every entry still listed");
+		assert_eq!(row("4").name.as_deref(), Some("Ash"));
+		assert_eq!(row("5").name, None, "an empty nickname is left out");
+		let bounded = row("3").name.as_deref().unwrap();
+		assert!(bounded.len() <= 128 && long.starts_with(bounded));
 		// The channel directory follows the sidebar: a category precedes its channels, and
 		// within one parent text channels precede voice channels.
-		let mut state = state;
 		state.gateway_connected = true;
 		let directory = snapshot(
 			&state,

@@ -3310,6 +3310,9 @@ fn capability_label(capability: Capability) -> &'static str {
 		Capability::ContextMenus => "Add actions to user, channel, server and role menus",
 		Capability::InterfaceTweaks => "Change how parts of the interface look or behave",
 		Capability::InterfaceUi => "Replace the main panes with the plugin's own list of rows",
+		Capability::StartScreen => {
+			"Customize the start screen (text, style and an optional 3D model)"
+		}
 		Capability::Composer => "Read my draft and propose text changes",
 		Capability::Storage => "Store up to 1 MiB of local data for this account",
 		Capability::AppContext => "Read my account and current conversation details",

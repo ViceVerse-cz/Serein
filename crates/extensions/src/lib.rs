@@ -23,6 +23,8 @@ mod app;
 pub use app::*;
 mod extended;
 pub use extended::*;
+mod start_screen;
+pub use start_screen::*;
 mod interface_ui;
 pub use interface_ui::*;
 
@@ -153,6 +155,8 @@ pub enum Capability {
 	InterfaceTweaks,
 	/// Replace the client's main panes with a declarative tree of rows.
 	InterfaceUi,
+	/// Customize the start (connecting) screen shown before any account loads.
+	StartScreen,
 }
 
 /// Host-defined interface behavior that a plugin may switch on for the whole client from
@@ -742,6 +746,14 @@ pub struct Output {
 	/// Requires `interface_ui`; activation, panel, message-event and app-event actions.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub interface_ui: Option<InterfaceUi>,
+	/// Replaces this plugin's device-level start screen; an explicit `null` clears it and an
+	/// omitted field keeps it. Requires `start_screen`; activation and panel actions only.
+	#[serde(
+		default,
+		skip_serializing_if = "Option::is_none",
+		deserialize_with = "start_screen::present"
+	)]
+	pub start_screen: Option<Option<StartScreen>>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -1347,6 +1359,16 @@ impl Output {
 			interface.validate().map_err(|_| Error::Invalid)?;
 			if serde_json::to_vec(interface).is_ok_and(|bytes| bytes.len() > MAX_IO_BYTES) {
 				return Err(Error::Limit);
+			}
+		}
+		if let Some(start) = &self.start_screen {
+			if !manifest.capabilities.contains(&Capability::StartScreen)
+				|| !matches!(surface, Surface::Activation | Surface::Panel)
+			{
+				return Err(Error::Capability);
+			}
+			if let Some(screen) = start {
+				screen.validate().map_err(|_| Error::Invalid)?;
 			}
 		}
 		if surface == Surface::Tick

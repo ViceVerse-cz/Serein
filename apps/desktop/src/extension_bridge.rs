@@ -198,6 +198,9 @@ pub struct Bridge {
 	connection_interrupted: bool,
 	ticks: BTreeMap<String, TickSchedule>,
 	transitions: BTreeMap<String, Transition>,
+	start_screen: crate::extension_start_screen::DeviceStartScreen,
+	/// Whether `installed` holds the current account scope's plugins yet.
+	start_screen_loaded: bool,
 }
 impl Bridge {
 	fn tick_pending(&self, generation: u64, id: &str) -> bool {
@@ -258,6 +261,34 @@ impl Bridge {
 				plugin: entry.manifest.id.clone(),
 				tree: tree.clone(),
 			})
+	}
+
+	/// The start screen the enabled granted plugin with the lowest id last set, kept on this
+	/// device so it shows before any account loads.
+	pub fn start_screen(&self) -> Option<Arc<extensions::StartScreen>> {
+		self.start_screen.current()
+	}
+	/// Reconciles the device start screen with the account's working, granted plugins once
+	/// their installed list has loaded.
+	fn refresh_start_screen(&mut self) {
+		let Some((_, Some(account))) = &self.scope else {
+			return;
+		};
+		if !self.start_screen_loaded {
+			return;
+		}
+		let plugins = self
+			.installed
+			.iter()
+			.filter(|entry| entry.error.is_none() && !self.disabled.contains(&entry.manifest.id))
+			.filter(|entry| {
+				entry
+					.manifest
+					.capabilities
+					.contains(&Capability::StartScreen)
+			})
+			.map(|entry| (entry.manifest.id.as_str(), &entry.start_screen));
+		self.start_screen.reconcile(account, plugins);
 	}
 
 	pub fn api_proxy_ready(&self) -> bool {
@@ -537,6 +568,11 @@ impl Bridge {
 			entry.rich_presence = None;
 			entry.interface_tweaks.clear();
 			entry.interface_ui = None;
+			entry.start_screen = None;
+		}
+		// Ending the session removes the account's plugins, and with them their start screen.
+		if let Some((_, Some(account))) = &self.scope {
+			self.start_screen.release_account(account);
 		}
 		self.picker = None;
 		self.theme_picker = None;
@@ -598,6 +634,13 @@ impl Bridge {
 				messaging.extensions.status = "Application data directory is unavailable.".into();
 				return;
 			};
+			self.start_screen = crate::extension_start_screen::DeviceStartScreen::load(&root, ctx);
+			// Fixture-only: a synthetic plugin start screen, e.g. `--demo --demo-start-screen`.
+			#[cfg(feature = "demo")]
+			if demo && std::env::args().any(|arg| arg == "--demo-start-screen") {
+				self.start_screen
+					.preview(crate::extension_start_screen::demo_screen());
+			}
 			self.host = Some(ExtensionHost::new(root));
 		}
 		let scope = (state.generation, account.clone());
@@ -621,6 +664,7 @@ impl Bridge {
 			self.transitions.clear();
 			self.imported = None;
 			self.api_proxy_loaded = false;
+			self.start_screen_loaded = false;
 			self.installed.clear();
 			self.disabled.clear();
 			messaging.extensions.reset_runtime();
@@ -728,6 +772,7 @@ impl Bridge {
 						}
 						self.disabled.insert(id.clone());
 						self.refresh_api_proxy();
+						self.refresh_start_screen();
 						self.apply_theme(ctx);
 						self.entries(messaging);
 					}
@@ -775,7 +820,9 @@ impl Bridge {
 						messaging.extensions.status = error.clone();
 					}
 					self.installed = installed;
+					self.start_screen_loaded = true;
 					self.refresh_api_proxy();
+					self.refresh_start_screen();
 					self.apply_theme(ctx);
 					self.entries(messaging);
 				}
@@ -855,6 +902,7 @@ impl Bridge {
 					self.disabled.remove(&installed.manifest.id);
 					self.installed.push(installed);
 					self.refresh_api_proxy();
+					self.refresh_start_screen();
 					self.imported = None;
 					self.apply_theme(ctx);
 					self.entries(messaging);
@@ -869,6 +917,7 @@ impl Bridge {
 					self.installed.retain(|entry| entry.manifest.id != id);
 					self.disabled.remove(&id);
 					self.refresh_api_proxy();
+					self.refresh_start_screen();
 					messaging.extensions.remove_runtime(&id);
 					self.apply_theme(ctx);
 					self.entries(messaging);
@@ -919,7 +968,7 @@ impl Bridge {
 						}
 					}
 				}
-				Ok(Event::Invoked { id, output }) => {
+				Ok(Event::Invoked { id, mut output }) => {
 					if let Some((requested, invocation, context)) =
 						pending.and_then(|p| p.invocation)
 						&& requested == id && !self.disabled.contains(&id)
@@ -970,6 +1019,16 @@ impl Bridge {
 						{
 							installed.interface_ui.clone_from(&output.interface_ui);
 						}
+						// Omitted keeps the device start screen; `null` clears this plugin's.
+						if let Some(start) = output.start_screen.take()
+							&& let Some(installed) = self
+								.installed
+								.iter_mut()
+								.find(|entry| entry.manifest.id == id)
+						{
+							installed.start_screen = Some(start);
+							self.refresh_start_screen();
+						}
 						if context.is_current(state)
 							&& let Some(config) = &output.api_proxy
 							&& let Some(installed) = self
@@ -1012,6 +1071,9 @@ impl Bridge {
 				Ok(Event::ThemeExported) => messaging.extensions.status = "Theme exported.".into(),
 				Ok(Event::LoggedOut | Event::Preview { .. }) => {}
 			}
+		}
+		if let Some(error) = self.start_screen.poll() {
+			messaging.extensions.status = error;
 		}
 		if let Some(receiver) = &self.picker {
 			match receiver.try_recv() {
@@ -1241,6 +1303,7 @@ impl Bridge {
 						self.pending.retain(|_, pending| pending.cleanup);
 						messaging.extensions.remove_runtime(&id);
 						self.disabled.insert(id.clone());
+						self.refresh_start_screen();
 						self.apply_theme(ctx);
 						self.entries(messaging);
 						self.submit(
@@ -1903,6 +1966,7 @@ mod tests {
 			api_proxy: None,
 			interface_tweaks: Vec::new(),
 			interface_ui: None,
+			start_screen: None,
 		};
 		let bridge = Bridge {
 			scope: Some((
@@ -2033,6 +2097,62 @@ mod tests {
 		bridge.installed[0].error = None;
 		let _ = bridge.logout(&egui::Context::default());
 		assert!(bridge.plugin_interface().is_none());
+	}
+
+	/// Checks the device start screen across a restart: it needs the capability, the lowest
+	/// plugin id wins, a result without one keeps it, the owner's `null` hands it to the next
+	/// plugin, and disabling the last owner removes the saved file.
+	#[test]
+	fn start_screen_persists_lowest_id_wins_and_clears_on_disable() {
+		use crate::extension_start_screen::DeviceStartScreen;
+		let (mut bridge, _, _) = message_events_fixture();
+		let mut nonce = [0; 8];
+		getrandom::fill(&mut nonce).unwrap();
+		let root = std::env::temp_dir().join(format!(
+			"serein-start-screen-test-{}",
+			u64::from_le_bytes(nonce)
+		));
+		let ctx = egui::Context::default();
+		let saved = || {
+			DeviceStartScreen::load(&root, &ctx)
+				.current()
+				.and_then(|screen| screen.title.clone())
+		};
+		let screen = |title: &str| {
+			Some(Some(extensions::StartScreen {
+				title: Some(title.into()),
+				..Default::default()
+			}))
+		};
+		let refresh = |bridge: &mut Bridge| {
+			bridge.refresh_start_screen();
+			bridge.start_screen.settle();
+		};
+		bridge.start_screen = DeviceStartScreen::load(&root, &ctx);
+		bridge.start_screen_loaded = true;
+		bridge.installed[0].start_screen = screen("Counter");
+		refresh(&mut bridge);
+		assert_eq!(saved(), None, "the capability is required");
+		bridge.installed[0]
+			.manifest
+			.capabilities
+			.push(Capability::StartScreen);
+		let mut lower = bridge.installed[0].clone();
+		lower.manifest.id = "aaa-loader".into();
+		lower.start_screen = screen("Loader");
+		bridge.installed.push(lower);
+		refresh(&mut bridge);
+		assert_eq!(saved().as_deref(), Some("Loader"), "lowest plugin id wins");
+		bridge.installed[1].start_screen = None;
+		refresh(&mut bridge);
+		assert_eq!(saved().as_deref(), Some("Loader"), "omitted keeps it");
+		bridge.installed[1].start_screen = Some(None);
+		refresh(&mut bridge);
+		assert_eq!(saved().as_deref(), Some("Counter"), "null hands it on");
+		bridge.disabled.insert("message-counter".into());
+		refresh(&mut bridge);
+		assert_eq!(saved(), None, "disabling the owner clears it");
+		let _ = std::fs::remove_dir_all(&root);
 	}
 
 	/// Checks a granted interface plugin's host wiring without a shipped package: a manifest

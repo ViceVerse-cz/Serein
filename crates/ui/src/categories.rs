@@ -18,8 +18,10 @@ fn sidebar_rank(channel: &Channel) -> (bool, i32, Id) {
 
 /// Every loaded channel in the order the sidebar lists it. Per server, in server order:
 /// uncategorized channels, then each category (by position) followed by its channels, each
-/// ranked as the sidebar ranks siblings; a thread follows its parent. Channels outside a
-/// known server, such as direct messages, keep their loaded order at the end.
+/// ranked as the sidebar ranks siblings; a thread follows its parent, newest join first as
+/// in the sidebar's thread rows. Threads whose parent is not loaded follow the server's
+/// channels. Channels outside a known server, such as direct messages, keep their loaded
+/// order at the end.
 pub fn sidebar_order(state: &State) -> Vec<&Channel> {
 	let channels = &state.channels;
 	// Indices in sidebar order; each is emitted once.
@@ -46,8 +48,16 @@ pub fn sidebar_order(state: &State) -> Vec<&Channel> {
 				groups.entry(parent).or_default().push(index);
 			}
 		}
+		// The sidebar's sibling-thread rule (`State::sidebar_threads`): newest join first.
+		let joined = |index: usize| {
+			let thread = &channels[index];
+			let joined = state
+				.thread_member(thread.id)
+				.map_or(0, |member| member.joined);
+			std::cmp::Reverse((joined, thread.id))
+		};
 		for list in threads.values_mut() {
-			list.sort_unstable_by_key(|index| channels[*index].id);
+			list.sort_unstable_by_key(|index| joined(*index));
 		}
 		for group in groups.values_mut() {
 			group.sort_unstable_by_key(|index| sidebar_rank(&channels[*index]));
@@ -2411,6 +2421,32 @@ mod tests {
 		assert_eq!(ids(expanded), [28, 4, 7, 9, 8, 10, 11, 12, 13]);
 		let collapsed = tree(&hierarchy_state, BTreeSet::from([Id(4)]));
 		assert_eq!(ids(collapsed), [28, 4]);
+		// The exported order lists sibling threads as the sidebar does (9 before 8), and
+		// threads without a loaded parent row still follow their server's channels.
+		let guild = |id: u64| model::Guild {
+			banner: None,
+			default_message_notifications: None,
+			stickers: None,
+			id: Id(id),
+			name: format!("Synthetic {id}"),
+			icon: None,
+			emojis: None,
+		};
+		let directory = State {
+			guilds: vec![guild(100), guild(101)],
+			channels: hierarchy.clone(),
+			thread_info: hierarchy_state.thread_info.clone(),
+			..State::default()
+		};
+		assert_eq!(
+			sidebar_order(&directory)
+				.into_iter()
+				.map(|c| c.id.0)
+				.collect::<Vec<_>>(),
+			[
+				28, 27, 4, 7, 9, 8, 10, 11, 12, 13, 21, 23, 22, 24, 25, 20, 26
+			]
+		);
 		assert!(!hierarchy[1].supports_text() && !hierarchy[6].supports_text());
 		assert!(hierarchy[2].supports_text());
 		assert_eq!(

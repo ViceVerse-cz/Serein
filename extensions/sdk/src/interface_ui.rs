@@ -11,8 +11,11 @@ use serde::{Deserialize, Serialize};
 pub const MAX_INTERFACE_NODES: usize = 512;
 /// Maximum UTF-8 bytes of one row label.
 pub const MAX_INTERFACE_TEXT_BYTES: usize = 256;
-/// The declared manifest action the host invokes for interface row clicks; the clicked row
-/// id arrives in `Invocation.values["id"]`. Plugins without this declared action get inert rows.
+/// The declared manifest action the host invokes for interface row and dock clicks; the
+/// clicked item's id arrives in `Invocation.values["id"]`. `Invocation.double_clicked` is
+/// set for a double click and for Enter on a focused item, the primary open action (as in
+/// file managers); a single click or Space on a focused item leaves it false. Plugins
+/// without this declared action get inert rows.
 pub const INTERFACE_CLICK_ACTION: &str = "interface_click";
 /// Maximum UTF-8 bytes of one row badge.
 pub const MAX_INTERFACE_BADGE_BYTES: usize = 32;
@@ -52,7 +55,8 @@ fn is_false(value: &bool) -> bool {
 }
 
 /// One row. `id` is the action the host invokes when the row is clicked; an empty id makes
-/// the row inert. `double_clicked` on the resulting invocation distinguishes a double click.
+/// the row inert. `double_clicked` on the resulting invocation marks a double click or Enter
+/// on the focused row (the open action); Space counts as a single click.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InterfaceNode {
 	#[serde(default)]

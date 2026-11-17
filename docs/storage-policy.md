@@ -1967,6 +1967,26 @@ a 64 KiB decompression/window limit and shares the media worker’s eight decode
 permits, 1,024-item bounded requests and 128-item / 128 MiB result queue. No runtime
 network or disk cache is used for this bundled artwork, including in offline demo.
 
+## Plugin start screen (preview)
+
+One device-level file, `extensions/start-screen.json` (in the temporary demo profile
+under `--demo`), keeps the start screen that the enabled plugin granted `start_screen`
+last set: the owning plugin id, the SHA-256 account key that also names that account's
+extension directory (no account identifier), and the validated screen. It is read once
+at launch, before authentication and without running plugin code, and holds at most
+320 KiB (the 256 KiB plugin result budget plus headroom); a missing, oversized or
+invalid file shows the default screen. When several plugins set one, the lowest plugin
+id wins. Writes replace the file atomically on a short-lived background thread, one at
+a time with only the newest pending value queued, so rendering never waits for them.
+Disabling, removing or failing the owning plugin, revoking its grant, ending its
+account session (which removes that account's plugins) or its explicit
+`start_screen: null` removes the file or hands the screen to the next plugin. Pixel
+text and model frames stay in memory: two cached text textures and one model texture
+of at most 160×160 cells (100 KiB RGBA), all released once the start screen is gone.
+A `compact` screen shows the window as a 360×480 splash. Its normal size, position and
+maximized state are kept in memory only, placement sampling and saving pause meanwhile,
+so the saved window geometry stays the normal one, and both return when the screen ends.
+
 ## Native camera format selection
 
 Camera input selection is limited to 1280×720 except DirectShow, which preserves

@@ -49,7 +49,9 @@ mod interface_ui;
 mod new_message;
 pub mod proxy_auth;
 mod rich_presence;
+mod start_screen;
 mod theme_editor;
+pub use start_screen::StartScreenView;
 mod thread_create;
 pub use extensions_ui::{ExtensionContext, ExtensionEntry, ExtensionRequest, ExtensionUi};
 pub use interface_ui::PluginInterface;
@@ -1357,6 +1359,17 @@ impl MessagingUi {
 			&mut self.reading_preferences.show_members
 		}
 	}
+	/// Opens the Threads dialog a header control or chat raised, after the frame's selection.
+	fn take_archive_request(&mut self, state: &mut State, commands: &mut Vec<Command>) {
+		if let Some(parent) = self.archive_parent.take()
+			&& let Some(command) =
+				state.request_archives(parent, model::archives::Kind::Public, None)
+		{
+			self.search.open = false;
+			self.archives.focus = true;
+			commands.push(command);
+		}
+	}
 	/// Servers reopen to their last text channel across restarts, not only within a session.
 	fn sync_last_channels(&mut self, state: &mut State) {
 		if !self.channel_preferences_loaded {
@@ -2353,14 +2366,7 @@ impl MessagingUi {
 					commands.push(command);
 				}
 				self.apply_voice_join(state, commands);
-				if let Some(parent) = self.archive_parent.take()
-					&& let Some(command) =
-						state.request_archives(parent, model::archives::Kind::Public, None)
-				{
-					self.search.open = false;
-					self.archives.focus = true;
-					commands.push(command);
-				}
+				self.take_archive_request(state, commands);
 			});
 		if self.banner_rows > 0
 			&& let Some(art) = art
@@ -5204,8 +5210,12 @@ impl MessagingUi {
 		// panes; the dialogs above and the overlays after the panes still run.
 		if let Some(interface) = self.plugin_interface.clone() {
 			self.show_plugin_interface(ui, state, &mut commands, &interface);
-			let selected_forum = state.selected.is_some_and(|id| state.is_forum(id));
-			return self.show_overlays(ui, state, ctx, commands, settings_open, selected_forum);
+			// A plugin chat visit is remembered like one from the channel list.
+			self.sync_last_channels(state);
+			let mut commands = self.show_overlays(ui, state, ctx, commands, settings_open, None);
+			// No sidebar runs in this layout, so a Threads request raised this frame opens here.
+			self.take_archive_request(state, &mut commands);
+			return commands;
 		}
 		// Server rail and channel list share one resizable column so the account card can
 		// span both, like Discord's bottom-left user pill.
@@ -5688,7 +5698,14 @@ impl MessagingUi {
 				}
 				self.conversation(ui, state, channel, &mut commands, message_fill);
 			});
-		self.show_overlays(ui, state, ctx, commands, settings_open, selected_forum)
+		self.show_overlays(
+			ui,
+			state,
+			ctx,
+			commands,
+			settings_open,
+			Some(selected_forum),
+		)
 	}
 	/// A text conversation's composer, notices and timeline below whatever header the caller
 	/// drew, with the requests they raise. The usual layout and a plugin's chat window share it.
@@ -5965,7 +5982,9 @@ impl MessagingUi {
 			});
 	}
 	/// Dialogs, overlays, the profile card, toasts and the requests they raise: everything after
-	/// the panes, in the usual and the plugin-interface layout alike.
+	/// the panes, in the usual and the plugin-interface layout alike. `selected_forum` is
+	/// `None` while a plugin interface hides the forum pane: its archives then float, and no
+	/// forum visit marks posts read that the user cannot see.
 	fn show_overlays(
 		&mut self,
 		ui: &mut egui::Ui,
@@ -5973,8 +5992,10 @@ impl MessagingUi {
 		ctx: egui::Context,
 		mut commands: Vec<Command>,
 		settings_open: bool,
-		selected_forum: bool,
+		selected_forum: Option<bool>,
 	) -> Vec<Command> {
+		let forum_pane = selected_forum.is_some();
+		let selected_forum = selected_forum == Some(true);
 		if state
 			.archives
 			.as_ref()
@@ -6126,7 +6147,10 @@ impl MessagingUi {
 		{
 			commands.push(command);
 		}
-		if !settings_open && let Some(command) = state.prepare_forum_visit_read() {
+		if forum_pane
+			&& !settings_open
+			&& let Some(command) = state.prepare_forum_visit_read()
+		{
 			commands.push(command);
 		}
 		if let Some(channel) = self.timeline.mark_channel_read.take() {

@@ -88,6 +88,7 @@ pub enum Capability {
 	ContextMenus,
 	InterfaceTweaks,
 	InterfaceUi,
+	StartScreen,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

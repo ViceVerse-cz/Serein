@@ -1,9 +1,9 @@
 //! Generic renderer for a plugin's declarative interface tree ([`extensions::InterfaceUi`]):
 //! the host paints rows with indent, icon, tint, badge, emphasis and a selected fill, and
 //! routes clicks back through the plugin's declared `interface_click` panel action, with
-//! `double_clicked` distinguishing double clicks. The renderer knows nothing about servers,
-//! voice or any particular product: the tree is data; only the dock's server tiles are the
-//! host's own, painted by guild id.
+//! `double_clicked` marking double clicks and Enter on a focused row. The renderer knows
+//! nothing about servers, voice or any particular product: the tree is data; only the
+//! dock's server tiles are the host's own, painted by guild id.
 use crate::{MessagingUi, design, icons};
 use client_core::{Command, State, voice::Phase};
 use egui::RichText;
@@ -118,7 +118,9 @@ impl MessagingUi {
 	}
 
 	/// Opens the chat window's channel through the usual selection path, once per requested
-	/// channel, so its history loads and access is rechecked like a channel-list click.
+	/// channel, so its history loads and access is rechecked like a channel-list click. The
+	/// request counts as applied only once its channel is selected: a channel that is not
+	/// loaded or viewable yet is retried on later frames, without selection side effects.
 	fn select_interface_chat(
 		&mut self,
 		state: &mut State,
@@ -128,18 +130,30 @@ impl MessagingUi {
 		if self.interface_chat == chat {
 			return;
 		}
-		self.interface_chat = chat;
-		if let Some(channel) = chat
-			&& state.selected != Some(channel)
-			&& state.channel(channel).is_some()
-			&& let Some(command) = state.select(channel)
-		{
-			commands.push(command);
+		self.interface_chat = None;
+		let Some(channel) = chat else {
+			return;
+		};
+		if state.selected != Some(channel) {
+			if !state.can_view(channel)
+				|| !state
+					.channel(channel)
+					.is_some_and(|known| known.supports_text())
+			{
+				return;
+			}
+			if let Some(command) = state.select(channel) {
+				commands.push(command);
+			}
+			if state.selected != Some(channel) {
+				return;
+			}
 		}
+		self.interface_chat = chat;
 	}
 
 	/// The host's native call stage for the active call. The plugin only asked for the window;
-	/// which call shows stays the host's own.
+	/// which call shows stays the host's own, and only while its channel stays viewable.
 	fn interface_call(
 		&mut self,
 		ui: &mut egui::Ui,
@@ -149,13 +163,16 @@ impl MessagingUi {
 		let channel = state.voice.active.as_ref().map(|call| call.channel);
 		if let Some(channel) = channel
 			&& state.channel(channel).is_some()
+			&& state.can_view(channel)
 		{
 			self.voice_channel(ui, state, channel, commands);
 		}
 	}
 
-	/// The requested channel's conversation, rendered as in the usual layout, once selection
-	/// has opened it. An unknown, inaccessible or non-text channel leaves the window empty.
+	/// The selected conversation, rendered as in the usual layout, once selection has opened
+	/// the requested channel. Native navigation afterwards (a link, an invite, the switcher)
+	/// moves the window along to the newly selected conversation instead of blanking it. A
+	/// pending request, or an inaccessible or non-text selection, leaves the window empty.
 	fn interface_chat(
 		&mut self,
 		ui: &mut egui::Ui,
@@ -163,9 +180,11 @@ impl MessagingUi {
 		chat: Option<Id>,
 		commands: &mut Vec<Command>,
 	) {
-		let Some(channel) = chat.filter(|channel| {
-			state.selected == Some(*channel)
-				&& state.can_view(*channel)
+		if chat.is_none() || self.interface_chat != chat {
+			return;
+		}
+		let Some(channel) = state.selected.filter(|channel| {
+			state.can_view(*channel)
 				&& state
 					.channel(*channel)
 					.is_some_and(|known| known.supports_text())
@@ -252,6 +271,7 @@ impl MessagingUi {
 		let area = ui.available_rect_before_wrap();
 		ui.scope_builder(egui::UiBuilder::new().max_rect(area), |ui| {
 			egui::ScrollArea::horizontal()
+				.min_scrolled_width(0.0)
 				.id_salt("plugin-interface-dock")
 				.auto_shrink([false, false])
 				.scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
@@ -272,7 +292,7 @@ impl MessagingUi {
 
 	/// One dock item: the loaded server's icon through the rail's own painting and cache, the
 	/// label's initials otherwise, an accent ring when selected, and the label on hover.
-	/// Clicks and double clicks route the item's id exactly like a row click.
+	/// Clicks, double clicks and keyboard activation route the item's id exactly like a row's.
 	fn interface_dock_item(
 		&mut self,
 		ui: &mut egui::Ui,
@@ -312,7 +332,7 @@ impl MessagingUi {
 				egui::StrokeKind::Inside,
 			);
 		}
-		let double = response.double_clicked();
+		let double = opened(ui, &response);
 		if response.clicked() {
 			self.extensions
 				.invoke_interface_row(ui.ctx(), state, plugin, &item.id, double);
@@ -321,9 +341,9 @@ impl MessagingUi {
 	}
 
 	/// The plugin's rows in a scrolling tree. A click on a row with an id routes to the owning
-	/// plugin through its declared `interface_click` panel action, a double click sets
-	/// `double_clicked`, and Enter or Space on a focused row counts as a single click. Rows
-	/// without ids are inert.
+	/// plugin through its declared `interface_click` panel action. A double click, or Enter
+	/// on a focused row, sets `double_clicked` (the row's primary open action, as in file
+	/// managers); Space on a focused row counts as a single click. Rows without ids are inert.
 	fn interface_tree(&mut self, ui: &mut egui::Ui, state: &State, interface: &PluginInterface) {
 		if interface.tree.nodes.is_empty() {
 			ui.add_space((ui.available_height() * 0.32).max(24.0));
@@ -357,7 +377,7 @@ impl MessagingUi {
 		node: &extensions::InterfaceNode,
 		index: usize,
 	) {
-		let id = egui::Id::unique(("plugin-interface-row", plugin, index));
+		let id = row_id(plugin, node, index);
 		let active = !node.id.is_empty();
 		let Some((rect, response)) = tree_row(ui, ROW, id, active) else {
 			return;
@@ -369,13 +389,10 @@ impl MessagingUi {
 		} else if hovered {
 			paint_hover(ui, rect);
 		}
-		// A double click also reports a click; route it once, flagged.
-		let double = response.double_clicked();
-		let keyboard = response.has_focus()
-			&& ui.input(|input| {
-				input.key_pressed(egui::Key::Enter) || input.key_pressed(egui::Key::Space)
-			});
-		if active && (response.clicked() || keyboard) {
+		// A double click also reports a click, as do Enter and Space on the focused row;
+		// route it once, flagged.
+		let double = opened(ui, &response);
+		if active && response.clicked() {
 			self.extensions
 				.invoke_interface_row(ui.ctx(), state, plugin, &node.id, double);
 			ui.ctx().request_repaint();
@@ -419,6 +436,24 @@ impl MessagingUi {
 			egui::WidgetInfo::selected(egui::Role::Button, active, node.selected, node.text.clone())
 		});
 	}
+}
+
+/// A tree row's egui id. Actionable rows are keyed by plugin and row id, so focus stays on
+/// the same row when others are inserted before it; inert rows never focus and keep their
+/// position.
+fn row_id(plugin: &str, node: &extensions::InterfaceNode, index: usize) -> egui::Id {
+	if node.id.is_empty() {
+		egui::Id::unique(("plugin-interface-inert-row", plugin, index))
+	} else {
+		egui::Id::unique(("plugin-interface-row", plugin, node.id.as_str()))
+	}
+}
+
+/// Whether a row or dock click is the primary open action: a double click, or Enter on the
+/// focused item (egui reports that, like Space, as a click).
+fn opened(ui: &egui::Ui, response: &egui::Response) -> bool {
+	response.double_clicked()
+		|| (response.has_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter)))
 }
 
 /// Allocates a full-width tree row. Rows scrolled out of view only take their space, so a long
@@ -869,8 +904,9 @@ mod tests {
 	}
 
 	/// Checks that a click routes the row's id to the owning plugin through its
-	/// `interface_click` panel action, a double click flags `double_clicked`, Enter on the
-	/// focused row counts as a single click, and rows without ids stay inert.
+	/// `interface_click` panel action, a double click flags `double_clicked`, rows without ids
+	/// stay inert, and keyboard activation follows the focused row by its id even after a
+	/// row is inserted before it: Enter opens it (`double_clicked`), Space is a single click.
 	#[test]
 	fn row_clicks_route_the_node_id_and_flag_double_clicks() {
 		let mut state = one_server();
@@ -930,27 +966,48 @@ mod tests {
 		client.frame(&mut state, vec![egui::Event::PointerMoved(label)]);
 		click(&mut client, &mut state, label);
 		assert_eq!(client.routed().len(), 2, "inert row stays inert");
-		// Keyboard activation of the focused row counts as a single click.
-		let row = egui::Id::unique(("plugin-interface-row", "tree-plugin", 1));
+		// Focus stays with the row's id when a row is inserted before it.
+		let row = super::row_id("tree-plugin", &node("channel:30", "Lobby"), 1);
 		client.ctx.memory_mut(|memory| memory.request_focus(row));
 		client.frame(&mut state, vec![]);
-		client.frame(
-			&mut state,
+		client.view.set_plugin_interface(Some(interface(
+			vec![
+				node("server:10", "Voice club"),
+				node("participant:7", "Robin"),
+				node("channel:30", "Lobby"),
+				node("", "Just a label"),
+			],
+			None,
+		)));
+		client.frame(&mut state, vec![]);
+		let key = |key| {
 			vec![egui::Event::Key {
-				key: egui::Key::Enter,
+				key,
 				physical_key: None,
 				pressed: true,
 				repeat: false,
 				modifiers: egui::Modifiers::NONE,
-			}],
-		);
+			}]
+		};
+		// Enter is the row's primary open action, flagged like a double click.
+		client.frame(&mut state, key(egui::Key::Enter));
 		let routed = client.routed();
 		assert_eq!(routed.len(), 3, "Enter routes the focused row: {routed:?}");
 		assert_eq!(
 			routed[2].values.get("id").map(String::as_str),
+			Some("channel:30"),
+			"focus followed the row, not its index"
+		);
+		assert!(routed[2].double_clicked, "Enter opens like a double click");
+		// Space stays a single click.
+		client.frame(&mut state, key(egui::Key::Space));
+		let routed = client.routed();
+		assert_eq!(routed.len(), 4, "Space routes the focused row: {routed:?}");
+		assert_eq!(
+			routed[3].values.get("id").map(String::as_str),
 			Some("channel:30")
 		);
-		assert!(!routed[2].double_clicked, "Enter is a single click");
+		assert!(!routed[3].double_clicked, "Space is a single click");
 	}
 
 	/// Checks that clearing the interface restores the normal layout, and that without one
@@ -980,7 +1037,9 @@ mod tests {
 
 	/// Checks the window beside the tree: a call window shows the host's native call stage,
 	/// a chat window selects its channel and shows that conversation with its composer, an
-	/// unknown channel leaves the window empty, and no window shows the tree alone.
+	/// unknown channel leaves the window empty until it loads and is then selected, native
+	/// navigation moves the window to the newly selected conversation without reselecting
+	/// the requested one, and no window shows the tree alone.
 	#[test]
 	fn window_shows_the_native_stage_or_conversation_beside_the_tree() {
 		use extensions::InterfaceWindow;
@@ -1030,6 +1089,47 @@ mod tests {
 		assert!(
 			!shown(&texts, &composer),
 			"unknown channel shows nothing: {texts:?}"
+		);
+		assert!(shown(&texts, "Room"), "tree still listed: {texts:?}");
+		// Once the channel loads, the pending request selects it on the next frame.
+		let mut late = state.channel(Id(20)).unwrap().clone();
+		late.id = Id(424242);
+		late.name = "late-arrival".into();
+		state.channels.push(late);
+		state.revision += 1;
+		state.invalidate_navigation();
+		state
+			.permissions
+			.replace(test_support::permission_snapshot(&state))
+			.unwrap();
+		client.frame(&mut state, vec![]);
+		let (texts, _) = client.frame(&mut state, vec![]);
+		assert_eq!(
+			state.selected,
+			Some(Id(424242)),
+			"a loaded channel is retried"
+		);
+		let late_composer = crate::i18n::translate_args(
+			"composer-placeholder-channel",
+			&[("channel", "late-arrival")],
+		);
+		assert!(
+			shown(&texts, &late_composer),
+			"loaded channel's conversation: {texts:?}"
+		);
+		// Native navigation (a link, an invite, the switcher) keeps a conversation visible:
+		// the window follows the new selection and the old request is not reselected.
+		let _ = state.select(Id(21));
+		client.frame(&mut state, vec![]);
+		let (texts, _) = client.frame(&mut state, vec![]);
+		assert_eq!(state.selected, Some(Id(21)), "native selection stays");
+		let native_composer = crate::i18n::translate_args(
+			"composer-placeholder-channel",
+			&[("channel", "long-form")],
+		);
+		assert!(
+			shown(&texts, &native_composer),
+			"newly selected conversation shown: {texts:?}"
 		);
 		assert!(shown(&texts, "Room"), "tree still listed: {texts:?}");
 		// Without a window only the tree shows.

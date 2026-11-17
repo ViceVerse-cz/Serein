@@ -40,6 +40,8 @@ mod interface_tweaks;
 pub use interface_tweaks::*;
 mod interface_ui;
 pub use interface_ui::*;
+mod start_screen;
+pub use start_screen::*;
 
 /// Maximum serialized size of either ABI buffer, in UTF-8 bytes.
 pub const MAX_IO_BYTES: usize = 256 * 1024;
@@ -61,7 +63,8 @@ pub struct Invocation {
 	pub storage: Option<String>,
 	#[serde(default)]
 	pub values: BTreeMap<String, String>,
-	/// True when the host routed a double click on an interface row or panel button.
+	/// True when the host routed a double click on an interface row or panel button, or
+	/// Enter on a focused interface row or dock item (its primary open action).
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub double_clicked: bool,
 }
