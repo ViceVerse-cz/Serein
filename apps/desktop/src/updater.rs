@@ -571,9 +571,12 @@ fn asset_name(tag: &str) -> Option<String> {
 	Some(zip_asset_name(tag, os, arch))
 }
 fn zip_asset_name(tag: &str, os: &str, arch: &str) -> String {
-	// Earlier Windows clients reject the speech-runtime payload. Keep distinct
-	// update namespaces so they cannot download an incompatible archive.
-	let format = if os == "Windows" { "-media-v5" } else { "" };
+	// Older ARM64 updaters require the x64-only CRT DLL removed in media-v6.
+	let format = match (os, arch) {
+		("Windows", "ARM64") => "-media-v6",
+		("Windows", _) => "-media-v5",
+		_ => "",
+	};
 	format!("serein-{tag}-{os}-{arch}{format}.zip")
 }
 fn on_channel(release: &Release, version: &semver::Version, nightly: bool) -> bool {
@@ -1154,10 +1157,13 @@ mod windows_asset_tests {
 	#[test]
 	fn windows_media_packages_use_a_separate_namespace_from_legacy_updates() {
 		for tag in ["v1.2.3", "v1.2.3-nightly.20261005.1"] {
-			for arch in ["X64", "ARM64"] {
+			for (arch, revision) in [("X64", "v5"), ("ARM64", "v6")] {
 				let media = zip_asset_name(tag, "Windows", arch);
 				let legacy = format!("serein-{tag}-Windows-{arch}.zip");
-				assert_eq!(media, format!("serein-{tag}-Windows-{arch}-media-v5.zip"));
+				assert_eq!(
+					media,
+					format!("serein-{tag}-Windows-{arch}-media-{revision}.zip")
+				);
 				assert_ne!(media, legacy);
 				assert_eq!(
 					zip_asset_name(tag, "macOS", arch),

@@ -45,8 +45,15 @@ class UpdateArchiveTests(unittest.TestCase):
 
     def test_complete_packages_for_both_architectures_and_channels(self):
         for version in ("v1.2.3", "v1.2.3-nightly.20261005.1"):
-            for arch in ("X64", "ARM64"):
-                check_archive(self.archive(f"serein-{version}-Windows-{arch}-media-v5.zip"))
+            check_archive(self.archive(f"serein-{version}-Windows-X64-media-v5.zip"))
+            arm64 = {name: data for name, data in self.payload.items() if name != "vcruntime140_1.dll"}
+            check_archive(self.archive(f"serein-{version}-Windows-ARM64-media-v6.zip", arm64))
+
+    def test_arm64_cannot_ship_the_x64_exception_runtime_or_use_the_old_name(self):
+        with self.assertRaisesRegex(ValueError, "x64-only"):
+            check_archive(self.archive("serein-v1.2.3-Windows-ARM64-media-v6.zip"))
+        with self.assertRaisesRegex(ValueError, "legacy update name"):
+            check_archive(self.archive("serein-v1.2.3-Windows-ARM64-media-v5.zip"))
 
     def test_media_payload_cannot_be_published_under_legacy_update_name(self):
         for arch in ("X64", "ARM64"):
@@ -63,7 +70,7 @@ class UpdateArchiveTests(unittest.TestCase):
             "ffmpeg-source/source/ffmpeg-7.1.5.tar.xz", "licenses/voice/fixture.txt",
             "voice-enhancement/denoiser_core.onnx", "voice-enhancement/onnxruntime.dll",
             "voice-enhancement/backbone.onnx", "voice-enhancement/spec_head.onnx",
-            "msvcp140_1.dll", "voice-enhancement/ONNXRuntime-LICENSE",
+            "msvcp140_1.dll", "vcruntime140_1.dll", "voice-enhancement/ONNXRuntime-LICENSE",
         ):
             for empty in (False, True):
                 payload = dict(self.payload)

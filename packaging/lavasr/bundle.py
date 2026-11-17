@@ -125,13 +125,18 @@ def windows_crt(root, destination, arch):
     choices = sorted((Path(redist) / ("x64" if arch == "x86_64" else "arm64")).glob("Microsoft.VC*.CRT"))
     if not choices:
         raise ValueError("MSVC app-local runtime directory is unavailable")
-    required = ("msvcp140.dll", "msvcp140_1.dll", "vcruntime140.dll", "vcruntime140_1.dll")
+    required = ("msvcp140.dll", "msvcp140_1.dll", "vcruntime140.dll")
+    if arch == "x86_64":
+        required += ("vcruntime140_1.dll",)
     for name in required:
         source = choices[-1] / name
         if not source.is_file() or source.is_symlink():
             raise ValueError(f"MSVC app-local runtime is unavailable: {name}")
         # Application-directory placement also satisfies the default Windows loader.
         shutil.copyfile(source, root / name)
+    if arch == "arm64":
+        # MSVC can place the x64-only EH runtime in the ARM64 redist directory for emulation.
+        (root / "vcruntime140_1.dll").unlink(missing_ok=True)
     shutil.copyfile(REPO / "assets/licenses/voice/lavasr/MSVC-LICENSE.txt", destination / "MSVC-LICENSE.txt")
 
 

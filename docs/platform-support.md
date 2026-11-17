@@ -137,6 +137,9 @@ allowlist requires the installer or manual extraction: that old updater rejects
 new root DLL names. Once upgraded, the updater stages/replaces all six codec
 DLLs and the source/license directory together with the executable. Restart Serein
 after installing or replacing its shared libraries.
+ARM64 builds using the media-v5 layout also need a one-time Setup upgrade or a fresh
+portable extraction. The ARM64 updater now uses media-v6, which omits the x64-only
+`vcruntime140_1.dll`. See the [Windows migration guide](../packaging/windows/README.md).
 
 ## Linux system appearance
 

@@ -12,38 +12,31 @@ Desktop notifications are on by default for new installs and can be turned off i
 
 NuSerein supports both portable zip extraction and a per-user Windows installer:
 - **NSIS Installer**: `packaging/windows/installer.nsi` builds `dist-installer/serein-<version>-setup.exe` via `makensis`. It installs per-user to `%LOCALAPPDATA%\Programs\Serein` (`RequestExecutionLevel user`) without requiring administrator elevation. This preserves full user write permissions for the in-app autoupdater. Setup and uninstall check running processes with native Windows Toolhelp APIs; setup writes the notification shortcut's AppUserModelID through the native COM property store. These actions do not launch PowerShell, bypass execution policy or compile C# at installation time. The setup payload excludes the optional portable PowerShell utilities and removes older copies on upgrade. Silent setup stops with code 1 if Serein is running, or code 2 if its process check or shortcut registration fails. Silent uninstall also stops when Serein is running; its normal NSIS launcher detaches a temporary uninstaller process, so the launcher exit code alone does not indicate the uninstall outcome.
-- **Portable Archive**: The media-v5 ZIP includes `install-notifications.ps1` for optional shortcut registration. The source-only `packaging/windows/setup.ps1` installer is not included in release archives; use the matching `-Setup.exe` asset for a per-user installation.
+- **Portable Archive**: The ZIP includes `install-notifications.ps1` for optional shortcut registration. Use the matching `-Setup.exe` asset for a per-user installation. The source-only `packaging/windows/setup.ps1` script stays in the repository.
 - **Autoupdate Compatibility**: The NSIS installer and source PowerShell setup register NuSerein under the existing key `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\Serein`. When Serein autoupdates, the update helper automatically synchronizes `DisplayVersion` in the registry upon file replacement, keeping Windows Settings and Installed Apps accurate. The release zip packages remain strictly decoupled from the installer executable, preventing allowlist check failures during in-app update extraction.
 
 ## Moving an existing Windows install to the media-runtime build
 
-Windows releases with FFmpeg and the local speech runtime use
-`serein-<tag>-Windows-<arch>-media-v5.zip` (`X64` or `ARM64`). The installer name
-remains `serein-<tag>-Windows-<arch>-Setup.exe`. The updated client selects the
-media-v5 ZIP for subsequent in-app updates.
+Windows releases use `serein-<tag>-Windows-X64-media-v5.zip` and
+`serein-<tag>-Windows-ARM64-media-v6.zip` for portable installs and in-app updates.
+The installer is named `serein-<tag>-Windows-<arch>-Setup.exe`.
+ARM64 media-v6 removes the x64-only `vcruntime140_1.dll` from its payload.
+Earlier updaters look for their matching archive name and require its original contents.
 
-Earlier clients accept the original, media-v2, media-v3 or media-v4 payload. Their
-allowlists reject newly bundled runtime DLLs, including avfilter. They
-look for their older ZIP filename and report a missing package on a media-v5
-release. Updating
-the allowlist in the new binary cannot repair the old running updater, and users
-can skip an intermediate release, so publishing a bridge release alone is
-insufficient.
-
-The first migration requires one manual install:
+Upgrading from the original, media-v2, media-v3, media-v4, or ARM64 media-v5 format
+requires one manual install:
 
 1. Close Serein completely, then download the matching architecture's Setup.exe
    from the project's trusted release page. Run it over the existing per-user
    installation. The installer replaces application files; it does not remove
    account settings, local data or credentials.
-2. For a portable installation, extract the complete media-v5 ZIP into a new
+2. For a portable installation, extract the complete ZIP for your architecture into a new
    folder and start `serein.exe` from that folder. Keep the adjacent DLLs,
    `licenses`, `ffmpeg-source` and `voice-enhancement`; copying just the executable is insufficient.
    If you registered a portable notification shortcut, remove the old shortcut
    using its `install-notifications.ps1 -Remove` and register it again from the
    new folder.
 
-Do not rename a media-v5 ZIP to the legacy filename when publishing a release.
 The release workflow checks the actual archive's name, required DLLs, notices
 and corresponding source before upload. Run the offline checks with
 `python packaging/windows/test_update_archive.py`; they use synthetic ZIPs and

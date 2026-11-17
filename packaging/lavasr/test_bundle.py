@@ -78,6 +78,9 @@ class BundleTests(unittest.TestCase):
                 for name in ("msvcp140.dll", "msvcp140_1.dll", "vcruntime140.dll", "vcruntime140_1.dll"):
                     (crt / name).write_bytes(b"synthetic CRT")
                 destination = root / f"{system}-{arch}"
+                if (system, arch) == ("Windows", "arm64"):
+                    destination.mkdir()
+                    (destination / "vcruntime140_1.dll").write_bytes(b"stale x64 runtime")
                 with patch.object(bundle, "MODELS", models), patch.object(bundle, "SOURCES", sources), patch.object(bundle, "RUNTIMES", {(system, arch): runtime}), \
                      patch.dict(bundle.os.environ, {"VCToolsRedistDir": str(root / "redist")}), \
                      patch.object(bundle, "urlopen", side_effect=AssertionError("network forbidden")):
@@ -97,6 +100,7 @@ class BundleTests(unittest.TestCase):
                         self.assertTrue((speech / native).is_file())
                     if system == "Windows":
                         self.assertTrue((destination / "msvcp140_1.dll").is_file())
+                        self.assertEqual((destination / "vcruntime140_1.dll").exists(), arch == "x86_64")
                     (speech / "private.log").write_text("must not ship")
                     with self.assertRaisesRegex(ValueError, "Unexpected"):
                         bundle.stage(destination, cache, offline=True, target=(system, arch))
