@@ -1989,3 +1989,30 @@ measurements. Same-bucket requests are serialized; exhausted successful response
 hold only their route/bucket, while 429 responses retain the existing conservative
 shared cooldown. Synthetic regressions cover independent-channel progress,
 queued verification expiry, aliases, major resources, eviction and terminal wakeup.
+
+## Ventrilo voice-only layout — November 16, 2026
+
+Baseline `789d8300`, task branch `feat/ventrilo-extension` (after commit recorded in the PR).
+Windows 11 build 26200, AMD Ryzen 5 7600X (12 threads), 32 GiB RAM, 3840×2160 at 100% scale,
+wgpu default backend, pinned toolchain and lockfile. The `voice_only_layout` interface tweak
+(example plugin `examples/extensions/ventrilo`) replaces the navigation, conversation and member
+panes with one slim voice tree; the call window stays hidden until a voice channel is
+double-clicked.
+
+Idle process samples of the native `--demo --demo-voice` fixture: 25 s warmup, then 30 samples
+at 1 s intervals; CPU is process processor-time delta over wall time, memory is working set and
+private bytes. Matching debug demo builds are used because release packages exclude the `demo`
+feature; the after build loads the seeded plugin (layout on), the baseline has no tweak.
+
+| Metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Release `dist/serein.exe` (bytes) | 99,460,096 | 99,467,264 | +7,168 (+0.007%) |
+| Idle CPU (%) | 0.42 | 0.47 | +0.05 pp |
+| Peak working set (MiB) | 217.5 | 218.4 | +0.9 |
+| Settled working set (MiB) | 217.5 | 218.4 | +0.9 |
+| Peak private bytes (MiB) | 274.4 | 259.6 | −14.8 |
+
+Single-run samples on a shared desktop: deltas of this size are noise, not improvements or
+regressions. One contended baseline sample (11.51% idle CPU) was discarded and re-measured
+clean. Release executable sizes for both revisions are recorded in the PR. Frame latency and
+startup time were not instrumented and are not claimed.

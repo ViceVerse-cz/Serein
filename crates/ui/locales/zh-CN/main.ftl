@@ -5041,3 +5041,11 @@ moderation-delete-week = 过去 7 天
 moderation-confirm-timeout = 禁言
 # Context: moderation
 moderation-confirm-ban = 封禁
+
+## crates/ui/src/ventrilo.rs
+# Context: voice_only_tree
+ventrilo-empty = 你所在服务器的语音频道会显示在这里。
+# Context: channel_row
+ventrilo-join-hint = 双击加入
+# Context: voice_only_call
+ventrilo-hide-call = 隐藏通话窗口

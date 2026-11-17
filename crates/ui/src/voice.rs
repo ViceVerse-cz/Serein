@@ -390,7 +390,12 @@ impl MessagingUi {
 			});
 	}
 
-	fn is_speaking(&self, state: &State, channel: Id, participant: &Participant) -> bool {
+	pub(super) fn is_speaking(
+		&self,
+		state: &State,
+		channel: Id,
+		participant: &Participant,
+	) -> bool {
 		!inactive_recipient(state, channel, participant.user)
 			&& !self.voice_user_locally_muted(participant.user)
 			&& !participant.muted
@@ -4972,7 +4977,7 @@ fn stage_participants(state: &State, channel: Id) -> Vec<RosterEntry> {
 
 /// The local participant follows this device's toggles at once instead of waiting for the
 /// gateway echo, so a deafen shows the deafened glyph immediately (and in the offline preview).
-fn shown_participant(state: &State, entry: &RosterEntry) -> Participant {
+pub(super) fn shown_participant(state: &State, entry: &RosterEntry) -> Participant {
 	let mut participant = entry.participant;
 	if let Some(call) = state
 		.voice

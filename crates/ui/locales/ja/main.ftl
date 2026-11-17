@@ -4927,3 +4927,11 @@ moderation-delete-week = 過去7日間
 moderation-confirm-timeout = タイムアウト
 # Context: moderation
 moderation-confirm-ban = BAN
+
+## crates/ui/src/ventrilo.rs
+# Context: voice_only_tree
+ventrilo-empty = サーバーのボイスチャンネルがここに表示されます。
+# Context: channel_row
+ventrilo-join-hint = ダブルクリックで参加
+# Context: voice_only_call
+ventrilo-hide-call = 通話ウィンドウを非表示にする

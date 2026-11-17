@@ -1,5 +1,5 @@
 [workspace]
-members = ["message-counter", "app-toolbox", "guild-inspector", "conversation-inspector", "app-actions", "rgb-cycle"]
+members = ["message-counter", "app-toolbox", "guild-inspector", "conversation-inspector", "app-actions", "rgb-cycle", "ventrilo"]
 resolver = "3"
 
 [workspace.dependencies]

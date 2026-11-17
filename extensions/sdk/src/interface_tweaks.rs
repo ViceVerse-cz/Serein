@@ -27,6 +27,13 @@ pub enum InterfaceTweak {
 	/// Double-clicking a message's blank space edits your own message or replies to someone
 	/// else's, in place of the double-click reaction.
 	DoubleClickReplyEdit,
+	/// The client shows a slim Ventrilo-style tree of one server's voice channels and their
+	/// connected users with talking indicators; text channels, chat and the member list are
+	/// hidden. A header picker switches servers, loading the picked one like the server rail.
+	/// The call window stays hidden until a voice channel is double-clicked, which joins it
+	/// and opens the window; double-clicking the same channel again closes the window while
+	/// the call stays connected, and leaving or the Hide button hides it too.
+	VoiceOnlyLayout,
 }
 
 /// Activation or panel output that sets the plugin's interface tweaks, preserving `Output`

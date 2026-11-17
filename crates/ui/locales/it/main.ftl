@@ -4944,3 +4944,11 @@ moderation-delete-week = Ultimi 7 giorni
 moderation-confirm-timeout = Timeout
 # Context: moderation
 moderation-confirm-ban = Banna
+
+## crates/ui/src/ventrilo.rs
+# Context: voice_only_tree
+ventrilo-empty = I canali vocali dei tuoi server appariranno qui.
+# Context: channel_row
+ventrilo-join-hint = Fai doppio clic per unirti
+# Context: voice_only_call
+ventrilo-hide-call = Nascondi la finestra della chiamata

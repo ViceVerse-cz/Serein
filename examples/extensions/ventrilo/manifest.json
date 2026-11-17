@@ -1,0 +1,16 @@
+{
+  "api_version": 1,
+  "id": "ventrilo",
+  "name": "Ventrilo Mode",
+  "version": "1.0.0",
+  "author": "Serein contributors",
+  "license": "MIT OR Apache-2.0",
+  "source": "https://github.com/ViceVerse-cz/Serein/tree/main/examples/extensions/ventrilo",
+  "kind": "plugin",
+  "capabilities": ["interface_tweaks", "storage"],
+  "actions": [
+    {"id": "activate", "label": "Restore Ventrilo layout", "surface": "activation"},
+    {"id": "show", "label": "Ventrilo Mode settings", "surface": "panel"},
+    {"id": "toggle", "label": "Toggle voice-only layout", "surface": "panel"}
+  ]
+}

@@ -5072,3 +5072,11 @@ moderation-delete-week = Posledních 7 dní
 moderation-confirm-timeout = Oddechový čas
 # Context: moderation
 moderation-confirm-ban = Zabanovat
+
+## crates/ui/src/ventrilo.rs
+# Context: voice_only_tree
+ventrilo-empty = Zde se zobrazí hlasové kanály z vašich serverů.
+# Context: channel_row
+ventrilo-join-hint = Dvojitým kliknutím se připojíte
+# Context: voice_only_call
+ventrilo-hide-call = Skrýt okno hovoru

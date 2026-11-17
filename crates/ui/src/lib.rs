@@ -140,6 +140,7 @@ mod typing;
 pub mod updates;
 mod user_direct;
 mod user_menu;
+mod ventrilo;
 mod verification;
 mod voice;
 use client_core::{Command, MAX_DRAFT_BYTES, NavStep, State};
@@ -543,6 +544,10 @@ pub struct MessagingUi {
 	stream_preview_watch: Option<(Id, Id)>,
 	/// Guild voice channel double-clicked in the channel list, joined after selection applies.
 	voice_join: Option<Id>,
+	/// Call window the voice-only layout shows beside its tree, opened by a double click.
+	voice_only_stage: Option<ventrilo::Stage>,
+	/// Server the voice-only tree lists; picked in its header, defaulting to the open server.
+	voice_only_guild: Option<Id>,
 	pub voice_inputs: Vec<(String, String)>,
 	pub voice_outputs: Vec<(String, String)>,
 	pub voice_input: Option<String>,
@@ -5185,6 +5190,16 @@ impl MessagingUi {
 		if self.shows_title_bar() {
 			self.title_bar(ui, state, &mut commands, &title);
 		}
+		// A plugin's voice-only layout stands in for the navigation, conversation and member
+		// panes; the dialogs above and the overlays after the panes still run.
+		if interface_tweaks::on(ui.ctx(), extensions::InterfaceTweak::VoiceOnlyLayout) {
+			self.show_voice_only(ui, state, &mut commands);
+			let selected_forum = state.selected.is_some_and(|id| state.is_forum(id));
+			return self.show_overlays(ui, state, ctx, commands, settings_open, selected_forum);
+		}
+		// The voice-only call window and server pick start fresh whenever that layout returns.
+		self.voice_only_stage = None;
+		self.voice_only_guild = None;
 		// Server rail and channel list share one resizable column so the account card can
 		// span both, like Discord's bottom-left user pill.
 		let rail = notifications::RAIL_WIDTH;
@@ -5949,6 +5964,19 @@ impl MessagingUi {
 						}
 					});
 			});
+		self.show_overlays(ui, state, ctx, commands, settings_open, selected_forum)
+	}
+	/// Dialogs, overlays, the profile card, toasts and the requests they raise: everything after
+	/// the panes, in the usual and the voice-only layout alike.
+	fn show_overlays(
+		&mut self,
+		ui: &mut egui::Ui,
+		state: &mut State,
+		ctx: egui::Context,
+		mut commands: Vec<Command>,
+		settings_open: bool,
+		selected_forum: bool,
+	) -> Vec<Command> {
 		if state
 			.archives
 			.as_ref()

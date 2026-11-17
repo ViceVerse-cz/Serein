@@ -8,7 +8,7 @@ use model::{Channel, Id, Shortcut};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Voice and stage channels keep a separate position list, drawn below other channels.
-fn voice_lane(kind: u8) -> bool {
+pub(super) fn voice_lane(kind: u8) -> bool {
 	matches!(kind, 2 | 13)
 }
 

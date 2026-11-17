@@ -4930,3 +4930,11 @@ moderation-delete-week = Son 7 gün
 moderation-confirm-timeout = Zaman aşımı
 # Context: moderation
 moderation-confirm-ban = Yasakla
+
+## crates/ui/src/ventrilo.rs
+# Context: voice_only_tree
+ventrilo-empty = Sunucularınızdaki ses kanalları burada görünecek.
+# Context: channel_row
+ventrilo-join-hint = Katılmak için çift tıklayın
+# Context: voice_only_call
+ventrilo-hide-call = Arama penceresini gizle
