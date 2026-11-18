@@ -790,7 +790,7 @@ mod tests {
 		))
 		.unwrap();
 		api.base = format!("http://{}", listener.local_addr().unwrap());
-		api.cooldown.lock().await.global = Instant::now() + Duration::from_secs(86400);
+		api.cooldown.lock().await.global = Instant::now() + MAX_RATE_LIMIT_WAIT;
 		let stop = async {
 			tokio::task::yield_now().await;
 			api.stop();
