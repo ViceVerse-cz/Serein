@@ -17,8 +17,9 @@ The only source change is in `src/platform_impl/macos/view.rs`:
 - `insertText:replacementRange:` without marked text, outside `keyDown:`, while the app allows
   IME and the text is not a control character, now queues `Ime::Preedit("")` and then
   `Ime::Commit(text)`, as `Ime::Commit` documents. If the view had not reported IME yet, it
-  first sets the `Ground` state, sends `Ime::Enabled`, and stops if the app disables IME
-  while handling that event. The IME state is not set to
+  first sets the `Ground` state and sends `Ime::Enabled`. Events can reach the app
+  synchronously, so it stops if the app disables IME while handling `Enabled` or the empty
+  `Preedit`. The IME state is not set to
   `Committed`, so the next key press is delivered normally.
 
 Why: upstream only commits `insertText:` when there is marked text (an active composition).

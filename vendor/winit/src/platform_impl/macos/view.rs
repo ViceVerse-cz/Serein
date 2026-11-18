@@ -438,6 +438,9 @@ declare_class!(
                 }
                 // `Ime::Commit` is documented to follow an empty `Preedit`.
                 self.queue_event(WindowEvent::Ime(Ime::Preedit(String::new(), None)));
+                if !self.ivars().ime_allowed.get() {
+                    return;
+                }
                 self.queue_event(WindowEvent::Ime(Ime::Commit(string)));
             }
         }
