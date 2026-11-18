@@ -227,6 +227,8 @@ davey = { path = "vendor/davey" }
 wry = { path = "vendor/wry" }
 # Wayland image paste reads `image/png` through the focused surface; see vendor/smithay-clipboard/SEREIN-PATCH.md.
 smithay-clipboard = { path = "vendor/smithay-clipboard" }
+# macOS emoji picker and dictation text reaches the app; see vendor/winit/SEREIN-PATCH.md.
+winit = { path = "vendor/winit" }
 
 [patch."https://github.com/emilk/egui"]
 # Serein's egui fork: upstream PRs and local patches on the pinned rev; see vendor/egui/SEREIN-PATCH.md.

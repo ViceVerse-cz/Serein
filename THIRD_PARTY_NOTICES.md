@@ -108,6 +108,10 @@ The locally patched **smithay-clipboard 0.7.3** (MIT, crates.io release) retains
 under `vendor/smithay-clipboard`. It adds a bounded raw-MIME clipboard read for Wayland image
 paste; see `vendor/smithay-clipboard/SEREIN-PATCH.md` for provenance.
 
+The locally patched **winit 0.30.13** (Apache-2.0, crates.io release) retains its license under
+`vendor/winit`. On macOS it delivers text inserted by the Character Viewer (emoji picker) or
+dictation outside a key press; see `vendor/winit/SEREIN-PATCH.md` for provenance.
+
 Linux login uses gtk4 0.11.4, webkit6 0.6.1, javascriptcore6 0.6.0, glib 0.22.9 and soup3
 0.9.0 Rust bindings (MIT). Windows/macOS retain Wry 0.57.0 (MIT OR Apache-2.0) via a documented
 manifest/build patch excluding obsolete Linux dependencies; backend sources are unchanged.
