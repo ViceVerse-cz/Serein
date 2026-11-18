@@ -2146,12 +2146,14 @@ pub(crate) mod tests {
 			};
 			state.drafts.insert(channel, String::new());
 			composer_input_frame(&ctx, &mut view, &mut state, vec![]);
-			let labels = composer_input_frame(
+			composer_input_frame(
 				&ctx,
 				&mut view,
 				&mut state,
 				vec![egui::Event::Text(format!("@{query}"))],
 			);
+			// The autocomplete popup measures its contents before painting them.
+			let labels = composer_input_frame(&ctx, &mut view, &mut state, vec![]);
 			assert!(
 				labels.iter().any(|label| label == "Third Shift"),
 				"{query}: {labels:?}"
