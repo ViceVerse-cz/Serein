@@ -4902,3 +4902,27 @@ is scoped to changed controls; it is not an application-wide accessibility audit
 - Comment gate PASS: added comments explain clipboard snapshot ownership,
   generation/epoch fences, bounded cleanup or focus timing. No decorative banners,
   generic TODOs or step-by-step narration were introduced.
+
+## Desktop audit · November 18, 2026
+
+Linux x64, Xeon Platinum 8573C, pinned to CPU 0 with the local build processes
+paused. The frozen fork baseline `5e21524c` and audit build used Rust 1.98.1,
+the same lockfile, thin LTO and one codegen unit. Each workload had one warmup
+per binary and five batches of five runs per binary. Execution order alternated
+within and across batches. The table reports medians of batch medians.
+
+| Workload | Baseline | Audit | Delta |
+| --- | ---: | ---: | ---: |
+| 100,000 message dispatches | 90.010 ms | 89.566 ms | −0.49% |
+| 10,000 messages in a 20,001-channel fixture | 9.464 ms | 9.501 ms | +0.39% |
+| Wide-channel control, identical baseline binary | 9.528 ms | 9.842 ms | +3.29% |
+
+The main replay retained 500 rows and estimated 417,492–417,977 bytes in both
+builds. The wide-channel run retained 500 rows and 417,977 bytes. The 120-second
+lifecycle soak completed 1,371 passes, 43,872 channel visits and six logout cycles
+under the existing row and byte bounds. UI input latency and real server
+synchronization were outside these workloads.
+
+Upstream nightly `v1.0.0-nightly.20261117.95` was pinned at `97d5a193`. Its
+Rust 1.99.1 toolchain and different lockfile need a separate comparison.
+See the [audit evidence](pr-evidence/full-codebase-audit/README.md).
