@@ -867,6 +867,54 @@ fn prime_media_embeds(state: &mut client_core::State, provider_only: bool) {
 		.expect("synthetic media embeds");
 }
 
+fn prime_social_video(state: &mut client_core::State) {
+	let channel = state.selected.expect("fixture channel");
+	let messages = [
+		(
+			"Instagram",
+			"https://www.oginstagram.com/reel/fixture",
+			144,
+			240,
+		),
+		(
+			"Reddit",
+			"https://v.redd.it/fixture/DASH_480.mp4?source=fallback",
+			320,
+			180,
+		),
+	]
+	.into_iter()
+	.enumerate()
+	.map(|(index, (provider, url, width, height))| {
+		let mut message = test_support::message(600 + index as u64, channel);
+		message.content = url.into();
+		message.attachments.clear();
+		message.reactions = Some(vec![]);
+		message.reply_to = None;
+		message.embeds = vec![model::Embed {
+			kind: "link".into(),
+			url: Some(url.into()),
+			provider: Some(model::EmbedAuthor {
+				name: provider.into(),
+				..Default::default()
+			}),
+			thumbnail: Some(model::EmbedMedia {
+				proxy_url: Some(format!(
+					"https://media.discordapp.net/external/fixture/https/example.org/{index}.png"
+				)),
+				width,
+				height,
+				..Default::default()
+			}),
+			..Default::default()
+		}];
+		message
+	})
+	.collect();
+	state.timeline.clear();
+	state.timeline.seed_cache(messages).expect("fixture videos");
+}
+
 fn prime_conversation(state: &mut client_core::State, inline_media: bool) {
 	let channel = state.selected.expect("synthetic conversation");
 	let ready = client_core::Event::Ready {
@@ -1264,7 +1312,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			if args.iter().any(|arg| arg == "--nitro") {
 				state.premium_type = 2;
 			}
-			if page == "embeds" && args.iter().any(|arg| arg == "--media-embeds") {
+			if page == "embeds" && args.iter().any(|arg| arg == "--social-video-embeds") {
+				prime_social_video(&mut state);
+			} else if page == "embeds" && args.iter().any(|arg| arg == "--media-embeds") {
 				prime_media_embeds(&mut state, args.iter().any(|arg| arg == "--provider-embed"));
 			} else if page == "embeds" {
 				let channel = state.selected.expect("synthetic embed conversation");

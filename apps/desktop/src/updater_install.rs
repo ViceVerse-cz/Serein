@@ -655,6 +655,9 @@ pub(super) fn unpack(
 		} else if !WINDOWS_FILES.contains(&top) {
 			return Err("The update contains unexpected package content.".into());
 		}
+		if cfg!(all(windows, target_arch = "aarch64")) && top == "vcruntime140_1.dll" {
+			return Err("The ARM64 update contains an x64-only runtime DLL.".into());
+		}
 		let target = destination.join(&path);
 		if entry.is_dir() {
 			fs::create_dir_all(&target)
@@ -736,7 +739,6 @@ pub(super) fn unpack(
 		"msvcp140.dll",
 		"msvcp140_1.dll",
 		"vcruntime140.dll",
-		"vcruntime140_1.dll",
 		"voice-enhancement/onnxruntime.dll",
 		"voice-enhancement/backbone.onnx",
 		"voice-enhancement/spec_head.onnx",
@@ -747,6 +749,7 @@ pub(super) fn unpack(
 	]
 	.iter()
 	.all(|name| destination.join(name).is_file())
+		|| (cfg!(target_arch = "x86_64") && !destination.join("vcruntime140_1.dll").is_file())
 		|| !destination.join("ffmpeg-source").is_dir()
 		|| !destination.join("licenses").is_dir()
 		|| !destination.join("THIRD_PARTY_NOTICES.md").is_file()
@@ -1286,6 +1289,18 @@ mod ffmpeg_update_tests {
 				false,
 			),
 			("unexpected", None, Some("unexpected.dll"), false),
+			(
+				"missing-x64-crt",
+				Some("vcruntime140_1.dll"),
+				None,
+				cfg!(target_arch = "aarch64"),
+			),
+			(
+				"with-x64-crt",
+				None,
+				Some("vcruntime140_1.dll"),
+				cfg!(target_arch = "x86_64"),
+			),
 		] {
 			let stage = root.join(case);
 			fs::create_dir(&stage).unwrap();
@@ -1302,7 +1317,6 @@ mod ffmpeg_update_tests {
 				"msvcp140.dll",
 				"msvcp140_1.dll",
 				"vcruntime140.dll",
-				"vcruntime140_1.dll",
 				"voice-enhancement/onnxruntime.dll",
 				"voice-enhancement/backbone.onnx",
 				"voice-enhancement/spec_head.onnx",
@@ -1315,6 +1329,10 @@ mod ffmpeg_update_tests {
 				"ffmpeg-source/source/ffmpeg-7.1.5.tar.xz",
 			]
 			.into_iter()
+			.chain(
+				(cfg!(target_arch = "x86_64") && extra != Some("vcruntime140_1.dll"))
+					.then_some("vcruntime140_1.dll"),
+			)
 			.chain(extra)
 			{
 				if Some(name) == omit {

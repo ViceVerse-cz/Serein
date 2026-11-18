@@ -26,8 +26,8 @@ pub struct EmbedDto {
 struct MediaDto {
 	url: Option<String>,
 	proxy_url: Option<String>,
-	width: u32,
-	height: u32,
+	width: Option<u32>,
+	height: Option<u32>,
 	placeholder: Option<String>,
 	placeholder_version: Option<u32>,
 }
@@ -66,8 +66,8 @@ fn media(value: Option<MediaDto>, limited: &mut bool) -> Option<EmbedMedia> {
 	value.map(|m| EmbedMedia {
 		url: url(m.url, limited),
 		proxy_url: url(m.proxy_url, limited),
-		width: m.width,
-		height: m.height,
+		width: m.width.unwrap_or_default(),
+		height: m.height.unwrap_or_default(),
 		placeholder: crate::attachments::placeholder(m.placeholder, m.placeholder_version),
 	})
 }
@@ -79,8 +79,8 @@ fn icon(original: Option<String>, proxy: Option<String>, limited: &mut bool) -> 
 		Some(MediaDto {
 			url: original,
 			proxy_url: proxy,
-			width: 32,
-			height: 32,
+			width: Some(32),
+			height: Some(32),
 			..Default::default()
 		}),
 		limited,
@@ -165,6 +165,29 @@ pub fn bounded(values: Vec<EmbedDto>) -> Vec<Embed> {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn unknown_video_dimensions_keep_the_card_and_signed_source() {
+		let message = crate::decode::<crate::MessageDto>(
+			br#"{
+			"id":"1","channel_id":"2","author":{"id":"3","username":"fixture"},"content":"",
+			"embeds":[{"type":"video","title":"Clip","video":{
+				"url":"https://v.redd.it/fixture/DASH_720.mp4?sig=one%2Ftwo",
+				"width":null
+			}}]
+		}"#,
+		)
+		.unwrap()
+		.into_model();
+		let embed = &message.embeds[0];
+		assert_eq!(embed.title.as_deref(), Some("Clip"));
+		let video = embed.video.as_ref().unwrap();
+		assert_eq!((video.width, video.height), (0, 0));
+		assert_eq!(
+			video.url.as_deref(),
+			Some("https://v.redd.it/fixture/DASH_720.mp4?sig=one%2Ftwo")
+		);
+	}
 	#[test]
 	fn rich_embeds_partial_updates_and_limits() {
 		let m:crate::MessageDto=crate::decode(br##"{"id":"1","channel_id":"2","author":{"id":"3","username":"Synthetic"},"content":"","embeds":[{"type":"rich","title":"A card","color":5793266,"author":{"name":"Writer","proxy_icon_url":"https://media.discordapp.net/attachments/1/2/a.png"},"description":"**Native** card","fields":[{"name":"Version","value":"1","inline":true}],"image":{"url":"https://example.com/a.png","proxy_url":"https://images-ext-1.discordapp.net/external/hash/https/example.com/a.png","width":400,"height":200}}]}"##).unwrap();

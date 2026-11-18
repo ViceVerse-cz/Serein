@@ -61,6 +61,11 @@ impl Assets {
 			return Ok(Self::in_directory(directory.into()));
 		}
 		let exe = std::env::current_exe().map_err(|_| "Speech worker location is unavailable")?;
+		Self::packaged_for_exe(&exe)
+	}
+	fn packaged_for_exe(exe: &Path) -> Result<Self> {
+		// macOS can report the launcher symlink instead of the executable inside the bundle.
+		let exe = exe.canonicalize().unwrap_or_else(|_| exe.to_owned());
 		let parent = exe
 			.parent()
 			.ok_or("Speech worker location is unavailable")?;
@@ -436,6 +441,41 @@ impl Enhancer {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[cfg(unix)]
+	#[test]
+	fn speech_assets_follow_the_executable_behind_a_launcher_symlink() {
+		let root = tempfile::tempdir().unwrap();
+		let launcher = root.path().join("bin/serein");
+		let executable = root
+			.path()
+			.join("Applications/Serein.app/Contents/MacOS/serein");
+		std::fs::create_dir_all(launcher.parent().unwrap()).unwrap();
+		std::fs::create_dir_all(executable.parent().unwrap()).unwrap();
+		std::fs::write(&executable, b"fixture").unwrap();
+		std::os::unix::fs::symlink(&executable, &launcher).unwrap();
+		let direct = Assets::packaged_for_exe(&executable).unwrap();
+		let linked = Assets::packaged_for_exe(&launcher).unwrap();
+		assert_eq!(linked.directory, direct.directory);
+		assert_eq!(linked.library, direct.library);
+		let parent = executable.canonicalize().unwrap();
+		let parent = parent.parent().unwrap();
+		if cfg!(target_os = "macos") {
+			assert_eq!(
+				linked.directory,
+				parent.join("../Resources/voice-enhancement")
+			);
+			assert_eq!(
+				linked.library,
+				parent.join("../Frameworks").join(library_name())
+			);
+		} else {
+			assert_eq!(
+				linked.directory,
+				parent.join("../lib/serein/voice-enhancement")
+			);
+		}
+	}
+
 	#[test]
 	fn speech_transforms_preserve_samples_and_suppress_aliasing() {
 		for (n, length, hop, pad) in [

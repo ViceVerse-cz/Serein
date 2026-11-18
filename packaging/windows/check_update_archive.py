@@ -1,4 +1,4 @@
-"""Check a Windows media-v5 release ZIP before uploading it as an update asset."""
+"""Check a Windows release ZIP before uploading it as an update asset."""
 
 import argparse
 from pathlib import Path
@@ -15,7 +15,7 @@ REQUIRED_FILES = (
     "swscale-serein-8.dll",
     "swresample-serein-5.dll",
     "openh264.dll",
-    "msvcp140.dll", "msvcp140_1.dll", "vcruntime140.dll", "vcruntime140_1.dll",
+    "msvcp140.dll", "msvcp140_1.dll", "vcruntime140.dll",
     "voice-enhancement/onnxruntime.dll",
     'voice-enhancement/eigen-1d8b82b0740839c0de7f1242a3585e3390ff5f33.zip',
     "voice-enhancement/backbone.onnx", "voice-enhancement/spec_head.onnx", "voice-enhancement/denoiser_core.onnx",
@@ -50,8 +50,10 @@ ALLOWED_ROOTS = {
 
 def check_archive(path):
     path = Path(path)
-    if not re.fullmatch(r"serein-v[A-Za-z0-9.+-]{1,95}-Windows-(X64|ARM64)-media-v5\.zip", path.name):
-        raise ValueError("Windows FFmpeg ZIPs must use the media-v5 asset name, never the legacy update name")
+    match = re.fullmatch(r"serein-v[A-Za-z0-9.+-]{1,95}-Windows-(X64-media-v5|ARM64-media-v6)\.zip", path.name)
+    if not match:
+        raise ValueError("Windows ZIPs must use X64-media-v5 or ARM64-media-v6, never a legacy update name")
+    arm64 = match[1] == "ARM64-media-v6"
     if path.stat().st_size > 512 * 1024 * 1024:
         raise ValueError("Windows update ZIP exceeds the download limit")
     with zipfile.ZipFile(path) as archive:
@@ -66,6 +68,8 @@ def check_archive(path):
                 raise ValueError(f"Invalid update path: {entry.filename}")
             if parts[0] not in ALLOWED_ROOTS:
                 raise ValueError(f"Unexpected update payload: {entry.filename}")
+            if arm64 and parts[0] == "vcruntime140_1.dll":
+                raise ValueError("ARM64 update payload contains the x64-only vcruntime140_1.dll")
             if name.lower() in seen:
                 raise ValueError(f"Duplicate update path: {entry.filename}")
             seen.add(name.lower())
@@ -74,7 +78,10 @@ def check_archive(path):
                 raise ValueError(f"Encrypted or special update entry: {entry.filename}")
             if not entry.is_dir() and entry.file_size:
                 files.add(name)
-        missing = set(REQUIRED_FILES) - files
+        required = set(REQUIRED_FILES)
+        if not arm64:
+            required.add("vcruntime140_1.dll")
+        missing = required - files
         if missing or not any(name.startswith("licenses/") for name in files):
             raise ValueError(f"Incomplete Windows media package: {sorted(missing)}; bundled licenses are required")
         corrupt = archive.testzip()
@@ -87,7 +94,7 @@ def main():
     parser.add_argument("archive", type=Path)
     args = parser.parse_args()
     check_archive(args.archive)
-    print(f"Windows media-v5 update asset checked: {args.archive.name}")
+    print(f"Windows update asset checked: {args.archive.name}")
 
 
 if __name__ == "__main__":

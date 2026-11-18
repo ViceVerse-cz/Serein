@@ -195,6 +195,11 @@ Section "MainSection" SEC01
   ; Remove legacy installer utilities when upgrading an existing installation.
   Delete "$INSTDIR\install-notifications.ps1"
   Delete "$INSTDIR\setup.ps1"
+  ; Remove the legacy x64 runtime from installations with the ARM64 payload.
+!if /FileExists "${DIST_DIR}\vcruntime140_1.dll"
+!else
+  Delete "$INSTDIR\vcruntime140_1.dll"
+!endif
 
   ; Create uninstaller
   WriteUninstaller "$INSTDIR\uninstall.exe"

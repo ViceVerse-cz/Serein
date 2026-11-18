@@ -1194,32 +1194,29 @@ pub fn embedded_video_candidates(media: &model::EmbedMedia) -> Vec<url::Url> {
 	[media.proxy_url.as_deref(), media.url.as_deref()]
 		.into_iter()
 		.flatten()
-		.filter(|raw| {
-			raw.len() <= 2048 && !raw.contains('\\') && !raw.chars().any(char::is_control)
-		})
-		.filter_map(|raw| url::Url::parse(raw).ok())
-		.map(|mut url| {
-			if url.host_str() == Some("media.discordapp.net")
-				&& url.path().starts_with("/attachments/")
-			{
-				let _ = url.set_host(Some("cdn.discordapp.com"));
-			}
-			url
-		})
-		.filter(|url| {
-			url.scheme() == "https"
-				&& url.port_or_known_default() == Some(443)
-				&& url.username().is_empty()
-				&& url.password().is_none()
-				&& url.fragment().is_none()
-				&& embedded_video_origin(url)
-		})
+		.filter_map(embedded_video_candidate)
 		.fold(Vec::with_capacity(2), |mut urls, url| {
 			if !urls.contains(&url) {
 				urls.push(url);
 			}
 			urls
 		})
+}
+pub(crate) fn embedded_video_candidate(raw: &str) -> Option<url::Url> {
+	if raw.len() > 2048 || raw.contains('\\') || raw.chars().any(char::is_control) {
+		return None;
+	}
+	let mut url = url::Url::parse(raw).ok()?;
+	if url.host_str() == Some("media.discordapp.net") && url.path().starts_with("/attachments/") {
+		url.set_host(Some("cdn.discordapp.com")).ok()?;
+	}
+	(url.scheme() == "https"
+		&& url.port_or_known_default() == Some(443)
+		&& url.username().is_empty()
+		&& url.password().is_none()
+		&& url.fragment().is_none()
+		&& embedded_video_origin(&url))
+	.then_some(url)
 }
 fn embedded_video_origin(url: &url::Url) -> bool {
 	let Some(host) = url.host_str() else {
@@ -1261,6 +1258,7 @@ fn embedded_video_origin(url: &url::Url) -> bool {
 				&& url.path().ends_with(".mp4")
 		}
 		"oginstagram.com" | "www.oginstagram.com" => url.path().starts_with("/offload/"),
+		"v.redd.it" => video_filename(url.path()),
 		_ => {
 			// The offload endpoint can redirect to Instagram's public video CDN.
 			(host == "cdninstagram.com"
@@ -1550,6 +1548,7 @@ mod tests {
 			"https://www.oginstagram.com/offload/synthetic/1?sig=synthetic",
 			"https://scontent.cdninstagram.com/video/clip.mp4?sig=synthetic",
 			"https://video.xx.fbcdn.net/video/clip.mp4?sig=synthetic",
+			"https://v.redd.it/synthetic/DASH_720.mp4?source=fallback&sig=one%2Ftwo",
 		] {
 			let media = model::EmbedMedia {
 				url: Some(raw.into()),
@@ -1588,6 +1587,9 @@ mod tests {
 			"https://cdninstagram.com.evil.test/video/clip.mp4",
 			"https://evilcdninstagram.com/video/clip.mp4",
 			"https://video.xx.fbcdn.net/iframe.html",
+			"https://v.redd.it/synthetic",
+			"https://v.redd.it/synthetic/DASHPlaylist.mpd",
+			"https://v.redd.it.evil.test/synthetic/DASH_720.mp4",
 			"https://127.0.0.1/video.mp4",
 		] {
 			assert!(

@@ -462,19 +462,7 @@ impl State {
 		self.channel(channel)
 			.and_then(|channel_data| channel_data.guild)
 			.and_then(|guild| self.live_member_roles(guild, channel, member.user.id))
-			.or_else(|| {
-				self.can_view(channel)
-					.then(|| {
-						self.timeline.iter().rev().find_map(|message| {
-							(message.channel == channel
-								&& message.author.id == member.user.id
-								&& !message.author.webhook
-								&& !message.author_roles.is_empty())
-							.then_some(message.author_roles.as_slice())
-						})
-					})
-					.flatten()
-			})
+			.or_else(|| self.timeline_author_roles(channel, member.user.id))
 			.unwrap_or(&member.roles)
 	}
 	pub fn roles_for_display(
@@ -529,8 +517,14 @@ impl State {
 		}
 		let guild = self.channel(message.channel)?.guild?;
 		let roles = self
-			.live_author_roles(guild, message.channel, message.author.id)
-			.unwrap_or(message.author_roles.as_slice());
+			.live_member_roles(guild, message.channel, message.author.id)
+			.or_else(|| {
+				if message.author_roles.is_empty() {
+					self.timeline_author_roles(message.channel, message.author.id)
+				} else {
+					Some(message.author_roles.as_slice())
+				}
+			})?;
 		self.display_roles(guild, roles).1.map(p::Role::colors)
 	}
 	pub fn forum_author_color(
@@ -556,21 +550,33 @@ impl State {
 		let guild = self.channel(channel)?.guild?;
 		let roles = self
 			.selected
-			.and_then(|selected| self.live_author_roles(guild, selected, author))
+			.and_then(|selected| self.live_member_roles(guild, selected, author))
 			.unwrap_or(roles);
 		self.display_roles(guild, roles).1.map(p::Role::colors)
 	}
-	fn live_author_roles(&self, guild: Id, channel: Id, user: Id) -> Option<&[Id]> {
-		self.live_member_roles(guild, channel, user)
+	fn timeline_author_roles(&self, channel: Id, user: Id) -> Option<&[Id]> {
+		if self.selected != Some(channel) || !self.can_read_history(channel) {
+			return None;
+		}
+		self.timeline.iter().rev().find_map(|message| {
+			(message.channel == channel
+				&& message.author.id == user
+				&& !message.author.webhook
+				&& !message.author_roles.is_empty())
+			.then_some(message.author_roles.as_slice())
+		})
 	}
 	fn live_member_roles(&self, guild: Id, channel: Id, user: Id) -> Option<&[Id]> {
 		if self.channel(channel)?.guild != Some(guild) {
 			return None;
 		}
-		if let Some(update) = self.member_identity(channel, user)
-			&& let model::Patch::Value(roles) = &update.roles
-		{
-			return Some(roles);
+		if let Some(update) = self.member_identity(channel, user) {
+			if update.departed {
+				return Some(&[]);
+			}
+			if let model::Patch::Value(roles) = &update.roles {
+				return Some(roles);
+			}
 		}
 		self.presentation_member_roles(channel, user)
 	}
@@ -579,6 +585,9 @@ impl State {
 		guild: Id,
 		member_roles: &[Id],
 	) -> (Option<&p::Role>, Option<&p::Role>) {
+		if member_roles.is_empty() || member_roles.len() > p::MAX_MEMBER_ROLES {
+			return (None, None);
+		}
 		let Some(roles) = self
 			.permissions
 			.guilds
@@ -587,9 +596,6 @@ impl State {
 		else {
 			return (None, None);
 		};
-		if member_roles.len() > p::MAX_MEMBER_ROLES {
-			return (None, None);
-		}
 		let assigned: BTreeSet<_> = member_roles.iter().copied().collect();
 		let assigned = roles
 			.iter()

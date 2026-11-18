@@ -10,6 +10,7 @@ use std::{
 
 /// Rows shown for people and channels, like Discord's short member list.
 const SHORT_LIMIT: usize = 8;
+const USER_LIMIT: usize = 256;
 /// Emoji show everything that matches, bounded so a two-letter query stays cheap to lay out.
 const EMOJI_LIMIT: usize = 256;
 const ROW: f32 = 36.0;
@@ -223,49 +224,80 @@ pub(crate) fn show_role_icon(
 	}
 }
 pub fn known_users(state: &State, channel: Id) -> Vec<User> {
+	matching_users(state, channel, None)
+}
+
+pub(super) fn matching_users(state: &State, channel: Id, query: Option<&str>) -> Vec<User> {
+	let query = query
+		.filter(|query| !query.is_empty())
+		.map(str::to_lowercase);
+	let exact = query.as_deref().and_then(|query| query.parse::<Id>().ok());
+	let guild = state.channel(channel).and_then(|c| c.guild);
+	let readable = state.can_view(channel);
 	let mut users = Vec::new();
-	let mut add = |user: &User| {
-		if users.len() < 256
-			&& !state
-				.member_identity(channel, user.id)
-				.is_some_and(|update| update.departed)
-			&& !users.iter().any(|u: &User| u.id == user.id)
-		{
+	let mut seen = std::collections::HashSet::new();
+	let mut add = |user: &User, nick: Option<&str>, service_match: bool| {
+		if users.len() == USER_LIMIT || user.webhook || seen.contains(&user.id) {
+			return;
+		}
+		let update = state.member_identity(channel, user.id);
+		if update.is_some_and(|update| update.departed) {
+			return;
+		}
+		let nick = match update.map(|update| &update.nick) {
+			Some(model::Patch::Value(nick)) => Some(nick.as_str()),
+			Some(model::Patch::Null) => None,
+			_ => nick,
+		};
+		if service_match
+			|| query.as_deref().is_none_or(|query| {
+				let name = nick
+					.filter(|nick| !nick.is_empty())
+					.unwrap_or_else(|| state.user_display_name(user));
+				user_rank(query, exact, name, user).is_some()
+			}) {
+			seen.insert(user.id);
 			users.push(user.clone());
 		}
 	};
+	if let Some(id) = exact
+		&& let Some(user) = find_user(id, &[], Some(&MentionSource { state, channel }))
+	{
+		add(user, None, true);
+	}
 	if let Some(request) = &state.member_search[0].request
 		&& request.channel == channel
-		&& state.channel(channel).and_then(|c| c.guild) == Some(request.guild)
-		&& state.can_view(channel)
+		&& guild == Some(request.guild)
+		&& readable
 	{
+		let observed_query = request.query.to_lowercase();
+		let current = query.as_ref().is_none_or(|query| *query == observed_query);
 		for member in &state.member_search[0].rows {
-			add(&member.user);
+			add(&member.user, member.nick.as_deref(), current);
 		}
-		let query = request.query.to_lowercase();
-		for member in state.observed_display_members(channel) {
-			if [
-				member.nick.as_deref(),
-				Some(member.user.name.as_str()),
-				member.user.username.as_deref(),
-			]
-			.into_iter()
-			.flatten()
-			.any(|name| rank(&query, name, member.user.id).is_some())
-			{
-				add(&member.user);
+		if query.is_none() {
+			for member in state.observed_display_members(channel) {
+				let display = member.nick.as_deref().unwrap_or(&member.user.name);
+				if user_rank(&observed_query, None, display, &member.user).is_some() {
+					add(&member.user, member.nick.as_deref(), true);
+				}
 			}
 		}
 	}
 	for user in state.observed_member_users(channel) {
-		add(&user);
+		add(&user, None, false);
+	}
+	if query.is_some() {
+		for member in state.observed_display_members(channel) {
+			add(&member.user, member.nick.as_deref(), false);
+		}
 	}
 	if let Some(owner) = &state.user {
-		add(owner);
+		add(owner, None, false);
 	}
-	if let Some(channel) = state.channels.iter().find(|c| c.id == channel) {
+	if let Some(channel) = state.channel(channel) {
 		for user in &channel.recipients {
-			add(user);
+			add(user, None, false);
 		}
 	}
 
@@ -278,36 +310,36 @@ pub fn known_users(state: &State, channel: Id) -> Vec<User> {
 				model::MemberSlot::Person(m) => Some(m),
 				_ => None,
 			}) {
-			add(&member.user);
+			add(&member.user, member.nick.as_deref(), false);
 		}
 	}
 	if let Some(request) = &state.member_search[0].request
 		&& request.channel == channel
-		&& state.channel(channel).and_then(|c| c.guild) == Some(request.guild)
-		&& state.can_view(channel)
+		&& guild == Some(request.guild)
+		&& readable
 	{
 		for member in &state.member_search[0].retained {
-			add(&member.user);
+			add(&member.user, member.nick.as_deref(), false);
 		}
 	}
 	if let Some(request) = &state.member_search[1].request
 		&& request.channel == channel
-		&& state.channel(channel).and_then(|c| c.guild) == Some(request.guild)
-		&& state.can_view(channel)
+		&& guild == Some(request.guild)
+		&& readable
 	{
 		for member in state.member_search[1]
 			.rows
 			.iter()
 			.chain(&state.member_search[1].retained)
 		{
-			add(&member.user);
+			add(&member.user, member.nick.as_deref(), false);
 		}
 	}
 	for message in state.timeline.iter().rev() {
 		if message.channel == channel {
-			add(&message.author);
+			add(&message.author, message.author_nick.as_deref(), false);
 			for user in &message.mentions {
-				add(user);
+				add(user, None, false);
 			}
 		}
 	}
@@ -377,7 +409,7 @@ fn recent_user_ranks(
 ) -> std::collections::HashMap<Id, u64> {
 	let mut ranks: std::collections::HashMap<_, _> = users
 		.iter()
-		.take(256)
+		.take(USER_LIMIT)
 		.map(|user| (user.id, u64::MAX))
 		.collect();
 	for message in state
@@ -526,10 +558,10 @@ pub fn presentation_fingerprint(state: &State, message: &model::Message) -> u64 
 	hasher.finish()
 }
 
-pub(crate) fn needs_users(draft: &str, cursor: Option<usize>) -> bool {
+pub(super) fn user_query(draft: &str, cursor: Option<usize>) -> Option<&str> {
 	cursor
 		.and_then(|cursor| query(draft, cursor))
-		.is_some_and(|(_, _, kind)| kind == Kind::User)
+		.and_then(|(_, query, kind)| (kind == Kind::User).then_some(query))
 }
 
 fn query(draft: &str, cursor: usize) -> Option<(Range<usize>, &str, Kind)> {
@@ -649,11 +681,36 @@ fn rank(query: &str, name: &str, id: Id) -> Option<u8> {
 		Some(0)
 	} else if substring {
 		Some(1)
-	} else if id.0 != 0 && id.to_string().starts_with(query) {
+	} else if id.0 != 0 && query.as_bytes()[0].is_ascii_digit() && id.to_string().starts_with(query)
+	{
 		Some(2)
 	} else {
 		None
 	}
+}
+
+fn user_rank(query: &str, exact: Option<Id>, display: &str, user: &User) -> Option<u8> {
+	if exact == Some(user.id) {
+		return Some(0);
+	}
+	rank(query, display, Id(0))
+		.map(|rank| rank + 1)
+		.or_else(|| {
+			let tagged = (user.discriminator != 0 && query.contains('#'))
+				.then(|| username_label(user, display))
+				.flatten();
+			[
+				Some(user.name.as_str()),
+				user.username.as_deref(),
+				tagged.as_deref(),
+			]
+			.into_iter()
+			.flatten()
+			.filter_map(|name| rank(query, name, Id(0)))
+			.min()
+			.map(|rank| rank + 3)
+		})
+		.or_else(|| rank(query, "", user.id).map(|_| 5))
 }
 
 /// Keep only the best bounded choices, without cloning every joined server's matching catalog.
@@ -787,6 +844,7 @@ impl Menu {
 			}
 			Kind::User => {
 				let recency = recent_user_ranks(state, channel, users);
+				let exact = query.parse::<Id>().ok();
 				let mut ranked = users
 					.iter()
 					.filter_map(|user| {
@@ -796,38 +854,13 @@ impl Menu {
 							Some(&MentionSource { state, channel }),
 						);
 						let name = label.strip_prefix('@').unwrap_or(&label);
-						// The displayed nickname leads; account aliases remain searchable.
-						rank(&query, name, Id(0))
-							.or_else(|| {
-								[
-									rank(&query, &user.name, Id(0)),
-									user.username
-										.as_deref()
-										.and_then(|name| rank(&query, name, Id(0))),
-									(user.discriminator != 0 && query.contains('#'))
-										.then(|| {
-											user.username.as_ref().and_then(|name| {
-												rank(
-													&query,
-													&format!("{name}#{:04}", user.discriminator),
-													Id(0),
-												)
-											})
-										})
-										.flatten(),
-								]
-								.into_iter()
-								.flatten()
-								.min()
-								.map(|rank| rank + 2)
-							})
-							.or_else(|| rank(&query, "", user.id).map(|_| 4))
+						user_rank(&query, exact, name, user)
 							.or_else(|| {
 								let search = &state.member_search[0];
 								(search.request.as_ref().is_some_and(|r| {
 									r.channel == channel && r.query.to_lowercase() == query
 								}) && search.rows.iter().any(|m| m.user.id == user.id))
-								.then_some(5)
+								.then_some(6)
 							})
 							.map(|r| {
 								(

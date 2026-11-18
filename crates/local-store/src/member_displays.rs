@@ -187,6 +187,14 @@ impl LocalStore {
 		{
 			return Err(StoreError::Capacity);
 		}
+		if let Ok(user) = query.parse::<Id>() {
+			return self.read_member_displays(
+				account,
+				guild,
+				" AND user=?3",
+				vec![user.to_string()],
+			);
+		}
 		self.read_member_displays(
 			account,
 			guild,
@@ -424,6 +432,36 @@ mod tests {
 			username: Some(format!("user_{user}").into()),
 			nick: Some(format!("Nickname {user}")),
 		}
+	}
+	#[test]
+	fn numeric_member_search_matches_only_the_exact_scoped_id() {
+		let mut store = store();
+		let target = entry(10, 876_543_210);
+		let mut alias = entry(10, 99);
+		alias.nick = Some(format!("Nickname {}", target.user));
+		store
+			.save_member_displays(Id(1), &[target.clone(), alias])
+			.unwrap();
+		assert_eq!(
+			store
+				.search_member_displays(Id(1), Id(10), " 876543210 ", 1)
+				.unwrap(),
+			vec![target]
+		);
+		for (account, guild) in [(Id(2), Id(10)), (Id(1), Id(11))] {
+			assert!(
+				store
+					.search_member_displays(account, guild, "876543210", 1)
+					.unwrap()
+					.is_empty()
+			);
+		}
+		assert!(
+			store
+				.search_member_displays(Id(1), Id(10), "543210", 1)
+				.unwrap()
+				.is_empty()
+		);
 	}
 	#[test]
 	fn recent_member_hints_are_bounded_and_scoped() {

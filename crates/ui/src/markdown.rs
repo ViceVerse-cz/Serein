@@ -437,6 +437,10 @@ impl FormatCache {
 
 /// The URL passed to the OS is exactly the normalized target displayed for confirmation.
 pub fn external_url(input: &str) -> Option<String> {
+	external_target(input).map(String::from)
+}
+
+pub(super) fn external_target(input: &str) -> Option<url::Url> {
 	if input.len() > 2048 || input.chars().any(|c| c.is_control() || c == '\\') {
 		return None;
 	}
@@ -445,7 +449,7 @@ pub fn external_url(input: &str) -> Option<String> {
 		&& url.host_str().is_some()
 		&& url.username().is_empty()
 		&& url.password().is_none())
-	.then(|| url.to_string())
+	.then_some(url)
 }
 
 pub(super) fn discord_url(channel: &model::Channel, message: Option<Id>) -> Option<String> {

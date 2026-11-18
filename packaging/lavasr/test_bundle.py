@@ -3,7 +3,7 @@ from pathlib import Path
 import hashlib
 import io
 import json
-import tarfile
+import stat
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -58,27 +58,22 @@ class BundleTests(unittest.TestCase):
             sources = ((source_name, len(source_data), hashlib.sha256(source_data).hexdigest(), ""),)
             for system, arch in list(bundle.RUNTIMES):
                 native = "onnxruntime.dll" if system == "Windows" else "libonnxruntime.1.23.2.dylib" if system == "Darwin" else "libonnxruntime.so.1.23.2"
-                prefix = "synthetic-runtime"
-                archive = cache / (prefix + (".zip" if system == "Windows" else ".tgz"))
-                entries = {f"{prefix}/lib/{native}": b"synthetic library", f"{prefix}/LICENSE": b"synthetic license",
-                           f"{prefix}/ThirdPartyNotices.txt": b"synthetic third-party notices"}
-                if system == "Windows":
-                    with zipfile.ZipFile(archive, "w") as output:
-                        for name, data in entries.items():
-                            output.writestr(name, data)
-                else:
-                    with tarfile.open(archive, "w:gz") as output:
-                        for name, data in entries.items():
-                            info = tarfile.TarInfo(("./" if system == "Darwin" else "") + name)
-                            info.size = len(data)
-                            output.addfile(info, io.BytesIO(data))
-                runtime = (archive.name, archive.stat().st_size, hashlib.sha256(archive.read_bytes()).hexdigest(), native)
+                platform_id, member, _ = bundle.RUNTIMES[system, arch]
+                archive = cache / "synthetic-runtime.nupkg"
+                with zipfile.ZipFile(archive, "w") as output:
+                    output.writestr(f"runtimes/{platform_id}/native/{member}", b"synthetic library")
+                    output.writestr("LICENSE", b"synthetic license")
+                    output.writestr("ThirdPartyNotices.txt", b"synthetic third-party notices")
+                runtime = (archive.name, archive.stat().st_size, hashlib.sha256(archive.read_bytes()).hexdigest(), "")
                 crt = root / "redist" / ("x64" if arch == "x86_64" else "arm64") / "Microsoft.VC143.CRT"
                 crt.mkdir(parents=True, exist_ok=True)
                 for name in ("msvcp140.dll", "msvcp140_1.dll", "vcruntime140.dll", "vcruntime140_1.dll"):
                     (crt / name).write_bytes(b"synthetic CRT")
                 destination = root / f"{system}-{arch}"
-                with patch.object(bundle, "MODELS", models), patch.object(bundle, "SOURCES", sources), patch.object(bundle, "RUNTIMES", {(system, arch): runtime}), \
+                if (system, arch) == ("Windows", "arm64"):
+                    destination.mkdir()
+                    (destination / "vcruntime140_1.dll").write_bytes(b"stale x64 runtime")
+                with patch.object(bundle, "MODELS", models), patch.object(bundle, "SOURCES", sources), patch.object(bundle, "RUNTIME_ARCHIVE", runtime), \
                      patch.dict(bundle.os.environ, {"VCToolsRedistDir": str(root / "redist")}), \
                      patch.object(bundle, "urlopen", side_effect=AssertionError("network forbidden")):
                     bundle.stage(destination, cache, offline=True, target=(system, arch))
@@ -97,6 +92,7 @@ class BundleTests(unittest.TestCase):
                         self.assertTrue((speech / native).is_file())
                     if system == "Windows":
                         self.assertTrue((destination / "msvcp140_1.dll").is_file())
+                        self.assertEqual((destination / "vcruntime140_1.dll").exists(), arch == "x86_64")
                     (speech / "private.log").write_text("must not ship")
                     with self.assertRaisesRegex(ValueError, "Unexpected"):
                         bundle.stage(destination, cache, offline=True, target=(system, arch))
@@ -104,12 +100,12 @@ class BundleTests(unittest.TestCase):
     def test_only_regular_runtime_members_are_admitted(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            archive = root / "bad.tgz"
-            with tarfile.open(archive, "w:gz") as output:
-                entry = tarfile.TarInfo("runtime/lib/library")
-                entry.type = tarfile.SYMTYPE
-                entry.linkname = "/outside"
-                output.addfile(entry)
+            archive = root / "bad.nupkg"
+            with zipfile.ZipFile(archive, "w") as output:
+                entry = zipfile.ZipInfo("runtime/lib/library")
+                entry.create_system = 3
+                entry.external_attr = (stat.S_IFLNK | 0o777) << 16
+                output.writestr(entry, "/outside")
             with self.assertRaisesRegex(ValueError, "Invalid runtime member"):
                 bundle.extract(archive, "runtime/lib/library", root / "output")
             self.assertFalse((root / "output").exists())
@@ -125,9 +121,11 @@ class BundleTests(unittest.TestCase):
             self.assertIn(f"{size:_}", native)
             self.assertEqual(sources[name], digest)
             self.assertIn(digest, nix)
-        name, _, sha, _ = bundle.RUNTIMES["Linux", "x86_64"]
+        name, _, sha, url = bundle.RUNTIME_ARCHIVE
         self.assertEqual(sources[name], sha)
+        self.assertEqual(next(s["url"] for s in module["sources"] if s["dest-filename"] == name), url)
         self.assertIn(sha, nix)
+        self.assertIn(url, nix)
         for name, _, sha, _ in bundle.SOURCES:
             self.assertEqual(sources[name], sha)
             self.assertIn(sha, nix)

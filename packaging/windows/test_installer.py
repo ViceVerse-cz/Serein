@@ -117,7 +117,11 @@ def main():
         for name in ("onnxruntime.dll", "backbone.onnx", "spec_head.onnx", "denoiser_core.onnx",
                      "ONNXRuntime-LICENSE", "ONNXRuntime-ThirdPartyNotices.txt", "MSVC-LICENSE.txt"):
             (payload / "voice-enhancement" / name).write_bytes(b"synthetic speech payload; never loaded")
-        for name in ("msvcp140.dll", "msvcp140_1.dll", "vcruntime140.dll", "vcruntime140_1.dll"):
+        crt_files = ["msvcp140.dll", "msvcp140_1.dll", "vcruntime140.dll"]
+        extra_crt = "vcruntime140_1.dll"
+        if os.environ.get("PROCESSOR_ARCHITECTURE", "").upper() != "ARM64":
+            crt_files.append(extra_crt)
+        for name in crt_files:
             (payload / name).write_bytes(b"synthetic CRT; never loaded")
         for name in ("install-notifications.ps1", "setup.ps1"):
             (payload / name).write_text("throw 'Installer must not run or install this optional script'")
@@ -182,6 +186,7 @@ def main():
                 winreg.SetValueEx(key, "InstallLocation", 0, winreg.REG_SZ, str(installed))
             for name in ("install-notifications.ps1", "setup.ps1"):
                 (installed / name).write_text("legacy fixture")
+            (installed / extra_crt).write_bytes(b"legacy x64 CRT")
             assert not (installed / "avcodec-serein-61.dll").exists()
             for attempt in range(3):
                 start = time.perf_counter()
@@ -199,6 +204,9 @@ def main():
                 assert unrelated_nested.read_text() == "Unrelated nested owner data"
                 assert not (installed / "install-notifications.ps1").exists()
                 assert not (installed / "setup.ps1").exists()
+                for name in crt_files:
+                    assert (installed / name).read_bytes() == (payload / name).read_bytes()
+                assert (installed / extra_crt).exists() == (extra_crt in crt_files)
                 check_shortcut(shortcut, installed / "serein.exe")
                 assert legacy_shortcut.read_bytes() == b"synthetic legacy shortcut; preserve"
                 with winreg.OpenKey(winreg.HKEY_CURRENT_USER, uninstall_key, 0,

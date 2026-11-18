@@ -173,7 +173,8 @@ jobs:
         run: |
           python packaging/windows/test_update_archive.py
           if ($LASTEXITCODE -ne 0) { throw "Windows update archive tests failed" }
-          $archive = "release-assets/${env:ASSET}-media-v5.zip"
+          $media = if ($env:RUNNER_ARCH -eq 'ARM64') { 'media-v6' } else { 'media-v5' }
+          $archive = "release-assets/${env:ASSET}-$media.zip"
           Compress-Archive -Path "$env:PACKAGE_ROOT/*" -DestinationPath $archive
           python packaging/windows/check_update_archive.py $archive
           if ($LASTEXITCODE -ne 0) { throw "Windows media update archive is incomplete or incorrectly named" }

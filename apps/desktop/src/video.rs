@@ -62,6 +62,11 @@ struct PosterJob {
 	size: usize,
 	/// Set when the session ends; skips the job and aborts its range reads.
 	cancelled: Arc<AtomicBool>,
+	_permit: tokio::sync::OwnedSemaphorePermit,
+}
+struct PosterWorker {
+	send: std::sync::mpsc::Sender<PosterJob>,
+	slots: Arc<tokio::sync::Semaphore>,
 }
 /// Decoded poster answer waiting for UI delivery through `poll`.
 struct PosterDone {
@@ -127,7 +132,7 @@ pub struct Video {
 	session: Option<Arc<Session>>,
 	provider: Option<ProviderSession>,
 	requests: Option<tokio::sync::watch::Sender<Option<Request>>>,
-	poster_jobs: Option<std::sync::mpsc::Sender<PosterJob>>,
+	poster_worker: Option<PosterWorker>,
 	poster_results: Arc<Mutex<Vec<PosterDone>>>,
 	/// Attachments with a queued or decoding poster; dedupes the per-frame UI
 	/// queue and bounds it so a scroll storm cannot pile up stale downloads.
@@ -148,7 +153,7 @@ impl Video {
 			session: None,
 			provider: None,
 			requests: None,
-			poster_jobs: None,
+			poster_worker: None,
 			poster_results: Default::default(),
 			poster_pending: Default::default(),
 			poster_cancelled: Default::default(),
@@ -488,7 +493,7 @@ impl Video {
 				}
 			}
 		};
-		if self.poster_jobs.is_none() {
+		if self.poster_worker.is_none() {
 			let (sender, receiver) = std::sync::mpsc::channel::<PosterJob>();
 			let runtime = runtime.clone();
 			let ctx = ctx.clone();
@@ -514,17 +519,19 @@ impl Video {
 						let Some(job) = stack.pop() else {
 							continue;
 						};
-						if job.cancelled.load(Ordering::Acquire) {
-							continue;
+						if !job.cancelled.load(Ordering::Acquire) {
+							let frame = decode_poster(&job, &runtime);
+							if let Ok(mut results) = results.lock()
+								&& !job.cancelled.load(Ordering::Acquire)
+							{
+								results.push(PosterDone {
+									id: job.id,
+									frame,
+									cancelled: job.cancelled.clone(),
+								});
+							}
 						}
-						let frame = decode_poster(&job, &runtime);
-						if let Ok(mut results) = results.lock() {
-							results.push(PosterDone {
-								id: job.id,
-								frame,
-								cancelled: job.cancelled,
-							});
-						}
+						drop(job);
 						ctx.request_repaint();
 					}
 				})
@@ -533,17 +540,27 @@ impl Video {
 				player.poster_failed(id);
 				return;
 			}
-			self.poster_jobs = Some(sender);
+			self.poster_worker = Some(PosterWorker {
+				send: sender,
+				slots: Arc::new(tokio::sync::Semaphore::new(POSTER_JOBS_MAX)),
+			});
 		}
-		if self.poster_jobs.as_ref().is_some_and(|jobs| {
-			jobs.send(PosterJob {
+		let worker = self.poster_worker.as_ref().expect("poster worker created");
+		// Retired jobs keep their slots until drained, including a decoder still running.
+		let Ok(permit) = worker.slots.clone().try_acquire_owned() else {
+			return;
+		};
+		if worker
+			.send
+			.send(PosterJob {
 				id,
 				url,
 				size: attachment.size as usize,
 				cancelled: self.poster_cancelled.clone(),
+				_permit: permit,
 			})
 			.is_ok()
-		}) {
+		{
 			self.poster_pending.insert(id);
 			return;
 		}
@@ -653,6 +670,7 @@ fn downscale_poster(width: u32, height: u32, rgba: Vec<u8>) -> (u32, u32, Vec<u8
 impl Drop for Video {
 	fn drop(&mut self) {
 		self.stop();
+		self.poster_cancelled.store(true, Ordering::Release);
 	}
 }
 
@@ -1042,6 +1060,55 @@ fn play_decoded(
 mod tests {
 	use super::*;
 	use std::time::{Duration, Instant};
+
+	#[test]
+	fn cancelled_poster_jobs_hold_capacity_until_the_worker_retires_them() {
+		let runtime = tokio::runtime::Builder::new_current_thread()
+			.build()
+			.unwrap();
+		let ctx = eframe::egui::Context::default();
+		let (send, receive) = std::sync::mpsc::channel();
+		let mut video = Video::for_adapter(model::VideoAdapter::default());
+		video.poster_worker = Some(PosterWorker {
+			send,
+			slots: Arc::new(tokio::sync::Semaphore::new(POSTER_JOBS_MAX)),
+		});
+		let mut player = VideoUi::default();
+		let attachment = |id| model::Attachment {
+			id: model::Id(id),
+			filename: "fixture.mov".into(),
+			description: None,
+			content_type: Some("video/quicktime".into()),
+			size: 1024,
+			media: Default::default(),
+			spoiler: false,
+			duration_ms: None,
+			waveform: vec![],
+		};
+		for id in 1..=POSTER_JOBS_MAX as u64 {
+			video.poster(attachment(id), &mut player, runtime.handle(), &ctx, true);
+		}
+		for _ in 0..100 {
+			video.cancel_posters();
+			video.poster(attachment(100), &mut player, runtime.handle(), &ctx, true);
+			assert!(video.poster_pending.is_empty());
+		}
+		let retired: Vec<_> = receive.try_iter().collect();
+		assert_eq!(retired.len(), POSTER_JOBS_MAX);
+		assert!(
+			retired
+				.iter()
+				.all(|job| job.cancelled.load(Ordering::Acquire))
+		);
+		drop(retired);
+		video.poster(attachment(100), &mut player, runtime.handle(), &ctx, true);
+		let current = receive.try_recv().unwrap();
+		assert_eq!(current.id, model::Id(100));
+		assert!(!current.cancelled.load(Ordering::Acquire));
+		drop(video);
+		assert!(current.cancelled.load(Ordering::Acquire));
+	}
+
 	#[test]
 	fn provider_clipping_rounds_inward_at_fractional_display_scales() {
 		let full = eframe::egui::Rect::from_min_size(

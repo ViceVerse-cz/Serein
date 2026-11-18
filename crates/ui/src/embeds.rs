@@ -80,8 +80,8 @@ fn source_fallback(
 			.title
 			.as_deref()
 			.is_some_and(|title| !title.is_empty()))
-		|| embed.video.is_some()
-		|| matches!(embed.kind.as_str(), "video" | "gifv")
+		|| web_video(embed)
+		|| embed.kind == "gifv"
 	{
 		return None;
 	}
@@ -172,28 +172,29 @@ fn native_media(embed: &Embed) -> Option<model::Attachment> {
 	if embed.kind == "gifv" {
 		return None;
 	}
-	let fallback;
-	let video = if let Some(video) = &embed.video {
-		video
-	} else {
-		fallback = model::EmbedMedia {
-			url: embed.url.clone(),
-			..Default::default()
-		};
-		&fallback
-	};
-	if video.url.as_deref().and_then(youtube_target).is_some() {
+	let video = embed.video.as_ref();
+	let original = video.and_then(|video| video.url.as_deref());
+	if original.and_then(youtube_target).is_some() {
 		return None;
 	}
-	crate::video::embedded_video_url(video)?;
+	let url = original
+		.and_then(crate::video::embedded_video_candidate)
+		.or_else(|| {
+			embed
+				.url
+				.as_deref()
+				.and_then(crate::video::embedded_video_candidate)
+		})
+		.map(String::from);
+	let proxy_url = video
+		.and_then(|video| video.proxy_url.as_deref())
+		.and_then(crate::video::embedded_video_candidate)
+		.map(String::from);
+	if url.is_none() && proxy_url.is_none() {
+		return None;
+	}
 	let poster = embed.image.as_ref().or(embed.thumbnail.as_ref());
-	let (width, height) = if video.width > 0 && video.height > 0 {
-		(video.width, video.height)
-	} else if let Some(poster) = poster.filter(|poster| poster.width > 0 && poster.height > 0) {
-		(poster.width, poster.height)
-	} else {
-		(0, 0)
-	};
+	let (width, height) = view_dimensions(video, poster);
 	Some(model::Attachment {
 		id: model::Id(0),
 		filename: embed
@@ -207,8 +208,8 @@ fn native_media(embed: &Embed) -> Option<model::Attachment> {
 		// Unknown size marks an embed; the desktop probes it with a range request.
 		size: 0,
 		media: model::EmbedMedia {
-			url: video.url.clone(),
-			proxy_url: video.proxy_url.clone(),
+			url,
+			proxy_url,
 			width,
 			height,
 			placeholder: Vec::new(),
@@ -219,8 +220,19 @@ fn native_media(embed: &Embed) -> Option<model::Attachment> {
 	})
 }
 
+fn view_dimensions(
+	video: Option<&model::EmbedMedia>,
+	poster: Option<&model::EmbedMedia>,
+) -> (u32, u32) {
+	video
+		.into_iter()
+		.chain(poster)
+		.find(|media| media.width > 0 && media.height > 0)
+		.map_or((0, 0), |media| (media.width, media.height))
+}
+
 fn inline_image(embed: &Embed) -> Option<&model::EmbedMedia> {
-	matches!(embed.kind.as_str(), "image" | "gifv")
+	(embed.kind == "gifv" || (embed.kind == "image" && !web_video(embed)))
 		.then(|| {
 			embed
 				.image
@@ -243,7 +255,7 @@ fn gallery_len(embeds: &[Embed]) -> usize {
 	};
 	let eligible = |e: &Embed| {
 		(e.image.is_some() || large_thumbnail(e).is_some())
-			&& e.video.is_none()
+			&& !web_video(e)
 			&& matches!(e.kind.as_str(), "rich" | "article" | "link" | "image")
 	};
 	if !eligible(first) || first.url.as_deref().is_none_or(str::is_empty) {
@@ -551,6 +563,44 @@ pub(crate) fn provider_source(embed: &Embed) -> Option<String> {
 	.flatten()
 	.find_map(external_url)
 }
+
+fn web_video(embed: &Embed) -> bool {
+	if embed.video.is_some() || embed.kind == "video" {
+		return true;
+	}
+	// These providers sometimes supply a link card with only a still preview.
+	let Some(url) = embed
+		.url
+		.as_deref()
+		.and_then(crate::markdown::external_target)
+		.filter(|url| url.scheme() == "https" && url.port_or_known_default() == Some(443))
+	else {
+		return false;
+	};
+	let id = |id: &str| {
+		let id = id.trim_end_matches('/');
+		!id.is_empty()
+			&& id
+				.bytes()
+				.all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+	};
+	match url.host_str() {
+		Some(
+			"instagram.com"
+			| "www.instagram.com"
+			| "m.instagram.com"
+			| "oginstagram.com"
+			| "www.oginstagram.com",
+		) => ["/reel/", "/reels/", "/tv/"]
+			.into_iter()
+			.any(|prefix| url.path().strip_prefix(prefix).is_some_and(id)),
+		Some("reddit.com" | "www.reddit.com" | "old.reddit.com") => {
+			url.path().strip_prefix("/mediaembed/").is_some_and(id)
+		}
+		Some("v.redd.it") => url.path().strip_prefix('/').is_some_and(id),
+		_ => false,
+	}
+}
 fn youtube_start(raw: &str) -> Option<u32> {
 	if raw.is_empty() || raw.len() > 32 {
 		return None;
@@ -769,6 +819,14 @@ fn browser_video_preview(
 		)
 	});
 	let painter = ui.painter().with_clip_rect(response.rect);
+	if response.has_focus() {
+		painter.rect_stroke(
+			response.rect,
+			5,
+			egui::Stroke::new(2.0, crate::design::palette(ui).accent),
+			egui::StrokeKind::Inside,
+		);
+	}
 	let center = response.rect.center();
 	if provider.is_none() {
 		crate::icons::paint(
@@ -962,8 +1020,7 @@ pub fn show(
 								PlaybackTarget::External => (None, None),
 							};
 							let playable = native.is_some();
-							let web_video = provider.is_some()
-								|| embed.video.is_some() || embed.kind == "video";
+							let web_video = provider.is_some() || web_video(embed);
 							let large = large_thumbnail(embed).filter(|_| count == 1);
 							let thumbnail = embed.thumbnail.as_ref().filter(|_| {
 								!playable
@@ -1090,11 +1147,7 @@ pub fn show(
 								.as_ref()
 								.is_some_and(|target| video.provider_matches(message, target));
 							if provider_active {
-								let dimensions = embed
-									.video
-									.as_ref()
-									.or(poster)
-									.map_or((0, 0), |v| (v.width, v.height));
+								let dimensions = view_dimensions(embed.video.as_ref(), poster);
 								video.show_provider_card(ui, dimensions, opening);
 							} else if let Some(attachment) = &native {
 								let size =
@@ -1163,7 +1216,7 @@ pub fn show(
 							}
 							if !playable
 								&& !provider_active && poster.is_none()
-								&& let Some(target) = provider
+								&& let Some(target) = &provider
 								&& crate::design::button(
 									ui,
 									"video-provider-play",
@@ -1171,22 +1224,24 @@ pub fn show(
 								)
 								.clicked() && let Some(source) = provider_source(embed)
 							{
-								video.open_provider(message, target, source, state.generation);
+								video.open_provider(
+									message,
+									target.clone(),
+									source,
+									state.generation,
+								);
 							}
 							if !playable
-								&& youtube_video(embed).is_none()
-								&& (embed.video.is_some()
-									|| matches!(embed.kind.as_str(), "video" | "gifv"))
+								&& provider.is_none() && web_video
+								&& let Some(original) = provider_source(embed)
 							{
 								ui.small(crate::i18n::translate(
 									"embeds-show-video-preview-playback-opens-in-your-browser",
 								));
 								link(
 									ui,
-									"Open video…",
-									embed.url.as_deref().or_else(|| {
-										embed.video.as_ref().and_then(|v| v.url.as_deref())
-									}),
+									&crate::i18n::translate("video-provider-open-original"),
+									Some(&original),
 									opening,
 									false,
 								);
@@ -1302,11 +1357,15 @@ pub fn estimated_height(embeds: &[Embed]) -> f32 {
 		let count = gallery_len(&embeds[index..]);
 		let e = &embeds[index];
 		let stage = native_video(e).map(|a| (a.media.width, a.media.height));
+		let web_video = web_video(e);
 		let image_height = if let Some((width, height)) = stage {
 			crate::video::embed_stage_height(width, height, 456.0) + 6.0
 		} else if count > 1 {
 			gallery_rect(count, count - 1, 456.0).bottom()
-		} else if e.image.is_some() || large_thumbnail(e).is_some() {
+		} else if e.image.is_some()
+			|| (web_video && e.thumbnail.is_some())
+			|| large_thumbnail(e).is_some()
+		{
 			200.0
 		} else {
 			0.0
@@ -1344,18 +1403,28 @@ pub fn estimated_height(embeds: &[Embed]) -> f32 {
 				.as_ref()
 				.is_some_and(|footer| !footer.text.is_empty())
 				|| e.timestamp.is_some()
-				|| (e.url.is_some()
+				|| (!web_video
+					&& e.url.is_some()
 					&& e.title.as_deref().is_none_or(str::is_empty)
-					&& e.video.is_none()
-					&& !matches!(e.kind.as_str(), "video" | "gifv"))
+					&& e.kind != "gifv")
 			{
 				lines += 1.0;
+			}
+			if web_video
+				&& stage.is_none()
+				&& youtube_video(e).is_none()
+				&& provider_source(e).is_some()
+			{
+				lines += 2.0;
 			}
 			if lines == 0.0 {
 				lines = 1.0;
 			}
 			let text = 24.0 + lines * 20.0 + 6.0;
-			let thumb = if e.thumbnail.is_some() && stage.is_none() && large_thumbnail(e).is_none()
+			let thumb = if e.thumbnail.is_some()
+				&& stage.is_none()
+				&& !web_video
+				&& large_thumbnail(e).is_none()
 			{
 				114.0
 			} else {
@@ -1493,17 +1562,35 @@ mod tests {
 
 	#[test]
 	fn provider_poster_keyboard_play_never_opens_the_image_viewer() {
-		for (youtube, poster) in [(true, true), (true, false), (false, true)] {
-			let source = if youtube {
-				"https://youtu.be/fT6TIXnmv-s"
-			} else {
-				"https://example.org/synthetic/player"
-			};
+		for (source, youtube, poster, has_video) in [
+			("https://youtu.be/fT6TIXnmv-s", true, true, true),
+			("https://youtu.be/fT6TIXnmv-s", true, false, true),
+			("https://example.org/synthetic/player", false, true, true),
+			(
+				"https://www.instagram.com/reel/fixture/?igsh=fixture",
+				false,
+				true,
+				false,
+			),
+			(
+				"https://www.oginstagram.com/reel/fixture",
+				false,
+				true,
+				false,
+			),
+			(
+				"https://www.reddit.com/mediaembed/fixture",
+				false,
+				true,
+				false,
+			),
+			("https://v.redd.it/fixture", false, false, false),
+		] {
 			let mut message = test_support::message(1, model::Id(2));
 			message.embeds = vec![Embed {
-				kind: "video".into(),
+				kind: if has_video { "video" } else { "link" }.into(),
 				url: Some(source.into()),
-				video: Some(model::EmbedMedia {
+				video: has_video.then(|| model::EmbedMedia {
 					url: Some(
 						if youtube {
 							"https://www.youtube.com/embed/fT6TIXnmv-s"
@@ -1576,6 +1663,62 @@ mod tests {
 				assert_eq!(opening.as_deref(), Some(source));
 				assert!(video.provider.is_none());
 			}
+		}
+	}
+
+	#[test]
+	fn playable_reddit_and_instagram_sources_survive_partial_video_metadata() {
+		let proxy =
+			"https://media.discordapp.net/external/hash/https/v.redd.it/fixture/DASH_720.mp4";
+		for (original, size) in [
+			(
+				"https://v.redd.it/fixture/DASH_720.mp4?source=fallback",
+				(960, 540),
+			),
+			(
+				"https://www.oginstagram.com/offload/fixture/1?v=3&sig=a%2Fb",
+				(720, 1280),
+			),
+		] {
+			let embed = Embed {
+				kind: "link".into(),
+				url: Some(original.into()),
+				video: Some(model::EmbedMedia {
+					url: Some("https://www.reddit.com/mediaembed/fixture".into()),
+					proxy_url: Some(proxy.into()),
+					..Default::default()
+				}),
+				thumbnail: Some(model::EmbedMedia {
+					width: size.0,
+					height: size.1,
+					..Default::default()
+				}),
+				..Default::default()
+			};
+			let clip = native_video(&embed).unwrap();
+			assert_eq!((clip.media.width, clip.media.height), size);
+			let sources = crate::video::embedded_video_candidates(&clip.media);
+			assert_eq!(
+				sources.iter().map(url::Url::as_str).collect::<Vec<_>>(),
+				[proxy, original]
+			);
+			let mut no_proxy = embed;
+			no_proxy.video.as_mut().unwrap().proxy_url = None;
+			assert_eq!(
+				native_video(&no_proxy).unwrap().media.url.as_deref(),
+				Some(original)
+			);
+		}
+		for raw in [
+			"https://www.instagram.com/p/fixture",
+			"https://www.reddit.com/r/synthetic/comments/fixture/album/",
+			"https://oginstagram.com.example/reel/fixture",
+			"https://www.oginstagram.com:444/reel/fixture",
+		] {
+			assert!(!web_video(&Embed {
+				url: Some(raw.into()),
+				..Default::default()
+			}));
 		}
 	}
 
