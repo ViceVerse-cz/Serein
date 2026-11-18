@@ -4,7 +4,7 @@ default-members = ["apps/desktop"]
 resolver = "3"
 
 [workspace.package]
-version = "0.1.1-nightly.20261116.1"
+version = "0.1.1-nightly.20261118.1"
 edition = "2024"
 rust-version = "1.98"
 license = "MIT OR Apache-2.0"
