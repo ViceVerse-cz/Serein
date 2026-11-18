@@ -622,10 +622,28 @@ mod tests {
 			picture(preset(3840, 2160), 1919, 1081, false),
 			Some((1918, 1080))
 		);
-		// A larger source is scaled into the preset, as before.
+		// A larger source is scaled into the preset at its own aspect ratio, so neither an
+		// ultrawide display nor a portrait window is letterboxed into 16:9 (issue #1050).
 		assert_eq!(
 			picture(preset(1920, 1080), 2560, 1440, false),
 			Some((1920, 1080))
+		);
+		assert_eq!(
+			picture(preset(1920, 1080), 5120, 1440, false),
+			Some((1920, 540))
+		);
+		assert_eq!(
+			picture(preset(1920, 1080), 1080, 2400, false),
+			Some((486, 1080))
+		);
+		// Scaled edges round to the nearest even pixel, and a sliver stays encodable.
+		assert_eq!(
+			picture(preset(854, 480), 1920, 1080, false),
+			Some((854, 480))
+		);
+		assert_eq!(
+			picture(preset(854, 480), 1024, 16, false),
+			Some((854, 16))
 		);
 		assert_eq!(
 			picture(Resolution::Source, 2560, 1440, false),
@@ -647,13 +665,16 @@ mod tests {
 		let picked = bound.fitted_to(2560, 1440);
 		assert_eq!((picked.width, picked.height), (2560, 1440));
 		assert!(picked.bit_rate() < bound.bit_rate());
-		// Larger than the bound, or unknown: the bound stays.
+		// A picked display larger than the bound keeps its shape; an unknown one keeps the bound.
+		let ultrawide = bound.fitted_to(5120, 1440);
+		assert_eq!((ultrawide.width, ultrawide.height), (3840, 1080));
 		let full_hd = Settings {
 			width: 1920,
 			height: 1080,
 			..bound
 		};
-		assert_eq!(full_hd.fitted_to(3440, 1440).width, 1920);
+		let fitted = full_hd.fitted_to(3440, 1440);
+		assert_eq!((fitted.width, fitted.height), (1920, 804));
 		assert_eq!(bound.fitted_to(0, 0).width, 3840);
 	}
 

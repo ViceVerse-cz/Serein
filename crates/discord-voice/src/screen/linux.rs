@@ -273,9 +273,17 @@ pub(super) fn run(
 					}
 					// Checked before failure: an encoder that rejected the provisional bound
 					// (e.g. 2160p over a 2048-pixel hardware limit) is retried at the picked
-					// stream's size instead of being skipped for the next mode.
+					// stream's size instead of being skipped for the next mode. Modes that apply
+					// crops fit the shown window, known once a buffer arrives; a failure during
+					// negotiation never delivers one, so it falls back to the stream's caps.
+					// One failure snapshot decides both the retry size and the exit below.
+					let failed = pipeline.failed();
 					let negotiated = if direct {
 						None
+					} else if mode.applies_crop() {
+						pipeline
+							.visible_size()
+							.or_else(|| negotiated_size(&probe).filter(|_| failed))
 					} else {
 						negotiated_size(&probe)
 					};
@@ -286,9 +294,12 @@ pub(super) fn run(
 						if resized.is_none_or(|(pending, _)| pending != size) {
 							resized = Some((size, Instant::now()));
 						}
-						// The first measurement applies at once; a resized window must settle
-						// so a drag does not restart the encoder on every step.
-						if !measured || resized.is_some_and(|(_, at)| at.elapsed() >= RESIZE_SETTLE)
+						// The first measurement, or one from a failed pipeline, applies at once;
+						// a resized window must settle so a drag does not restart the encoder on
+						// every step.
+						if !measured
+							|| failed
+							|| resized.is_some_and(|(_, at)| at.elapsed() >= RESIZE_SETTLE)
 						{
 							measured = true;
 							source_size = Some(size);
@@ -304,7 +315,7 @@ pub(super) fn run(
 					} else {
 						resized = None;
 					}
-					if pipeline.failed() {
+					if failed {
 						note("mode_failed", mode.label());
 						break;
 					}
