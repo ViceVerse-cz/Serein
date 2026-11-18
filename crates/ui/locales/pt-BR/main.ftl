@@ -3203,7 +3203,7 @@ server-settings-engagement-default-notification-settings = Configurações de no
 # Context: engagement
 server-settings-engagement-display-activity-feed-in-this-server = Exibir feed de atividades neste servidor
 # Context: engagement
-server-settings-engagement-engagement = Noivado
+server-settings-engagement-engagement = Engajamento
 # Context: engagement
 server-settings-engagement-inactive-channel = Canal inativo
 # Context: engagement
@@ -3239,7 +3239,7 @@ server-settings-page-body-reload-server-settings = Recarregar configurações do
 # Context: label
 server-settings-page-emoji = Emoji
 # Context: label
-server-settings-page-engagement = Noivado
+server-settings-page-engagement = Engajamento
 # Context: label
 server-settings-page-integrations = Integrações
 # Context: label
