@@ -429,9 +429,15 @@ declare_class!(
                 // next key press.
                 if !self.is_ime_enabled() {
                     *self.ivars().input_source.borrow_mut() = self.current_input_source();
-                    self.queue_event(WindowEvent::Ime(Ime::Enabled));
+                    // Publish the state first: the app may disable IME while handling `Enabled`.
                     self.ivars().ime_state.set(ImeState::Ground);
+                    self.queue_event(WindowEvent::Ime(Ime::Enabled));
+                    if !self.ivars().ime_allowed.get() {
+                        return;
+                    }
                 }
+                // `Ime::Commit` is documented to follow an empty `Preedit`.
+                self.queue_event(WindowEvent::Ime(Ime::Preedit(String::new(), None)));
                 self.queue_event(WindowEvent::Ime(Ime::Commit(string)));
             }
         }
