@@ -6854,6 +6854,7 @@ mod tests {
 		let mut state = test_support::voice_demo_state();
 		let channel = state.channel(Id(26)).unwrap().clone();
 		let guild = Id(10);
+		let member = state.user.as_ref().unwrap().id;
 		let metadata = state.permissions.guilds.get_mut(&guild).unwrap();
 		metadata.owner = Some(Id(99));
 		metadata
@@ -6898,7 +6899,8 @@ mod tests {
 		};
 		let lock_uv = icon_uv(crate::icons::Icon::Lock);
 		let speaker_uv = icon_uv(crate::icons::Icon::Speaker);
-		let row_uvs = |state: &State| {
+		// Both lock sizes share one atlas UV, so keep each mesh's bounds with it.
+		let row_meshes = |state: &State| {
 			let ctx = egui::Context::default();
 			let mut view = MessagingUi::default();
 			let output = ctx.run_ui(
@@ -6913,47 +6915,77 @@ mod tests {
 					view.voice_channel_button(ui, state, &channel, false, false);
 				},
 			);
-			let uvs: Vec<_> = output
+			let meshes: Vec<_> = output
 				.shapes
 				.iter()
 				.filter_map(|shape| match &shape.shape {
-					egui::Shape::Mesh(mesh) => Some(mesh.vertices[0].uv),
+					egui::Shape::Mesh(mesh) => Some((mesh.vertices[0].uv, mesh.calc_bounds())),
 					_ => None,
 				})
 				.collect();
 			output.drop_without_applying_deltas();
-			uvs
+			meshes
 		};
 
-		let allowed = row_uvs(&state);
+		let allowed = row_meshes(&state);
+		let speaker = allowed
+			.iter()
+			.find(|(uv, _)| *uv == speaker_uv)
+			.expect("allowed row keeps the speaker");
 		assert!(
-			allowed.contains(&speaker_uv),
-			"allowed row keeps the speaker"
+			!allowed.iter().any(|(uv, _)| *uv == lock_uv),
+			"allowed row has no lock"
 		);
-		assert!(!allowed.contains(&lock_uv), "allowed row has no lock");
 
+		// Deny both to @everyone so the row qualifies for the corner badge, then give
+		// this member VIEW_CHANNEL back so the row stays viewable but CONNECT stays denied.
 		state
 			.permissions
 			.channels
 			.get_mut(&channel.id)
 			.unwrap()
-			.overwrites = Some(vec![p::Overwrite {
-			id: guild,
-			kind: 0,
-			allow: 0,
-			deny: p::CONNECT,
-		}]);
+			.overwrites = Some(vec![
+			p::Overwrite {
+				id: guild,
+				kind: 0,
+				allow: 0,
+				deny: p::VIEW_CHANNEL | p::CONNECT,
+			},
+			p::Overwrite {
+				id: member,
+				kind: 1,
+				allow: p::VIEW_CHANNEL,
+				deny: 0,
+			},
+		]);
 		state.permissions.clear_cache();
-		let denied = row_uvs(&state);
-		assert!(denied.contains(&lock_uv), "denied row paints the full lock");
+		let access = state.channel_access(channel.id);
 		assert!(
-			!denied.contains(&speaker_uv),
-			"denied row drops the speaker"
+			access.limited() && !access.hidden() && voice_channel_locked(&state, &channel),
+			"the denied fixture must be limited, viewable and locked"
 		);
+		let denied = row_meshes(&state);
+		let locks: Vec<_> = denied.iter().filter(|(uv, _)| *uv == lock_uv).collect();
 		assert_eq!(
-			denied.iter().filter(|uv| **uv == lock_uv).count(),
+			locks.len(),
 			1,
 			"the corner lock is suppressed under the full lock"
+		);
+		assert!(
+			!denied.iter().any(|(uv, _)| *uv == speaker_uv),
+			"denied row drops the speaker"
+		);
+		let lock = locks[0].1;
+		let size_gap = (lock.width() - speaker.1.width())
+			.abs()
+			.max((lock.height() - speaker.1.height()).abs());
+		let center_gap = (lock.center().x - speaker.1.center().x)
+			.abs()
+			.max((lock.center().y - speaker.1.center().y).abs());
+		assert!(
+			size_gap < 1.0 && center_gap < 1.0,
+			"the lock must fill the speaker slot: {lock:?} vs {:?}",
+			speaker.1
 		);
 	}
 }
