@@ -1,32 +1,31 @@
-# Resmi API ile Rust uygulamasına başlama
+# Getting Started with a Rust Client Using the Official API
 
-## Önce hangi ürünü yaptığını seç
+## First, choose what product you're building
 
-Discord'un resmi API'si, normal bir kullanıcı hesabının tam masaüstü istemcisini
-üçüncü taraf Rust uygulamasında yeniden oluşturma API'si değildir.
+Discord's official API is not an API for recreating the full desktop client for a normal user
+account in a third-party Rust application.
 
-- **Bot veya bot yönetim aracı:** Discord Developer Portal'da oluşturulan bot kimliği ve
-  belgelenmiş Bot API/Gateway akışları.
-- **Kullanıcı adına OAuth bağlantısı:** resmi OAuth2 akışı ve yalnızca kullanıcının verdiği
-  kapsamlar. OAuth2, Discord'un tüm birinci taraf istemci özelliklerine erişim sağlamaz.
-- **Normal kullanıcı token'ı ile “self-bot”:** bunu kullanmayın. Kendi hesabınızın token'ını
-  bir bot token'ı gibi göndermek, özel istemci protokolünü taklit etmek veya başka bir
-  uygulamadan token çıkarmak desteklenen bir yol değildir ve hesap riski taşır.
+- **A bot or bot management tool:** use a bot identity created in the Discord Developer Portal and
+  documented Bot API/Gateway flows.
+- **An OAuth connection on a user's behalf:** use the official OAuth2 flow and only the scopes the
+  user granted. OAuth2 does not provide access to every feature in Discord's first-party clients.
+- **A “self-bot” using a normal user token:** do not do this. Sending your own account token as if
+  it were a bot token, imitating a private client protocol, or extracting a token from another
+  application is not a supported approach and puts the account at risk.
 
-Bu nedenle aşağıdaki örnek, yalnızca kendi bot kimliğiyle kimlik bilgisi okuyan küçük bir
-**resmi Bot API** başlangıç denemesidir. Bir Serein özelliğini normal kullanıcı hesabıyla
-çoğaltmaz.
+Accordingly, the example below is only a small **official Bot API** starter that reads the identity
+of its own bot. It does not recreate a Serein feature using a normal user account.
 
-## 1. Minimal proje
+## 1. Minimal project
 
-Rust projesi oluşturup `tokio`, `reqwest` (rustls ve `stream` özellikleriyle), `serde` ve
-`serde_json` ekleyin.
-Token'ı kaynak koda, uygulama paketine, log'a veya hata mesajına koymayın. Yerel
-geliştirmede `DISCORD_BOT_TOKEN` ortam değişkeninden okunabilir; dağıtılan masaüstü
-ikilisinin içine bot sırrı gömülmemelidir.
+Create a Rust project and add `tokio`, `reqwest` (with the `rustls` and `stream` features), `serde`,
+and `serde_json`.
+Do not put the token in source code, the application package, logs, or error messages. During local
+development, it can be read from the `DISCORD_BOT_TOKEN` environment variable; do not embed a bot
+secret in a distributed desktop binary.
 
-Bu örnek HTTPS üzerinden belgelenmiş `/users/@me` okuması yapar, yönlendirmeyi reddeder
-ve JSON gövdesini 64 KiB ile sınırlar:
+This example makes a documented `/users/@me` read over HTTPS, rejects redirects, and limits the
+JSON body to 64 KiB:
 
 ```rust
 use reqwest::header::{AUTHORIZATION, HeaderValue};
@@ -85,81 +84,79 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-Örnek sadece bağlantıyı ve serileştirmeyi gösterir. Gerçek uygulamada token'ı
-`Zeroizing` gibi bir sarmalayıcıyla yönetmeyi, hatalarda hassas değerleri asla yazmamayı
-ve masaüstü ürününde bot sırrı dağıtmamayı değerlendirin. Rate limit yanıtlarına
-`Retry-After`/Discord başlıklarına göre uyun; tüm yazma isteklerini otomatik tekrar
-etmeyin. Güncel sözleşme için daima [resmi API referansını](https://discord.com/developers/docs/intro)
-kullanın.
+The example only demonstrates connectivity and deserialization. In a real application, consider
+managing the token with a wrapper such as `Zeroizing`, never writing sensitive values in errors, and
+never distributing a bot secret in a desktop product. Follow `Retry-After` and Discord headers for
+rate-limit responses; do not automatically retry all write requests. Always use the
+[official API reference](https://discord.com/developers/docs/intro) for the current contract.
 
-## 2. Projeyi katmanlara ayır
+## 2. Split the project into layers
 
-Önerilen küçük başlangıç düzeni:
+A suggested small starter layout:
 
 ```text
 src/
-  app/          UI ve kullanıcı akışları
-  model/        uygulama alan tipleri
-  protocol/     serde DTO'ları ve doğrulama
-  api/          REST istemcisi ve tipli operasyonlar
-  gateway/      bot kullanıyorsa WebSocket oturumu
-  state/        olay indirgeme ve oturum nesli
-  storage/      yerel ayarlar ve kullanıcı verisi
+  app/          UI and user flows
+  model/        application domain types
+  protocol/     serde DTOs and validation
+  api/          REST client and typed operations
+  gateway/      WebSocket session, if using a bot
+  state/        event reduction and session generation
+  storage/      local settings and user data
 ```
 
-UI'den doğrudan ağ çağırmak yerine sınırlı bir komut kuyruğu kullanın. API/Gateway
-görevleri typed event'ler üretir; UI thread yalnızca state'i indirger ve çizer. Her yanıtı
-hesap/kanal/istek nesliyle eşleştirin ki gezinme değiştikten sonra dönen eski yanıt yeni
-ekranı ezmesin. Ağ, dosya, görsel çözme ve ses işini render/audio callback'lerinden uzak
-tutun.
+Use a bounded command queue instead of making network calls directly from the UI. API/Gateway
+tasks produce typed events; the UI thread only reduces state and renders. Associate each response
+with an account/channel/request generation so that a stale response cannot overwrite the new view
+after navigation changes. Keep network, file, image decoding, and audio work away from render/audio
+callbacks.
 
-## 3. REST için sağlam varsayılanlar
+## 3. Sound REST defaults
 
-1. API kökenini sabitleyin; dış girdiden tam URL kabul etmeyin.
-2. HTTPS doğrulaması, makul bağlantı/toplam zaman aşımı ve yönlendirme politikası belirleyin.
-3. Eşzamanlı istek, yanıt baytı, JSON dizisi ve saklanan nesne sayısına üst sınır koyun.
-4. `429` durumunu ve `Retry-After`/rate-limit başlıklarını uygulayın; limitleri atlatmaya
-   çalışmayın.
-5. Güvenli/idempotent okumalarla belirsiz yazma sonuçlarını ayırın. Sunucu yanıtı
-   kayboldu diye mesaj/işlem yazmasını körlemesine tekrarlamayın.
-6. Sadece gereken DTO alanlarını ayrıştırın; bozuk veya beklenmedik yanıtı açık hata olarak
-   sunun. Başarı gibi görünen boş varsayılanlar üretmeyin.
-7. Yetkiyi sunucu belirler. UI'deki rol/izin kontrolü güvenlik sınırı değildir.
+1. Pin the API origin; do not accept complete URLs from external input.
+2. Set HTTPS verification, reasonable connection/overall timeouts, and a redirect policy.
+3. Bound concurrent requests, response bytes, JSON array lengths, and the number of stored objects.
+4. Handle `429` and `Retry-After`/rate-limit headers; do not try to bypass limits.
+5. Distinguish safe/idempotent reads from writes with ambiguous outcomes. Do not blindly retry a
+   message or operation write just because the server response was lost.
+6. Parse only the DTO fields you need; report malformed or unexpected responses as explicit errors.
+   Do not produce empty defaults that look like success.
+7. Authorization is determined by the server. Role/permission checks in the UI are not a security
+   boundary.
 
-## 4. Gateway gerekiyorsa
+## 4. If you need the Gateway
 
-Bot Gateway bağlantısı için Discord'un güncel resmi belgelerini izleyin: Hello/heartbeat,
-Identify, istenen intents, Dispatch sıra numaraları, `READY`, `INVALID_SESSION`, Resume
-ve close kodları. Gerekli olmayan privileged intent'leri istemeyin. Yeniden bağlanma
-beklemelerini sınırlayın; her bağlantı hatasında yeni Identify döngüsü başlatmayın.
-Event kuyrukları dolarsa mesajları sessizce kaybetmek yerine oturumu kontrollü durdurun
-veya yeniden senkronize edin.
+For a bot Gateway connection, follow Discord's current official documentation: Hello/heartbeat,
+Identify, requested intents, Dispatch sequence numbers, `READY`, `INVALID_SESSION`, Resume, and
+close codes. Do not request privileged intents you do not need. Bound reconnect delays; do not
+start a new Identify loop after every connection error. If event queues fill up, stop the session
+in a controlled way or resynchronize instead of silently losing messages.
 
-Normal kullanıcı oturumları için Serein'in kullandığı özel/kararsız Gateway davranışını
-bu bot akışına kopyalamayın. Kodun varlığı veya sentetik fixture'ların geçmesi, Discord'un
-normal hesap istemcilerine destek verdiğini göstermez.
+Do not copy the private/unstable Gateway behavior Serein uses for normal user sessions into this
+bot flow. The existence of code or passing synthetic fixtures does not show that Discord supports
+normal-account clients.
 
-## 5. Önce çevrimdışı doğrula
+## 5. Validate offline first
 
-- UI, reducer ve hata akışlarını sentetik verilerle çalıştırın.
-- REST için loopback/mock sunucu kullanın; zaman aşımı, yanlış JSON, büyük gövde, 401/403,
-  429 ve yönlendirme durumlarını sınayın.
-- Gateway çözümleyicisini sentetik frame'lerle sınayın; canlı hesaba bağlanmayı test
-  varsayılanı yapmayın.
-- Yerel cache, kuyruk ve payload'ları hem bayt hem öğe sayısına göre sınırlayın.
-- Gerçek hesapla test gerekiyorsa yalnızca uygulamanın sahibi tarafından kontrol edilen
-  açıkça yetkilendirilmiş geliştirici oturumunda, küçük ve geri alınabilir adımlarla yapın.
-  Şifre, token, MFA kodu veya özel mesajı kaynak koda/log'a/CI'ya koymayın.
+- Exercise the UI, reducer, and error flows with synthetic data.
+- Use a loopback/mock server for REST; test timeouts, invalid JSON, oversized bodies, 401/403, 429,
+  and redirects.
+- Test the Gateway parser with synthetic frames; do not make connecting to a live account the
+  default test.
+- Bound local caches, queues, and payloads by both bytes and item count.
+- If testing with a real account is necessary, do so only in an explicitly authorized developer
+  session controlled by the application owner, using small and reversible steps. Never put a
+  password, token, MFA code, or private message in source code, logs, or CI.
 
-## Serein'den alınabilecek parçalar
+## What you can learn from Serein
 
-Serein'in **katman ayrımı, sınırlandırılmış kuyrukları, typed DTO/event akışı ve sentetik
-test yaklaşımı** incelenebilir. Normal hesapla kimlik doğrulama, özel endpoint'ler ve
-istemci kimliği taklidi ise genel amaçlı bir starter kit değildir.
+Serein's **layer separation, bounded queues, typed DTO/event flow, and synthetic testing approach**
+can be studied. Authentication with a normal account, private endpoints, and client identity
+spoofing are not a general-purpose starter kit.
 
-- [Kod akışı](how-serein-works.md)
-- [Discord uyumluluk sınıfları](../discord-compatibility.md)
-- [Mimari ve kapasite sınırları](../architecture.md)
-- [Kimlik bilgisi saklama politikası](../storage-policy.md)
-- [Resmi Gateway belgeleri](https://discord.com/developers/docs/events/gateway)
-- [Resmi OAuth2 belgeleri](https://discord.com/developers/docs/topics/oauth2)
+- [Code flow](how-serein-works.md)
+- [Discord compatibility classifications](../discord-compatibility.md)
+- [Architecture and capacity limits](../architecture.md)
+- [Credential storage policy](../storage-policy.md)
+- [Official Gateway documentation](https://discord.com/developers/docs/events/gateway)
+- [Official OAuth2 documentation](https://discord.com/developers/docs/topics/oauth2)
