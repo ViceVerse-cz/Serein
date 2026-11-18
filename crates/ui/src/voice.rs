@@ -476,14 +476,19 @@ impl MessagingUi {
 			row.left_center() + egui::vec2(18.0, 0.0),
 			egui::Vec2::splat(20.0),
 		);
-		channel_marks::paint_glyph(
-			ui.painter(),
-			access,
-			crate::icons::Icon::Speaker,
-			glyph,
-			text_color,
-		);
-		channel_marks::paint(ui.painter(), access, row, glyph, text_color);
+		let locked = voice_channel_locked(state, channel);
+		let icon = if locked {
+			crate::icons::Icon::Lock
+		} else {
+			crate::icons::Icon::Speaker
+		};
+		if locked {
+			// A full lock replaces the speaker, so no cutout or small corner badge is needed.
+			crate::icons::paint(ui.painter(), icon, glyph, text_color);
+		} else {
+			channel_marks::paint_glyph(ui.painter(), access, icon, glyph, text_color);
+		}
+		channel_marks::paint(ui.painter(), access, row, glyph, text_color, !locked);
 		let marks = channel_marks::trailing(access);
 		let occupancy = channel.user_limit.map(|limit| {
 			let people = state
@@ -5191,6 +5196,13 @@ fn device_combo(
 		.on_hover_text(&label)
 }
 
+/// Discord replaces a voice channel's speaker with a full lock when this account cannot connect.
+/// Unknown permissions leave the normal icon alone; only a proven denial locks it.
+fn voice_channel_locked(state: &State, channel: &model::Channel) -> bool {
+	channel.guild.is_some()
+		&& state.permission(channel.id, model::permissions::CONNECT) == Some(false)
+}
+
 /// Discord's two-part occupancy pill, people then limit, right-aligned to `right`.
 fn user_limit_pill(ui: &egui::Ui, right: egui::Pos2, people: usize, limit: u16) {
 	let colors = design::palette(ui);
@@ -6772,5 +6784,48 @@ mod tests {
 		output.drop_without_applying_deltas();
 		assert_eq!(badge_width, expected_width);
 		crate::i18n::set_current(prev_lang);
+	}
+
+	#[test]
+	fn inaccessible_voice_channels_use_a_lock_instead_of_the_speaker() {
+		use model::permissions as p;
+		let mut state = test_support::voice_demo_state();
+		let channel = state.channel(Id(26)).unwrap().clone();
+		// Without permission metadata the icon stays a speaker; an unknown is not a denial.
+		assert!(!voice_channel_locked(&state, &channel));
+		let guild = Id(10);
+		let metadata = state.permissions.guilds.get_mut(&guild).unwrap();
+		metadata.owner = Some(Id(99));
+		metadata
+			.roles
+			.as_mut()
+			.unwrap()
+			.iter_mut()
+			.find(|role| role.id == guild)
+			.unwrap()
+			.bits = p::VIEW_CHANNEL | p::CONNECT;
+		state.permissions.channels.insert(
+			channel.id,
+			p::Channel {
+				id: channel.id,
+				guild,
+				overwrites: Some(vec![]),
+			},
+		);
+		state.permissions.clear_cache();
+		assert!(!voice_channel_locked(&state, &channel));
+		state
+			.permissions
+			.channels
+			.get_mut(&channel.id)
+			.unwrap()
+			.overwrites = Some(vec![p::Overwrite {
+			id: guild,
+			kind: 0,
+			allow: 0,
+			deny: p::CONNECT,
+		}]);
+		state.permissions.clear_cache();
+		assert!(voice_channel_locked(&state, &channel));
 	}
 }
