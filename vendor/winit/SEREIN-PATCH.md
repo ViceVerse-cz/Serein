@@ -5,6 +5,11 @@ Source: crates.io `winit` 0.30.13 (Apache-2.0). Original archive SHA-256:
 `src`, `build.rs`, README, license and manifest provenance (`Cargo.toml.orig`). Examples, tests,
 docs and the upstream lockfile are dropped, and the published manifest omits their
 `[[example]]`/`[[test]]` targets and dev-dependencies; Serein's workspace lockfile is used.
+Serein builds only for Windows, macOS and Linux (X11/Wayland), so the Android, iOS, Redox
+(`orbital`) and web backends (`src/platform_impl/{android,ios,orbital,web}` and
+`src/platform/{android,ios,orbital,web}.rs`) are dropped. Every reference to them is behind
+that platform's `cfg`, so the remaining sources are unchanged. Building this fork for those
+targets, or with `--cfg docsrs`, fails.
 
 The only source change is in `src/platform_impl/macos/view.rs`:
 
