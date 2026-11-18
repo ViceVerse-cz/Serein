@@ -402,6 +402,8 @@ serein/
     └── xtask/            # Workspace automation tasks (packaging, checks, linting)
 ```
 
+For a Turkish walkthrough of the request flow and a Rust starter path, see the [Rust client guide](docs/rust-client-guide/README.md).
+
 ---
 
 ## Security & Storage Policy
