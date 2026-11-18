@@ -561,12 +561,20 @@ impl MessagingUi {
 				viewable,
 				selected,
 				format!(
-					"{} {}{}{}{}{}; {} {}",
+					"{} {}{}{}{}{}{}; {} {}",
 					channel.name,
 					crate::i18n::translate("voice-voice-channel-button-voice-channel"),
 					occupancy.map_or(String::new(), |(people, limit)| format!(
 						", {people}/{limit}"
 					)),
+					if locked {
+						format!(
+							", {}",
+							crate::i18n::translate("profiles-in-voice-unavailable")
+						)
+					} else {
+						String::new()
+					},
 					channel_marks::label(access),
 					if connected {
 						crate::i18n::translate("voice-voice-channel-button-connected")
@@ -585,11 +593,19 @@ impl MessagingUi {
 		});
 		response.on_hover_text_with(|| {
 			format!(
-				"{} · View voice channel{}{}{}",
+				"{} · View voice channel{}{}{}{}",
 				channel.name,
 				occupancy.map_or(String::new(), |(people, limit)| format!(
 					" · {people} of {limit} people"
 				)),
+				if locked {
+					format!(
+						" · {}",
+						crate::i18n::translate("profiles-in-voice-unavailable")
+					)
+				} else {
+					String::new()
+				},
 				channel_marks::label(access),
 				if connected { " · Connected" } else { "" }
 			)
@@ -6791,8 +6807,11 @@ mod tests {
 		use model::permissions as p;
 		let mut state = test_support::voice_demo_state();
 		let channel = state.channel(Id(26)).unwrap().clone();
-		// Without permission metadata the icon stays a speaker; an unknown is not a denial.
+		// An unknown permission is not a denial: the speaker stays.
+		let known = std::mem::take(&mut state.permissions);
+		assert_eq!(state.permission(channel.id, p::CONNECT), None);
 		assert!(!voice_channel_locked(&state, &channel));
+		state.permissions = known;
 		let guild = Id(10);
 		let metadata = state.permissions.guilds.get_mut(&guild).unwrap();
 		metadata.owner = Some(Id(99));
@@ -6827,5 +6846,114 @@ mod tests {
 		}]);
 		state.permissions.clear_cache();
 		assert!(voice_channel_locked(&state, &channel));
+	}
+
+	#[test]
+	fn locked_voice_row_paints_the_lock_without_the_corner_badge() {
+		use model::permissions as p;
+		let mut state = test_support::voice_demo_state();
+		let channel = state.channel(Id(26)).unwrap().clone();
+		let guild = Id(10);
+		let metadata = state.permissions.guilds.get_mut(&guild).unwrap();
+		metadata.owner = Some(Id(99));
+		metadata
+			.roles
+			.as_mut()
+			.unwrap()
+			.iter_mut()
+			.find(|role| role.id == guild)
+			.unwrap()
+			.bits = p::VIEW_CHANNEL | p::CONNECT;
+		state.permissions.channels.insert(
+			channel.id,
+			p::Channel {
+				id: channel.id,
+				guild,
+				overwrites: Some(vec![]),
+			},
+		);
+		state.permissions.clear_cache();
+
+		// Capture the atlas UV of each glyph by painting it on its own.
+		let icon_uv = |icon: crate::icons::Icon| {
+			let ctx = egui::Context::default();
+			let output = ctx.run_ui(Default::default(), |ui| {
+				crate::icons::paint(
+					ui.painter(),
+					icon,
+					egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(20.0, 20.0)),
+					egui::Color32::WHITE,
+				);
+			});
+			let uv = output
+				.shapes
+				.iter()
+				.find_map(|shape| match &shape.shape {
+					egui::Shape::Mesh(mesh) => Some(mesh.vertices[0].uv),
+					_ => None,
+				})
+				.expect("reference icon mesh");
+			output.drop_without_applying_deltas();
+			uv
+		};
+		let lock_uv = icon_uv(crate::icons::Icon::Lock);
+		let speaker_uv = icon_uv(crate::icons::Icon::Speaker);
+		let row_uvs = |state: &State| {
+			let ctx = egui::Context::default();
+			let mut view = MessagingUi::default();
+			let output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(280.0, 40.0),
+					)),
+					..Default::default()
+				},
+				|ui| {
+					view.voice_channel_button(ui, state, &channel, false, false);
+				},
+			);
+			let uvs: Vec<_> = output
+				.shapes
+				.iter()
+				.filter_map(|shape| match &shape.shape {
+					egui::Shape::Mesh(mesh) => Some(mesh.vertices[0].uv),
+					_ => None,
+				})
+				.collect();
+			output.drop_without_applying_deltas();
+			uvs
+		};
+
+		let allowed = row_uvs(&state);
+		assert!(
+			allowed.contains(&speaker_uv),
+			"allowed row keeps the speaker"
+		);
+		assert!(!allowed.contains(&lock_uv), "allowed row has no lock");
+
+		state
+			.permissions
+			.channels
+			.get_mut(&channel.id)
+			.unwrap()
+			.overwrites = Some(vec![p::Overwrite {
+			id: guild,
+			kind: 0,
+			allow: 0,
+			deny: p::CONNECT,
+		}]);
+		state.permissions.clear_cache();
+		let denied = row_uvs(&state);
+		assert!(denied.contains(&lock_uv), "denied row paints the full lock");
+		assert!(
+			!denied.contains(&speaker_uv),
+			"denied row drops the speaker"
+		);
+		assert_eq!(
+			denied.iter().filter(|uv| **uv == lock_uv).count(),
+			1,
+			"the corner lock is suppressed under the full lock"
+		);
 	}
 }
