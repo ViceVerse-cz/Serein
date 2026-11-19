@@ -882,6 +882,52 @@ struct FrameMetrics {
 	buckets: [u64; 8],
 	reflows: (u64, u64),
 }
+/// `SEREIN_MEMORY_DIAGNOSTICS=1`: the memory report on stderr every 30 s for a day. A writer
+/// thread does the writing, so a slow reader drops reports instead of delaying frames.
+struct MemoryDiagnostics {
+	next: std::time::Instant,
+	reports: std::sync::mpsc::SyncSender<String>,
+	remaining: u32,
+}
+impl MemoryDiagnostics {
+	const INTERVAL: Duration = Duration::from_secs(30);
+	/// About 1 KiB each, so a redirected run writes at most a few MiB.
+	const REPORTS: u32 = 2880;
+	fn from_env() -> Option<Self> {
+		if std::env::var_os("SEREIN_MEMORY_DIAGNOSTICS").is_none_or(|value| value != "1") {
+			return None;
+		}
+		let (reports, receive) = std::sync::mpsc::sync_channel::<String>(1);
+		std::thread::Builder::new()
+			.name("serein-memory-report".into())
+			.spawn(move || {
+				use std::io::Write;
+				for report in receive {
+					let _ = writeln!(std::io::stderr(), "{report}");
+				}
+			})
+			.ok()?;
+		Some(Self {
+			next: std::time::Instant::now(),
+			reports,
+			remaining: Self::REPORTS,
+		})
+	}
+	/// Runs from `logic`, so a minimized window keeps reporting.
+	fn sample(&mut self, ctx: &egui::Context, messaging: &ui::MessagingUi) {
+		// Fonts exist only once a first pass has run.
+		if self.remaining == 0 || ctx.cumulative_pass_nr() == 0 {
+			return;
+		}
+		let now = std::time::Instant::now();
+		if self.next <= now {
+			let _ = self.reports.try_send(messaging.memory_report(ctx));
+			self.remaining -= 1;
+			self.next = now + Self::INTERVAL;
+		}
+		ctx.request_repaint_after(self.next.saturating_duration_since(now));
+	}
+}
 impl Default for FrameMetrics {
 	fn default() -> Self {
 		Self::new(None)
@@ -1065,6 +1111,7 @@ struct Desktop {
 	monitor_geometry: Option<MonitorKey>,
 	monitor_period: Option<Duration>,
 	frame_metrics: FrameMetrics,
+	memory_diagnostics: Option<MemoryDiagnostics>,
 	/// The minimum last handed to winit; applying an unchanged one forces a frame on Windows.
 	window_minimum: Option<winit::dpi::PhysicalSize<u32>>,
 	/// A sampled placement waiting to remain unchanged for the rest interval.
@@ -2607,6 +2654,7 @@ impl Desktop {
 			monitor_geometry: None,
 			monitor_period: None,
 			frame_metrics: FrameMetrics::new(frame_sample),
+			memory_diagnostics: MemoryDiagnostics::from_env(),
 			window_minimum: None,
 			geometry_rest: app_settings::GeometryRest::default(),
 			#[cfg(feature = "demo")]
@@ -2897,6 +2945,8 @@ impl Desktop {
 			"- **Notifications:** {}",
 			self.messaging.notification_status
 		);
+		report.push('\n');
+		report.push_str(&self.messaging.memory_report(ctx));
 		report.push_str("\n## Recent log\n\n```\n");
 		report.push_str(&diagnostics::recent(400));
 		report.push_str("\n```\n");
@@ -6039,6 +6089,9 @@ impl eframe::App for Desktop {
 		// Every pass asks: a discarded pass's request would arrive stale and be ignored.
 		if let Some(wake) = self.geometry_rest.wake() {
 			ctx.request_repaint_after(wake);
+		}
+		if let Some(memory) = &mut self.memory_diagnostics {
+			memory.sample(ctx, &self.messaging);
 		}
 		let search_focused = {
 			#[cfg(feature = "demo")]

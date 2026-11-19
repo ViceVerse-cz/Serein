@@ -858,6 +858,24 @@ impl MediaLibrary {
 			.record(rendition.motion, rendition.size, Attempt::Pending);
 		self.accept_still(ctx, rendition.clone(), Some(image));
 	}
+	/// Renditions and accounted bytes per pool: inline stills, inline animations, viewer.
+	pub(super) fn usage(&self) -> [(&'static str, usize, usize); 3] {
+		let mut usage = [
+			("media stills", 0, 0),
+			("media animations", 0, 0),
+			("media viewer", 0, 0),
+		];
+		for held in self.slots.values().flat_map(|slot| &slot.held) {
+			let entry = &mut usage[match held.pool() {
+				Pool::Stills => 0,
+				Pool::Frames => 1,
+				Pool::Viewer => 2,
+			}];
+			entry.1 += 1;
+			entry.2 += held.bytes();
+		}
+		usage
+	}
 }
 
 #[cfg(test)]

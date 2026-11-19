@@ -74,6 +74,7 @@ mod invites;
 pub mod local_time;
 mod markdown;
 mod member_search;
+mod memory;
 mod mentions;
 mod messaging_permissions;
 mod notification_settings;
