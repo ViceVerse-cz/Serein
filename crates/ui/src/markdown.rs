@@ -2982,7 +2982,7 @@ impl Formatted {
 							.cell
 							.filter(|_| inline.custom.is_none() && shared.is_none())
 							.and_then(|_| {
-								crate::emoji::image(
+								crate::emoji::ready_image(
 									ui.ctx(),
 									&inline.text,
 									crate::emoji_details::HOVER_ART,

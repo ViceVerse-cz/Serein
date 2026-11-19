@@ -22,14 +22,14 @@ const TEXTURES: usize = 1024;
 const TEXTURE_BYTES: usize = pages::PAGES * (pages::PAGE * pages::PAGE * 4) as usize;
 /// Rasters not drawn for this long are released on a later pass.
 const IDLE: Duration = Duration::from_secs(60);
-/// Prefetching pauses above this share of [`TEXTURE_BYTES`], so speculative work never
-/// evicts what is on screen.
+/// Prefetching pauses when the rasters it may not evict (drawn in this or the previous pass,
+/// or prefetched and not drawn yet) reserve this share of [`TEXTURE_BYTES`].
 const PREFETCH_BYTES: usize = TEXTURE_BYTES / 4 * 3;
 /// Rasters above which prefetching pauses, as for [`PREFETCH_BYTES`].
 const PREFETCH_ITEMS: usize = TEXTURES / 4 * 3;
 /// Least time between two idle sweeps.
 const SWEEP: Duration = Duration::from_secs(1);
-/// Painted rasters refused for want of space are not requested again until space frees.
+/// Rasters refused for want of space are not requested again until space frees.
 const REFUSED: usize = 4096;
 /// Finished rasters uploaded per pass; the rest wait for the next pass.
 const UPLOAD_BYTES: usize = 4 * 1024 * 1024;
@@ -202,6 +202,11 @@ struct Cache {
 	/// Painted rasters that did not fit beside the ones on screen; they stay empty, without
 	/// being requested again, until space frees.
 	refused: HashSet<Key>,
+	/// Prefetched rasters that did not fit, for example in fragmented pages; not prefetched
+	/// again until space frees, but still requested when painted.
+	prefetch_refused: HashSet<Key>,
+	/// Rasters and page bytes prefetching must leave room beside, counted once per pass.
+	live: (usize, usize),
 	pass: Option<u64>,
 	now: Option<Instant>,
 	swept: Option<Instant>,
@@ -216,7 +221,8 @@ impl Cache {
 	}
 	/// Stores a finished raster in a page block. When no block is free and no page can be
 	/// added, evicts the least recently drawn rasters that were not drawn in this or the
-	/// previous pass, undrawn prefetches first. False when it does not fit beside those.
+	/// previous pass: undrawn prefetches first for a painted raster, last for a prefetched one.
+	/// False when it does not fit beside those.
 	fn insert(
 		&mut self,
 		ctx: &Context,
@@ -236,7 +242,7 @@ impl Cache {
 				.rasters
 				.iter()
 				.filter(|(_, raster)| raster.pass + 1 < pass)
-				.min_by_key(|(_, raster)| (raster.pass, raster.used))
+				.min_by_key(|(_, raster)| (!painted && raster.pass == 0, raster.pass, raster.used))
 				.map(|(key, _)| *key)
 			else {
 				return false;
@@ -277,9 +283,31 @@ impl Cache {
 			self.remove(key);
 		}
 		if !idle.is_empty() {
-			self.refused.clear();
+			self.unrefuse();
 		}
 		self.pages.release_empty();
+	}
+	/// Counts the rasters prefetching must leave room beside, and lets refused rasters be
+	/// requested again once a raster drawn by the `previous` pass may be evicted, as when the
+	/// view scrolled away from it.
+	fn review(&mut self, pass: u64, previous: Option<u64>) {
+		let (mut items, mut bytes, mut released) = (0, 0, false);
+		for (key, raster) in &self.rasters {
+			if raster.pass == 0 || raster.pass + 1 >= pass {
+				items += 1;
+				bytes += pages::block_bytes(key.1);
+			} else if previous.is_some_and(|previous| raster.pass + 1 >= previous) {
+				released = true;
+			}
+		}
+		self.live = (items, bytes);
+		if released {
+			self.unrefuse();
+		}
+	}
+	fn unrefuse(&mut self) {
+		self.refused.clear();
+		self.prefetch_refused.clear();
 	}
 	/// When an undrawn raster next becomes idle, for the host's maintenance deadline. A raster
 	/// that became idle while sweeps were throttled is released at the next allowed sweep.
@@ -354,7 +382,7 @@ impl Service {
 			return (now, pass);
 		}
 		let now = Instant::now();
-		cache.pass = Some(pass);
+		let previous = cache.pass.replace(pass);
 		cache.now = Some(now);
 		let mut finished = Vec::new();
 		{
@@ -388,14 +416,17 @@ impl Service {
 		}
 		for (key, image, painted) in finished {
 			match image {
-				// A prefetch that does not fit is dropped; prefetching pauses while the cache
-				// is this full by bytes or rasters, so it is not requested again in a loop.
 				Some(image) => {
-					if !cache.insert(ctx, key, &image, (now, pass), painted) && painted {
-						if cache.refused.len() >= REFUSED {
-							cache.refused.clear();
+					if !cache.insert(ctx, key, &image, (now, pass), painted) {
+						let refused = if painted {
+							&mut cache.refused
+						} else {
+							&mut cache.prefetch_refused
+						};
+						if refused.len() >= REFUSED {
+							refused.clear();
 						}
-						cache.refused.insert(key);
+						refused.insert(key);
 					}
 				}
 				// Layout caches keyed on the failure count lay the emoji out as text next pass.
@@ -406,6 +437,7 @@ impl Service {
 				}
 			}
 		}
+		cache.review(pass, previous);
 		cache.sweep(now, pass);
 		(now, pass)
 	}
@@ -437,8 +469,9 @@ impl Service {
 		self.begin_pass(ctx, &mut cache);
 		if cache.failed.contains(&key.0)
 			|| cache.rasters.contains_key(&key)
-			|| cache.bytes > PREFETCH_BYTES
-			|| cache.rasters.len() > PREFETCH_ITEMS
+			|| cache.prefetch_refused.contains(&key)
+			|| cache.live.1 > PREFETCH_BYTES
+			|| cache.live.0 > PREFETCH_ITEMS
 		{
 			return;
 		}
@@ -709,6 +742,14 @@ mod tests {
 		assert_eq!(service.cache().rasters.len(), PREFETCH_ITEMS + 1);
 		frame(true);
 		assert!(service.shared.lock().queues.idle(), "nothing prefetched");
+		// Once scrolled away they stay cached but no longer hold prefetching back.
+		for _ in 0..2 {
+			ctx.run_ui(Default::default(), |ui| {
+				service.prefetch(ui.ctx(), (TEXTURES, 16));
+			})
+			.drop_without_applying_deltas();
+		}
+		assert!(!service.shared.lock().queues.idle(), "prefetched again");
 	}
 
 	/// More distinct emoji on screen than the cache holds, by raster count (small emoji) or
@@ -763,6 +804,28 @@ mod tests {
 			state.repaint.is_none(),
 			"settled work holds no repaint handle"
 		);
+		drop(state);
+		// Scrolled to the ones that did not fit: they arrive once the rasters drawn before
+		// leave the screen, not only after those idle out.
+		let rest: Vec<Key> = keys
+			.into_iter()
+			.filter(|key| !shown.contains(key))
+			.collect();
+		let mut ready = 0;
+		// Large rasters upload over a few passes within the per-pass budget.
+		for _ in 0..8 {
+			ready = 0;
+			ctx.run_ui(Default::default(), |ui| {
+				for &key in &rest {
+					if let Lookup::Ready(..) = service.paint(ui.ctx(), key) {
+						ready += 1;
+					}
+				}
+			})
+			.drop_without_applying_deltas();
+			run_jobs(&ctx);
+		}
+		assert_eq!(ready, rest.len());
 	}
 
 	#[test]

@@ -158,6 +158,16 @@ pub(crate) fn presentation(text: &str) -> std::borrow::Cow<'_, str> {
 /// the same size). `None` when `text` is not a bundled emoji, the service is not installed or
 /// its artwork failed, so callers show the text instead.
 pub(crate) fn image(ctx: &Context, text: &str, size: f32) -> Option<Image<'static>> {
+	paint(ctx, text, size, true)
+}
+
+/// [`image`], but `None` while the raster is on its way, so callers can keep showing artwork
+/// they already have.
+pub(crate) fn ready_image(ctx: &Context, text: &str, size: f32) -> Option<Image<'static>> {
+	paint(ctx, text, size, false)
+}
+
+fn paint(ctx: &Context, text: &str, size: f32, pending: bool) -> Option<Image<'static>> {
 	let cell = lookup(text)?;
 	let service = raster::service(ctx)?;
 	let image = match service.paint(ctx, (cell, raster::edge(ctx, size))) {
@@ -166,8 +176,8 @@ pub(crate) fn image(ctx: &Context, text: &str, size: f32) -> Option<Image<'stati
 			egui::Vec2::splat(size),
 		))
 		.uv(uv),
-		raster::Lookup::Pending => blank(ctx, size),
-		raster::Lookup::Failed => return None,
+		raster::Lookup::Pending if pending => blank(ctx, size),
+		raster::Lookup::Pending | raster::Lookup::Failed => return None,
 	};
 	Some(image.alt_text(text))
 }
