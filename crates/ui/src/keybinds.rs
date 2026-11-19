@@ -194,11 +194,13 @@ fn capture(ui: &mut egui::Ui, bindings: &mut Keybinds, capturing: &mut Option<Ca
 		match event {
 			Event::Key {
 				key,
+				physical_key,
 				pressed: true,
 				repeat: false,
 				modifiers,
-				..
 			} => {
+				// The logical key of a keypad press is a digit or symbol; keep its position.
+				let key = physical_key.filter(|key| key.is_keypad()).unwrap_or(key);
 				if key == Key::Escape {
 					cancelled = true;
 				} else if let Some(name) = key_name(key) {
@@ -538,7 +540,22 @@ pub(crate) fn pressed(input: &mut InputState, chord: &KeyChord) -> bool {
 		modifiers.matches_logically(wanted) && (wanted.alt || !modifiers.alt)
 	};
 	if let Some(button) = button_from_name(&chord.key) {
+<<<<<<< HEAD
 		return consume_button(input, button, modifiers_match);
+=======
+		let wanted = egui_modifiers(chord.modifiers);
+		consume_button(input, button, |modifiers| {
+			modifiers.matches_logically(wanted)
+		})
+	} else {
+		match key_name_to_egui(&chord.key) {
+			Some(key) if key.is_keypad() => consume_keypad(input, key, |modifiers| {
+				modifiers.matches_logically(egui_modifiers(chord.modifiers))
+			}),
+			Some(key) => input.consume_key(egui_modifiers(chord.modifiers), key),
+			None => false,
+		}
+>>>>>>> 61c05fd6 (feat(keybinds): bind numpad keys; add GitHub OLED colour preset)
 	}
 	let Some(key) = key_name_to_egui(&chord.key) else {
 		return false;
@@ -559,11 +576,37 @@ pub(crate) fn pressed_exact(input: &mut InputState, chord: &KeyChord) -> bool {
 	let Some(key) = key_name_to_egui(&chord.key) else {
 		return false;
 	};
+	if key.is_keypad() {
+		return consume_keypad(input, key, |modifiers| {
+			modifier_bits(modifiers) == chord.modifiers
+		});
+	}
 	let matched = input.events.iter().any(|event| {
 		matches!(event, Event::Key { key: event_key, pressed: true, repeat: false, modifiers, .. }
 			if *event_key == key && modifier_bits(*modifiers) == chord.modifiers)
 	});
 	matched && input.consume_key(egui_modifiers(chord.modifiers), key)
+}
+
+/// Removes this frame's presses of the keypad `key`, matched by position since
+/// its logical key is a digit or symbol shared with the main row.
+fn consume_keypad(
+	input: &mut InputState,
+	key: Key,
+	matches: impl Fn(Modifiers) -> bool,
+) -> bool {
+	let is_press = |event: &Event| {
+		matches!(event, Event::Key { physical_key: Some(physical), pressed: true, .. }
+			if *physical == key)
+	};
+	let matched = input.events.iter().any(|event| {
+		is_press(event)
+			&& matches!(event, Event::Key { repeat: false, modifiers, .. } if matches(*modifiers))
+	});
+	if matched {
+		input.events.retain(|event| !is_press(event));
+	}
+	matched
 }
 
 /// Removes this frame's presses of `button` when one matches, like `consume_key`.
@@ -764,6 +807,18 @@ fn display_key(name: &str) -> String {
 		"Pipe" => "|".into(),
 		"Questionmark" => "?".into(),
 		"Exclamationmark" => "!".into(),
+		"NumpadEnter" => "Num ↵".into(),
+		"NumpadAdd" => "Num +".into(),
+		"NumpadSubtract" => "Num -".into(),
+		"NumpadMultiply" => "Num *".into(),
+		"NumpadDivide" => "Num /".into(),
+		"NumpadDecimal" => "Num .".into(),
+		name if name
+			.strip_prefix("Numpad")
+			.is_some_and(|digit| digit.len() == 1) =>
+		{
+			format!("Num {}", &name[6..])
+		}
 		name if name
 			.strip_prefix("Num")
 			.is_some_and(|digit| digit.len() == 1) =>
@@ -856,6 +911,22 @@ const KEYS: &[(Key, &str)] = &[
 	(Key::Num7, "Num7"),
 	(Key::Num8, "Num8"),
 	(Key::Num9, "Num9"),
+	(Key::NumpadEnter, "NumpadEnter"),
+	(Key::Numpad0, "Numpad0"),
+	(Key::Numpad1, "Numpad1"),
+	(Key::Numpad2, "Numpad2"),
+	(Key::Numpad3, "Numpad3"),
+	(Key::Numpad4, "Numpad4"),
+	(Key::Numpad5, "Numpad5"),
+	(Key::Numpad6, "Numpad6"),
+	(Key::Numpad7, "Numpad7"),
+	(Key::Numpad8, "Numpad8"),
+	(Key::Numpad9, "Numpad9"),
+	(Key::NumpadAdd, "NumpadAdd"),
+	(Key::NumpadSubtract, "NumpadSubtract"),
+	(Key::NumpadMultiply, "NumpadMultiply"),
+	(Key::NumpadDivide, "NumpadDivide"),
+	(Key::NumpadDecimal, "NumpadDecimal"),
 	(Key::A, "A"),
 	(Key::B, "B"),
 	(Key::C, "C"),
@@ -940,6 +1011,37 @@ const KEYS: &[(Key, &str)] = &[
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn keypad_chords_match_by_position_not_the_main_row_digit() {
+		let press = |physical_key| Event::Key {
+			key: Key::Num5,
+			physical_key,
+			pressed: true,
+			repeat: false,
+			modifiers: Modifiers::NONE,
+		};
+		let chord = KeyChord::new("Numpad5", 0);
+		let ctx = egui::Context::default();
+		let (mut main_row, mut keypad, mut held) = (true, false, false);
+		let mut output = ctx.run_ui(
+			egui::RawInput {
+				events: vec![press(Some(Key::Num5)), press(Some(Key::Numpad5))],
+				..Default::default()
+			},
+			|ui| {
+				main_row = ui.input_mut(|input| {
+					input.events.truncate(1);
+					pressed(input, &chord)
+				});
+				ui.input_mut(|input| input.events.push(press(Some(Key::Numpad5))));
+				held = ui.input(|input| down(input, &chord));
+				keypad = ui.input_mut(|input| pressed(input, &chord));
+			},
+		);
+		output.textures_delta.clear();
+		assert!(!main_row && keypad && held);
+	}
 
 	#[test]
 	fn default_push_to_talk_does_not_consume_typing() {

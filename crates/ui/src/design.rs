@@ -91,9 +91,11 @@ pub enum Variant {
 	Ember = 4,
 	Verdant = 5,
 	Afterglow = 6,
+	/// GitHub Dark Colorblind on pure black: blue accent, orange danger.
+	Colorblind = 7,
 }
 impl Variant {
-	pub const ALL: [Variant; 7] = [
+	pub const ALL: [Variant; 8] = [
 		Variant::Standard,
 		Variant::Eclipse,
 		Variant::Slate,
@@ -101,6 +103,7 @@ impl Variant {
 		Variant::Ember,
 		Variant::Verdant,
 		Variant::Afterglow,
+		Variant::Colorblind,
 	];
 	pub fn label(self) -> &'static str {
 		match self {
@@ -111,6 +114,7 @@ impl Variant {
 			Variant::Ember => "Ember",
 			Variant::Verdant => "Verdant",
 			Variant::Afterglow => "Afterglow",
+			Variant::Colorblind => "GitHub OLED",
 		}
 	}
 	/// Stable identifier for persistence.
@@ -123,6 +127,7 @@ impl Variant {
 			Variant::Ember => "ember",
 			Variant::Verdant => "verdant",
 			Variant::Afterglow => "afterglow",
+			Variant::Colorblind => "github-oled",
 		}
 	}
 	/// Keys written by builds that shipped the previous theme names.
@@ -135,6 +140,7 @@ impl Variant {
 			Variant::Ember => "crimson-moon",
 			Variant::Verdant => "forest",
 			Variant::Afterglow => "sunset",
+			Variant::Colorblind => "github-oled",
 		}
 	}
 	pub fn from_key(key: &str) -> Option<Variant> {
@@ -386,6 +392,29 @@ pub fn builtin_colors(dark: bool, variant: Variant) -> Palette {
 		Variant::Ember => gradient([0x8c2340, 0x140609], 0x41262e),
 		Variant::Verdant => gradient([0x2b6350, 0x081a15], 0x283934),
 		Variant::Afterglow => gradient([0xd9663c, 0x35205e], 0x5b3b40),
+		Variant::Colorblind => {
+			let mut p = dark_common(
+				Color32::BLACK,
+				rgb(0x010409),
+				Color32::BLACK,
+				rgb(0x0d1117),
+				rgb(0x161b22),
+				rgb(0x21262d),
+				rgb(0x30363d),
+			);
+			p.text_strong = rgb(0xf0f6fc);
+			p.text = rgb(0xe6edf3);
+			p.muted = rgb(0x9198a1);
+			p.link = rgb(0x58a6ff);
+			p.accent = rgb(0x58a6ff);
+			p.accent_text = Color32::BLACK;
+			p.positive = rgb(0x58a6ff);
+			p.warning = rgb(0xd29922);
+			p.danger = rgb(0xfdac54);
+			p.mention_bg = rgba(0x58a6ff, 76);
+			p.mention_text = rgb(0xa5d6ff);
+			p
+		}
 	};
 	customize(palette, primary_color())
 }

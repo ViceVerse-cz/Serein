@@ -402,15 +402,24 @@ impl InputState {
             match event {
                 Event::Key {
                     key,
+                    physical_key,
                     pressed,
                     repeat,
                     ..
                 } => {
+                    // Keypad keys are also tracked by position, since their logical key is a digit or symbol.
+                    let keypad = physical_key.filter(|key| key.is_keypad());
                     if *pressed {
                         let first_press = keys_down.insert(*key);
+                        if let Some(keypad) = keypad {
+                            keys_down.insert(keypad);
+                        }
                         *repeat = !first_press;
                     } else {
                         keys_down.remove(key);
+                        if let Some(keypad) = keypad {
+                            keys_down.remove(&keypad);
+                        }
                     }
                 }
                 Event::MouseWheel {
