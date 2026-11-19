@@ -1147,6 +1147,25 @@ impl State {
 
         let pressed = *state == winit::event::ElementState::Pressed;
 
+        #[cfg(target_os = "windows")]
+        if pressed
+            && self.modifiers.alt
+            && let Some(text) = text.as_deref()
+        {
+            use winit::platform::modifier_supplement::KeyEventExtModifierSupplement as _;
+            if let Some(input) = windows_altgr_event(
+                self.modifiers,
+                text,
+                event.text_with_all_modifiers(),
+                event.key_without_modifiers().to_text(),
+            ) {
+                // The physical fallback for Ctrl+Alt+A can activate Ctrl+A before
+                // the text event inserts the layout-produced character.
+                self.egui_input.events.push(input);
+                return;
+            }
+        }
+
         let physical_key = if let winit::keyboard::PhysicalKey::Code(keycode) = *physical_key {
             key_from_key_code(keycode)
         } else {
@@ -1218,18 +1237,6 @@ impl State {
                 // contain some data even when the key is released.
                 let is_cmd =
                     self.modifiers.ctrl || self.modifiers.command || self.modifiers.mac_cmd;
-                #[cfg(target_os = "windows")]
-                let is_cmd = {
-                    use winit::platform::modifier_supplement::KeyEventExtModifierSupplement as _;
-
-                    is_cmd
-                        && !windows_altgr_text(
-                            self.modifiers,
-                            text,
-                            event.text_with_all_modifiers(),
-                            event.key_without_modifiers().to_text(),
-                        )
-                };
                 if pressed && !is_cmd {
                     self.egui_input
                         .events
@@ -1592,16 +1599,22 @@ fn is_printable_char(chr: char) -> bool {
 }
 
 #[cfg(target_os = "windows")]
-fn windows_altgr_text(
+fn windows_altgr_event(
     modifiers: egui::Modifiers,
     text: &str,
     native_text: Option<&str>,
     unmodified_text: Option<&str>,
-) -> bool {
+) -> Option<egui::Event> {
     // Right Alt on an AltGr layout normally arrives without Ctrl or Alt. Windows also
     // lets Ctrl+Alt type the same characters. Keep those layout-produced characters,
     // while filtering unchanged text that winit can report for command keystrokes.
-    modifiers.ctrl && modifiers.alt && native_text == Some(text) && unmodified_text != Some(text)
+    (modifiers.ctrl
+        && modifiers.alt
+        && native_text == Some(text)
+        && unmodified_text != Some(text)
+        && !text.is_empty()
+        && text.chars().all(is_printable_char))
+    .then(|| egui::Event::Text(text.to_owned()))
 }
 
 #[cfg(target_os = "windows")]
@@ -1609,10 +1622,41 @@ fn windows_altgr_text(
 fn ctrl_alt_forwards_only_layout_produced_text() {
     let ctrl = egui::Modifiers::CTRL | egui::Modifiers::COMMAND;
     let altgr = ctrl | egui::Modifiers::ALT;
-    assert!(windows_altgr_text(altgr, "@", Some("@"), Some("q")));
-    assert!(!windows_altgr_text(altgr, "q", Some("q"), Some("q")));
-    assert!(!windows_altgr_text(altgr, "@", None, Some("q")));
-    assert!(!windows_altgr_text(ctrl, "@", Some("@"), Some("q")));
+    assert_eq!(
+        windows_altgr_event(altgr, "@", Some("@"), Some("q")),
+        Some(egui::Event::Text("@".into()))
+    );
+    assert_eq!(windows_altgr_event(altgr, "q", Some("q"), Some("q")), None);
+    assert_eq!(windows_altgr_event(altgr, "@", None, Some("q")), None);
+    assert_eq!(windows_altgr_event(ctrl, "@", Some("@"), Some("q")), None);
+}
+
+#[cfg(target_os = "windows")]
+#[test]
+fn altgr_text_keeps_an_existing_draft() {
+    let modifiers = egui::Modifiers::CTRL | egui::Modifiers::ALT | egui::Modifiers::COMMAND;
+    let input = windows_altgr_event(modifiers, "ą", Some("ą"), Some("a"))
+        .expect("Polish Ctrl+Alt+A produces printable text");
+    let ctx = egui::Context::default();
+    let id = egui::Id::unique("draft");
+    let mut draft = String::from("abc");
+    for events in [
+        vec![],
+        vec![egui::Event::ModifiersChanged(modifiers), input],
+    ] {
+        ctx.run_ui(
+            egui::RawInput {
+                events,
+                ..Default::default()
+            },
+            |ui| {
+                ui.memory_mut(|memory| memory.request_focus(id));
+                egui::TextEdit::singleline(&mut draft).id(id).show(ui);
+            },
+        )
+        .drop_without_applying_deltas();
+    }
+    assert_eq!(draft, "abcą");
 }
 
 fn is_cut_command(modifiers: egui::Modifiers, keycode: egui::Key) -> bool {
