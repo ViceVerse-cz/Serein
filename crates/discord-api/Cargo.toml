@@ -16,6 +16,8 @@ tokio = { workspace = true, features = ["test-util"] }
 zeroize.workspace = true
 futures-util.workspace = true
 url.workspace = true
+# Already built for wreq; request bodies are handed over as zeroizing owners.
+bytes = "1"
 
 [lints]
 workspace = true

@@ -213,17 +213,14 @@ fn cleanup_accounts(
 	committed
 }
 
+/// What the sign-in screen says about a finished lookup. A first launch has nothing saved, and
+/// that needs no message.
 pub fn loaded_status(result: &Result<Option<SessionSecret>, CredentialError>) -> &'static str {
 	match result {
-		Ok(Some(_)) => "Saved login found; connecting to Discord",
-		Ok(None) | Err(CredentialError::NoStore) => {
-			"No saved login found. Sign in with Discord to save one."
-		}
-		Err(CredentialError::Invalid) => "Saved login is invalid. Sign in with Discord again.",
-		Err(CredentialError::Unavailable) => "Saved login unavailable; sign in with Discord.",
-		Err(CredentialError::TimedOut) => {
-			"Saved-login check timed out. Sign in with Discord; the credential store did not respond."
-		}
+		Ok(_) | Err(CredentialError::NoStore) => "",
+		Err(CredentialError::Invalid) => "The saved login is no longer valid. Sign in again.",
+		Err(CredentialError::Unavailable) => "Could not read the saved login. Sign in again.",
+		Err(CredentialError::TimedOut) => "The credential store did not respond. Sign in again.",
 	}
 }
 
@@ -252,7 +249,7 @@ mod tests {
 		let (_, Outcome::Loaded(result)) = store.poll(now, None).unwrap() else {
 			panic!()
 		};
-		assert!(loaded_status(&result).contains("No saved login"));
+		assert_eq!(loaded_status(&result), "");
 		assert!(store.remaining(now).is_none());
 		assert!(store.load(2, now));
 		let timed_out = request(&commands);
@@ -297,8 +294,8 @@ mod tests {
 				.is_ok()
 		);
 		assert!(store.poll(now, None).is_none());
-		assert!(loaded_status(&Ok(Some(synthetic()))).contains("found"));
-		assert!(loaded_status(&Err(CredentialError::Invalid)).contains("invalid"));
+		assert_eq!(loaded_status(&Ok(Some(synthetic()))), "");
+		assert_ne!(loaded_status(&Err(CredentialError::Invalid)), "");
 		assert!(store.load(4, now));
 		drop(events);
 		assert!(matches!(

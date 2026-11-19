@@ -723,10 +723,7 @@ fn cdn_url(key: &str) -> Option<String> {
 	}
 	if let Some(id) = key.strip_prefix("app-icon-") {
 		let id: Id = id.parse().ok()?;
-		return Some(format!(
-			"{}/applications/{id}/rpc",
-			discord_api::api_v10_base()
-		));
+		return Some(format!("{}/applications/{id}/rpc", discord_api::api_base()));
 	}
 	if let Some(value) = key.strip_prefix("activity-") {
 		let (application, asset) = value.split_once('-')?;
@@ -2794,7 +2791,7 @@ mod tests {
 			);
 			assert_eq!(
 				super::cdn_url("app-icon-7").as_deref(),
-				Some("https://discord.com/api/v10/applications/7/rpc")
+				Some("https://discord.com/api/v9/applications/7/rpc")
 			);
 			for key in [
 				"activity-0-8",

@@ -1655,20 +1655,14 @@ main-restoring-screen-use-a-different-account = Użyj innego konta
 main-restoring-screen-welcome-back = Witamy z powrotem
 # Context: sign_in_accounts
 main-sign-in-accounts-saved-accounts = Zapisane konta
-# Context: sign_in_consent
-main-sign-in-consent-passwords-and-2fa-stay-on-discord-s-own-login-page = Hasła i 2FA pozostają na własnej stronie logowania Discord; w magazynie danych uwierzytelniających systemu operacyjnego przechowywany jest tylko token sesji.
 # Context: sign_in_disclosures
 main-sign-in-disclosures-about-serein = O Sereinie
 # Context: sign_in_disclosures
 main-sign-in-disclosures-connect-with-this-token = Połącz się z tym tokenem
 # Context: sign_in_disclosures
-main-sign-in-disclosures-for-owners-who-already-hold-a-valid-discord-session-token = Dla właścicieli, którzy posiadają już ważny token sesji Discord, na przykład z innej zalogowanej instalacji Serein. Hasła i 2FA nigdy nie są tutaj używane; całkowicie pomija to hostowaną stronę logowania Discord.
-# Context: sign_in_disclosures
 main-sign-in-disclosures-forget-saved-login = Zapomnij zapisane logowanie
 # Context: sign_in_disclosures
 main-sign-in-disclosures-session-token = Token sesji
-# Context: sign_in_disclosures
-main-sign-in-disclosures-sign-in-with-a-session-token = Zaloguj się za pomocą tokena sesji
 # Context: sign_in_header
 main-sign-in-header-continue-with-a-saved-account-or-sign-in-with-another = Kontynuuj, korzystając z zapisanego konta, lub zaloguj się na inne.
 # Context: sign_in_header
@@ -3478,12 +3472,6 @@ settings-activity-reading-programs = Odczytywanie uruchomionych programów…
 settings-activity-no-matching-programs = Nie działają żadne pasujące programy.
 # Context: activity_settings
 settings-activity-add-game = Dodaj grę
-# Context: appearance_menu
-settings-appearance-menu-display = Wyświetlacz
-# Context: appearance_menu
-settings-appearance-menu-mode = Tryb
-# Context: appearance_menu
-settings-appearance-menu-theme = Temat
 # Context: appearance_settings
 settings-appearance-settings-accent = Akcent
 # Context: appearance_settings

@@ -379,6 +379,32 @@ impl Avatars {
 		self.release_idle(Instant::now());
 		std::mem::take(&mut self.requests)
 	}
+	/// Entries and bytes each working set charges against its own budget.
+	pub(crate) fn usage(&self) -> [(&'static str, usize, usize); 8] {
+		let [stills, animations, viewer] = self.media.usage();
+		[
+			("artwork textures", self.textures.len(), self.bytes),
+			(
+				"emoji textures",
+				self.emoji_textures.len(),
+				self.emoji_bytes,
+			),
+			(
+				"fitted textures",
+				self.fits.values().map(Vec::len).sum(),
+				self.fit_bytes,
+			),
+			("decoded sources", self.sources.len(), self.source_bytes),
+			(
+				"artwork animations",
+				self.animations.len(),
+				self.animations.values().map(|a| a.bytes).sum(),
+			),
+			stills,
+			animations,
+			viewer,
+		]
+	}
 	/// Releases idle decoded frames and artwork textures; visible artwork refreshes its deadline.
 	fn release_idle(&mut self, now: Instant) {
 		let idle: Vec<String> = self

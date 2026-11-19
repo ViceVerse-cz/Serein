@@ -548,6 +548,16 @@ pub(super) fn discord_chat_link(input: &str) -> Option<ChatLink> {
 	})
 }
 
+fn copy_link(ui: &mut egui::Ui, url: &str) {
+	if ui
+		.button(crate::i18n::translate("attachments-media-menu-copy-link"))
+		.clicked()
+	{
+		ui.ctx().copy_text(url.to_owned());
+		ui.close();
+	}
+}
+
 pub(super) fn confirm_external_link(
 	ctx: &egui::Context,
 	opening: &mut Option<String>,
@@ -2009,7 +2019,7 @@ impl Formatted {
 							Self::show_emoji(
 								&[(label.clone(), Style::default())],
 								ui,
-								true,
+								Some(url),
 								render.images,
 								render.demo,
 								render.guilds,
@@ -2020,19 +2030,22 @@ impl Formatted {
 							)
 							.on_hover_text(url)
 						} else if let Some(pill) = &pill {
-							pill.show(
-								ui,
-								render.images,
-								render.demo,
-								render.line,
-								Some((&mut *render.surface, url)),
-							)
-							.on_hover_text(url)
+							let response = pill
+								.show(
+									ui,
+									render.images,
+									render.demo,
+									render.line,
+									Some((&mut *render.surface, url)),
+								)
+								.on_hover_text(url);
+							response.context_menu(|ui| copy_link(ui, url));
+							response
 						} else {
 							Self::show_emoji(
 								spans,
 								ui,
-								true,
+								Some(url),
 								render.images,
 								render.demo,
 								render.guilds,
@@ -2058,7 +2071,7 @@ impl Formatted {
 						Self::show_emoji(
 							spans,
 							ui,
-							false,
+							None,
 							render.images,
 							render.demo,
 							render.guilds,
@@ -2576,6 +2589,7 @@ impl Formatted {
 				Action::Link(link) => {
 					let url = &self.links[*link];
 					let hit = hit.on_hover_text(url);
+					hit.context_menu(|ui| copy_link(ui, url));
 					if hit.clicked() {
 						*render.opening = Some(url.clone());
 					}
@@ -2635,7 +2649,7 @@ impl Formatted {
 	fn show_emoji(
 		spans: &[(String, Style)],
 		ui: &mut egui::Ui,
-		link: bool,
+		url: Option<&str>,
 		images: &mut crate::avatars::Avatars,
 		demo: bool,
 		guilds: &[model::Guild],
@@ -2651,6 +2665,7 @@ impl Formatted {
 			image: Option<egui::Image<'static>>,
 		}
 		let size = crate::emoji::inline_size(ui);
+		let link = url.is_some();
 		let body = egui::TextStyle::Body.resolve(ui.style());
 		let mut job = LayoutJob::default();
 		let source: String = spans.iter().map(|(text, _)| text.as_str()).collect();
@@ -3015,11 +3030,16 @@ impl Formatted {
 				.map(|index| inlines[index].text.clone());
 			ui.data_mut(|data| data.insert_temp(menu, target));
 		}
-		if let Some(text) = ui.data(|data| data.get_temp::<Option<String>>(menu).flatten()) {
+		let emoji = ui.data(|data| data.get_temp::<Option<String>>(menu).flatten());
+		if url.is_some() || emoji.is_some() {
 			egui::Popup::context_menu(&response).id(menu).show(|ui| {
-				if ui
-					.button(crate::i18n::translate("markdown-show-emoji-copy-emoji"))
-					.clicked()
+				if let Some(url) = url {
+					copy_link(ui, url);
+				}
+				if let Some(text) = emoji
+					&& ui
+						.button(crate::i18n::translate("markdown-show-emoji-copy-emoji"))
+						.clicked()
 				{
 					ui.ctx().copy_text(text);
 					ui.close();
@@ -4355,6 +4375,57 @@ mod tests {
 					output.drop_without_applying_deltas();
 				}
 			}
+		}
+	}
+
+	#[test]
+	fn right_click_copies_the_link_destination_without_opening_it() {
+		let external = "https://example.com/target?value=1#section";
+		let message = "https://discord.com/channels/10/20/100";
+		for (source, label, url) in [
+			(format!("[Read more]({external})"), "Read more", external),
+			(message.to_owned(), "getting-started", message),
+		] {
+			let click = |pos, button| {
+				vec![
+					egui::Event::PointerMoved(pos),
+					egui::Event::PointerButton {
+						pos,
+						button,
+						pressed: true,
+						modifiers: egui::Modifiers::NONE,
+					},
+					egui::Event::PointerButton {
+						pos,
+						button,
+						pressed: false,
+						modifiers: egui::Modifiers::NONE,
+					},
+				]
+			};
+			let mut ui = MessageLinkTestUi::new(&source);
+			let (output, _) = ui.frame(320.0, vec![]);
+			let text = message_link_text(&output, label).expect("rendered link");
+			let link = text.pos + text.galley.rect.center().to_vec2();
+			output.drop_without_applying_deltas();
+			let (output, opening) = ui.frame(320.0, click(link, egui::PointerButton::Secondary));
+			assert!(opening.is_none());
+			assert!(output.platform_output.commands.is_empty());
+			output.drop_without_applying_deltas();
+			let (output, _) = ui.frame(320.0, vec![]);
+			let text = message_link_text(
+				&output,
+				&crate::i18n::translate("attachments-media-menu-copy-link"),
+			)
+			.expect("link context action");
+			let action = text.pos + text.galley.rect.center().to_vec2();
+			output.drop_without_applying_deltas();
+			let (output, opening) = ui.frame(320.0, click(action, egui::PointerButton::Primary));
+			assert!(opening.is_none());
+			assert!(output.platform_output.commands.iter().any(|command| {
+				matches!(command, egui::OutputCommand::CopyText(value) if value == url)
+			}));
+			output.drop_without_applying_deltas();
 		}
 	}
 

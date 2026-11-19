@@ -156,6 +156,10 @@ impl Layout {
 		games.revision.hash(&mut key);
 		width.to_bits().hash(&mut key);
 		crate::fonts::revision(ui.ctx()).hash(&mut key);
+		// An atlas reset moves every glyph, so a galley from before it samples the wrong pixels.
+		ui.ctx()
+			.fonts(|fonts| fonts.layout_generation())
+			.hash(&mut key);
 		ui.ctx().pixels_per_point().to_bits().hash(&mut key);
 		egui::TextStyle::Body.resolve(ui.style()).hash(&mut key);
 		let colors = crate::design::palette(ui);
@@ -1087,6 +1091,40 @@ mod tests {
 			layout.bidi.is_none(),
 			"left-to-right drafts keep egui's own caret"
 		);
+	}
+
+	/// An unchanged draft reuses its galley until the glyph atlas starts over.
+	#[test]
+	fn unchanged_draft_is_laid_out_again_after_an_atlas_reset() {
+		let ctx = egui::Context::default();
+		crate::fonts::install(&ctx);
+		let mut avatars = Avatars::default();
+		let mut layout = Layout::default();
+		let mut draft = || {
+			let mut galley = None;
+			ctx.run_ui(Default::default(), |ui| {
+				galley = Some(layout.galley(
+					ui,
+					"draft",
+					300.0,
+					&[],
+					&[],
+					&[],
+					false,
+					&mut avatars,
+					true,
+				));
+			})
+			.drop_without_applying_deltas();
+			galley.unwrap()
+		};
+		let first = draft();
+		assert!(Arc::ptr_eq(&first, &draft()));
+		// New text options start the atlas over, as its byte budget does.
+		ctx.global_style_mut(|style| {
+			style.visuals.text_options.font_hinting = !style.visuals.text_options.font_hinting;
+		});
+		assert!(!Arc::ptr_eq(&first, &draft()));
 	}
 
 	/// A double-click selects the whole Arabic word, and the release frames keep it.

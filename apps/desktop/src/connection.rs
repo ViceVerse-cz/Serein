@@ -28,6 +28,9 @@ pub struct Connection {
 	pub expiry: ExpirySlot,
 	/// Whether this connection reached READY, so a report can tell startup from mid-session.
 	pub ready: Arc<AtomicBool>,
+	/// The Gateway's latest close, recovery or stop. Kept outside the event queue, so a full
+	/// or dropped queue cannot lose why the session ended.
+	pub gateway_report: GatewayReportSlot,
 	/// One fixed-size candidate failure, independent of the account event queue.
 	pub confirmation_failure: watch::Receiver<Option<ConfirmationFailure>>,
 	pub share_activity: watch::Sender<bool>,
@@ -256,6 +259,8 @@ impl Connection {
 		let expiry = ExpirySlot::default();
 		let ready = Arc::new(AtomicBool::new(false));
 		let (api_expiry, gateway_ready) = (expiry.clone(), ready.clone());
+		let gateway_report = GatewayReportSlot::default();
+		let report_slot = gateway_report.clone();
 		let (confirmation_report, confirmation_failure) = watch::channel(None);
 		let (share_activity, share_receive) = watch::channel(false);
 		let (custom_rich_presence, custom_receive) = watch::channel(None);
@@ -290,6 +295,7 @@ impl Connection {
 		let gateway_reconnect = reconnect.clone();
 		let status_changed = Arc::new(tokio::sync::Notify::new());
 		let status_refresh = status_changed.clone();
+		let ready_refresh = status_changed.clone();
 		let task=runtime.spawn(async move {
             let emit=move |event:Event| -> Result<(),Failure> {
                 if let Event::AccountSettings { status: true, .. } = &event { status_changed.notify_one(); }
@@ -351,7 +357,7 @@ impl Connection {
 				let chosen = if cached.is_some() {
 					None
 				} else {
-					resolve_account_presence(&api, &presence_send, cached, &idle_timeout_send).await
+					resolve_account_presence(&api, &presence_send, None, &idle_timeout_send).await
 				};
                 let (idle_api, idle_identity, idle_wake) = (api.clone(), identity.clone(), wake.clone());
                 let _idle_timeout_task = AbortTask(tokio::spawn(async move {
@@ -361,8 +367,18 @@ impl Connection {
 				if chosen.is_some() {
 					wake.request_repaint();
 					let _ = account_presence_send.send_replace(chosen);
+				} else if cached.is_none() {
+					// Status unknown: identify invisible, then read it again once READY arrives.
+					let baseline = model::OwnPresence::default();
+					presence_send.send_if_modified(|slot| {
+						let unedited = *slot == baseline;
+						if unedited {
+							slot.status = model::PresenceStatus::Invisible;
+						}
+						unedited
+					});
+					ready_refresh.notify_one();
 				}
-				// The status read above already learned that the token was rejected.
 				if let Some(failure)=api.stop_reason() {return Err(failure);}
                 let emit=Arc::new(emit);
                 let (member_send,member_receive)=watch::channel(None);
@@ -397,7 +413,7 @@ impl Connection {
                     let error=discord_gateway::run_with_activity_recovery(secret,discord_gateway::GATEWAY_URL.to_owned(),member_receive,voice_receive,gateway_reconnect,(activity_receive,presence_receive,member_query_receive,spotify_receive,afk_receive),move |observation| {
                         if activity_observed.send_if_modified(|current| { if *current == observation { false } else { *current = observation; true } }) { activity_wake.request_repaint(); }
                         Ok(())
-                    },|event|{
+                    },move |report| record_gateway_report(&report_slot, report),|event|{
                         if let Event::Interaction(client_core::interactions::Event::Session(session)) = event { return gateway_api.interaction_session(Some(session)); }
                         if matches!(&event,Event::Disconnected|Event::Resync) { gateway_api.interaction_session(None)?; }
                         if let Some((ready_user,_,channels))=event.ready_navigation() {
@@ -922,6 +938,7 @@ impl Connection {
 			terminal,
 			expiry,
 			ready,
+			gateway_report,
 			confirmation_failure,
 			share_activity,
 			own_presence,
@@ -948,6 +965,41 @@ impl Connection {
 			send_recovery_pending: std::cell::Cell::new(false),
 			task,
 		}
+	}
+}
+
+/// The latest Gateway report and when it was made.
+pub type GatewayReportSlot = Arc<Mutex<Option<(discord_gateway::Report, Instant)>>>;
+
+/// Logs one Gateway close, recovery or stop and keeps it for the diagnostics report. Every
+/// value is a number or one of the Gateway's own constants.
+fn record_gateway_report(slot: &GatewayReportSlot, report: discord_gateway::Report) {
+	use diagnostics::{Level, Value};
+	use discord_gateway::Action;
+	let (level, label) = match report.action {
+		Action::Reconnecting => (Level::Info, "gateway closed"),
+		Action::Recovering { .. } => (Level::Warn, "gateway recovering with a fresh session"),
+		Action::BudgetSpent => (Level::Error, "gateway recovery budget spent"),
+		Action::Stopped => (Level::Error, "gateway stopped"),
+	};
+	let mut fields: Vec<(&'static str, Value)> = vec![("cause", report.cause.into())];
+	if let Some(code) = report.code {
+		fields.push(("code", code.into()));
+	}
+	if !report.dispatch.is_empty() {
+		fields.push(("dispatch", report.dispatch.into()));
+	}
+	match report.action {
+		Action::Recovering { wait_secs } => {
+			fields.push(("recoveries", report.recoveries.into()));
+			fields.push(("wait_secs", wait_secs.into()));
+		}
+		Action::BudgetSpent => fields.push(("recoveries", report.recoveries.into())),
+		Action::Reconnecting | Action::Stopped => fields.push(("ready", report.ready.into())),
+	}
+	diagnostics::record_fields(diagnostics::Category::Gateway, level, label, &fields);
+	if let Ok(mut slot) = slot.lock() {
+		*slot = Some((report, Instant::now()));
 	}
 }
 
@@ -979,7 +1031,7 @@ async fn resolve_account_presence(
 	idle_timeout: &watch::Sender<Option<u32>>,
 ) -> Option<model::OwnPresence> {
 	let baseline = presence.borrow().clone();
-	let remote = tokio::time::timeout(Duration::from_secs(8), api.account_status())
+	let remote = tokio::time::timeout(Duration::from_secs(8), api.account_status_before_ready())
 		.await
 		.ok()
 		.and_then(Result::ok)

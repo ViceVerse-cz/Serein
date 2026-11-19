@@ -208,6 +208,20 @@ Normal-account use remains unofficial. Local WebSocket regressions exercise the
 recovery policy; they do not establish the cause of issue #577's macOS Wi-Fi
 failure or prove live Discord recovery.
 
+After READY, Gateway traffic Serein cannot read no longer ends the connection:
+a corrupt compressed frame, an unreadable packet or dispatch (a failed READY
+included), or an unsupported opcode starts a fresh session. It identifies again
+and never resumes, because the resume cursor has already moved past the unread
+event. The waits are 30, 60 and 120 seconds, and the fourth failure within 30
+minutes stops the connection as before. That limit is local policy, not a
+verified Discord quota; how the service weighs repeated identifies from a normal
+account is unverified. Stop-listed close codes, capacity limits, a refusing event
+queue and Serein's own input faults still stop without a retry, and the initial
+login is unchanged. Each close, recovery and stop is recorded with fixed labels
+(cause, close code or opcode, handled dispatch name) for the diagnostics log and
+report. Local WebSocket regressions cover this policy; the cause of issue #1043
+is not established.
+
 ## Profile boards — October 7, 2026
 
 The full profile reads game widgets from the existing on-demand profile response,
@@ -337,6 +351,8 @@ including the active Gateway session, nonce, received command ID/version and val
 typed arguments. Root commands, subcommands and one subcommand-group level support strings,
 integers, numbers, booleans, static choices and user/channel/role/mentionable IDs.
 Entity pickers use already loaded account data; they do not fetch a complete directory.
+String arguments without choices offer the same member suggestions after a trailing `@name`,
+inserting a `<@id>` mention as Discord's string fields do; bots receive it as plain text.
 Required fields, declared limits, choices, command context and channel access are checked
 before sending. Serein requires Send Messages (Send Messages in Threads for threads) for
 all slash commands, plus Use Application Commands for guild application commands. The picker and
@@ -3204,6 +3220,57 @@ not assumed disabled. Contributions depending on that switch remain unknown unti
 count reconciliation. This is conservative local behavior, not a verified service-equivalence claim.
 No new service setting, protocol request or Identify capability is introduced.
 
+### Desktop client recording — November 19
+
+**Observed on the owner's official client; one machine, one account.** The owner's
+Homebrew-installed Discord for macOS (0.0.423, Electron 44.10.2, Chromium 152.0.7977.169,
+web build 676376, native build 98981) was signed in to a burner account and relaunched
+with the Chromium debugging port bound to 127.0.0.1. Startup, a password login and a QR
+login were recorded over the DevTools protocol. Authorization, cookies, the identify token,
+the email, password, tickets and URL query secrets were removed before anything was saved.
+No message, call or setting change was made. Static sources were the installed app, the
+desktop core module from the stable update manifest (hash matched) and the public `/app`
+bundle.
+
+- **REST:** `/api/v9`, all over HTTP/3. Headers as Serein already sends, with
+  `sec-ch-ua: "Not?A_Brand";v="24", "Chromium";v="152"`. No `X-Installation-ID` was sent and
+  no `/apex` request was made, before or after login.
+- **Super-properties (desktop):** `os`, `browser: "Discord Client"`, `release_channel`,
+  `client_version`, `os_version` (Electron's system version), `os_version_is_release`,
+  `os_sdk_version` (Darwin major on macOS, build number on Windows), `os_arch`, `app_arch`,
+  `system_locale`, `has_client_mods`, `client_launch_id`, `browser_user_agent`,
+  `browser_version` (the Electron version), Linux's `window_manager`, `distro`,
+  `runtime_environment` and `display_server` or Windows' `os_build_revision`, then
+  `client_build_number`, `native_build_number` and `client_event_source`. REST adds
+  `launch_signature`, `client_heartbeat_session_id` and `client_app_state`. The web client's
+  `device` and referrer fields are absent.
+- **Gateway:** `encoding=etf&v=9&compress=zstd-stream`. The fast-connect identify has
+  `capabilities: 1767421` (1734653 without channel obfuscation), the properties with
+  `is_fast_connect: true` and `client_state: {guild_versions: {}}`, and no presence. After a
+  login the identify adds `presence`, `compress: false`, `qos_token`,
+  `is_fast_connect: false` and `gateway_connect_reasons: "AppSkeleton"`. The client then sends
+  op 4, op 41 (analytics heartbeat session) and op 40 (QoS).
+- **Login:** `GET /experiments` (no fingerprint yet, `X-Context-Properties` with the page
+  path), then `GET /auth/location-metadata` with `X-Fingerprint`, then `POST /auth/login`
+  with `{"login","password","undelete":false,"login_source":null,"gift_code_sku_id":null}`,
+  referer `https://discord.com/login`, `Origin` and `X-Fingerprint`. The burner had no MFA, so
+  the MFA step was not recorded.
+- **QR:** the remote-auth socket sent hello (with `timeout_ms`), init, nonce proof,
+  `pending_remote_init`, `pending_ticket` and `pending_login`; the ticket went to
+  `/users/@me/remote-auth/login` with `X-Fingerprint`. Both recorded fingerprints equal
+  base64url(SHA-256(the SPKI key sent in init)).
+
+Serein adopted the API version, the super-properties field set and order, the identify
+extras of a non-fast-connect start, the opening login requests and the host versions
+(macOS 0.0.423, Windows 1.0.9269, Linux 1.0.170). It does not adopt `launch_signature`,
+analytics, ETF, zstd, `capabilities` or HTTP/3. Its transport now uses wreq-util's Chromium 152
+profile from pinned upstream revisions, less `trust_anchors`. The recorded client's TCP
+ClientHellos (taken through a local CONNECT proxy that read only the ClientHello) and Serein's
+matched in ciphers, extension set, groups, ML-DSA-including signature algorithms, ALPN, ALPS,
+key shares and certificate compression; the ECH GREASE length varied per connection in both.
+HTTP/2 settings inside TLS were not compared. One recording does not show how Discord weighs
+any of these values.
+
 ### Desktop metadata reference — November 12
 
 **Unofficial; static source comparison only, live interoperability unverified.**
@@ -3252,10 +3319,17 @@ does not establish the current Electron application's complete behavior.
   account attention required. Pending requests recheck the latch after admission,
   cooldown and proxy configuration waits. Already dispatched requests may finish.
   40001 stops the session as expired; 40012 remains a linked-resource refusal; a guild ban (40007) remains local.
+- HTTP 401 stops the session as expired and records the response's JSON error code
+  with the redacted route. The exception is 401 with code 60003, which the
+  unofficial user-API notes describe as an MFA check on a valid token: it stops
+  the session as a security challenge and keeps the saved login. Unverified
+  against a live account.
 - Gateway 4001–4005 and 4008 stop recovery. Discord permits reconnection for
   several of these; Serein deliberately requires explicit reconnection so a bad
   producer cannot repeatedly send invalid or rate-limited payloads. Normal
-  network recovery and 4007/4009 fresh identification remain supported.
+  network recovery and 4007/4009 fresh identification remain supported. 4015
+  (unofficial: too many open user-account sessions) stops as well, because each
+  new identify would add another session.
 - Voice 4021 (rate limit) and 4022 (call terminated) join 4014 in terminal call
   handling, preventing the desktop automatic rejoin loop.
 - Attachment staging and storage PUT remain single-attempt, with one explicit

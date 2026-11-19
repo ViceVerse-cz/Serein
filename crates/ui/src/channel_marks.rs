@@ -66,8 +66,9 @@ pub(crate) fn paint(
 	row: Rect,
 	glyph: Rect,
 	color: Color32,
+	show_lock: bool,
 ) {
-	if access.limited() {
+	if show_lock && access.limited() {
 		let badge = lock_badge(glyph);
 		icons::paint(painter, Icon::Lock, badge, color);
 	}

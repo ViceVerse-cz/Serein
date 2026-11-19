@@ -107,7 +107,9 @@ impl Captcha {
 }
 
 /// The webview follows only a plain HTTP CONNECT proxy; anything else stays on the OS route.
-fn webview_proxy(route: Option<&discord_api::proxy::ApiProxy>) -> Option<platform::captcha::Proxy> {
+pub(super) fn webview_proxy(
+	route: Option<&discord_api::proxy::ApiProxy>,
+) -> Option<platform::captcha::Proxy> {
 	let Some(discord_api::proxy::ApiProxy::Url { url }) = route else {
 		return None;
 	};

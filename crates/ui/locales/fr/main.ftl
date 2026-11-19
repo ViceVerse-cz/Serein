@@ -1655,20 +1655,14 @@ main-restoring-screen-use-a-different-account = Utiliser un autre compte
 main-restoring-screen-welcome-back = Content de te revoir
 # Context: sign_in_accounts
 main-sign-in-accounts-saved-accounts = Comptes enregistrés
-# Context: sign_in_consent
-main-sign-in-consent-passwords-and-2fa-stay-on-discord-s-own-login-page = Les mots de passe et 2FA restent sur la propre page de connexion de Discord ; seul le jeton de session est conservé dans le magasin d'informations d'identification de votre système d'exploitation.
 # Context: sign_in_disclosures
 main-sign-in-disclosures-about-serein = À propos de Serein
 # Context: sign_in_disclosures
 main-sign-in-disclosures-connect-with-this-token = Connectez-vous avec ce jeton
 # Context: sign_in_disclosures
-main-sign-in-disclosures-for-owners-who-already-hold-a-valid-discord-session-token = Pour les propriétaires qui détiennent déjà un jeton de session Discord valide, par exemple provenant d'une autre installation Serein connectée. Les mots de passe et 2FA ne sont jamais utilisés ici ; cela contourne entièrement la page de connexion hébergée par Discord.
-# Context: sign_in_disclosures
 main-sign-in-disclosures-forget-saved-login = Oublier la connexion enregistrée
 # Context: sign_in_disclosures
 main-sign-in-disclosures-session-token = Jeton de session
-# Context: sign_in_disclosures
-main-sign-in-disclosures-sign-in-with-a-session-token = Connectez-vous avec un jeton de session
 # Context: sign_in_header
 main-sign-in-header-continue-with-a-saved-account-or-sign-in-with-another = Continuez avec un compte enregistré ou connectez-vous avec un autre.
 # Context: sign_in_header
@@ -3478,12 +3472,6 @@ settings-activity-reading-programs = Lecture des programmes en cours…
 settings-activity-no-matching-programs = Aucun programme correspondant n'est en cours d'exécution.
 # Context: activity_settings
 settings-activity-add-game = Ajouter le jeu
-# Context: appearance_menu
-settings-appearance-menu-display = Afficher
-# Context: appearance_menu
-settings-appearance-menu-mode = Mode
-# Context: appearance_menu
-settings-appearance-menu-theme = Thème
 # Context: appearance_settings
 settings-appearance-settings-accent = Accent
 # Context: appearance_settings

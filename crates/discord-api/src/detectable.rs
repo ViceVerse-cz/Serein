@@ -67,7 +67,7 @@ pub async fn download_list(
 	download(
 		client,
 		cooldown,
-		&format!("{}/applications/detectable", crate::api_v10_base()),
+		&format!("{}/applications/detectable", crate::api_base()),
 		MAX_LIST,
 	)
 	.await

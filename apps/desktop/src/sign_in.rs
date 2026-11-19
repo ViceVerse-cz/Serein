@@ -8,6 +8,14 @@ pub(super) const SIGN_IN_HEADER_HEIGHT: f32 = if cfg!(target_os = "windows") {
 	60.0
 };
 
+/// How long a saved-login message stays on the sign-in screen.
+const NOTICE_SECONDS: f64 = 8.0;
+/// Padding inside the sign-in card.
+const CARD_PADDING: f32 = 32.0;
+/// The card with the QR code beside the form: both columns, the gap between them and the
+/// card's padding.
+const SIGN_IN_WIDE: f32 = 684.0 + CARD_PADDING * 2.0;
+
 impl Desktop {
 	pub(super) fn connect(&mut self, secret: SessionSecret, save: bool, ctx: &egui::Context) {
 		if self.presence_load_pending {
@@ -26,11 +34,7 @@ impl Desktop {
 		if let Some(store) = &mut self.store {
 			store.cancel_load();
 		}
-		self.credential_status = if save {
-			"Login will be saved after Discord connects"
-		} else {
-			"Connecting with the supplied session; saved login unchanged"
-		};
+		self.credential_status = "";
 		self.voice.stop();
 		self.messaging.camera_test_requested = false;
 		self.messaging.camera_test_texture = None;
@@ -39,6 +43,8 @@ impl Desktop {
 		self.uploads.cancel();
 		self.uploads.forget_parked();
 		self.login = None;
+		self.native.close();
+		self.messaging.close_settings();
 		self.state.interrupt_gif_favorites();
 		self.state.interrupt_emoji_frecency();
 		self.state.interrupt_preloads();
@@ -121,6 +127,7 @@ impl Desktop {
 		let was_demo = self.state.demo;
 		self.clear_avatars(ctx);
 		self.login = None;
+		self.native.close();
 		self.connection = None;
 		self.pending_save = None;
 		self.pending_account_save = None;
@@ -182,10 +189,10 @@ impl Desktop {
 			self.credential_status = if self.forgetting {
 				"Removing saved login…"
 			} else {
-				"Credential queue unavailable; saved login may remain"
+				"Could not reach the credential store. The saved login may remain."
 			};
 		} else if !was_demo {
-			self.credential_status = "Signed out of this account; its saved login is kept";
+			self.credential_status = "";
 		}
 		self.confirming_logout = false;
 		self.end_intent = SessionEnd::Logout;
@@ -239,7 +246,7 @@ impl Desktop {
 		self.credential_status = if started {
 			"Reading the saved login for that account…"
 		} else {
-			"Credential lookup unavailable; sign in with Discord again"
+			"Could not read the saved login. Sign in again."
 		};
 	}
 	/// Removes one saved account: its token, roster entry and cached data.
@@ -452,7 +459,7 @@ impl Desktop {
 								self.pending_account_save = None;
 								self.state.auth = AuthState::Unauthenticated;
 								self.state.status = "Disconnected";
-								self.credential_status = "Saved-login restore cancelled";
+								self.credential_status = "";
 							}
 						},
 					);
@@ -490,12 +497,6 @@ impl Desktop {
 								)
 								.color(p.text_strong),
 							);
-							ui.add_space(8.0);
-							ui.label(
-								egui::RichText::new("Early preview")
-									.size(13.0)
-									.color(p.muted),
-							);
 							ui.with_layout(
 								egui::Layout::right_to_left(egui::Align::Center),
 								|ui| {
@@ -507,48 +508,20 @@ impl Desktop {
 									} else {
 										ui.add_space(24.0);
 									}
-									ui.add_space(12.0);
-									// These popups hold settings controls, so a click inside
-									// must not dismiss them the way a menu command would.
-									let sticky = || {
-										egui::containers::menu::MenuConfig::new().close_behavior(
-											egui::PopupCloseBehavior::CloseOnClickOutside,
-										)
-									};
-									// Quiet header actions: text only until hovered, like the rest of the chrome.
-									let quiet =
-										|ui: &egui::Ui, text: &str, color: egui::Color32| {
-											egui::Button::new(
-												ui::design::medium(ui, text, 13.0).color(color),
-											)
-											.frame_when_inactive(false)
-											.corner_radius(8)
-										};
-									egui::containers::menu::MenuButton::from_button(quiet(
-										ui,
-										&ui::i18n::translate("page-appearance"),
-										p.muted,
-									))
-									.config(sticky())
-									.ui(ui, |ui| self.messaging.appearance_menu(ui));
-									ui.add_space(4.0);
+									ui.add_space(8.0);
 									let updates = &self.messaging.updates;
-									let (label, color) = if updates.ready {
-										("updates-shows-update-banner-restart-to-update", p.link)
-									} else if updates.busy {
-										("updates-shows-update-banner-updating", p.muted)
+									let (hint, update) = if updates.ready {
+										("updates-shows-update-banner-restart-to-update", true)
 									} else if updates.available {
-										("updates-shows-update-banner-update-available", p.link)
+										("updates-shows-update-banner-update-available", true)
 									} else {
-										("page-updates", p.muted)
+										("native-login-settings", false)
 									};
-									let label = ui::i18n::translate(label);
-									let demo = self.fixture_only || self.state.demo;
-									egui::containers::menu::MenuButton::from_button(quiet(
-										ui, &label, color,
-									))
-									.config(sticky())
-									.ui(ui, |ui| self.messaging.updates_menu(ui, demo));
+									if settings_button(ui, &ui::i18n::translate(hint), update)
+										.clicked()
+									{
+										self.messaging.open_sign_in_settings();
+									}
 								},
 							);
 						});
@@ -572,6 +545,8 @@ impl Desktop {
 					});
 				egui::ScrollArea::vertical()
 					.id_salt("sign-in-scroll")
+					// The scroll bar belongs on the window's edge, not the form's.
+					.auto_shrink(false)
 					.show(ui, |ui| {
 						let form = if self.sign_in_height > 0.0 {
 							self.sign_in_height
@@ -580,12 +555,24 @@ impl Desktop {
 						};
 						// A little above the middle, where the eye lands first.
 						ui.add_space(((ui.available_height() - form) * 0.42).max(16.0));
+						// The QR code sits beside the form when the window has room for both.
+						let wide = self.sign_in_shows_form()
+							&& self.native.wide() && ui.available_width()
+							>= SIGN_IN_WIDE + 32.0;
+						let width = if wide {
+							SIGN_IN_WIDE
+						} else if self.sign_in_shows_form() {
+							ui.available_width()
+								.min(native_login::FORM_WIDTH + CARD_PADDING * 2.0)
+						} else {
+							ui.available_width().min(native_login::FORM_WIDTH)
+						};
 						ui.vertical_centered(|ui| {
 							ui.allocate_ui_with_layout(
-								egui::vec2(ui.available_width().min(400.0), 0.0),
+								egui::vec2(width, 0.0),
 								egui::Layout::top_down(egui::Align::Min),
 								|ui| {
-									self.sign_in_form(ui);
+									self.sign_in_form(ui, wide);
 									#[cfg(feature = "demo")]
 									if self.fixture_only {
 										self.sign_in_preview(ui);
@@ -599,69 +586,103 @@ impl Desktop {
 						});
 					});
 			});
+		let ctx = ui.ctx().clone();
+		self.messaging.show_sign_in_settings(&ctx, &mut self.state);
 	}
-	/// Sign-in form: saved accounts first for returning owners, one clear primary action,
-	/// explicit consent, and everything else folded away until asked for. It stands on the
-	/// window itself, without a card, so the one accent fill is the way in.
-	fn sign_in_form(&mut self, ui: &mut egui::Ui) {
+	/// Whether the native form is on screen, rather than the saved accounts in front of it.
+	fn sign_in_shows_form(&self) -> bool {
+		self.messaging.accounts.is_empty() || self.native.open
+	}
+	/// Sign-in: saved accounts first for returning owners, then the card with Discord's own
+	/// login form and QR code. Everything else is a quiet line of links under it.
+	fn sign_in_form(&mut self, ui: &mut egui::Ui, wide: bool) {
 		let ctx = ui.ctx().clone();
 		let p = ui::design::palette(ui);
 		let returning = !self.messaging.accounts.is_empty();
+		// A new attempt starts clean: the last one's failure no longer applies.
+		if self.native.busy
+			&& matches!(
+				self.state.auth,
+				AuthState::Failed | AuthState::Expired | AuthState::Challenged
+			) {
+			self.state.auth = AuthState::Unauthenticated;
+			self.state.status = "Disconnected";
+			self.state.failure_detail = None;
+		}
 		let waiting = self.state.auth == AuthState::Authenticating;
 		let idle = !waiting && !self.forgetting;
-		// Fixture builds render the enabled state for captures; the actions stay inert.
-		self.sign_in_header(ui, returning);
-		ui.add_space(32.0);
-		if returning {
+		if self.sign_in_shows_form() {
+			egui::Frame::new()
+				.fill(ui::design::window_palette(ui).surface)
+				.stroke(egui::Stroke::new(1.0, p.border))
+				.corner_radius(16)
+				.inner_margin(CARD_PADDING)
+				.show(ui, |ui| {
+					ui.add_enabled_ui(idle, |ui| self.native_login_form(ui, wide, returning));
+				});
+			ui.add_space(16.0);
+			self.sign_in_credentials_note(ui);
+			if returning {
+				ui.add_space(4.0);
+				let back = ui
+					.vertical_centered(|ui| {
+						ui::design::text_action(ui, "native-login-back-to-saved-accounts")
+					})
+					.inner;
+				if back.clicked() {
+					self.native.open = false;
+					self.native.close();
+				}
+			}
+		} else {
+			self.sign_in_header(ui);
+			ui.add_space(32.0);
 			self.sign_in_accounts(ui, idle);
 			ui.add_space(12.0);
-		}
-		let label = if waiting {
-			"Waiting for Discord…"
-		} else if returning {
-			"Use another account"
-		} else {
-			"Continue with Discord"
-		};
-		let button = ui
-			.add_enabled_ui(idle, |ui| {
-				if returning {
-					ui::design::secondary_icon_button(ui, ui::icons::Icon::Plus, label)
-				} else {
-					ui::design::primary_button(ui, label)
+			// Fixture builds render the enabled state for captures.
+			let button = ui
+				.add_enabled_ui(idle, |ui| {
+					ui::design::secondary_icon_button(
+						ui,
+						ui::icons::Icon::Plus,
+						"Use another account",
+					)
+				})
+				.inner;
+			if button.clicked() {
+				if let Some(store) = &mut self.store {
+					store.cancel_load();
 				}
-			})
-			.inner;
-		if button.clicked() && !self.fixture_only {
-			if let Some(store) = &mut self.store {
-				store.cancel_load();
-			}
-			self.credential_status = "Sign in through Discord; saved-login lookup stopped";
-			let wake = ctx.clone();
-			match platform::LoginView::open(self.window.clone(), move || wake.request_repaint()) {
-				Ok(login) => {
-					self.login = Some(login);
-					self.state.auth = AuthState::Authenticating;
-					self.state.status = "Waiting for Discord login";
-				}
-				Err(error) => {
-					self.state.auth = AuthState::Failed;
-					self.state.status = error.label();
-				}
+				self.native.open = true;
 			}
 		}
-		ui.add_space(16.0);
-		self.sign_in_credentials_note(ui);
 		self.sign_in_status(ui);
-		ui.add_space(24.0);
-		let (line, _) =
-			ui.allocate_exact_size(egui::vec2(ui.available_width(), 1.0), egui::Sense::hover());
-		ui.painter().rect_filled(line, 0, p.border);
-		ui.add_space(8.0);
-		self.sign_in_disclosures(ui, &ctx);
+		ui.add_space(16.0);
+		self.sign_in_more(ui, &ctx);
 	}
-	/// App mark over a welcome line that adapts to whether this device already knows an account.
-	fn sign_in_header(&self, ui: &mut egui::Ui, returning: bool) {
+	/// Discord's hosted login page in a temporary webview, for a sign-in the native form
+	/// cannot finish (a security key, or a step this client does not know).
+	fn open_web_login(&mut self, ctx: &egui::Context) {
+		if let Some(store) = &mut self.store {
+			store.cancel_load();
+		}
+		self.native.close();
+		self.credential_status = "";
+		let wake = ctx.clone();
+		match platform::LoginView::open(self.window.clone(), move || wake.request_repaint()) {
+			Ok(login) => {
+				self.login = Some(login);
+				self.state.auth = AuthState::Authenticating;
+				self.state.status = "Waiting for Discord login";
+			}
+			Err(error) => {
+				self.state.auth = AuthState::Failed;
+				self.state.status = error.label();
+			}
+		}
+	}
+	/// App mark over the welcome for an owner this device already knows.
+	fn sign_in_header(&self, ui: &mut egui::Ui) {
 		let p = ui::design::palette(ui);
 		ui.vertical_centered(|ui| {
 			app_mark(ui, 48.0);
@@ -669,11 +690,7 @@ impl Desktop {
 			ui.label(
 				ui::design::semibold(
 					ui,
-					ui::i18n::translate_if_key(if returning {
-						"main-sign-in-header-welcome-back"
-					} else {
-						"main-sign-in-header-welcome-to-serein"
-					}),
+					ui::i18n::translate("main-sign-in-header-welcome-back"),
 					24.0,
 				)
 				.color(p.text_strong),
@@ -681,11 +698,9 @@ impl Desktop {
 			ui.add_space(8.0);
 			ui.add(
 				egui::Label::new(
-					egui::RichText::new(ui::i18n::translate_if_key(if returning {
-						"main-sign-in-header-continue-with-a-saved-account-or-sign-in-with-another"
-					} else {
-						"main-sign-in-header-sign-in-with-your-discord-account-to-get-started"
-					}))
+					egui::RichText::new(ui::i18n::translate(
+						"main-sign-in-header-continue-with-a-saved-account-or-sign-in-with-another",
+					))
 					.size(15.0)
 					.color(p.muted),
 				)
@@ -788,44 +803,89 @@ impl Desktop {
 			None => {}
 		}
 	}
-	/// Where the password and the token go, beside a lock.
+	/// Where the password goes, beside a lock, centred under the card.
 	fn sign_in_credentials_note(&self, ui: &mut egui::Ui) {
 		let p = ui::design::palette(ui);
-		ui.horizontal_top(|ui| {
-			ui.spacing_mut().item_spacing.x = 8.0;
-			let (icon, _) = ui.allocate_exact_size(egui::Vec2::splat(16.0), egui::Sense::hover());
-			ui::icons::paint(ui.painter(), ui::icons::Icon::Lock, icon, p.muted);
-			ui.add(
-				egui::Label::new(
-					egui::RichText::new(ui::i18n::translate(
-						"main-sign-in-consent-passwords-and-2fa-stay-on-discord-s-own-login-page",
-					))
-					.size(13.0)
-					.color(p.muted),
-				)
-				.wrap(),
-			);
-		});
+		let text = ui::i18n::translate("native-login-credentials-note");
+		let galley =
+			ui.painter()
+				.layout_no_wrap(text.clone(), egui::FontId::proportional(12.0), p.muted);
+		let width = 14.0 + 6.0 + galley.size().x;
+		if width > ui.available_width() {
+			ui.vertical_centered(|ui| {
+				ui.add(
+					egui::Label::new(egui::RichText::new(text).size(12.0).color(p.muted)).wrap(),
+				);
+			});
+			return;
+		}
+		let (row, _) = ui.allocate_exact_size(
+			egui::vec2(ui.available_width(), galley.size().y.max(14.0)),
+			egui::Sense::hover(),
+		);
+		let left = row.center().x - width * 0.5;
+		ui::icons::paint(
+			ui.painter(),
+			ui::icons::Icon::Lock,
+			egui::Rect::from_center_size(
+				egui::pos2(left + 7.0, row.center().y),
+				egui::Vec2::splat(14.0),
+			),
+			p.muted,
+		);
+		ui.painter().galley(
+			egui::pos2(left + 20.0, row.center().y - galley.size().y * 0.5),
+			galley,
+			p.muted,
+		);
 	}
 	/// One banner, only while something is happening or went wrong.
+	/// The credential message to show now, if it is still fresh. Saved-login messages describe one
+	/// event (a lookup that failed, an account removed), so they stay for a few seconds.
+	fn sign_in_notice(&mut self, ui: &egui::Ui) -> Option<&'static str> {
+		let status = self.credential_status;
+		if self.fixture_only || status.is_empty() || status == "Checking saved login…" {
+			self.sign_in_notice = None;
+			return None;
+		}
+		let now = ui.input(|input| input.time);
+		let (text, since) = match self.sign_in_notice {
+			Some((text, since)) if text == status => (text, since),
+			_ => (status, now),
+		};
+		self.sign_in_notice = Some((text, since));
+		let left = NOTICE_SECONDS - (now - since);
+		if left <= 0.0 {
+			return None;
+		}
+		ui.ctx()
+			.request_repaint_after(std::time::Duration::from_secs_f64(left));
+		Some(text)
+	}
+	/// One banner, only for a failure, work in progress, or a fresh saved-login message.
 	fn sign_in_status(&mut self, ui: &mut egui::Ui) {
 		let p = ui::design::palette(ui);
 		let attention = matches!(
 			self.state.auth,
 			AuthState::Failed | AuthState::Expired | AuthState::Challenged
 		);
-		let busy = self.state.auth == AuthState::Authenticating
-			|| self.forgetting
-			|| self.cache_pending > 0
-			|| self.cache_clears.pending();
-		let show = attention
-			|| busy || self.state.status != "Disconnected"
-			|| (!self.fixture_only
-				&& self.credential_status != "Checking saved login…"
-				&& !self.credential_status.is_empty());
-		if !show || (self.fixture_only && self.state.status == "Disconnected") {
+		let connecting = self.state.auth == AuthState::Authenticating;
+		let busy =
+			connecting || self.forgetting || self.cache_pending > 0 || self.cache_clears.pending();
+		let notice = self.sign_in_notice(ui);
+		if !(attention || busy || notice.is_some()) {
 			return;
 		}
+		// What the owner is waiting on or what went wrong comes first; a saved-login line follows
+		// unless it only repeats it.
+		let headline = (attention || connecting)
+			.then_some(self.state.status)
+			.filter(|status| *status != "Disconnected");
+		let detail = notice.or_else(|| {
+			(busy || attention)
+				.then_some(self.credential_status)
+				.filter(|status| !status.is_empty() && *status != "Checking saved login…")
+		});
 		ui.add_space(16.0);
 		let (fill, stroke, color) = if attention {
 			(
@@ -859,12 +919,10 @@ impl Desktop {
 					}
 					ui.vertical(|ui| {
 						ui.spacing_mut().item_spacing.y = 4.0;
-						if self.state.status != "Disconnected" || attention {
+						if let Some(headline) = headline {
 							ui.add(
 								egui::Label::new(
-									egui::RichText::new(self.state.status)
-										.size(13.0)
-										.color(color),
+									egui::RichText::new(headline).size(13.0).color(color),
 								)
 								.wrap(),
 							);
@@ -872,12 +930,15 @@ impl Desktop {
 						if attention {
 							self.sign_in_failure_details(ui, p.muted);
 						}
-						if !self.fixture_only && !self.credential_status.is_empty() {
+						if let Some(detail) = detail.filter(|detail| Some(*detail) != headline) {
+							let (size, tint) = if headline.is_some() {
+								(12.0, p.muted)
+							} else {
+								(13.0, color)
+							};
 							ui.add(
 								egui::Label::new(
-									egui::RichText::new(self.credential_status)
-										.size(12.0)
-										.color(p.muted),
+									egui::RichText::new(detail).size(size).color(tint),
 								)
 								.wrap(),
 							);
@@ -940,34 +1001,7 @@ impl Desktop {
 	fn sign_in_preview(&mut self, ui: &mut egui::Ui) {
 		let p = ui::design::palette(ui);
 		ui.add_space(24.0);
-		ui.horizontal(|ui| {
-			let y = ui.cursor().top() + 8.0;
-			let left = ui.cursor().left();
-			let width = ui.available_width();
-			let galley =
-				ui.painter()
-					.layout_no_wrap("or".into(), egui::FontId::proportional(12.0), p.muted);
-			let text_w = galley.size().x + 20.0;
-			ui.painter().hline(
-				left..=left + (width - text_w) * 0.5,
-				y,
-				egui::Stroke::new(1.0, p.border),
-			);
-			ui.painter().galley(
-				egui::pos2(
-					left + (width - galley.size().x) * 0.5,
-					y - galley.size().y * 0.5,
-				),
-				galley,
-				p.muted,
-			);
-			ui.painter().hline(
-				left + (width + text_w) * 0.5..=left + width,
-				y,
-				egui::Stroke::new(1.0, p.border),
-			);
-			ui.allocate_space(egui::vec2(width, 16.0));
-		});
+		native_login::or_divider(ui);
 		ui.add_space(16.0);
 		if ui::design::secondary_button(
 			ui,
@@ -1000,112 +1034,165 @@ impl Desktop {
 			);
 		});
 	}
-	/// Secondary panels: what this client is, and the owner's own session token.
-	fn sign_in_disclosures(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+	/// The rest, one quiet line of links: what this client is, the owner's own session
+	/// token, and Discord's hosted login page. Each opens a panel under the line.
+	fn sign_in_more(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
 		let p = ui::design::palette(ui);
-		if ui::design::disclosure(
-			ui,
-			&ui::i18n::translate("main-sign-in-disclosures-about-serein"),
-			self.about_open,
-		)
-		.clicked()
-		{
-			self.about_open = !self.about_open;
+		let labels = [
+			"main-sign-in-disclosures-about-serein",
+			"native-login-more-token",
+			"native-login-more-web",
+		]
+		.map(ui::i18n::translate);
+		// Centred by measuring: a row lays out from the left.
+		let font = egui::FontId::new(13.0, ui::design::medium_family(ui.ctx()));
+		let measure = |text: &str| {
+			ui.painter()
+				.layout_no_wrap(text.to_owned(), font.clone(), p.muted)
+				.size()
+				.x
+		};
+		let dot = measure("·");
+		let width = labels
+			.iter()
+			.map(|label| measure(label) + 12.0)
+			.sum::<f32>()
+			+ dot * 2.0;
+		let mut clicked = None;
+		ui.horizontal(|ui| {
+			ui.spacing_mut().item_spacing.x = 0.0;
+			ui.add_space(((ui.available_width() - width) * 0.5).max(0.0));
+			for (index, label) in labels.iter().enumerate() {
+				if index > 0 {
+					ui.label(ui::design::medium(ui, "·", 13.0).color(p.muted));
+				}
+				if ui::design::text_action(ui, label).clicked() {
+					clicked = Some(index);
+				}
+			}
+		});
+		// One panel at a time; the same link closes it again.
+		if let Some(index) = clicked {
+			let open = [self.about_open, self.token_open, self.native.web_open][index];
+			self.about_open = index == 0 && !open;
+			self.token_open = index == 1 && !open;
+			self.native.web_open = index == 2 && !open;
 		}
+		let panel = || {
+			egui::Frame::new()
+				.fill(p.raised)
+				.stroke(egui::Stroke::new(1.0, p.border))
+				.corner_radius(12)
+				.inner_margin(16)
+		};
+		let note = |ui: &mut egui::Ui, text: &str| {
+			ui.add(egui::Label::new(egui::RichText::new(text).size(12.0).color(p.muted)).wrap());
+		};
 		if self.about_open {
-			ui.add_space(2.0);
-			egui::Frame::NONE
-				.inner_margin(egui::Margin {
-					left: 30,
-					right: 4,
-					top: 2,
-					bottom: 8,
-				})
-				.show(ui, |ui| {
-					ui.spacing_mut().item_spacing.y = 6.0;
-					for line in [
-						"Messaging, reactions, search and read markers have offline tests. Real Discord interoperability is still unverified; attachment uploads and advanced search remain incomplete.",
-						"Messages and drafts are cached locally. Login tokens use the operating system credential store.",
-						"Unofficial clients may put your Discord account at risk.",
-					] {
-						ui.add(
-							egui::Label::new(
-								egui::RichText::new(line).size(12.0).color(p.muted),
-							)
-							.wrap(),
-						);
+			ui.add_space(8.0);
+			panel().show(ui, |ui| {
+				ui.set_width(ui.available_width());
+				ui.spacing_mut().item_spacing.y = 6.0;
+				for line in ["native-login-about-risk", "native-login-about-storage"] {
+					note(ui, &ui::i18n::translate(line));
+				}
+				if !self.fixture_only {
+					ui.add_space(2.0);
+					if ui::design::button(
+						ui,
+						&ui::i18n::translate("main-sign-in-disclosures-forget-saved-login"),
+						ui::design::ButtonKind::Outline,
+					)
+					.clicked()
+					{
+						self.logout(ctx);
 					}
-					if !self.fixture_only {
-						ui.add_space(2.0);
-						if ui::design::button(ui, &ui::i18n::translate("main-sign-in-disclosures-forget-saved-login"), ui::design::ButtonKind::Outline)
-							.clicked()
-						{
-							self.logout(ctx);
-						}
-					}
-				});
-		}
-		if ui::design::disclosure(
-			ui,
-			&ui::i18n::translate("main-sign-in-disclosures-sign-in-with-a-session-token"),
-			self.token_open,
-		)
-		.clicked()
-		{
-			self.token_open = !self.token_open;
+				}
+			});
 		}
 		if self.token_open {
-			ui.add_space(2.0);
-			egui::Frame::NONE
-				.inner_margin(egui::Margin {
-					left: 30,
-					right: 4,
-					top: 2,
-					bottom: 6,
-				})
-				.show(ui, |ui| {
-					ui.add(
-						egui::Label::new(
-							egui::RichText::new(ui::i18n::translate(
-								"main-sign-in-disclosures-for-owners-who-already-hold-a-valid-discord-session-token",
-							))
-							.size(12.0)
-							.color(p.muted),
+			ui.add_space(8.0);
+			panel().show(ui, |ui| {
+				ui.set_width(ui.available_width());
+				note(ui, &ui::i18n::translate("native-login-token-detail"));
+				ui.add_space(8.0);
+				ui::design::input(
+					ui,
+					egui::TextEdit::singleline(&mut *self.token_input)
+						.password(true)
+						.char_limit(2048)
+						.hint_text(ui::i18n::translate(
+							"main-sign-in-disclosures-session-token",
+						)),
+				);
+				ui.add_space(8.0);
+				let connect = ui
+					.add_enabled_ui(!self.token_input.is_empty(), |ui| {
+						ui::design::button(
+							ui,
+							&ui::i18n::translate(
+								"main-sign-in-disclosures-connect-with-this-token",
+							),
+							ui::design::ButtonKind::Primary,
 						)
-						.wrap(),
-					);
-					ui.add_space(8.0);
-					ui::design::input(
-						ui,
-						egui::TextEdit::singleline(&mut *self.token_input)
-							.password(true)
-							.char_limit(2048)
-							.hint_text(ui::i18n::translate(
-								"main-sign-in-disclosures-session-token",
-							)),
-					);
-					ui.add_space(8.0);
-					let connect = ui
-						.add_enabled_ui(!self.token_input.is_empty(), |ui| {
-							ui::design::button(
-								ui,
-								&ui::i18n::translate(
-									"main-sign-in-disclosures-connect-with-this-token",
-								),
-								ui::design::ButtonKind::Primary,
-							)
-						})
-						.inner;
-					if connect.clicked() && !self.fixture_only {
-						let input = std::mem::take(&mut *self.token_input);
-						match SessionSecret::from_owner_input(input) {
-							Ok(secret) => self.connect(secret, true, ctx),
-							Err(failure) => self.state.status = failure.label(),
-						}
+					})
+					.inner;
+				if connect.clicked() && !self.fixture_only {
+					let input = std::mem::take(&mut *self.token_input);
+					match SessionSecret::from_owner_input(input) {
+						Ok(secret) => self.connect(secret, true, ctx),
+						Err(failure) => self.state.status = failure.label(),
 					}
-				});
+				}
+			});
+		}
+		if self.native.web_open {
+			ui.add_space(8.0);
+			panel().show(ui, |ui| {
+				ui.set_width(ui.available_width());
+				note(ui, &ui::i18n::translate("native-login-web-detail"));
+				ui.add_space(8.0);
+				let idle = self.state.auth != AuthState::Authenticating && !self.forgetting;
+				let open = ui
+					.add_enabled_ui(idle, |ui| {
+						ui::design::button(
+							ui,
+							&ui::i18n::translate("native-login-web-open"),
+							ui::design::ButtonKind::Outline,
+						)
+					})
+					.inner;
+				if open.clicked() && !self.fixture_only {
+					self.open_web_login(ctx);
+				}
+			});
 		}
 	}
+}
+
+/// The header's one control: a quiet gear that opens settings, with a dot while an update waits.
+fn settings_button(ui: &mut egui::Ui, hint: &str, update: bool) -> egui::Response {
+	let p = ui::design::palette(ui);
+	let (rect, response) = ui.allocate_exact_size(egui::Vec2::splat(32.0), egui::Sense::click());
+	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), hint));
+	let hot = response.hovered() || response.has_focus();
+	if hot {
+		ui.painter().rect_filled(rect, 8, p.hover);
+		ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+	}
+	ui::icons::paint(
+		ui.painter(),
+		ui::icons::Icon::Gear,
+		egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(18.0)),
+		if hot { p.text_strong } else { p.muted },
+	);
+	if update {
+		let dot = rect.right_top() + egui::vec2(-7.0, 7.0);
+		ui.painter()
+			.circle_filled(dot, 5.5, ui::design::window_palette(ui).canvas);
+		ui.painter().circle_filled(dot, 3.5, p.link);
+	}
+	response.on_hover_text(hint)
 }
 
 /// The Serein mark on a solid accent tile; one shape at every size, no halo.

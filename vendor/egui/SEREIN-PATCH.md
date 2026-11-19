@@ -43,6 +43,7 @@ requests are squashed from the PR head that was reviewed; all of them are unmerg
 | 0023 | Serein | `epaint`, `egui_system_font_provider` | Emoji-presentation clusters (🆕, or ♾ with U+FE0F) use a face that draws them in color instead of an earlier text font's plain glyph, and the system font provider asks for the emoji font first. Text presentation is unchanged. Fixes #913. |
 | 0024 | [#8698](https://github.com/emilk/egui/pull/8698) | `epaint`, `egui` | Right-to-left runs get one glyph per char instead of `2n - 1`, so editor cursors stay inside the text (End then Ctrl+ArrowLeft in Arabic text no longer overflows). Merged with 0009's direction override, and ported to harfrust 0.15's in-place `Buffer`, which the PR head predates. |
 | 0025 | Serein | `epaint` | Laying out a multi-paragraph job one paragraph at a time keeps an empty first section, which carries `Label`'s wrap indentation, so text continuing a line after an inline widget (a heading after a channel chip) is no longer painted over that line. |
+| 0026 | Serein | `epaint` | The glyph atlas starts over once it outgrows 16 MiB, described below. |
 
 ## Serein patch: RTL shaping metadata
 
@@ -58,6 +59,24 @@ stale atlas UVs. Default `LayoutJob` layout is unchanged. The direction override
 harfrust 0.15's in-place `Buffer` (upstream #8874). Remove this patch when upstream exposes
 equivalent direction and cluster-mapping APIs with correct wrapped bidi layout. It does not
 provide bidirectional `TextEdit`, IME or screen-reader parity.
+
+## Serein patch: glyph atlas byte budget
+
+Upstream starts the shared glyph atlas over only when 80% of its rows are used. Its width is
+`max_texture_side` (8192 with egui-wgpu's limits), so it could hold 256 MiB in RAM plus the same
+texture on the GPU before that, mostly glyphs from text no longer shown. An installed Serein had
+grown it to 8192×512 (16 MiB each side) after 23 hours. `Fonts::begin_pass` now also starts it
+over past 16 MiB, at most once per 600 passes since the previous clear. Text that outgrows the
+budget again within that wait doubles the next wait (up to 4,800 passes) instead of being
+rasterized again every few passes; a clear that holds for a whole wait restores 600. The wait
+counts passes, not time: an app that stops painting keeps its atlas until it paints again,
+and a session painting once a second may keep an oversized atlas for up to 80 minutes. Clears bump
+`layout_generation` and empty the galley caches like the existing reset, so caches outside egui
+that keep galleys must key on `layout_generation` (Serein's composer and RTL caches do).
+
+Limit: a clear runs at any viewport's `begin_pass`. An immediate viewport opened in the middle of
+its parent's pass could clear the atlas under the parent's already-queued text, as the upstream
+reset could. Serein opens no immediate viewports.
 
 ## Serein patch: Windows window-drag repaints
 

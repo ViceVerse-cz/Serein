@@ -23,6 +23,7 @@ static CHINESE_TRADITIONAL: LazyLock<LanguageIdentifier> =
 	LazyLock::new(|| "zh-TW".parse().unwrap());
 static CHINESE_SIMPLIFIED: LazyLock<LanguageIdentifier> =
 	LazyLock::new(|| "zh-CN".parse().unwrap());
+static VIETNAMESE: LazyLock<LanguageIdentifier> = LazyLock::new(|| "vi".parse().unwrap());
 #[cfg(not(test))]
 static SYSTEM: LazyLock<Language> =
 	LazyLock::new(|| language_from_tag(sys_locale::get_locale().as_deref().unwrap_or("en-US")));
@@ -62,10 +63,11 @@ pub enum Language {
 	ChineseTraditional,
 	ChineseSimplified,
 	Korean,
+	Vietnamese,
 }
 
 impl Language {
-	pub const ALL: [Self; 15] = [
+	pub const ALL: [Self; 16] = [
 		Self::System,
 		Self::English,
 		Self::Spanish,
@@ -81,6 +83,7 @@ impl Language {
 		Self::ChineseTraditional,
 		Self::ChineseSimplified,
 		Self::Korean,
+		Self::Vietnamese,
 	];
 
 	pub fn from_preference(value: Option<&str>) -> Self {
@@ -99,6 +102,7 @@ impl Language {
 			Some("cs") => Self::Czech,
 			Some("zh-TW") => Self::ChineseTraditional,
 			Some("zh-CN") => Self::ChineseSimplified,
+			Some("vi") | Some("vi-VN") => Self::Vietnamese,
 			_ => Self::System,
 		}
 	}
@@ -120,6 +124,7 @@ impl Language {
 			Self::Czech => Some("cs"),
 			Self::ChineseTraditional => Some("zh-TW"),
 			Self::ChineseSimplified => Some("zh-CN"),
+			Self::Vietnamese => Some("vi"),
 		}
 	}
 
@@ -171,6 +176,7 @@ impl Language {
 			Self::Czech => "Čeština".into(),
 			Self::ChineseTraditional => "\u{7e41}\u{9ad4}\u{4e2d}\u{6587}".into(),
 			Self::ChineseSimplified => "\u{7b80}\u{4f53}\u{4e2d}\u{6587}".into(),
+			Self::Vietnamese => "Tiếng Việt".into(),
 		}
 	}
 
@@ -196,6 +202,7 @@ impl Language {
 			Self::Czech => include_str!("../locales/cs/main.ftl"),
 			Self::ChineseTraditional => include_str!("../locales/zh-TW/main.ftl"),
 			Self::ChineseSimplified => include_str!("../locales/zh-CN/main.ftl"),
+			Self::Vietnamese => include_str!("../locales/vi/main.ftl"),
 			_ => include_str!("../locales/en-US/main.ftl"),
 		}
 	}
@@ -273,6 +280,7 @@ impl Language {
 			Self::Czech => &CZECH,
 			Self::ChineseTraditional => &CHINESE_TRADITIONAL,
 			Self::ChineseSimplified => &CHINESE_SIMPLIFIED,
+			Self::Vietnamese => &VIETNAMESE,
 			_ => &ENGLISH,
 		}
 	}
@@ -391,6 +399,7 @@ fn language_from_tag(tag: &str) -> Language {
 		"pl" => Language::Polish,
 		"it" => Language::Italian,
 		"cs" => Language::Czech,
+		"vi" => Language::Vietnamese,
 		_ => Language::English,
 	}
 }
@@ -408,6 +417,9 @@ mod tests {
 		assert_eq!(language_from_tag("de-DE"), Language::German);
 		for tag in ["ko", "ko-KR", "ko_KR.UTF-8", "KO-kr"] {
 			assert_eq!(language_from_tag(tag), Language::Korean);
+		}
+		for tag in ["vi", "vi-VN", "vi_VN.UTF-8", "VI-vn"] {
+			assert_eq!(language_from_tag(tag), Language::Vietnamese);
 		}
 		assert_eq!(language_from_tag("unknown"), Language::English);
 		assert_eq!(language_from_tag("zh-TW"), Language::ChineseTraditional);
@@ -544,6 +556,48 @@ mod tests {
 			message_text(&message),
 			"Welcome, m.artin! Joined the server."
 		);
+	}
+
+
+	#[test]
+	fn vietnamese_catalog_formats_every_english_message_without_fallback() {
+		let english = Language::English.source();
+		let vietnamese = Language::Vietnamese.load();
+		let mut args = FluentArgs::new();
+		for variable in english.split('$').skip(1) {
+			let name = variable
+				.split(|c: char| !c.is_ascii_alphanumeric() && c != '_' && c != '-')
+				.next()
+				.unwrap();
+			args.set(name, "test");
+		}
+		for count in [0, 1, 2, 100] {
+			args.set("count", count);
+			for key in english.lines().filter_map(|line| {
+				(!line.starts_with(['#', ' ', '\t']))
+					.then(|| line.split_once('=').map(|(key, _)| key.trim_end()))
+					.flatten()
+			}) {
+				assert!(
+					Language::lookup_in_bundle(&vietnamese.bundle, key, Some(&args))
+						.is_some_and(|text| !text.trim().is_empty()),
+					"Vietnamese catalog cannot format {key} with count {count}"
+				);
+			}
+			for key in [
+				"settings-image-cache-days",
+				"timeline-present-control-new-messages",
+				"timeline-unread-banner-new-since",
+				"timeline-unread-banner-new-since-more",
+				"settings-idle-after-minutes",
+			] {
+				assert_ne!(
+					Language::lookup_in_bundle(&vietnamese.bundle, key, Some(&args)),
+					Language::English.lookup(key, Some(&args)),
+					"Vietnamese count message remains English: {key}"
+				);
+			}
+		}
 	}
 
 	#[test]
