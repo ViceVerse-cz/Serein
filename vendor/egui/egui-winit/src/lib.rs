@@ -1219,7 +1219,17 @@ impl State {
                 let is_cmd =
                     self.modifiers.ctrl || self.modifiers.command || self.modifiers.mac_cmd;
                 #[cfg(target_os = "windows")]
-                let is_cmd = is_cmd && !windows_altgr_text(self.modifiers, event, text);
+                let is_cmd = {
+                    use winit::platform::modifier_supplement::KeyEventExtModifierSupplement as _;
+
+                    is_cmd
+                        && !windows_altgr_text(
+                            self.modifiers,
+                            text,
+                            event.text_with_all_modifiers(),
+                            event.key_without_modifiers().to_text(),
+                        )
+                };
                 if pressed && !is_cmd {
                     self.egui_input
                         .events
@@ -1584,18 +1594,25 @@ fn is_printable_char(chr: char) -> bool {
 #[cfg(target_os = "windows")]
 fn windows_altgr_text(
     modifiers: egui::Modifiers,
-    event: &winit::event::KeyEvent,
     text: &str,
+    native_text: Option<&str>,
+    unmodified_text: Option<&str>,
 ) -> bool {
-    use winit::platform::modifier_supplement::KeyEventExtModifierSupplement as _;
-
     // Right Alt on an AltGr layout normally arrives without Ctrl or Alt. Windows also
     // lets Ctrl+Alt type the same characters. Keep those layout-produced characters,
     // while filtering unchanged text that winit can report for command keystrokes.
-    modifiers.ctrl
-        && modifiers.alt
-        && event.text_with_all_modifiers() == Some(text)
-        && event.key_without_modifiers().to_text() != Some(text)
+    modifiers.ctrl && modifiers.alt && native_text == Some(text) && unmodified_text != Some(text)
+}
+
+#[cfg(target_os = "windows")]
+#[test]
+fn ctrl_alt_forwards_only_layout_produced_text() {
+    let ctrl = egui::Modifiers::CTRL | egui::Modifiers::COMMAND;
+    let altgr = ctrl | egui::Modifiers::ALT;
+    assert!(windows_altgr_text(altgr, "@", Some("@"), Some("q")));
+    assert!(!windows_altgr_text(altgr, "q", Some("q"), Some("q")));
+    assert!(!windows_altgr_text(altgr, "@", None, Some("q")));
+    assert!(!windows_altgr_text(ctrl, "@", Some("@"), Some("q")));
 }
 
 fn is_cut_command(modifiers: egui::Modifiers, keycode: egui::Key) -> bool {
