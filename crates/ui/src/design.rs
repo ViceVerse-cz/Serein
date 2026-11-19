@@ -257,11 +257,16 @@ impl Palette {
 	pub fn badge_fill(&self) -> Color32 {
 		if self.danger == DARK_DANGER {
 			BADGE_RED
+		} else if self.danger == COLORBLIND_DANGER {
+			COLORBLIND_BADGE
 		} else {
 			self.danger
 		}
 	}
 }
+/// GitHub OLED danger text, and the darker orange that keeps white badge text readable.
+const COLORBLIND_DANGER: Color32 = rgb(0xfdac54);
+const COLORBLIND_BADGE: Color32 = rgb(0xb45f06);
 const fn rgb(value: u32) -> Color32 {
 	Color32::from_rgb((value >> 16) as u8, (value >> 8) as u8, value as u8)
 }
@@ -410,7 +415,7 @@ pub fn builtin_colors(dark: bool, variant: Variant) -> Palette {
 			p.accent_text = Color32::BLACK;
 			p.positive = rgb(0x58a6ff);
 			p.warning = rgb(0xd29922);
-			p.danger = rgb(0xfdac54);
+			p.danger = COLORBLIND_DANGER;
 			p.mention_bg = rgba(0x58a6ff, 76);
 			p.mention_text = rgb(0xa5d6ff);
 			p
@@ -2088,6 +2093,12 @@ mod tests {
 	fn solid_badges_use_discord_red_unless_the_theme_changed_danger() {
 		for variant in Variant::ALL {
 			let dark = builtin_colors(true, variant);
+			if variant == Variant::Colorblind {
+				// Orange instead of red, with a darker badge fill for white text.
+				assert_eq!(dark.badge_fill(), COLORBLIND_BADGE);
+				assert_eq!(dark.danger, COLORBLIND_DANGER);
+				continue;
+			}
 			assert_eq!(dark.badge_fill(), BADGE_RED, "{variant:?}");
 			// Red text keeps its lighter, readable shade.
 			assert_eq!(dark.danger, DARK_DANGER);
