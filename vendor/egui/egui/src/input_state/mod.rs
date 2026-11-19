@@ -410,14 +410,16 @@ impl InputState {
                     // Keypad keys are also tracked by position, since their logical key is a digit or symbol.
                     let keypad = physical_key.filter(|key| key.is_keypad());
                     if *pressed {
+                        // Read keypad membership before inserting: a keypad key whose logical
+                        // key is the same (e.g. NumpadMultiply) would otherwise look held.
+                        let keypad_was_down = keypad.is_some_and(|keypad| keys_down.contains(&keypad));
                         let first_press = keys_down.insert(*key);
-                        // A keypad press is new unless that keypad key was already held,
-                        // even when the same-valued main-row key is down.
-                        let first_press = match keypad {
-                            Some(keypad) => keys_down.insert(keypad),
-                            None => first_press,
-                        };
-                        *repeat = !first_press;
+                        if let Some(keypad) = keypad {
+                            keys_down.insert(keypad);
+                            *repeat = keypad_was_down;
+                        } else {
+                            *repeat = !first_press;
+                        }
                     } else {
                         keys_down.remove(key);
                         if let Some(keypad) = keypad {

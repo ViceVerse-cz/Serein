@@ -626,18 +626,17 @@ fn consume_keypad(
 	key: Key,
 	matches: impl Fn(Modifiers) -> bool,
 ) -> bool {
-	let is_press = |event: &Event| {
-		matches!(event, Event::Key { physical_key: Some(physical), pressed: true, .. }
-			if *physical == key)
-	};
-	let matched = input.events.iter().any(|event| {
-		is_press(event)
-			&& matches!(event, Event::Key { repeat: false, modifiers, .. } if matches(*modifiers))
+	let position = input.events.iter().position(|event| {
+		matches!(event, Event::Key { physical_key: Some(physical), pressed: true, repeat: false, modifiers, .. }
+			if *physical == key && matches(*modifiers))
 	});
-	if matched {
-		input.events.retain(|event| !is_press(event));
+	match position {
+		Some(index) => {
+			input.events.remove(index);
+			true
+		}
+		None => false,
 	}
-	matched
 }
 
 /// Removes this frame's presses of `button` when one matches, like `consume_key`.
@@ -1042,6 +1041,43 @@ const KEYS: &[(Key, &str)] = &[
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn keypad_presses_are_new_even_with_held_or_same_valued_keys() {
+		let ctx = egui::Context::default();
+		let press = |key, physical| Event::Key {
+			key,
+			physical_key: Some(physical),
+			pressed: true,
+			repeat: false,
+			modifiers: Modifiers::NONE,
+		};
+		let frames = [
+			vec![press(Key::Num5, Key::Num5)],
+			vec![press(Key::Num5, Key::Numpad5)],
+			vec![press(Key::NumpadMultiply, Key::NumpadMultiply)],
+		];
+		let mut repeats = Vec::new();
+		for events in frames {
+			let mut output = ctx.run_ui(
+				egui::RawInput {
+					events,
+					..Default::default()
+				},
+				|ui| {
+					ui.input(|input| {
+						for event in &input.events {
+							if let Event::Key { repeat, .. } = event {
+								repeats.push(*repeat);
+							}
+						}
+					});
+				},
+			);
+			output.textures_delta.clear();
+		}
+		assert_eq!(repeats, [false, false, false]);
+	}
 
 	#[test]
 	fn keypad_and_main_row_keys_conflict_both_ways() {
