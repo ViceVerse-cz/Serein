@@ -56,22 +56,24 @@ impl Failure {
 	}
 	pub fn label(self) -> &'static str {
 		match self {
-			Self::Expired => "Session expired · reconnect explicitly; drafts remain in RAM",
-			Self::Challenged => "Security challenge · unsupported here; connection stopped",
+			Self::Expired => "Your session expired. Sign in again.",
+			Self::Challenged => {
+				"Discord asked for a security check Serein cannot complete. Finish it in the official client."
+			}
 			Self::Forbidden => "Permission denied",
 			Self::AccountRestricted => {
-				"Discord requires account attention · connection stopped; check the official client"
+				"Discord needs attention on your account. Check the official client."
 			}
-			Self::ServiceBlocked => {
-				"Discord blocked this request · connection stopped; check the official client"
-			}
-			Self::RateLimited => "Rate limited · wait before retrying",
+			Self::ServiceBlocked => "Discord blocked this request. Check the official client.",
+			Self::RateLimited => "Rate limited. Wait a moment and try again.",
 			Self::Network => "Connection failed",
-			Self::Ambiguous => "Outcome unknown · check the official client before retrying",
-			Self::Protocol => "Unsupported service response",
+			Self::Ambiguous => {
+				"Could not confirm that it went through. Check the official client before retrying."
+			}
+			Self::Protocol => "Discord sent a response Serein cannot read.",
 			Self::ProtocolAt(stage) | Self::CapacityAt(stage) => stage,
-			Self::Capacity => "Safe capacity exceeded · connection stopped",
-			Self::InvalidCredential => "Invalid session input or bot account rejected",
+			Self::Capacity => "Too much data to handle safely. Connection stopped.",
+			Self::InvalidCredential => "That is not a valid user session.",
 		}
 	}
 	pub fn ends_session(self) -> bool {

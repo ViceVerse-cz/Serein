@@ -1656,20 +1656,14 @@ main-restoring-screen-use-a-different-account = Использовать дру�
 main-restoring-screen-welcome-back = Добро пожаловать
 # Context: sign_in_accounts
 main-sign-in-accounts-saved-accounts = Сохраненные аккаунты
-# Context: sign_in_consent
-main-sign-in-consent-passwords-and-2fa-stay-on-discord-s-own-login-page = Пароли и 2FA остаются на собственной странице входа в Discord; в хранилище учетных данных вашей ОС сохраняется только токен сеанса.
 # Context: sign_in_disclosures
 main-sign-in-disclosures-about-serein = О Серейн
 # Context: sign_in_disclosures
 main-sign-in-disclosures-connect-with-this-token = Подключиться с помощью этого токена
 # Context: sign_in_disclosures
-main-sign-in-disclosures-for-owners-who-already-hold-a-valid-discord-session-token = Для владельцев, у которых уже есть действующий токен сеанса Discord, например, из другой установки Serein, вошедшей в систему. Пароли и 2FA здесь никогда не используются; это полностью обходит размещенную страницу входа в Discord.
-# Context: sign_in_disclosures
 main-sign-in-disclosures-forget-saved-login = Забыть сохраненный логин
 # Context: sign_in_disclosures
 main-sign-in-disclosures-session-token = Токен сеанса
-# Context: sign_in_disclosures
-main-sign-in-disclosures-sign-in-with-a-session-token = Войдите в систему с помощью токена сеанса
 # Context: sign_in_header
 main-sign-in-header-continue-with-a-saved-account-or-sign-in-with-another = Продолжите использовать сохраненную учетную запись или войдите в систему с помощью другой.
 # Context: sign_in_header
@@ -3479,12 +3473,6 @@ settings-activity-reading-programs = Чтение запущенных прог�
 settings-activity-no-matching-programs = Подходящие программы не запущены.
 # Context: activity_settings
 settings-activity-add-game = Добавить игру
-# Context: appearance_menu
-settings-appearance-menu-display = Отображать
-# Context: appearance_menu
-settings-appearance-menu-mode = Режим
-# Context: appearance_menu
-settings-appearance-menu-theme = Тема
 # Context: appearance_settings
 settings-appearance-settings-accent = Акцент
 # Context: appearance_settings

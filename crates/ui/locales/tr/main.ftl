@@ -1656,20 +1656,14 @@ main-restoring-screen-use-a-different-account = Farklı bir hesap kullanın
 main-restoring-screen-welcome-back = tekrar hoşgeldiniz
 # Context: sign_in_accounts
 main-sign-in-accounts-saved-accounts = Kayıtlı hesaplar
-# Context: sign_in_consent
-main-sign-in-consent-passwords-and-2fa-stay-on-discord-s-own-login-page = Şifreler ve 2FA, Discord'un kendi giriş sayfasında kalır; İşletim sisteminizin kimlik bilgileri deposunda yalnızca oturum belirteci tutulur.
 # Context: sign_in_disclosures
 main-sign-in-disclosures-about-serein = Serein hakkında
 # Context: sign_in_disclosures
 main-sign-in-disclosures-connect-with-this-token = Bu jetonla bağlanın
 # Context: sign_in_disclosures
-main-sign-in-disclosures-for-owners-who-already-hold-a-valid-discord-session-token = Halihazırda geçerli bir Discord oturum jetonuna sahip olan sahipler için (örneğin oturum açılmış başka bir Serein kurulumundan). Şifreler ve 2FA burada asla kullanılmaz; bu, Discord'un barındırılan giriş sayfasını tamamen atlar.
-# Context: sign_in_disclosures
 main-sign-in-disclosures-forget-saved-login = Kayıtlı girişi unut
 # Context: sign_in_disclosures
 main-sign-in-disclosures-session-token = Oturum jetonu
-# Context: sign_in_disclosures
-main-sign-in-disclosures-sign-in-with-a-session-token = Oturum jetonuyla oturum açın
 # Context: sign_in_header
 main-sign-in-header-continue-with-a-saved-account-or-sign-in-with-another = Kayıtlı bir hesapla devam edin veya başka bir hesapla oturum açın.
 # Context: sign_in_header
@@ -3479,12 +3473,6 @@ settings-activity-reading-programs = Çalışan programlar okunuyor…
 settings-activity-no-matching-programs = Eşleşen çalışan program yok.
 # Context: activity_settings
 settings-activity-add-game = Oyun Ekle
-# Context: appearance_menu
-settings-appearance-menu-display = Görüntülemek
-# Context: appearance_menu
-settings-appearance-menu-mode = Mod
-# Context: appearance_menu
-settings-appearance-menu-theme = Tema
 # Context: appearance_settings
 settings-appearance-settings-accent = Aksan
 # Context: appearance_settings

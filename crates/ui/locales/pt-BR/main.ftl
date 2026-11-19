@@ -1655,20 +1655,14 @@ main-restoring-screen-use-a-different-account = Use uma conta diferente
 main-restoring-screen-welcome-back = bem vindo de volta
 # Context: sign_in_accounts
 main-sign-in-accounts-saved-accounts = Contas salvas
-# Context: sign_in_consent
-main-sign-in-consent-passwords-and-2fa-stay-on-discord-s-own-login-page = As senhas e 2FA permanecem na página de login do Discord; apenas o token da sessão é mantido no armazenamento de credenciais do seu sistema operacional.
 # Context: sign_in_disclosures
 main-sign-in-disclosures-about-serein = Sobre Serein
 # Context: sign_in_disclosures
 main-sign-in-disclosures-connect-with-this-token = Conecte-se com este token
 # Context: sign_in_disclosures
-main-sign-in-disclosures-for-owners-who-already-hold-a-valid-discord-session-token = Para proprietários que já possuem um token de sessão Discord válido, por exemplo, de outra instalação do Serein conectada. Senhas e 2FA nunca são usados ​​aqui; isso ignora totalmente a página de login hospedada do Discord.
-# Context: sign_in_disclosures
 main-sign-in-disclosures-forget-saved-login = Esqueci o login salvo
 # Context: sign_in_disclosures
 main-sign-in-disclosures-session-token = Token de sessão
-# Context: sign_in_disclosures
-main-sign-in-disclosures-sign-in-with-a-session-token = Faça login com um token de sessão
 # Context: sign_in_header
 main-sign-in-header-continue-with-a-saved-account-or-sign-in-with-another = Continue com uma conta salva ou faça login com outra.
 # Context: sign_in_header
@@ -3478,12 +3472,6 @@ settings-activity-reading-programs = Lendo programas em execução…
 settings-activity-no-matching-programs = Nenhum programa correspondente está em execução.
 # Context: activity_settings
 settings-activity-add-game = Adicionar jogo
-# Context: appearance_menu
-settings-appearance-menu-display = Mostrar
-# Context: appearance_menu
-settings-appearance-menu-mode = Modo
-# Context: appearance_menu
-settings-appearance-menu-theme = Tema
 # Context: appearance_settings
 settings-appearance-settings-accent = Sotaque
 # Context: appearance_settings

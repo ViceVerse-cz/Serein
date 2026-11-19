@@ -1719,22 +1719,16 @@ main-restoring-screen-use-a-different-account = Use a different account
 main-restoring-screen-welcome-back = Welcome back
 # Context: sign_in_accounts
 main-sign-in-accounts-saved-accounts = Saved accounts
-# Context: sign_in_consent
-main-sign-in-consent-passwords-and-2fa-stay-on-discord-s-own-login-page = Passwords and 2FA stay on Discord's own login page. Only the session token is kept, in your OS credential store.
 # Context: sign_in_disclosures
 main-sign-in-disclosures-about-serein = About Serein
 # Context: sign_in_disclosures
 main-sign-in-disclosures-connect-with-this-token = Connect with this token
 # Context: sign_in_disclosures
-main-sign-in-disclosures-for-owners-who-already-hold-a-valid-discord-session-token = For owners who already hold a valid Discord session token, for example from another signed-in Serein install. Passwords and 2FA are never used here; this bypasses Discord's hosted login page entirely.
-# Context: sign_in_disclosures
 main-sign-in-disclosures-forget-saved-login = Forget saved login
 # Context: sign_in_disclosures
 main-sign-in-disclosures-session-token = Session token
-# Context: sign_in_disclosures
-main-sign-in-disclosures-sign-in-with-a-session-token = Sign in with a session token
 # Context: sign_in_header
-main-sign-in-header-continue-with-a-saved-account-or-sign-in-with-another = Continue with a saved account or sign in with another
+main-sign-in-header-continue-with-a-saved-account-or-sign-in-with-another = Pick an account to continue
 # Context: sign_in_header
 main-sign-in-header-sign-in-with-your-discord-account-to-get-started = Sign in with your Discord account
 # Context: sign_in_header
@@ -1753,7 +1747,7 @@ main-sign-in-screen-serein = Serein
 # Context: ui
 main-ui-cancel = Cancel
 # Context: ui
-main-ui-discord-com-temporary-login-window-passwords-and-2fa-never-leave = discord.com · temporary login window · passwords and 2FA never leave the page
+main-ui-discord-com-temporary-login-window-passwords-and-2fa-never-leave = Temporary Discord login window
 # Context: ui
 main-ui-loading-discord-com = Loading discord.com…
 # Context: ui
@@ -3552,12 +3546,6 @@ settings-activity-reading-programs = Reading running programs…
 settings-activity-no-matching-programs = No matching programs are running.
 # Context: activity_settings
 settings-activity-add-game = Add Game
-# Context: appearance_menu
-settings-appearance-menu-display = Display
-# Context: appearance_menu
-settings-appearance-menu-mode = Mode
-# Context: appearance_menu
-settings-appearance-menu-theme = Theme
 # Context: appearance_settings
 settings-appearance-settings-accent = Accent
 # Context: appearance_settings
@@ -5192,7 +5180,7 @@ native-login-credentials-note = Your password and codes go straight to Discord a
 native-login-mfa-title = Two-factor authentication
 native-login-mfa-totp-subtitle = Enter the 6-digit code from your authenticator app
 native-login-mfa-sms-subtitle = Enter the code Discord texted to your phone
-native-login-mfa-backup-subtitle = Enter one of your 8-character backup codes
+native-login-mfa-backup-subtitle = Enter one of your backup codes
 native-login-mfa-totp-label = Authentication code
 native-login-mfa-sms-label = SMS code
 native-login-mfa-backup-label = Backup code
@@ -5208,15 +5196,19 @@ native-login-captcha-title = Wait! Are you human?
 native-login-captcha-subtitle = Please confirm you're not a robot
 native-login-captcha-cancel = Cancel
 native-login-qr-title = Log in with QR Code
-native-login-qr-detail = Scan this with the Discord mobile app to log in instantly.
-native-login-qr-expired = This code expired. Refresh it to get a new one.
-native-login-qr-unavailable = The QR code could not be loaded.
+native-login-qr-detail = Scan with the Discord mobile app to log in.
+native-login-qr-expired = This code expired.
+native-login-qr-unavailable = Could not load the QR code.
 native-login-qr-refresh = Refresh
 native-login-qr-check-your-phone = Check your phone!
 native-login-qr-logging-in-as = Logging in as { $name }
-native-login-qr-confirm-on-phone = Confirm the login in the Discord mobile app.
+native-login-qr-confirm-on-phone = Confirm on your phone.
 native-login-qr-not-me = Not me, start over
+native-login-settings = Settings
 native-login-more-token = Session token
 native-login-more-web = Web login
-native-login-web-detail = Opens Discord's own login page in a temporary window. Use it for a security key or passkey, or if the form above cannot finish your sign-in.
+native-login-token-detail = Paste a session token you already have, for example from another Serein install.
+native-login-about-risk = Unofficial clients like Serein can put your Discord account at risk.
+native-login-about-storage = Messages and drafts are cached on this device. Your login is kept in the OS credential store.
+native-login-web-detail = Opens Discord's login page in a temporary window. Needed for security keys and passkeys.
 native-login-web-open = Open Discord's login page

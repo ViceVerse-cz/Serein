@@ -1671,20 +1671,14 @@ main-restoring-screen-use-a-different-account = 使用其他账户
 main-restoring-screen-welcome-back = 欢迎回来
 # Context: sign_in_accounts
 main-sign-in-accounts-saved-accounts = 已保存的账户
-# Context: sign_in_consent
-main-sign-in-consent-passwords-and-2fa-stay-on-discord-s-own-login-page = 密码与 2FA 只留在 Discord 自己的登录页；只有会话令牌会存入你的操作系统凭据存储区。
 # Context: sign_in_disclosures
 main-sign-in-disclosures-about-serein = 关于 Serein
 # Context: sign_in_disclosures
 main-sign-in-disclosures-connect-with-this-token = 使用该令牌连接
 # Context: sign_in_disclosures
-main-sign-in-disclosures-for-owners-who-already-hold-a-valid-discord-session-token = 供已持有有效 Discord 会话令牌的用户使用，例如来自另一套已登录的 Serein。此处绝不会用到密码与 2FA，且完全跳过 Discord 的托管登录页。
-# Context: sign_in_disclosures
 main-sign-in-disclosures-forget-saved-login = 清除已保存的登录
 # Context: sign_in_disclosures
 main-sign-in-disclosures-session-token = 会话令牌
-# Context: sign_in_disclosures
-main-sign-in-disclosures-sign-in-with-a-session-token = 使用会话令牌登录
 # Context: sign_in_header
 main-sign-in-header-continue-with-a-saved-account-or-sign-in-with-another = 继续使用已保存的账户，或登录其他账户。
 # Context: sign_in_header
@@ -3509,12 +3503,6 @@ settings-activity-reading-programs = 正在读取运行中的程序…
 settings-activity-no-matching-programs = 没有符合条件的程序在运行。
 # Context: activity_settings
 settings-activity-add-game = 新增游戏
-# Context: appearance_menu
-settings-appearance-menu-display = 显示
-# Context: appearance_menu
-settings-appearance-menu-mode = 模式
-# Context: appearance_menu
-settings-appearance-menu-theme = 主题
 # Context: appearance_settings
 settings-appearance-settings-accent = 强调色
 # Context: appearance_settings

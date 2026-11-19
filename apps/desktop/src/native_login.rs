@@ -137,7 +137,7 @@ pub(super) struct NativeLogin {
 	password: Zeroizing<String>,
 	code: Zeroizing<String>,
 	stage: Stage,
-	busy: bool,
+	pub(super) busy: bool,
 	/// Discord's rate limit: nothing is submitted before it.
 	cooldown: Option<std::time::Instant>,
 	error: Option<String>,

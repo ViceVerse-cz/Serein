@@ -3031,6 +3031,9 @@ pub fn selection_row(
 	response
 }
 
+/// Below this width a settings row puts its control under the text.
+const NARROW_ROW: f32 = 440.0;
+
 /// Settings row: title and optional detail on the left, `control` laid out right-to-left on
 /// the right. Combo boxes, colour wells and buttons all sit on the same baseline this way.
 pub fn row<R>(
@@ -3043,6 +3046,25 @@ pub fn row<R>(
 	let detail = detail.map(crate::i18n::translate_if_key);
 	let p = palette(ui);
 	let width = ui.available_width();
+	// Too narrow for text and control side by side: a pair of buttons would overlap the text.
+	if width < NARROW_ROW {
+		return ui
+			.vertical(|ui| {
+				ui.spacing_mut().item_spacing.y = 8.0;
+				ui.add(egui::Label::new(medium(ui, &title, 15.0).color(p.text_strong)).wrap());
+				if let Some(detail) = detail {
+					ui.add(
+						egui::Label::new(RichText::new(detail).size(13.0).color(p.muted)).wrap(),
+					);
+				}
+				ui.horizontal(|ui| {
+					ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), control)
+						.inner
+				})
+				.inner
+			})
+			.inner;
+	}
 	let text_width = (width * 0.55).max(120.0);
 	ui.horizontal(|ui| {
 		ui.spacing_mut().item_spacing.x = 12.0;
