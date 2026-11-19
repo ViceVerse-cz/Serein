@@ -695,6 +695,22 @@ fn portal_trigger(chord: &KeyChord) -> Option<String> {
 		"Colon" => "colon",
 		"Quote" => "apostrophe",
 		"Plus" => "plus",
+		"Numpad0" => "KP_0",
+		"Numpad1" => "KP_1",
+		"Numpad2" => "KP_2",
+		"Numpad3" => "KP_3",
+		"Numpad4" => "KP_4",
+		"Numpad5" => "KP_5",
+		"Numpad6" => "KP_6",
+		"Numpad7" => "KP_7",
+		"Numpad8" => "KP_8",
+		"Numpad9" => "KP_9",
+		"NumpadEnter" => "KP_Enter",
+		"NumpadAdd" => "KP_Add",
+		"NumpadSubtract" => "KP_Subtract",
+		"NumpadMultiply" => "KP_Multiply",
+		"NumpadDivide" => "KP_Divide",
+		"NumpadDecimal" => "KP_Decimal",
 		"Pipe" => "bar",
 		"Questionmark" => "question",
 		"Exclamationmark" => "exclam",
@@ -715,7 +731,8 @@ fn portal_trigger(chord: &KeyChord) -> Option<String> {
 }
 
 fn is_standalone_global_key(name: &str) -> bool {
-	matches!(
+	name.starts_with("Numpad")
+		|| matches!(
 		name,
 		"PageDown"
 			| "PageUp"
@@ -802,6 +819,22 @@ fn code_name(name: &str) -> Option<&'static str> {
 		"Num7" => Some("Digit7"),
 		"Num8" => Some("Digit8"),
 		"Num9" => Some("Digit9"),
+		"NumpadEnter" => Some("NumpadEnter"),
+		"Numpad0" => Some("Numpad0"),
+		"Numpad1" => Some("Numpad1"),
+		"Numpad2" => Some("Numpad2"),
+		"Numpad3" => Some("Numpad3"),
+		"Numpad4" => Some("Numpad4"),
+		"Numpad5" => Some("Numpad5"),
+		"Numpad6" => Some("Numpad6"),
+		"Numpad7" => Some("Numpad7"),
+		"Numpad8" => Some("Numpad8"),
+		"Numpad9" => Some("Numpad9"),
+		"NumpadAdd" => Some("NumpadAdd"),
+		"NumpadSubtract" => Some("NumpadSubtract"),
+		"NumpadMultiply" => Some("NumpadMultiply"),
+		"NumpadDivide" => Some("NumpadDivide"),
+		"NumpadDecimal" => Some("NumpadDecimal"),
 		"A" => Some("KeyA"),
 		"B" => Some("KeyB"),
 		"C" => Some("KeyC"),
@@ -1069,6 +1102,14 @@ mod tests {
 		] {
 			assert_eq!(portal_trigger(&chord), None);
 		}
+	}
+
+	#[test]
+	fn keypad_keys_register_globally_without_modifiers() {
+		for key in ["Numpad5", "NumpadEnter", "NumpadMultiply", "NumpadDecimal"] {
+			assert!(native_hotkey(&KeyChord::new(key, 0)).is_some(), "{key}");
+		}
+		assert!(native_hotkey(&KeyChord::new("Num5", 0)).is_none());
 	}
 
 	#[test]
