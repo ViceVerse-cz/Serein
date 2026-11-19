@@ -1367,7 +1367,8 @@ impl UserPicker {
 			&& self.popup_rect.is_some()
 			&& ui.memory(|memory| memory.has_focus(id));
 		// Take the list keys before the editor sees them: ArrowUp would move its caret to the start.
-		let keys = was_open.then(|| ui.input_mut(PickerKeys::take));
+		let mut keys =
+			was_open.then(|| ui.input_mut(|input| PickerKeys::take(input, &PICKER_KEYS)));
 		let (response, browse) = ui
 			.horizontal(|ui| {
 				let response = ui.add(
@@ -1437,10 +1438,12 @@ impl UserPicker {
 		let closed = self.dismissed || (!searching && !self.browse);
 		let keyboard_browse = closed
 			&& !response.changed()
-			&& keys.as_ref().map_or_else(
-				|| ui.input_mut(|input| user_picker_key(input, egui::Key::ArrowDown)),
-				|keys| keys.down,
-			);
+			&& match keys.as_mut() {
+				Some(keys) => keys.take_first(egui::Key::ArrowDown),
+				None => ui
+					.input_mut(|input| PickerKeys::take(input, &[egui::Key::ArrowDown]))
+					.take_first(egui::Key::ArrowDown),
+			};
 		if keyboard_browse {
 			self.browse = true;
 			self.dismissed = false;
@@ -1456,7 +1459,14 @@ impl UserPicker {
 		let local_query = query.to_lowercase();
 		let remote = mentions::searched_members(state, channel, Some(query));
 		let source = mentions::MentionSource { state, channel };
-		let mut candidates: Vec<_> = mentions::known_users_with_search(state, channel, remote)
+		// Remote rows join after the bounded local list so late results cannot evict a local match.
+		let mut users = mentions::known_users_with_search(state, channel, &[]);
+		for member in remote {
+			if !users.iter().any(|user| user.id == member.user.id) {
+				users.push(member.user.clone());
+			}
+		}
+		let mut candidates: Vec<_> = users
 			.into_iter()
 			.filter_map(|user| {
 				let member = remote.iter().find(|member| member.user.id == user.id);
@@ -1499,19 +1509,31 @@ impl UserPicker {
 			candidates.truncate(SUGGESTIONS);
 		}
 		let mut pick = None;
-		let keys = keys.unwrap_or_else(|| ui.input_mut(PickerKeys::take));
+		let keys =
+			keys.unwrap_or_else(|| ui.input_mut(|input| PickerKeys::take(input, &PICKER_KEYS)));
 		let len = candidates.len();
-		if keys.escape {
-			self.dismissed = true;
-			self.browse = false;
-		} else if len != 0 {
-			if keyboard_browse || keys.down {
-				index = Some(index.map_or(0, |index| (index + 1) % len));
-			} else if keys.up {
-				index = Some(index.map_or(len - 1, |index| (index + len - 1) % len));
-			}
-			if !keyboard_browse && keys.enter && !response.changed() {
-				pick = index.map(|index| candidates[index].2.id);
+		if keyboard_browse && len != 0 {
+			index = Some(index.map_or(0, |index| (index + 1) % len));
+		}
+		// Apply keys in arrival order so Enter accepts the row highlighted when it was pressed.
+		for key in keys.0 {
+			match key {
+				egui::Key::Escape => {
+					self.dismissed = true;
+					self.browse = false;
+					break;
+				}
+				egui::Key::ArrowDown if len != 0 => {
+					index = Some(index.map_or(0, |index| (index + 1) % len));
+				}
+				egui::Key::ArrowUp if len != 0 => {
+					index = Some(index.map_or(len - 1, |index| (index + len - 1) % len));
+				}
+				egui::Key::Enter if len != 0 && !keyboard_browse && !response.changed() => {
+					pick = index.map(|index| candidates[index].2.id);
+					break;
+				}
+				_ => {}
 			}
 		}
 		if self.dismissed {
@@ -1610,42 +1632,46 @@ fn user_picker_filter(open: bool) -> egui::EventFilter {
 	}
 }
 
-struct PickerKeys {
-	escape: bool,
-	down: bool,
-	up: bool,
-	enter: bool,
-}
+const PICKER_KEYS: [egui::Key; 4] = [
+	egui::Key::Escape,
+	egui::Key::ArrowDown,
+	egui::Key::ArrowUp,
+	egui::Key::Enter,
+];
+
+/// Unmodified picker key presses, in the order they arrived this frame.
+struct PickerKeys(Vec<egui::Key>);
 
 impl PickerKeys {
-	fn take(input: &mut egui::InputState) -> Self {
-		Self {
-			escape: user_picker_key(input, egui::Key::Escape),
-			down: user_picker_key(input, egui::Key::ArrowDown),
-			up: user_picker_key(input, egui::Key::ArrowUp),
-			enter: user_picker_key(input, egui::Key::Enter),
+	fn take(input: &mut egui::InputState, wanted: &[egui::Key]) -> Self {
+		let mut keys = Vec::new();
+		// Leave keyboard handling to the text editor during an IME composition.
+		if input
+			.events
+			.iter()
+			.any(|event| matches!(event, egui::Event::Ime(_)))
+		{
+			return Self(keys);
 		}
+		input.events.retain(|event| match event {
+			egui::Event::Key {
+				key,
+				pressed: true,
+				modifiers,
+				..
+			} if wanted.contains(key) && *modifiers == egui::Modifiers::NONE => {
+				keys.push(*key);
+				false
+			}
+			_ => true,
+		});
+		Self(keys)
 	}
-}
 
-fn user_picker_key(input: &mut egui::InputState, key: egui::Key) -> bool {
-	// Leave keyboard handling to the text editor during an IME composition.
-	if input
-		.events
-		.iter()
-		.any(|event| matches!(event, egui::Event::Ime(_)))
-	{
-		return false;
+	fn take_first(&mut self, key: egui::Key) -> bool {
+		let found = self.0.iter().position(|pressed| *pressed == key);
+		found.map(|at| self.0.remove(at)).is_some()
 	}
-	let mut pressed = false;
-	input.events.retain(|event| {
-		let matched = matches!(event, egui::Event::Key {
-			key: pressed_key, pressed: true, modifiers, ..
-		} if *pressed_key == key && *modifiers == egui::Modifiers::NONE);
-		pressed |= matched;
-		!matched
-	});
-	pressed
 }
 
 fn argument(
@@ -1995,7 +2021,9 @@ mod tests {
 		assert!(!frame(&mut picker, &mut value, key(egui::Key::ArrowDown)));
 		assert!(picker.open);
 		assert!(!frame(&mut picker, &mut value, key(egui::Key::ArrowUp)));
-		assert!(!frame(&mut picker, &mut value, key(egui::Key::Enter)));
+		// Enter accepts the row highlighted when it was pressed, not after a later key.
+		let events = [key(egui::Key::Enter), key(egui::Key::ArrowDown)].concat();
+		assert!(!frame(&mut picker, &mut value, events));
 		assert_eq!(
 			value, expected,
 			"the last known user remains available when browsing"
@@ -2026,12 +2054,29 @@ mod tests {
 		}
 		state.permissions.replace(permissions).unwrap();
 		let channel = state.selected.unwrap();
-		let local = state.user.as_mut().unwrap();
-		local.name = "team-z".into();
-		let mut remote = local.clone();
-		remote.id = Id(701);
+		let mut remote = state.user.clone().unwrap();
 		remote.name = "out-of-window".into();
-		let local = local.id;
+		// Fill the bounded local list so the matching user is its last entry.
+		let mut recipients: Vec<_> = (0..254)
+			.map(|index| {
+				let mut user = remote.clone();
+				user.id = Id(9000 + index);
+				user.name = format!("filler-{index}");
+				user
+			})
+			.collect();
+		let mut target = remote.clone();
+		target.id = Id(9300);
+		target.name = "team-z".into();
+		let local = target.id;
+		recipients.push(target);
+		state
+			.channels
+			.iter_mut()
+			.find(|c| c.id == channel)
+			.unwrap()
+			.recipients = recipients;
+		remote.id = Id(701);
 		let Some(Command::ApplicationCommands { request, .. }) =
 			state.request_application_commands(channel, false)
 		else {
