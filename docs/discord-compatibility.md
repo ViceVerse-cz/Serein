@@ -351,6 +351,8 @@ including the active Gateway session, nonce, received command ID/version and val
 typed arguments. Root commands, subcommands and one subcommand-group level support strings,
 integers, numbers, booleans, static choices and user/channel/role/mentionable IDs.
 Entity pickers use already loaded account data; they do not fetch a complete directory.
+String arguments without choices offer the same member suggestions after a trailing `@name`,
+inserting a `<@id>` mention as Discord's string fields do; bots receive it as plain text.
 Required fields, declared limits, choices, command context and channel access are checked
 before sending. Serein requires Send Messages (Send Messages in Threads for threads) for
 all slash commands, plus Use Application Commands for guild application commands. The picker and

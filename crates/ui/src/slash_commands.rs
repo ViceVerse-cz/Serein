@@ -885,6 +885,17 @@ impl Menu {
 						// Discord rings the offending chip in red: a value outside its limits,
 						// or a required value still missing after a submission attempt.
 						let user_argument = option.kind == 6 && option.choices.is_empty();
+						// Free text offers member mentions after `@`, like Discord's string fields.
+						let picker = if user_argument {
+							Some(PickerTarget::Id)
+						} else if option.kind == 3 && option.choices.is_empty() {
+							Some(PickerTarget::Mention {
+								char_limit: usize::from(option.max_length.unwrap_or(6000))
+									.min(6000),
+							})
+						} else {
+							None
+						};
 						let invalid = (option.problem(value).is_some()
 							&& (!user_argument || !had_focus || submit_failed))
 							|| (value.is_empty() && option.required && submit_failed);
@@ -952,10 +963,10 @@ impl Menu {
 								)
 								.on_hover_text(&option.description);
 								ui.add_space(18.0);
-								let response = if user_argument {
+								let response = if let Some(target) = picker {
 									let (response, submit, query) = self
 										.user_picker
-										.show(ui, value, state, channel, id, bindings);
+										.show(ui, value, state, channel, id, bindings, target);
 									self.run |= submit;
 									if let Some(query) = query {
 										member_query = query;
@@ -1327,6 +1338,15 @@ fn value_text(value: &Value) -> String {
 	}
 }
 
+/// What a picked user becomes in the field.
+#[derive(Clone, Copy)]
+enum PickerTarget {
+	/// The whole value is the user's ID.
+	Id,
+	/// A trailing `@name` in free text becomes a `<@id>` mention.
+	Mention { char_limit: usize },
+}
+
 #[derive(Default)]
 struct UserPicker {
 	field: Option<egui::Id>,
@@ -1339,6 +1359,7 @@ struct UserPicker {
 }
 
 impl UserPicker {
+	#[allow(clippy::too_many_arguments)]
 	fn show(
 		&mut self,
 		ui: &mut egui::Ui,
@@ -1347,13 +1368,15 @@ impl UserPicker {
 		channel: Id,
 		id: egui::Id,
 		bindings: &model::Keybinds,
+		target: PickerTarget,
 	) -> (egui::Response, bool, Option<String>) {
-		let shown = self.show_field(ui, value, state, channel, id, bindings);
+		let shown = self.show_field(ui, value, state, channel, id, bindings, target);
 		// Hold Escape only while the list is open, so a second Escape still leaves the field.
 		ui.memory_mut(|memory| memory.set_focus_lock_filter(id, user_picker_filter(self.open)));
 		shown
 	}
 
+	#[allow(clippy::too_many_arguments)]
 	fn show_field(
 		&mut self,
 		ui: &mut egui::Ui,
@@ -1362,6 +1385,7 @@ impl UserPicker {
 		channel: Id,
 		id: egui::Id,
 		bindings: &model::Keybinds,
+		target: PickerTarget,
 	) -> (egui::Response, bool, Option<String>) {
 		let was_open = self.field == Some(id)
 			&& self.popup_rect.is_some()
@@ -1369,29 +1393,40 @@ impl UserPicker {
 		// Take the list keys before the editor sees them: ArrowUp would move its caret to the start.
 		let mut keys =
 			was_open.then(|| ui.input_mut(|input| PickerKeys::take(input, &PICKER_KEYS)));
+		let mention = matches!(target, PickerTarget::Mention { .. });
 		let (response, browse) = ui
 			.horizontal(|ui| {
-				let response = ui.add(
-					egui::TextEdit::singleline(value)
-						.id(id)
-						.align(egui::Align2::LEFT_CENTER)
-						.frame(egui::Frame::NONE)
+				let text_color = design::palette(ui).text_strong;
+				let edit = egui::TextEdit::singleline(value)
+					.id(id)
+					.align(egui::Align2::LEFT_CENTER)
+					.frame(egui::Frame::NONE)
+					.event_filter(user_picker_filter(was_open))
+					.return_key(None);
+				let edit = match target {
+					PickerTarget::Id => edit
 						.hint_text(crate::i18n::translate(
 							"search-filters-user-picker-search-users",
 						))
 						.char_limit(65)
-						.event_filter(user_picker_filter(was_open))
-						.return_key(None)
 						.desired_width((ui.available_width() - 25.0).max(24.0)),
-				);
-				let browse = ui
-					.add(
-						egui::Button::new("▾").sense(egui::Sense::click() - egui::Sense::FOCUSABLE),
-					)
-					.on_hover_text(crate::i18n::translate(
-						"search-filters-user-picker-search-users",
-					))
-					.clicked();
+					PickerTarget::Mention { char_limit } => edit
+						.font(egui::FontId::proportional(14.0))
+						.text_color(text_color)
+						.char_limit(char_limit)
+						.desired_width(ui.available_width()),
+				};
+				let response = ui.add(edit);
+				let browse = !mention
+					&& ui
+						.add(
+							egui::Button::new("▾")
+								.sense(egui::Sense::click() - egui::Sense::FOCUSABLE),
+						)
+						.on_hover_text(crate::i18n::translate(
+							"search-filters-user-picker-search-users",
+						))
+						.clicked();
 				(response, browse)
 			})
 			.inner;
@@ -1421,9 +1456,24 @@ impl UserPicker {
 			};
 		}
 		self.open = false;
-		let valid_id = value.parse::<Id>().is_ok();
+		let valid_id = !mention && value.parse::<Id>().is_ok();
 		let raw = value.trim();
-		let typed = raw.strip_prefix('@').unwrap_or(raw).trim();
+		// In free text only the trailing word is being typed; `@` there starts a mention.
+		let mention_at = mention
+			.then(|| {
+				let start = value
+					.char_indices()
+					.rev()
+					.find(|(_, c)| c.is_whitespace())
+					.map_or(0, |(at, c)| at + c.len_utf8());
+				value[start..].starts_with('@').then_some(start)
+			})
+			.flatten();
+		let typed = match mention_at {
+			Some(start) => &value[start + 1..],
+			None if mention => "",
+			None => raw.strip_prefix('@').unwrap_or(raw).trim(),
+		};
 		if response.changed() || self.query != typed {
 			self.query = typed.to_owned();
 			self.selected = None;
@@ -1434,9 +1484,14 @@ impl UserPicker {
 			self.browse = !self.browse;
 			self.dismissed = !self.browse;
 		}
-		let searching = !raw.is_empty() && !valid_id;
+		let searching = if mention {
+			mention_at.is_some()
+		} else {
+			!raw.is_empty() && !valid_id
+		};
 		let closed = self.dismissed || (!searching && !self.browse);
-		let keyboard_browse = closed
+		let keyboard_browse = !mention
+			&& closed
 			&& !response.changed()
 			&& match keys.as_mut() {
 				Some(keys) => keys.take_first(egui::Key::ArrowDown),
@@ -1450,7 +1505,9 @@ impl UserPicker {
 			self.selected = None;
 		} else if closed {
 			self.popup_rect = None;
-			let submit = !searching && !response.changed() && inline_submit(ui, bindings);
+			// A dismissed `@name` is still valid free text; a name is not a valid user ID.
+			let submit =
+				(mention || !searching) && !response.changed() && inline_submit(ui, bindings);
 			return (response, submit, None);
 		}
 
@@ -1613,7 +1670,13 @@ impl UserPicker {
 				.map(|popup| popup.response.rect);
 		}
 		if let Some(user) = pick {
-			*value = user.to_string();
+			match mention_at {
+				Some(start) => {
+					value.truncate(start);
+					value.push_str(&format!("<@{user}>"));
+				}
+				None => *value = user.to_string(),
+			}
 			*self = Self::default();
 			response.request_focus();
 			return (response, false, None);
@@ -1926,8 +1989,15 @@ mod tests {
 				},
 				|ui| {
 					ui.add_space(310.0);
-					let (_, submit, _) =
-						picker.show(ui, &mut value, &state, channel, id, &bindings);
+					let (_, submit, _) = picker.show(
+						ui,
+						&mut value,
+						&state,
+						channel,
+						id,
+						&bindings,
+						PickerTarget::Id,
+					);
 					assert!(!submit);
 				},
 			)
@@ -1959,6 +2029,61 @@ mod tests {
 			.drop_without_applying_deltas();
 		}
 		assert_eq!(value, expected);
+	}
+
+	#[test]
+	fn slash_text_argument_turns_a_trailing_at_name_into_a_mention() {
+		let ctx = egui::Context::default();
+		let mut state = test_support::demo_state();
+		let user = state.user.as_mut().unwrap();
+		user.name = "synthetic-target".into();
+		let expected = format!("spam from <@{}>", user.id);
+		let channel = state.selected.unwrap();
+		let mut picker = UserPicker::default();
+		let mut value = "spam from @synthetic-t".to_owned();
+		let id = egui::Id::unique("slash-text-mention-test");
+		let bindings = model::Keybinds::default();
+		let target = PickerTarget::Mention { char_limit: 6000 };
+		ctx.memory_mut(|memory| memory.request_focus(id));
+		let mut frame = |value: &mut String, events| {
+			let mut submitted = false;
+			ctx.run_ui(
+				egui::RawInput {
+					events,
+					..Default::default()
+				},
+				|ui| {
+					ui.add_space(310.0);
+					let (_, submit, _) =
+						picker.show(ui, value, &state, channel, id, &bindings, target);
+					submitted |= submit;
+				},
+			)
+			.drop_without_applying_deltas();
+			ctx.input_mut(|input| input.keys_down.clear());
+			submitted
+		};
+		let enter = || {
+			vec![egui::Event::Key {
+				key: egui::Key::Enter,
+				physical_key: None,
+				pressed: true,
+				repeat: false,
+				modifiers: egui::Modifiers::NONE,
+			}]
+		};
+
+		frame(&mut value, vec![]);
+		frame(&mut value, vec![]);
+		assert!(
+			!frame(&mut value, enter()),
+			"Enter picks the member, not send"
+		);
+		assert_eq!(value, expected, "only the trailing @name is replaced");
+		assert!(
+			frame(&mut value, enter()),
+			"a separate Enter sends the text"
+		);
 	}
 
 	#[test]
@@ -1999,7 +2124,8 @@ mod tests {
 				},
 				|ui| {
 					ui.add_space(310.0);
-					let (_, submit, _) = picker.show(ui, value, &state, channel, id, &bindings);
+					let (_, submit, _) =
+						picker.show(ui, value, &state, channel, id, &bindings, PickerTarget::Id);
 					submitted |= submit;
 				},
 			)
