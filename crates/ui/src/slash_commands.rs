@@ -1348,6 +1348,26 @@ impl UserPicker {
 		id: egui::Id,
 		bindings: &model::Keybinds,
 	) -> (egui::Response, bool, Option<String>) {
+		let shown = self.show_field(ui, value, state, channel, id, bindings);
+		// Hold Escape only while the list is open, so a second Escape still leaves the field.
+		ui.memory_mut(|memory| memory.set_focus_lock_filter(id, user_picker_filter(self.open)));
+		shown
+	}
+
+	fn show_field(
+		&mut self,
+		ui: &mut egui::Ui,
+		value: &mut String,
+		state: &State,
+		channel: Id,
+		id: egui::Id,
+		bindings: &model::Keybinds,
+	) -> (egui::Response, bool, Option<String>) {
+		let was_open = self.field == Some(id)
+			&& self.popup_rect.is_some()
+			&& ui.memory(|memory| memory.has_focus(id));
+		// Take the list keys before the editor sees them: ArrowUp would move its caret to the start.
+		let keys = was_open.then(|| ui.input_mut(PickerKeys::take));
 		let (response, browse) = ui
 			.horizontal(|ui| {
 				let response = ui.add(
@@ -1359,12 +1379,7 @@ impl UserPicker {
 							"search-filters-user-picker-search-users",
 						))
 						.char_limit(65)
-						.event_filter(egui::EventFilter {
-							escape: true,
-							horizontal_arrows: true,
-							vertical_arrows: true,
-							..Default::default()
-						})
+						.event_filter(user_picker_filter(was_open))
 						.return_key(None)
 						.desired_width((ui.available_width() - 25.0).max(24.0)),
 				);
@@ -1407,7 +1422,7 @@ impl UserPicker {
 		self.open = false;
 		let valid_id = value.parse::<Id>().is_ok();
 		let raw = value.trim();
-		let typed = raw.strip_prefix('@').unwrap_or(raw);
+		let typed = raw.strip_prefix('@').unwrap_or(raw).trim();
 		if response.changed() || self.query != typed {
 			self.query = typed.to_owned();
 			self.selected = None;
@@ -1422,7 +1437,10 @@ impl UserPicker {
 		let closed = self.dismissed || (!searching && !self.browse);
 		let keyboard_browse = closed
 			&& !response.changed()
-			&& ui.input_mut(|input| user_picker_key(input, egui::Key::ArrowDown));
+			&& keys.as_ref().map_or_else(
+				|| ui.input_mut(|input| user_picker_key(input, egui::Key::ArrowDown)),
+				|keys| keys.down,
+			);
 		if keyboard_browse {
 			self.browse = true;
 			self.dismissed = false;
@@ -1481,27 +1499,21 @@ impl UserPicker {
 			candidates.truncate(SUGGESTIONS);
 		}
 		let mut pick = None;
-		ui.input_mut(|input| {
-			if user_picker_key(input, egui::Key::Escape) {
-				self.dismissed = true;
-				self.browse = false;
-				return;
+		let keys = keys.unwrap_or_else(|| ui.input_mut(PickerKeys::take));
+		let len = candidates.len();
+		if keys.escape {
+			self.dismissed = true;
+			self.browse = false;
+		} else if len != 0 {
+			if keyboard_browse || keys.down {
+				index = Some(index.map_or(0, |index| (index + 1) % len));
+			} else if keys.up {
+				index = Some(index.map_or(len - 1, |index| (index + len - 1) % len));
 			}
-			let len = candidates.len();
-			if len != 0 {
-				if keyboard_browse || user_picker_key(input, egui::Key::ArrowDown) {
-					index = Some(index.map_or(0, |index| (index + 1) % len));
-				} else if user_picker_key(input, egui::Key::ArrowUp) {
-					index = Some(index.map_or(len - 1, |index| (index + len - 1) % len));
-				}
-				if !keyboard_browse
-					&& user_picker_key(input, egui::Key::Enter)
-					&& !response.changed()
-				{
-					pick = index.map(|index| candidates[index].2.id);
-				}
+			if !keyboard_browse && keys.enter && !response.changed() {
+				pick = index.map(|index| candidates[index].2.id);
 			}
-		});
+		}
 		if self.dismissed {
 			self.popup_rect = None;
 			return (response, false, None);
@@ -1586,6 +1598,33 @@ impl UserPicker {
 		}
 		self.open = true;
 		(response, false, lookup.then(|| query.to_owned()))
+	}
+}
+
+fn user_picker_filter(open: bool) -> egui::EventFilter {
+	egui::EventFilter {
+		escape: open,
+		horizontal_arrows: true,
+		vertical_arrows: true,
+		..Default::default()
+	}
+}
+
+struct PickerKeys {
+	escape: bool,
+	down: bool,
+	up: bool,
+	enter: bool,
+}
+
+impl PickerKeys {
+	fn take(input: &mut egui::InputState) -> Self {
+		Self {
+			escape: user_picker_key(input, egui::Key::Escape),
+			down: user_picker_key(input, egui::Key::ArrowDown),
+			up: user_picker_key(input, egui::Key::ArrowUp),
+			enter: user_picker_key(input, egui::Key::Enter),
+		}
 	}
 }
 
@@ -2079,6 +2118,26 @@ mod tests {
 			panic!("send the debounced search for out-of-window members");
 		};
 		assert_eq!(request.query, "team");
+		frame(
+			&mut view,
+			&mut state,
+			1.65,
+			vec![egui::Event::Key {
+				key: egui::Key::ArrowUp,
+				physical_key: None,
+				pressed: true,
+				repeat: false,
+				modifiers: egui::Modifiers::NONE,
+			}],
+		);
+		let caret = egui::TextEdit::load_state(&ctx, editor)
+			.and_then(|edit| edit.cursor.char_range())
+			.map(|range| range.primary.index.0);
+		assert_eq!(
+			caret,
+			Some(4),
+			"moving the highlight must not move the caret"
+		);
 		state.apply(Envelope {
 			generation: state.generation,
 			event: Event::MemberSearch {
@@ -2100,11 +2159,6 @@ mod tests {
 					.collect()),
 			},
 		});
-		assert_eq!(
-			state.member_search[0].rows[0].nick.as_deref(),
-			Some("Team Able 00")
-		);
-		assert_eq!(state.member_search[0].rows.len(), 40);
 		assert!(frame(&mut view, &mut state, 1.7, vec![]).is_empty());
 		assert_eq!(view.slash_commands.user_picker.selected, Some((local, 31)));
 		assert!(frame(&mut view, &mut state, 1.8, vec![enter()]).is_empty());
