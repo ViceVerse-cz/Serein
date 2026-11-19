@@ -5903,6 +5903,27 @@ fn effects_transparent() -> bool {
 	let (enabled, transparency, _) = ui::design::window_effects();
 	enabled && transparency > 0
 }
+#[cfg(not(target_os = "macos"))]
+fn consume_quit_shortcut(input: &mut egui::InputState) -> bool {
+	let mut pressed = false;
+	input.events.retain(|event| {
+		// AltGr can arrive as Ctrl+Alt. Match the modifiers on the key event, since
+		// the user may already have released Alt by the time this frame is processed.
+		let quit = matches!(
+			event,
+			egui::Event::Key {
+				key: egui::Key::Q,
+				pressed: true,
+				modifiers,
+				..
+			} if !modifiers.alt && modifiers.matches_logically(egui::Modifiers::COMMAND)
+		);
+		pressed |= quit;
+		!quit
+	});
+	pressed
+}
+
 impl eframe::App for Desktop {
 	fn clear_color(&self, visuals: &egui::Visuals) -> [f32; 4] {
 		if self.window_transparent && effects_transparent() {
@@ -6234,7 +6255,7 @@ impl eframe::App for Desktop {
 		self.app_menu(ctx);
 		// Like Discord, Ctrl+Q exits even when closing the window only hides it to the tray.
 		#[cfg(not(target_os = "macos"))]
-		if ctx.input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, egui::Key::Q)) {
+		if ctx.input_mut(consume_quit_shortcut) {
 			self.tray_window.quit(ctx);
 		}
 		let window_visible = self.window.is_visible();
@@ -7484,6 +7505,30 @@ fn plaintext_login_dir() -> Option<std::path::PathBuf> {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[cfg(not(target_os = "macos"))]
+	#[test]
+	fn altgr_q_keeps_typing_and_ctrl_q_still_quits() {
+		let key = |modifiers| egui::Event::Key {
+			key: egui::Key::Q,
+			physical_key: Some(egui::Key::Q),
+			pressed: true,
+			repeat: false,
+			modifiers,
+		};
+		let ctrl = egui::Modifiers::CTRL | egui::Modifiers::COMMAND;
+		let altgr = key(ctrl | egui::Modifiers::ALT);
+		let text = egui::Event::Text("@".into());
+		let mut input = egui::InputState::default();
+		input.events = vec![altgr.clone(), text.clone()];
+		assert!(!consume_quit_shortcut(&mut input));
+		assert_eq!(input.events, [altgr.clone(), text.clone()]);
+
+		// A separate Ctrl+Q arriving in the same frame still gets consumed.
+		input.events.push(key(ctrl));
+		assert!(consume_quit_shortcut(&mut input));
+		assert_eq!(input.events, [altgr, text]);
+	}
+
 	#[test]
 	fn minimizing_keeps_attachment_audio_playing() {
 		use MediaStop::{Everything, Nothing, VideoOnly};

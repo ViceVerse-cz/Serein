@@ -1218,6 +1218,8 @@ impl State {
                 // contain some data even when the key is released.
                 let is_cmd =
                     self.modifiers.ctrl || self.modifiers.command || self.modifiers.mac_cmd;
+                #[cfg(target_os = "windows")]
+                let is_cmd = is_cmd && !windows_altgr_text(self.modifiers, event, text);
                 if pressed && !is_cmd {
                     self.egui_input
                         .events
@@ -1577,6 +1579,23 @@ fn is_printable_char(chr: char) -> bool {
         || '\u{100000}' <= chr && chr <= '\u{10fffd}';
 
     !is_in_private_use_area && !chr.is_ascii_control()
+}
+
+#[cfg(target_os = "windows")]
+fn windows_altgr_text(
+    modifiers: egui::Modifiers,
+    event: &winit::event::KeyEvent,
+    text: &str,
+) -> bool {
+    use winit::platform::modifier_supplement::KeyEventExtModifierSupplement as _;
+
+    // Right Alt on an AltGr layout normally arrives without Ctrl or Alt. Windows also
+    // lets Ctrl+Alt type the same characters. Keep those layout-produced characters,
+    // while filtering unchanged text that winit can report for command keystrokes.
+    modifiers.ctrl
+        && modifiers.alt
+        && event.text_with_all_modifiers() == Some(text)
+        && event.key_without_modifiers().to_text() != Some(text)
 }
 
 fn is_cut_command(modifiers: egui::Modifiers, keycode: egui::Key) -> bool {

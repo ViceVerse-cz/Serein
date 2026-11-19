@@ -1,0 +1,50 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ebaaay <100021857+ebaaay@users.noreply.github.com>
+Date: Wed, 18 Nov 2026 22:05:00 -0300
+Subject: [PATCH] Serein: forward Windows AltGr text
+
+Windows layouts can produce the same character for Ctrl+Alt and Right Alt.
+Forward changed printable text when the native event reports that character
+with all modifiers, while continuing to filter command keystrokes.
+
+---
+ egui-winit/src/lib.rs | 19 +++++++++++++++++++
+ 1 file changed, 19 insertions(+)
+
+diff --git a/egui-winit/src/lib.rs b/egui-winit/src/lib.rs
+index bd87a1e..74dcbd9 100644
+--- a/egui-winit/src/lib.rs
++++ b/egui-winit/src/lib.rs
+@@ -1218,6 +1218,8 @@ impl State {
+                 // contain some data even when the key is released.
+                 let is_cmd =
+                     self.modifiers.ctrl || self.modifiers.command || self.modifiers.mac_cmd;
++                #[cfg(target_os = "windows")]
++                let is_cmd = is_cmd && !windows_altgr_text(self.modifiers, event, text);
+                 if pressed && !is_cmd {
+                     self.egui_input
+                         .events
+@@ -1579,6 +1581,23 @@ fn is_printable_char(chr: char) -> bool {
+     !is_in_private_use_area && !chr.is_ascii_control()
+ }
+
++#[cfg(target_os = "windows")]
++fn windows_altgr_text(
++    modifiers: egui::Modifiers,
++    event: &winit::event::KeyEvent,
++    text: &str,
++) -> bool {
++    use winit::platform::modifier_supplement::KeyEventExtModifierSupplement as _;
++
++    // Right Alt on an AltGr layout normally arrives without Ctrl or Alt. Windows also
++    // lets Ctrl+Alt type the same characters. Keep those layout-produced characters,
++    // while filtering unchanged text that winit can report for command keystrokes.
++    modifiers.ctrl
++        && modifiers.alt
++        && event.text_with_all_modifiers() == Some(text)
++        && event.key_without_modifiers().to_text() != Some(text)
++}
++
+ fn is_cut_command(modifiers: egui::Modifiers, keycode: egui::Key) -> bool {
+     keycode == egui::Key::Cut
+         || (modifiers.command_only() && keycode == egui::Key::X)
