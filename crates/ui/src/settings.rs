@@ -84,6 +84,18 @@ impl Page {
 		),
 		("section-customization", &[Self::Themes, Self::Extensions]),
 	];
+	/// The pages that make sense before signing in: how the app looks and starts, its language
+	/// and its updates. Everything else needs an account or a session.
+	fn signed_out(self) -> bool {
+		matches!(
+			self,
+			Self::Appearance | Self::LanguageTime | Self::General | Self::Updates
+		)
+	}
+	/// Whether the page is offered: every page when signed in, the few above when not.
+	fn offered(self, signed_out: bool) -> bool {
+		!signed_out || self.signed_out()
+	}
 	fn label_key(self) -> &'static str {
 		match self {
 			Self::Account => "page-account",
@@ -241,6 +253,29 @@ impl MessagingUi {
 	pub fn open_settings(&mut self) {
 		self.settings.open = true;
 	}
+	/// Opens the settings modal on the sign-in screen, limited to the pages that work there.
+	pub fn open_sign_in_settings(&mut self) {
+		self.settings.open = true;
+		if !self.settings.page.signed_out() {
+			self.settings.page = Page::Appearance;
+		}
+		self.settings.query.clear();
+	}
+	pub fn close_settings(&mut self) {
+		self.settings.open = false;
+	}
+	/// Draws the settings modal over the sign-in screen while it is open.
+	pub fn show_sign_in_settings(&mut self, ctx: &egui::Context, state: &mut State) {
+		if !self.settings.open {
+			return;
+		}
+		if !self.settings.page.signed_out() {
+			self.settings.page = Page::Appearance;
+		}
+		// The offered pages issue no commands.
+		let mut commands = Vec::new();
+		self.settings_modal(ctx, state, &mut commands, true);
+	}
 	pub fn open_update_settings(&mut self) {
 		self.settings.open = true;
 		self.settings.page = Page::Updates;
@@ -323,6 +358,16 @@ impl MessagingUi {
 		state: &mut State,
 		commands: &mut Vec<client_core::Command>,
 	) {
+		self.settings_modal(ctx, state, commands, false);
+	}
+
+	fn settings_modal(
+		&mut self,
+		ctx: &egui::Context,
+		state: &mut State,
+		commands: &mut Vec<client_core::Command>,
+		signed_out: bool,
+	) {
 		let colors = design::palette_for(ctx);
 		let size = ctx.content_rect().size() - egui::vec2(32.0, 40.0);
 		let width = size.x.clamp(280.0, 1100.0);
@@ -360,7 +405,7 @@ impl MessagingUi {
 									bottom: 16,
 								}),
 						)
-						.show(ui, |ui| self.settings_navigation(ui, state));
+						.show(ui, |ui| self.settings_navigation(ui, state, signed_out));
 				}
 				egui::CentralPanel::default()
 					.frame(egui::Frame::new().inner_margin(egui::Margin {
@@ -400,16 +445,17 @@ impl MessagingUi {
 						});
 						if !wide {
 							ui.add_space(8.0);
-							self.settings_search(ui);
+							self.settings_search(ui, signed_out);
 							crate::design::Select::from_id_salt("settings-page")
 								.selected_text(self.settings.page.label(self.language))
 								.width(ui.available_width())
 								.show_ui(ui, |ui| {
 									for page in Page::ALL {
-										if page.matches(
-											&self.settings.query.to_lowercase(),
-											self.language,
-										) {
+										if page.offered(signed_out)
+											&& page.matches(
+												&self.settings.query.to_lowercase(),
+												self.language,
+											) {
 											ui.selectable_value(
 												&mut self.settings.page,
 												page,
@@ -447,10 +493,9 @@ impl MessagingUi {
 								ui.set_width((ui.available_width() - scroll_padding).min(720.0));
 								ui.spacing_mut().item_spacing.y = 12.0;
 								let query = self.settings.query.to_lowercase();
-								if !Page::ALL
-									.into_iter()
-									.any(|p| p.matches(&query, self.language))
-								{
+								if !Page::ALL.into_iter().any(|p| {
+									p.offered(signed_out) && p.matches(&query, self.language)
+								}) {
 									ui.label(
 										design::semibold(
 											ui,
@@ -463,7 +508,9 @@ impl MessagingUi {
 									return;
 								}
 								match self.settings.page {
-									Page::General => self.general_settings(ui, state.demo),
+									Page::General => {
+										self.general_settings(ui, state.demo, signed_out)
+									}
 									Page::LanguageTime => self.language_time_settings(ui),
 									Page::Account => self.account_page(ui, state),
 									Page::Profile => self.settings.editor.show(
@@ -525,7 +572,7 @@ impl MessagingUi {
 		}
 	}
 
-	fn settings_navigation(&mut self, ui: &mut egui::Ui, state: &State) {
+	fn settings_navigation(&mut self, ui: &mut egui::Ui, state: &State, signed_out: bool) {
 		let colors = design::palette(ui);
 		let language = self.language;
 		egui::ScrollArea::vertical()
@@ -533,14 +580,14 @@ impl MessagingUi {
 			.auto_shrink([false, false])
 			.show(ui, |ui| {
 				ui.spacing_mut().item_spacing.y = 2.0;
-				self.settings_search(ui);
+				self.settings_search(ui, signed_out);
 				ui.add_space(12.0);
 				let query = self.settings.query.to_lowercase();
 				for (heading, pages) in Page::SECTIONS {
 					let visible: Vec<Page> = pages
 						.iter()
 						.copied()
-						.filter(|page| page.matches(&query, language))
+						.filter(|page| page.offered(signed_out) && page.matches(&query, language))
 						.collect();
 					if visible.is_empty() {
 						continue;
@@ -597,7 +644,9 @@ impl MessagingUi {
 				ui.add_space(8.0);
 				ui.separator();
 				ui.add_space(4.0);
-				self.settings_logout(ui, state.demo);
+				if !signed_out {
+					self.settings_logout(ui, state.demo);
+				}
 				ui.add_space(12.0);
 				ui.label(
 					RichText::new(format!("Serein {}", self.build.version))
@@ -612,7 +661,7 @@ impl MessagingUi {
 			});
 	}
 
-	fn settings_search(&mut self, ui: &mut egui::Ui) {
+	fn settings_search(&mut self, ui: &mut egui::Ui, signed_out: bool) {
 		let colors = design::palette(ui);
 		let language = self.language;
 		egui::Frame::new()
@@ -634,8 +683,9 @@ impl MessagingUi {
 					if response.changed() {
 						let query = self.settings.query.to_lowercase();
 						if !self.settings.page.matches(&query, language)
-							&& let Some(page) =
-								Page::ALL.into_iter().find(|p| p.matches(&query, language))
+							&& let Some(page) = Page::ALL
+								.into_iter()
+								.find(|p| p.offered(signed_out) && p.matches(&query, language))
 						{
 							self.settings.page = page;
 						}
@@ -943,7 +993,7 @@ impl MessagingUi {
 		}
 	}
 
-	fn general_settings(&mut self, ui: &mut egui::Ui, _demo: bool) {
+	fn general_settings(&mut self, ui: &mut egui::Ui, _demo: bool, signed_out: bool) {
 		let language = self.language;
 		let title = language.text("general-startup");
 		design::group(ui, &title, |ui| self.startup_switches(ui));
@@ -1016,66 +1066,23 @@ impl MessagingUi {
 				&mut self.steady_refresh_rate,
 			);
 		});
-		design::card(ui, |ui| {
-			design::row(
-				ui,
-				"setup-run-again",
-				Some("setup-run-again-description"),
-				|ui| {
-					if design::button(ui, "setup-run-again-action", design::ButtonKind::Outline)
-						.clicked()
-					{
-						self.preview_setup(0);
-						self.settings.open = false;
-					}
-				},
-			);
-		});
-	}
-
-	/// Compact appearance popup for the signed-out header: mode, colour preset and zoom.
-	/// Deliberately narrower than the settings page; everything else lives in Settings.
-	pub fn appearance_menu(&mut self, ui: &mut egui::Ui) {
-		let colors = design::palette(ui);
-		ui.set_min_width(324.0);
-		ui.set_max_width(324.0);
-		ui.spacing_mut().item_spacing.y = 6.0;
-		ui.label(design::eyebrow(
-			ui,
-			crate::i18n::translate("settings-appearance-menu-mode"),
-			colors.muted,
-		));
-		theme_preference_cards(ui);
-		ui.add_space(6.0);
-		ui.label(design::eyebrow(
-			ui,
-			crate::i18n::translate("settings-appearance-menu-theme"),
-			colors.muted,
-		));
-		let current = design::variant();
-		ui.horizontal_wrapped(|ui| {
-			ui.spacing_mut().item_spacing = egui::vec2(0.0, 4.0);
-			for variant in design::Variant::ALL {
-				let swatch = design::builtin_colors(ui.visuals().dark_mode, variant);
-				let selected = variant == current;
-				if preset_swatch(ui, variant.label(), &swatch, selected).clicked() && !selected {
-					design::set_variant(variant);
-					design::apply(ui.ctx());
-					self.theme_variant_changed = Some(variant);
-				}
-			}
-		});
-		ui.add_space(6.0);
-		ui.label(design::eyebrow(
-			ui,
-			crate::i18n::translate("settings-appearance-menu-display"),
-			colors.muted,
-		));
-		let mut value = self.reading_preferences;
-		ui.spacing_mut().slider_width = 96.0;
-		self.zoom_row(ui, &mut value);
-		if value != self.reading_preferences {
-			self.apply_reading_preferences(ui.ctx(), value);
+		// The setup walkthrough runs inside the signed-in app.
+		if !signed_out {
+			design::card(ui, |ui| {
+				design::row(
+					ui,
+					"setup-run-again",
+					Some("setup-run-again-description"),
+					|ui| {
+						if design::button(ui, "setup-run-again-action", design::ButtonKind::Outline)
+							.clicked()
+						{
+							self.preview_setup(0);
+							self.settings.open = false;
+						}
+					},
+				);
+			});
 		}
 	}
 

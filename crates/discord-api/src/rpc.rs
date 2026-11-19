@@ -55,7 +55,7 @@ pub async fn metadata(
 	let bytes = download(
 		client,
 		cooldown,
-		&format!("{}/applications/{id}/rpc", crate::api_v10_base()),
+		&format!("{}/applications/{id}/rpc", crate::api_base()),
 		MAX_METADATA,
 	)
 	.await?;
@@ -74,7 +74,7 @@ pub async fn assets(
 	let bytes = download(
 		client,
 		cooldown,
-		&format!("{}/oauth2/applications/{id}/assets", crate::api_v10_base()),
+		&format!("{}/oauth2/applications/{id}/assets", crate::api_base()),
 		MAX_METADATA,
 	)
 	.await?;

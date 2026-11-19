@@ -56,22 +56,24 @@ impl Failure {
 	}
 	pub fn label(self) -> &'static str {
 		match self {
-			Self::Expired => "Session expired · reconnect explicitly; drafts remain in RAM",
-			Self::Challenged => "Security challenge · unsupported here; connection stopped",
+			Self::Expired => "Your session expired. Sign in again.",
+			Self::Challenged => {
+				"Discord asked for a security check Serein cannot complete. Finish it in the official client."
+			}
 			Self::Forbidden => "Permission denied",
 			Self::AccountRestricted => {
-				"Discord requires account attention · connection stopped; check the official client"
+				"Discord needs attention on your account. Check the official client."
 			}
-			Self::ServiceBlocked => {
-				"Discord blocked this request · connection stopped; check the official client"
-			}
-			Self::RateLimited => "Rate limited · wait before retrying",
+			Self::ServiceBlocked => "Discord blocked this request. Check the official client.",
+			Self::RateLimited => "Rate limited. Wait a moment and try again.",
 			Self::Network => "Connection failed",
-			Self::Ambiguous => "Outcome unknown · check the official client before retrying",
-			Self::Protocol => "Unsupported service response",
+			Self::Ambiguous => {
+				"Could not confirm that it went through. Check the official client before retrying."
+			}
+			Self::Protocol => "Discord sent a response Serein cannot read.",
 			Self::ProtocolAt(stage) | Self::CapacityAt(stage) => stage,
-			Self::Capacity => "Safe capacity exceeded · connection stopped",
-			Self::InvalidCredential => "Invalid session input or bot account rejected",
+			Self::Capacity => "Too much data to handle safely. Connection stopped.",
+			Self::InvalidCredential => "That is not a valid user session.",
 		}
 	}
 	pub fn ends_session(self) -> bool {
@@ -88,17 +90,23 @@ impl Failure {
 	}
 }
 /// Which response ended a session as expired, for the copyable failure report. `source` is a
-/// fixed label; `route` keeps only static path words, never IDs, codes, queries or remote text.
+/// fixed label; `route` keeps only static path words, never IDs, invite codes, queries or
+/// remote text. `code` is the response's numeric JSON error code, which tells one 401 from another.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Expiry {
 	pub source: &'static str,
+	pub code: Option<u32>,
 	pub route: Option<Box<str>>,
 }
 impl fmt::Display for Expiry {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		f.write_str(self.source)?;
+		if let Some(code) = self.code {
+			write!(f, " code {code}")?;
+		}
 		match &self.route {
-			Some(route) => write!(f, "{} on {route}", self.source),
-			None => f.write_str(self.source),
+			Some(route) => write!(f, " on {route}"),
+			None => Ok(()),
 		}
 	}
 }

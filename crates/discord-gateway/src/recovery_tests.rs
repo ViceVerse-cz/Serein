@@ -14,6 +14,7 @@ struct Gateway {
 	reconnect: Notify,
 	finished: Notify,
 	manual: AtomicBool,
+	reports: std::sync::Mutex<Vec<Report>>,
 }
 
 impl Gateway {
@@ -24,10 +25,15 @@ impl Gateway {
 			reconnect: Notify::new(),
 			finished: Notify::new(),
 			manual: AtomicBool::new(false),
+			reports: Default::default(),
 		}
 	}
 
 	async fn run(&self, server: impl std::future::Future<Output = ()>) {
+		self.run_until(server, Failure::Expired).await;
+	}
+
+	async fn run_until(&self, server: impl std::future::Future<Output = ()>, end: Failure) {
 		timeout(Duration::from_secs(10), async {
 			let initial = format!("ws://{}/", self.initial.local_addr().unwrap());
 			let resume = format!("ws://{}/", self.resume.local_addr().unwrap());
@@ -42,6 +48,7 @@ impl Gateway {
 					mpsc::channel(1).1,
 					None,
 					Some(&self.reconnect),
+					&|report| self.reports.lock().unwrap().push(report),
 					|event| {
 						if matches!(event, Event::Disconnected)
 							&& !self.manual.load(Ordering::Relaxed)
@@ -57,7 +64,7 @@ impl Gateway {
 				result
 			};
 			let ((), result) = tokio::join!(server, client);
-			assert_eq!(result, Err(Failure::Expired));
+			assert_eq!(result, Err(end));
 		})
 		.await
 		.expect("synthetic gateway recovery exceeded its bounded deadline");
@@ -99,11 +106,17 @@ impl Gateway {
 	}
 
 	async fn establish(&self) {
+		self.identified().await;
+	}
+
+	/// A fresh session at the original address, taken through READY.
+	async fn identified(&self) -> WebSocketStream<TcpStream> {
 		let mut socket = self.socket(false, Some(2)).await;
 		let mut ready = ready(41, "synthetic-recovery-session");
 		ready["d"]["resume_gateway_url"] = json!("wss://gateway-resume.discord.gg/");
 		send(&mut socket, ready).await;
 		acknowledge(&mut socket, 41).await;
+		socket
 	}
 
 	async fn stop(&self, mut socket: WebSocketStream<TcpStream>) {
@@ -262,4 +275,100 @@ async fn recovery_probes_a_ready_socket_and_resumes_only_when_it_is_silent() {
 			gateway.stop(next).await;
 		})
 		.await;
+}
+
+/// Regression (#1043): traffic this client cannot read after READY used to end the session
+/// and leave the app signed out. It now starts a fresh session, never a resume past the
+/// unread event, and still stops once the budget is spent.
+#[tokio::test]
+async fn unreadable_dispatch_after_ready_identifies_again_until_the_budget_is_spent() {
+	let gateway = Gateway::new().await;
+	gateway.manual.store(true, Ordering::Relaxed);
+	let unreadable = || json!({"op":0,"t":"MESSAGE_CREATE","s":42,"d":{}});
+	gateway
+		.run_until(
+			async {
+				let mut socket = gateway.identified().await;
+				for _ in 0..RECOVERY_WAITS.len() {
+					send(&mut socket, unreadable()).await;
+					socket = gateway.identified().await;
+				}
+				send(&mut socket, unreadable()).await;
+				tokio::select! {
+					() = gateway.finished.notified() => {},
+					_ = gateway.initial.accept() => panic!("a spent budget must not identify"),
+					_ = gateway.resume.accept() => panic!("a spent budget must not resume"),
+				}
+			},
+			Failure::Protocol,
+		)
+		.await;
+	let reports = gateway.reports.lock().unwrap();
+	let actions: Vec<_> = reports.iter().map(|report| report.action).collect();
+	assert!(matches!(
+		actions[..],
+		[
+			Action::Recovering { .. },
+			Action::Recovering { .. },
+			Action::Recovering { .. },
+			Action::BudgetSpent
+		]
+	));
+	assert!(
+		reports
+			.iter()
+			.all(|report| report.ready && report.dispatch == "MESSAGE_CREATE")
+	);
+}
+
+/// A stop-listed close stays a deliberate stop after READY: no fresh session is spent on it.
+#[tokio::test]
+async fn stop_listed_close_after_ready_is_not_recovered() {
+	let gateway = Gateway::new().await;
+	gateway.manual.store(true, Ordering::Relaxed);
+	gateway
+		.run_until(
+			async {
+				let mut socket = gateway.identified().await;
+				close(&mut socket, 4008).await;
+				tokio::select! {
+					() = gateway.finished.notified() => {},
+					_ = gateway.initial.accept() => panic!("a stop-listed close must not identify"),
+					_ = gateway.resume.accept() => panic!("a stop-listed close must not resume"),
+				}
+			},
+			Failure::ProtocolAt(
+				"Gateway rejected the session or its traffic; reconnect explicitly",
+			),
+		)
+		.await;
+	assert_eq!(
+		gateway
+			.reports
+			.lock()
+			.unwrap()
+			.last()
+			.map(|report| (report.code, report.action)),
+		Some((Some(4008), Action::Stopped))
+	);
+}
+
+#[test]
+fn recovery_budget_refills_only_after_its_window() {
+	let mut budget = RecoveryBudget::default();
+	let start = Instant::now();
+	for _ in 0..RECOVERY_WAITS.len() {
+		assert!(budget.charge(start).is_some());
+	}
+	assert!(
+		budget
+			.charge(start + RECOVERY_WINDOW - Duration::from_secs(1))
+			.is_none()
+	);
+	assert_eq!(
+		budget
+			.charge(start + RECOVERY_WINDOW)
+			.map(|(count, _)| count),
+		Some(1)
+	);
 }

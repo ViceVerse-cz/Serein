@@ -1,15 +1,23 @@
-use crate::{DiscordApi, Failure};
+use crate::{DiscordApi, Extras, Failure};
 use discord_protocol::activity_sharing::{self, MAX_SETTINGS_RESPONSE, Settings};
 use wreq::Method;
 
 impl DiscordApi {
 	async fn read_activity_sharing(&self) -> Result<Settings, Failure> {
+		self.read_settings(false).await
+	}
+
+	async fn read_settings(&self, advisory: bool) -> Result<Settings, Failure> {
 		let bytes = self
-			.request_limited(
+			.request_with_content(
 				Method::GET,
 				"/users/@me/settings-proto/1",
 				None,
 				MAX_SETTINGS_RESPONSE,
+				Extras {
+					advisory,
+					..Extras::default()
+				},
 			)
 			.await?;
 		activity_sharing::decode_response(&bytes).map_err(|_| {
@@ -58,11 +66,16 @@ impl DiscordApi {
 
 	/// Status plus the inactivity timeout (seconds) from one settings read.
 	pub async fn account_status(&self) -> Result<(model::OwnPresence, Option<u32>), Failure> {
-		let settings = self.read_activity_sharing().await?;
-		let presence = activity_sharing::account_presence(&settings).map_err(|_| {
-			Failure::ProtocolAt("Discord status settings are unavailable or unsupported")
-		})?;
-		Ok((presence, settings.afk_timeout))
+		status_from(self.read_activity_sharing().await?)
+	}
+
+	/// [`Self::account_status`] for the read before identify. Some accounts get HTTP 401 here
+	/// (unverified why), so a rejection does not end the session before the Gateway answers;
+	/// an invalid token still ends it through Gateway close 4004.
+	pub async fn account_status_before_ready(
+		&self,
+	) -> Result<(model::OwnPresence, Option<u32>), Failure> {
+		status_from(self.read_settings(true).await?)
 	}
 
 	/// Writes `voice_and_video.afk_timeout`, the account's Idle-after setting.
@@ -127,6 +140,13 @@ impl DiscordApi {
 		}
 		Ok(())
 	}
+}
+
+fn status_from(settings: Settings) -> Result<(model::OwnPresence, Option<u32>), Failure> {
+	let presence = activity_sharing::account_presence(&settings).map_err(|_| {
+		Failure::ProtocolAt("Discord status settings are unavailable or unsupported")
+	})?;
+	Ok((presence, settings.afk_timeout))
 }
 
 #[cfg(test)]

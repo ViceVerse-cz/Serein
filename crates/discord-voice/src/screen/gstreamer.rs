@@ -6,7 +6,7 @@ use gstreamer_app as app;
 use gstreamer_video::{self as video, VideoFrameExt};
 use std::sync::{
 	Arc,
-	atomic::{AtomicBool, Ordering},
+	atomic::{AtomicBool, AtomicU64, Ordering},
 };
 
 const INVALID: &str = "Screen capture returned an unsupported frame";
@@ -90,7 +90,7 @@ impl Mode {
 	}
 	/// Whether the scaler applies PipeWire's crop rectangle: vapostproc always does,
 	/// videoconvertscale only after GStreamer 1.29.2, and the GL mixer never does.
-	fn applies_crop(self) -> bool {
+	pub(super) fn applies_crop(self) -> bool {
 		match self {
 			Self::Va => true,
 			Self::Nvidia => false,
@@ -108,6 +108,7 @@ pub(super) struct Capture {
 	failed: Arc<AtomicBool>,
 	changed: Arc<tokio::sync::Notify>,
 	preview_gate: gst::Element,
+	visible: Arc<AtomicU64>,
 }
 impl Drop for Capture {
 	fn drop(&mut self) {
@@ -238,8 +239,12 @@ impl Capture {
 			.add_many([&source, bin.upcast_ref()])
 			.map_err(|_| UNAVAILABLE)?;
 		source.link(&bin).map_err(|_| UNAVAILABLE)?;
+		let visible = Arc::new(AtomicU64::new(0));
 		if mode.applies_crop() {
-			match_crop_aspect(&source.static_pad("src").ok_or(UNAVAILABLE)?);
+			match_crop_aspect(
+				&source.static_pad("src").ok_or(UNAVAILABLE)?,
+				visible.clone(),
+			);
 		}
 		let frames = sink(&bin, "frames")?;
 		let preview = sink(&bin, "preview")?;
@@ -303,6 +308,7 @@ impl Capture {
 			failed,
 			changed,
 			preview_gate,
+			visible,
 		};
 		capture
 			.pipeline
@@ -337,6 +343,16 @@ impl Capture {
 	pub(super) fn failed(&self) -> bool {
 		self.failed.load(Ordering::Acquire)
 	}
+	/// The shown size of this pipeline's latest source buffer, in modes that apply crops.
+	/// `None` until a buffer arrives, so raw caps never resize a cropped window cast.
+	pub(super) fn visible_size(&self) -> Option<(u32, u32)> {
+		let packed = self.visible.load(Ordering::Acquire);
+		let (width, height) = (
+			u32::try_from(packed >> 32).ok()?,
+			u32::try_from(packed & u64::from(u32::MAX)).ok()?,
+		);
+		(width > 0 && height > 0).then_some((width, height))
+	}
 }
 fn sink(bin: &gst::Bin, name: &str) -> Result<app::AppSink, &'static str> {
 	bin.by_name(name)
@@ -346,8 +362,9 @@ fn sink(bin: &gst::Bin, name: &str) -> Result<app::AppSink, &'static str> {
 /// Window casts may keep the stream size and mark the window with a crop rectangle. Scalers
 /// that apply it still place borders by the caps' aspect ratio, stretching the window, so
 /// declare the (square) source pixels in a shape that gives the caps the crop's aspect ratio.
-fn match_crop_aspect(pad: &gst::Pad) {
-	pad.add_probe(gst::PadProbeType::BUFFER, |pad, info| {
+/// `visible` receives the latest buffer's shown size (the crop, else the whole stream).
+fn match_crop_aspect(pad: &gst::Pad, visible: Arc<AtomicU64>) {
+	pad.add_probe(gst::PadProbeType::BUFFER, move |pad, info| {
 		let (Some(buffer), Some(caps)) = (info.buffer(), pad.current_caps()) else {
 			return gst::PadProbeReturn::Ok;
 		};
@@ -359,19 +376,28 @@ fn match_crop_aspect(pad: &gst::Pad) {
 		}) else {
 			return gst::PadProbeReturn::Ok;
 		};
-		let aspect = buffer
-			.meta::<video::VideoCropMeta>()
-			.and_then(|crop| {
-				let (x, y, crop_width, crop_height) = crop.rect();
-				let (crop_width, crop_height) = (
-					i32::try_from(crop_width).ok()?,
-					i32::try_from(crop_height).ok()?,
-				);
-				(crop_width > 0
-					&& crop_height > 0
-					&& i64::from(x) + i64::from(crop_width) <= i64::from(width)
-					&& i64::from(y) + i64::from(crop_height) <= i64::from(height))
-				.then_some(())?;
+		let crop = buffer.meta::<video::VideoCropMeta>().and_then(|crop| {
+			let (x, y, crop_width, crop_height) = crop.rect();
+			let (crop_width, crop_height) = (
+				i32::try_from(crop_width).ok()?,
+				i32::try_from(crop_height).ok()?,
+			);
+			(crop_width > 0
+				&& crop_height > 0
+				&& i64::from(x) + i64::from(crop_width) <= i64::from(width)
+				&& i64::from(y) + i64::from(crop_height) <= i64::from(height))
+			.then_some((crop_width, crop_height))
+		});
+		let (shown_width, shown_height) = crop.unwrap_or((width, height));
+		visible.store(
+			pack_size(
+				u32::try_from(shown_width).unwrap_or(0),
+				u32::try_from(shown_height).unwrap_or(0),
+			),
+			Ordering::Release,
+		);
+		let aspect = crop
+			.and_then(|(crop_width, crop_height)| {
 				Some(gst::Fraction::new(
 					i32::try_from(i64::from(crop_width) * i64::from(height)).ok()?,
 					i32::try_from(i64::from(crop_height) * i64::from(width)).ok()?,
@@ -389,6 +415,9 @@ fn match_crop_aspect(pad: &gst::Pad) {
 		}
 		gst::PadProbeReturn::Ok
 	});
+}
+fn pack_size(width: u32, height: u32) -> u64 {
+	(u64::from(width) << 32) | u64::from(height)
 }
 fn bound(pad: &gst::Pad, bytes: usize, failed: Arc<AtomicBool>) {
 	pad.add_probe(gst::PadProbeType::BUFFER, move |_, info| {

@@ -293,14 +293,8 @@ impl MessagingUi {
 		ctx.request_repaint_after(std::time::Duration::from_secs(3));
 	}
 
-	/// Update controls for the signed-out header, rendered inside its menu popup so the
-	/// screen never grows a second, movable window.
-	pub fn updates_menu(&mut self, ui: &mut egui::Ui, demo: bool) {
-		ui.set_min_width(340.0);
-		ui.set_max_width(340.0);
-		self.update_settings(ui, demo);
-	}
-
+	/// Version, update controls and support tools: the Updates settings page, also offered on the
+	/// sign-in screen.
 	pub(super) fn update_settings(&mut self, ui: &mut egui::Ui, demo: bool) {
 		let colors = design::palette(ui);
 		design::card(ui, |ui| {

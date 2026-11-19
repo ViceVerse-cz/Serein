@@ -9,6 +9,7 @@ mod member_search;
 mod presence;
 #[cfg(test)]
 mod recovery_tests;
+pub mod remote_auth;
 mod thread_events;
 mod voice;
 #[cfg(debug_assertions)]
@@ -60,11 +61,205 @@ pub enum Reconnect {
 }
 /// Serein conservatively stops on malformed traffic and rate-limit closes even where
 /// Discord permits reconnecting; replaying the same producer could repeat the violation.
+/// 4015 (unofficial: too many user-account sessions) stops too, since every identify adds one.
 pub fn close_action(code: u16) -> Reconnect {
 	match code {
-		4001..=4005 | 4008 | 4010..=4014 | 1008 | 1009 => Reconnect::Stop,
+		4001..=4005 | 4008 | 4010..=4015 | 1008 | 1009 => Reconnect::Stop,
 		4007 | 4009 => Reconnect::Identify,
 		_ => Reconnect::Resume,
+	}
+}
+
+/// Where a failure came from. Only traffic the service sent and this client could not read is
+/// retried with a fresh session; a stop-listed close and this client's own faults are not.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum Site {
+	/// This client's inputs, invariants and event sink.
+	#[default]
+	Local,
+	/// No socket reached HELLO within the initial login's attempts.
+	Connect,
+	Hello,
+	Frame,
+	Packet,
+	Opcode(u8),
+	Dispatch(&'static str),
+	Close(u16),
+}
+impl Site {
+	fn recoverable(self) -> bool {
+		!matches!(self, Self::Local | Self::Connect | Self::Close(_))
+	}
+	fn cause(self) -> &'static str {
+		match self {
+			Self::Local => "local input or event sink",
+			Self::Connect => "no connection",
+			Self::Hello => "unsupported hello",
+			Self::Frame => "unreadable frame",
+			Self::Packet => "unreadable packet",
+			Self::Opcode(_) => "unsupported opcode or payload",
+			Self::Dispatch(_) => "unreadable dispatch",
+			Self::Close(_) => "close code",
+		}
+	}
+	fn code(self) -> Option<u16> {
+		match self {
+			Self::Opcode(op) => Some(op.into()),
+			Self::Close(code) => Some(code),
+			_ => None,
+		}
+	}
+	fn dispatch(self) -> &'static str {
+		match self {
+			Self::Dispatch(name) => name,
+			_ => "",
+		}
+	}
+}
+
+/// The site of the step in progress. A mutex only so the session future stays `Send`.
+#[derive(Default)]
+struct SiteCell(std::sync::Mutex<Site>);
+impl SiteCell {
+	fn set(&self, site: Site) {
+		if let Ok(mut current) = self.0.lock() {
+			*current = site;
+		}
+	}
+	fn get(&self) -> Site {
+		self.0.lock().map_or(Site::Local, |site| *site)
+	}
+}
+
+/// The dispatch name as a constant for reports: handled names only, never wire text.
+fn dispatch_label(name: &str) -> &'static str {
+	const HANDLED: &[&str] = &[
+		"READY",
+		"READY_SUPPLEMENTAL",
+		"RESUMED",
+		"GUILD_MEMBERS_CHUNK",
+		"CALL_CREATE",
+		"CALL_UPDATE",
+		"CALL_DELETE",
+		"CHANNEL_INFO",
+		"VOICE_CHANNEL_START_TIME_UPDATE",
+		"VOICE_STATE_UPDATE",
+		"VOICE_SERVER_UPDATE",
+		"STREAM_CREATE",
+		"STREAM_SERVER_UPDATE",
+		"STREAM_UPDATE",
+		"STREAM_DELETE",
+		"THREAD_MEMBER_LIST_UPDATE",
+		"GUILD_MEMBER_LIST_UPDATE",
+		"PRESENCE_UPDATE",
+		"TYPING_START",
+		"CHANNEL_RECIPIENT_ADD",
+		"CHANNEL_RECIPIENT_REMOVE",
+		"USER_NOTE_UPDATE",
+		"RELATIONSHIP_ADD",
+		"RELATIONSHIP_UPDATE",
+		"RELATIONSHIP_REMOVE",
+		"USER_UPDATE",
+		"USER_GUILD_SETTINGS_UPDATE",
+		"SESSIONS_REPLACE",
+		"USER_SETTINGS_PROTO_UPDATE",
+		"INTERACTION_SUCCESS",
+		"INTERACTION_FAILURE",
+		"INTERACTION_MODAL_CREATE",
+		"MESSAGE_CREATE",
+		"MESSAGE_ACK",
+		"PASSIVE_UPDATE_V2",
+		"MESSAGE_POLL_VOTE_ADD",
+		"MESSAGE_POLL_VOTE_REMOVE",
+		"MESSAGE_UPDATE",
+		"MESSAGE_REACTION_ADD",
+		"MESSAGE_REACTION_REMOVE",
+		"MESSAGE_REACTION_REMOVE_ALL",
+		"MESSAGE_REACTION_REMOVE_EMOJI",
+		"MESSAGE_DELETE",
+		"MESSAGE_DELETE_BULK",
+		"CHANNEL_DELETE",
+		"CHANNEL_CREATE",
+		"CHANNEL_UPDATE",
+		"THREAD_CREATE",
+		"THREAD_UPDATE",
+		"THREAD_DELETE",
+		"THREAD_LIST_SYNC",
+		"THREAD_MEMBERS_UPDATE",
+		"THREAD_MEMBER_UPDATE",
+		"GUILD_STICKERS_UPDATE",
+		"GUILD_EMOJIS_UPDATE",
+		"GUILD_CREATE",
+		"GUILD_UPDATE",
+		"GUILD_MEMBER_UPDATE",
+		"GUILD_DELETE",
+		"GUILD_ROLE_CREATE",
+		"GUILD_ROLE_UPDATE",
+		"GUILD_ROLE_DELETE",
+	];
+	HANDLED
+		.iter()
+		.copied()
+		.find(|known| *known == name)
+		.unwrap_or("other")
+}
+
+/// What the Gateway did about a close or failure.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Action {
+	/// The socket closed and ordinary recovery continues.
+	Reconnecting,
+	/// A fresh session follows after this many seconds.
+	Recovering {
+		wait_secs: u16,
+	},
+	/// The fresh-session budget is spent, so the session ends.
+	BudgetSpent,
+	Stopped,
+}
+/// One Gateway close, recovery or stop, for the diagnostics log and report. Fixed vocabulary
+/// only: no identifiers, credentials or remote text.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Report {
+	pub cause: &'static str,
+	/// A handled dispatch name or "other"; empty outside a dispatch.
+	pub dispatch: &'static str,
+	/// The close code or opcode, when the cause has one.
+	pub code: Option<u16>,
+	/// Whether this connection had reached READY.
+	pub ready: bool,
+	/// Fresh-session recoveries charged in the current window.
+	pub recoveries: u8,
+	pub action: Action,
+}
+
+/// Fresh sessions allowed after unreadable traffic. A local limit, not a verified service
+/// quota: a decoder that keeps failing must stop instead of identifying in a loop.
+const RECOVERY_WINDOW: Duration = Duration::from_secs(30 * 60);
+#[cfg(not(test))]
+const RECOVERY_WAITS: [Duration; 3] = [
+	Duration::from_secs(30),
+	Duration::from_secs(60),
+	Duration::from_secs(120),
+];
+#[cfg(test)]
+const RECOVERY_WAITS: [Duration; 3] = [Duration::from_millis(20); 3];
+#[derive(Default)]
+struct RecoveryBudget {
+	charged: [Option<Instant>; RECOVERY_WAITS.len()],
+}
+impl RecoveryBudget {
+	/// Charges one recovery and returns its number and wait, or `None` while the window is
+	/// spent. A READY in between does not refund it.
+	fn charge(&mut self, now: Instant) -> Option<(u8, Duration)> {
+		for slot in &mut self.charged {
+			if slot.is_some_and(|at| now.duration_since(at) >= RECOVERY_WINDOW) {
+				*slot = None;
+			}
+		}
+		let used = self.charged.iter().flatten().count();
+		*self.charged.iter_mut().find(|slot| slot.is_none())? = Some(now);
+		Some((used as u8 + 1, RECOVERY_WAITS[used]))
 	}
 }
 /// The Gateway address the web client's page config names (unofficial; observed as
@@ -84,7 +279,7 @@ pub fn validated_url(value: &str) -> Result<String, Failure> {
 	{
 		return Err(Failure::Protocol);
 	}
-	url.set_query(Some("v=10&encoding=json&compress=zlib-stream"));
+	url.set_query(Some("v=9&encoding=json&compress=zlib-stream"));
 	Ok(url.to_string())
 }
 
@@ -135,6 +330,13 @@ fn reaction_event(
 		channel: target.channel_id,
 		message: target.message_id,
 	})
+}
+
+/// The first message on a new socket.
+enum Handshake {
+	Resume(serde_json::Value),
+	/// Already encoded, so the identify keeps its field order.
+	Identify(Zeroizing<String>),
 }
 
 #[derive(Default)]
@@ -1163,6 +1365,7 @@ pub async fn run_with_activity_recovery(
 		watch::Receiver<bool>,
 	),
 	observe: impl Fn(ActivityObservation) -> Result<(), Failure> + Sync,
+	report: impl Fn(Report) + Sync,
 	emit: impl Fn(Event) -> Result<(), Failure>,
 ) -> Result<(), Failure> {
 	run_recoverable(
@@ -1179,6 +1382,7 @@ pub async fn run_with_activity_recovery(
 			observe: &observe,
 		}),
 		Some(&reconnect),
+		&report,
 		emit,
 		#[cfg(test)]
 		None,
@@ -1209,12 +1413,16 @@ async fn run_inner(
 		voice_controls,
 		activity,
 		None,
+		&|_| {},
 		emit,
 		#[cfg(test)]
 		test_endpoint.map(|endpoint| (endpoint, endpoint)),
 	)
 	.await
 }
+/// Runs sessions until one ends for good. After READY, traffic this client cannot read starts
+/// a fresh session under [`RecoveryBudget`] instead of ending the connection: identify again,
+/// never resume, because the resume cursor has already moved past the unread event.
 #[allow(clippy::too_many_arguments)]
 async fn run_recoverable(
 	secret: Arc<SessionSecret>,
@@ -1223,24 +1431,14 @@ async fn run_recoverable(
 	mut voice_controls: mpsc::Receiver<client_core::voice::Command>,
 	activity: Option<ActivityInput<'_>>,
 	reconnect: Option<&Notify>,
+	report: &(dyn Fn(Report) + Sync),
 	emit: impl Fn(Event) -> Result<(), Failure>,
 	#[cfg(test)] test_endpoints: Option<(&str, &str)>,
 ) -> Result<(), Failure> {
 	let initial_url = validated_url(&initial_url)?;
 	let activity_enabled = activity.is_some();
-	let mut activity_open = activity_enabled;
-	let mut presence_open = activity_enabled;
-	let mut afk_open = activity_enabled;
-	let mut spotify_open = activity_enabled;
 	let ignore_observation = |_| Ok(());
-	let ActivityInput {
-		receiver: mut activity,
-		mut spotify,
-		mut member_queries,
-		mut own_presence,
-		mut afk,
-		observe,
-	} = activity.unwrap_or_else(|| ActivityInput {
+	let mut activity = activity.unwrap_or_else(|| ActivityInput {
 		receiver: watch::channel(None).1,
 		spotify: watch::channel(None).1,
 		member_queries: watch::channel(Default::default()).1,
@@ -1248,6 +1446,110 @@ async fn run_recoverable(
 		afk: watch::channel(false).1,
 		observe: &ignore_observation,
 	});
+	let site = SiteCell::default();
+	// A sink that refused an event would refuse the replayed session too.
+	let sink_failed = std::sync::atomic::AtomicBool::new(false);
+	let emit = |event| {
+		emit(event).inspect_err(|_| sink_failed.store(true, std::sync::atomic::Ordering::Relaxed))
+	};
+	let mut established = false;
+	let mut budget = RecoveryBudget::default();
+	loop {
+		let Err(failure) = run_session(
+			&secret,
+			&initial_url,
+			&mut subscriptions,
+			&mut voice_controls,
+			&mut activity,
+			activity_enabled,
+			reconnect,
+			&mut established,
+			&site,
+			report,
+			&emit,
+			#[cfg(test)]
+			test_endpoints,
+		)
+		.await
+		else {
+			return Ok(());
+		};
+		let site = site.get();
+		let outcome = Report {
+			cause: site.cause(),
+			dispatch: site.dispatch(),
+			code: site.code(),
+			ready: established,
+			recoveries: 0,
+			action: Action::Stopped,
+		};
+		if !established
+			|| !site.recoverable()
+			|| sink_failed.load(std::sync::atomic::Ordering::Relaxed)
+			|| !matches!(failure, Failure::Protocol | Failure::ProtocolAt(_))
+		{
+			report(outcome);
+			return Err(failure);
+		}
+		let Some((recoveries, wait)) = budget.charge(Instant::now()) else {
+			report(Report {
+				recoveries: RECOVERY_WAITS.len() as u8,
+				action: Action::BudgetSpent,
+				..outcome
+			});
+			return Err(failure);
+		};
+		report(Report {
+			recoveries,
+			action: Action::Recovering {
+				wait_secs: wait.as_secs() as u16,
+			},
+			..outcome
+		});
+		emit(Event::Disconnected)?;
+		// A reconnect request does not shorten this wait. Voice controls are discarded as on
+		// any reconnect, so their bounded queue cannot fill and end the session meanwhile.
+		let wait = sleep(wait + Duration::from_millis(jitter_ms(wait.as_millis() as u64 / 6)));
+		tokio::pin!(wait);
+		let mut controls_open = true;
+		loop {
+			tokio::select! {
+				() = &mut wait => break,
+				control = voice_controls.recv(), if controls_open => controls_open = control.is_some(),
+			}
+		}
+	}
+}
+/// One session's lifetime, from its first dial through every ordinary reconnect and resume.
+/// Its replay state is local, so a fresh call holds nothing from the session before it.
+#[allow(clippy::too_many_arguments)]
+async fn run_session(
+	secret: &SessionSecret,
+	initial_url: &str,
+	subscriptions: &mut watch::Receiver<Option<MemberSubscription>>,
+	voice_controls: &mut mpsc::Receiver<client_core::voice::Command>,
+	activity: &mut ActivityInput<'_>,
+	activity_enabled: bool,
+	reconnect: Option<&Notify>,
+	established: &mut bool,
+	site: &SiteCell,
+	report: &(dyn Fn(Report) + Sync),
+	emit: &impl Fn(Event) -> Result<(), Failure>,
+	#[cfg(test)] test_endpoints: Option<(&str, &str)>,
+) -> Result<(), Failure> {
+	let mut activity_open = activity_enabled;
+	let mut presence_open = activity_enabled;
+	let mut afk_open = activity_enabled;
+	let mut spotify_open = activity_enabled;
+	let ActivityInput {
+		receiver: activity,
+		spotify,
+		member_queries,
+		own_presence,
+		afk,
+		observe,
+	} = activity;
+	let observe = *observe;
 	let mut last_observation = None;
 	let mut outgoing_activity = activity::Pending::default();
 	outgoing_activity.update(&activity.borrow_and_update())?;
@@ -1264,7 +1566,8 @@ async fn run_recoverable(
 			== Some(std::ffi::OsStr::new("1")),
 	);
 	let mut state = ResumeState::default();
-	let mut was_ready = false;
+	// A session that replaces an established one resyncs on READY and keeps retrying outages.
+	let mut was_ready = *established;
 	let mut owner_id = None;
 	let mut attempt = 0;
 	let mut calls = voice::Calls::default();
@@ -1278,6 +1581,7 @@ async fn run_recoverable(
 	let mut skip_backoff = false;
 	// Initial login is bounded, but an established session must survive long outages.
 	while was_ready || attempt < 6 {
+		site.set(Site::Local);
 		if attempt > 0 {
 			calls.disconnected();
 			while voice_controls.try_recv().is_ok() {}
@@ -1292,7 +1596,7 @@ async fn run_recoverable(
 				.await;
 			}
 		}
-		let url = state.url.as_deref().unwrap_or(&initial_url);
+		let url = state.url.as_deref().unwrap_or(initial_url);
 		// Compiled out of shipped builds. Tests replace only dialing, never URL validation.
 		#[cfg(test)]
 		let url = test_endpoints.map_or(
@@ -1350,6 +1654,7 @@ async fn run_recoverable(
 			return Err(failure);
 		}
 		if let Ok(Ok(Frame::Close(Some(close)))) = &hello {
+			site.set(Site::Close(close.code.into()));
 			state.close(close.code.into())?;
 		}
 		let Ok(Ok(Frame::Text(text))) = hello else {
@@ -1357,6 +1662,7 @@ async fn run_recoverable(
 			attempt = next_attempt(attempt, None);
 			continue;
 		};
+		site.set(Site::Hello);
 		let packet: GatewayPacket =
 			decode_gateway(text.as_bytes()).map_err(|_| Failure::Protocol)?;
 		if packet.op != 10 {
@@ -1366,22 +1672,45 @@ async fn run_recoverable(
 		if !(1000..=120_000).contains(&hello.heartbeat_interval) {
 			return Err(Failure::Protocol);
 		}
+		site.set(Site::Local);
 		outgoing_activity.update_presence(&own_presence.borrow_and_update())?;
 		outgoing_activity.update_afk(*afk.borrow_and_update());
 		let handshake = if let (Some(session), Some(sequence)) = (&state.session, state.sequence) {
-			serde_json::json!({"op":6,"d":{"token":secret.expose(),"session_id":session.as_str(),"seq":sequence}})
+			Handshake::Resume(
+				serde_json::json!({"op":6,"d":{"token":secret.expose(),"session_id":session.as_str(),"seq":sequence}}),
+			)
 		} else {
-			// Normal-user Identify with the same client properties as REST (unofficial). How
-			// the service weighs a mismatch between the two is unverified.
-			let mut properties: serde_json::Value =
-				serde_json::from_str(&client_core::fingerprint::properties()).unwrap_or_default();
+			// Normal-user Identify with the same client properties as REST, plus what the
+			// desktop client adds when it connects after its first screen (unofficial,
+			// observed 2026-11-19). Composed as text so the fields keep the client's order;
+			// a JSON map would sort them.
+			let mut properties = client_core::fingerprint::properties();
+			properties.pop();
+			properties
+				.push_str(r#","is_fast_connect":false,"gateway_connect_reasons":"AppSkeleton""#);
 			if let Some(installation) = client_core::fingerprint::installation_id() {
-				properties["installation_id"] = installation.into();
+				properties.push_str(r#","installation_id":"#);
+				properties.push_str(&serde_json::Value::from(installation).to_string());
 			}
-			serde_json::json!({"op":2,"d":{"token":secret.expose(),"compress":false,"properties":properties,"presence":outgoing_activity.identify_presence()}})
+			properties.push('}');
+			let token = Zeroizing::new(
+				serde_json::to_string(secret.expose()).map_err(|_| Failure::Protocol)?,
+			);
+			let mut identify =
+				Zeroizing::new(String::with_capacity(token.len() + properties.len() + 256));
+			identify.push_str(r#"{"op":2,"d":{"token":"#);
+			identify.push_str(&token);
+			identify.push_str(r#","properties":"#);
+			identify.push_str(&properties);
+			identify.push_str(r#","presence":"#);
+			identify.push_str(&outgoing_activity.identify_presence().to_string());
+			identify.push_str(r#","compress":false}}"#);
+			Handshake::Identify(identify)
 		};
-		let encoded = Zeroizing::new(handshake.to_string());
-		drop(handshake);
+		let encoded = match handshake {
+			Handshake::Resume(value) => Zeroizing::new(value.to_string()),
+			Handshake::Identify(text) => text,
+		};
 		if !matches!(
 			timeout(
 				Duration::from_secs(5),
@@ -1414,6 +1743,7 @@ async fn run_recoverable(
 		let mut queries = member_search::Search::default();
 		outgoing_activity.reconnect();
 		loop {
+			site.set(Site::Local);
 			if activity_enabled && last_observation != Some(outgoing_activity.observation) {
 				observe(outgoing_activity.observation)?;
 				last_observation = Some(outgoing_activity.observation);
@@ -1708,6 +2038,7 @@ async fn run_recoverable(
 					if !matches!(timeout(Duration::from_secs(5), socket.send(Frame::Text(packet.into()))).await, Ok(Ok(()))) { break; }
 				}
 				frame = socket.next() => {
+					site.set(Site::Frame);
 					let frame = match frame {
 						Some(Ok(frame)) => match compression.frame(frame)? {
 							Some(frame) => Some(Ok(frame)),
@@ -1722,7 +2053,9 @@ async fn run_recoverable(
 					};
 					match frame {
 						Some(Ok(Frame::Text(text))) => {
-							let packet: GatewayPacket = decode_gateway(text.as_bytes()).map_err(|_| diagnosed(&emit, Failure::Protocol, diagnose_packet(text.as_bytes())))?;
+							site.set(Site::Packet);
+							let packet: GatewayPacket = decode_gateway(text.as_bytes()).map_err(|_| diagnosed(emit, Failure::Protocol, diagnose_packet(text.as_bytes())))?;
+							site.set(if packet.op == 0 { Site::Dispatch(dispatch_label(packet.t.as_deref().unwrap_or(""))) } else { Site::Opcode(packet.op) });
 							// Reaction and poll vote counts are additive: do not apply a repeated dispatch or
 							// move the resume cursor backwards when one is replayed.
 							if packet.op == 0
@@ -1752,12 +2085,12 @@ async fn run_recoverable(
 										active_members=None;members_deadline=None;sent_members = !subscriptions_open;
 										// A new session holds no channel ranges.
 										ranged = RangedGuilds::default();
-										let envelope = ready::decode(packet.d.get().as_bytes()).map_err(|_| diagnosed(&emit, Failure::ProtocolAt("Gateway login: invalid READY identity or relationships"), ready::diagnose(packet.d.get().as_bytes())))?;
+										let envelope = ready::decode(packet.d.get().as_bytes()).map_err(|_| diagnosed(emit, Failure::ProtocolAt("Gateway login: invalid READY identity or relationships"), ready::diagnose(packet.d.get().as_bytes())))?;
 										if envelope.user.bot { return Err(Failure::InvalidCredential); }
-										let permissions = envelope.permissions().map_err(|_| diagnosed(&emit, Failure::ProtocolAt("Gateway login: invalid permission metadata"), ready::diagnose(packet.d.get().as_bytes())))?;
+										let permissions = envelope.permissions().map_err(|_| diagnosed(emit, Failure::ProtocolAt("Gateway login: invalid permission metadata"), ready::diagnose(packet.d.get().as_bytes())))?;
 										let gates = envelope.onboarding();
 										let guild_presences = envelope.guild_presences();
-										let (mut ready, mut warnings) = envelope.navigation().map_err(|_| diagnosed(&emit, Failure::ProtocolAt("Gateway login: invalid READY guild or channel metadata"), ready::diagnose(packet.d.get().as_bytes())))?;
+										let (mut ready, mut warnings) = envelope.navigation().map_err(|_| diagnosed(emit, Failure::ProtocolAt("Gateway login: invalid READY guild or channel metadata"), ready::diagnose(packet.d.get().as_bytes())))?;
 										owner_id=Some(ready.user.id);
 										if ready.user.username.is_empty() || ready.user.username.len() > 128 || ready.user.username.chars().any(char::is_control) || ready.session_id.is_empty() || ready.session_id.chars().any(char::is_control) {
 											return Err(Failure::ProtocolAt("Gateway login: invalid account identity or session ID"));
@@ -1823,6 +2156,7 @@ async fn run_recoverable(
 										// A new session does not replay settings changed while disconnected.
 										if was_ready { emit(Event::AccountSettings { status: true, folders: true })?; }
 										was_ready = true;
+										*established = true;
 										emit(Event::Onboarding(client_core::onboarding::Event::Gates { snapshot: true, gates }))?;
 
 										let nicknames = ready.relationships.as_ref().map(|s| s.nicknames());
@@ -1851,7 +2185,7 @@ async fn run_recoverable(
 										if let Some(event) = queries.chunk(packet.d.get().as_bytes()) { emit(event)?; }
 									}
 									"READY_SUPPLEMENTAL" => {
-										let (mut extra, warnings) = ready::supplemental(packet.d.get().as_bytes()).map_err(|_| diagnosed(&emit, Failure::ProtocolAt("Gateway login: invalid supplemental guild or voice metadata"), ready::diagnose_supplemental(packet.d.get().as_bytes())))?;
+										let (mut extra, warnings) = ready::supplemental(packet.d.get().as_bytes()).map_err(|_| diagnosed(emit, Failure::ProtocolAt("Gateway login: invalid supplemental guild or voice metadata"), ready::diagnose_supplemental(packet.d.get().as_bytes())))?;
 										if warnings != model::account::Warnings::default() { emit(Event::StartupWarnings(warnings))?; }
 										if let Some(friends) = extra.merged_presences.as_ref().and_then(|m| m.friends.as_deref()).or(extra.presences.as_deref()) {
 											direct_presence.friends(friends, Instant::now(), &emit)?;
@@ -2144,7 +2478,9 @@ async fn run_recoverable(
 						}
 						Some(Ok(Frame::Close(close))) => {
 							let code = close.map_or(1006, |f| u16::from(f.code));
+							site.set(Site::Close(code));
 							state.close(code)?;
+							report(Report { cause: Site::Close(code).cause(), dispatch: "", code: Some(code), ready: was_ready, recoveries: 0, action: Action::Reconnecting });
 							break;
 						}
 						Some(Ok(Frame::Ping(data))) => { if !matches!(timeout(Duration::from_secs(5), socket.send(Frame::Pong(data))).await, Ok(Ok(()))) { break; } }
@@ -2160,6 +2496,7 @@ async fn run_recoverable(
 		}
 		attempt = next_attempt(attempt, ready_at.map(|ready| ready.elapsed()));
 	}
+	site.set(Site::Connect);
 	Err(Failure::Network)
 }
 fn notification_settings(
@@ -2409,6 +2746,7 @@ mod tests {
 					mpsc::channel(1).1,
 					None,
 					Some(&reconnect),
+					&|_| {},
 					|event| {
 						let label = match event {
 							Event::Startup(_) => "ready",
@@ -3150,7 +3488,7 @@ mod tests {
 			}
 			assert_eq!(
 				validated_url("wss://gateway.discord.gg/?compress=zlib-stream").unwrap(),
-				"wss://gateway.discord.gg/?v=10&encoding=json&compress=zlib-stream"
+				"wss://gateway.discord.gg/?v=9&encoding=json&compress=zlib-stream"
 			);
 		}
 	}

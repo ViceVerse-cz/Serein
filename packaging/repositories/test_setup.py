@@ -40,8 +40,17 @@ class SetupTest(unittest.TestCase):
                 root = Path(directory)
                 release = root / "os-release"
                 release.write_text(f'ID={distro}\nVERSION_ID={version}\nID_LIKE="{id_like}"\n')
+                pacman_conf = root / "pacman.conf"
+                pacman_conf.write_text(
+                    "[options]\nArchitecture = auto\nInclude = /etc/pacman.d/options\n"
+                    "[core]\nInclude = /etc/pacman.d/mirrorlist\n"
+                )
                 setup = root / "setup.sh"
-                setup.write_text(Path(__file__).with_name("setup.sh").read_text().replace("/etc/os-release", str(release)))
+                setup.write_text(
+                    Path(__file__).with_name("setup.sh").read_text()
+                    .replace("/etc/os-release", str(release))
+                    .replace("/etc/pacman.conf", str(pacman_conf))
+                )
                 commands = {
                     "id": "echo 0",
                     "uname": f"echo {architecture}",
@@ -51,6 +60,8 @@ class SetupTest(unittest.TestCase):
                     "rpm": 'echo "SIMULATED WRITE rpm $*"',
                     "install": 'echo "SIMULATED WRITE install $*"',
                     "pacman-key": 'echo "SIMULATED WRITE pacman-key $*"',
+                    # Keep the refresh config: it must not reach any other repository.
+                    "pacman": '[ "$1" = -Sy ] && cp "$3" "$(dirname "$0")/pacman-refresh.conf"',
                     "tee": 'cat > "$(dirname "$0")/source-list"; echo "SIMULATED WRITE tee $*"',
                     "dnf": '[ -t 0 ] || exit 20; printf "Key import [y/N]: "; read -r key_answer; '
                            '[ "$key_answer" = y ] || exit 21; echo "SIMULATED INSTALL"',
@@ -111,6 +122,11 @@ class SetupTest(unittest.TestCase):
                         else f"/fedora-{version}/x86_64/rpm/serein.repo"
                     )
                     self.assertIn(path, output)
+                    if id_like == "arch":
+                        refresh = (root / "pacman-refresh.conf").read_text()
+                        self.assertIn("Architecture = auto", refresh)
+                        self.assertNotIn("Include", refresh)
+                        self.assertNotIn("[core]", refresh)
                 else:
                     self.assertNotIn("SIMULATED WRITE", output)
 

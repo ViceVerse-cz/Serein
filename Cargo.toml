@@ -28,8 +28,14 @@ tokio = { version = "1.50", features = ["rt-multi-thread", "macros", "sync", "ti
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value"] }
 # Browser TLS/HTTP2 fingerprint matching the advertised client identity on every transport.
-wreq = { version = "=6.0.0-rc.31", features = ["json", "stream", "gzip", "deflate", "brotli", "zstd", "ws", "cookies"] }
-wreq-util = { version = "=3.0.0-rc.14", default-features = false, features = ["emulation"] }
+# The Chromium 150+ profiles and the TLS options they need are only on upstream branches,
+# pinned here and in [patch.crates-io]; no release has them yet (2026-11-19).
+wreq = { version = "0.16.1", features = ["json", "stream", "gzip", "deflate", "brotli", "zstd", "ws", "cookies"] }
+wreq-util = { git = "https://github.com/0x676e67/wreq-util", rev = "917d2581d6761a94db66466caa6c2eb4d4cdbd43", default-features = false, features = ["emulation"] }
+# The BoringSSL wreq already links, used directly for the QR sign-in key. Same revision as wreq's.
+btls = "=0.5.6"
+# QR sign-in code rendering; no dependencies of its own.
+qrcodegen = "=1.8.0"
 rasterlottie = { version = "=0.2.2", default-features = false }
 # Same release as wreq's `ws`, so one tungstenite is built; TLS comes from wreq.
 tokio-tungstenite = { version = "=0.29.0", default-features = false, features = ["connect"] }
@@ -227,6 +233,15 @@ davey = { path = "vendor/davey" }
 wry = { path = "vendor/wry" }
 # Wayland image paste reads `image/png` through the focused surface; see vendor/smithay-clipboard/SEREIN-PATCH.md.
 smithay-clipboard = { path = "vendor/smithay-clipboard" }
+
+# The wreq revision wreq-util's Chromium profiles are built against (its main branch has since
+# renamed TLS and HTTP/2 options), with the BoringSSL that wreq-util pins: the TLS options
+# Chromium 152 sends and the ML-DSA signature algorithms it advertises. Same set as
+# UwUDev/discord-client-rs.
+wreq = { git = "https://github.com/0x676e67/wreq", rev = "cd76bcdf1307153de289d34e072528bdf0510a3b" }
+btls = { git = "https://github.com/0x676e67/btls", rev = "129887582a538b8f4dcf371d15c953335312ca37" }
+btls-sys = { git = "https://github.com/0x676e67/btls", rev = "129887582a538b8f4dcf371d15c953335312ca37" }
+tokio-btls = { git = "https://github.com/0x676e67/btls", rev = "129887582a538b8f4dcf371d15c953335312ca37" }
 
 [patch."https://github.com/emilk/egui"]
 # Serein's egui fork: upstream PRs and local patches on the pinned rev; see vendor/egui/SEREIN-PATCH.md.

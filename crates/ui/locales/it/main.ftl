@@ -1655,20 +1655,14 @@ main-restoring-screen-use-a-different-account = Utilizza un account diverso
 main-restoring-screen-welcome-back = Bentornato
 # Context: sign_in_accounts
 main-sign-in-accounts-saved-accounts = Account salvati
-# Context: sign_in_consent
-main-sign-in-consent-passwords-and-2fa-stay-on-discord-s-own-login-page = Le password e la 2FA rimangono sulla pagina di accesso di Discord; viene conservato solo il token della sessione, nell'archivio delle credenziali del sistema operativo.
 # Context: sign_in_disclosures
 main-sign-in-disclosures-about-serein = A proposito di Serein
 # Context: sign_in_disclosures
 main-sign-in-disclosures-connect-with-this-token = Connettiti con questo token
 # Context: sign_in_disclosures
-main-sign-in-disclosures-for-owners-who-already-hold-a-valid-discord-session-token = Per i proprietari che sono già in possesso di un token di sessione Discord valido, ad esempio da un'altra installazione Serein con accesso. Qui non vengono mai utilizzate password e 2FA; questo ignora completamente la pagina di accesso ospitata di Discord.
-# Context: sign_in_disclosures
 main-sign-in-disclosures-forget-saved-login = Dimentica il login salvato
 # Context: sign_in_disclosures
 main-sign-in-disclosures-session-token = Token di sessione
-# Context: sign_in_disclosures
-main-sign-in-disclosures-sign-in-with-a-session-token = Accedi con un token di sessione
 # Context: sign_in_header
 main-sign-in-header-continue-with-a-saved-account-or-sign-in-with-another = Continua con un account salvato o accedi con un altro.
 # Context: sign_in_header
@@ -3478,12 +3472,6 @@ settings-activity-reading-programs = Lettura dei programmi in esecuzione…
 settings-activity-no-matching-programs = Nessun programma corrispondente è in esecuzione.
 # Context: activity_settings
 settings-activity-add-game = Aggiungi gioco
-# Context: appearance_menu
-settings-appearance-menu-display = Display
-# Context: appearance_menu
-settings-appearance-menu-mode = Modalità
-# Context: appearance_menu
-settings-appearance-menu-theme = Tema
 # Context: appearance_settings
 settings-appearance-settings-accent = Accento
 # Context: appearance_settings

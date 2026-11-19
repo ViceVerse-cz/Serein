@@ -167,19 +167,38 @@ pub fn known_roles(state: &State, channel: Id) -> &[model::permissions::Role] {
 		.unwrap_or(&[])
 }
 pub fn known_users(state: &State, channel: Id) -> Vec<User> {
+	known_users_with_search(state, channel, searched_members(state, channel, None))
+}
+
+pub(super) fn searched_members<'a>(
+	state: &'a State,
+	channel: Id,
+	query: Option<&str>,
+) -> &'a [model::Member] {
+	let search = &state.member_search[0];
+	if search.request.as_ref().is_some_and(|request| {
+		request.channel == channel && query.is_none_or(|query| request.query == query)
+	}) && state.can_view(channel)
+	{
+		&search.rows
+	} else {
+		&[]
+	}
+}
+
+pub(super) fn known_users_with_search(
+	state: &State,
+	channel: Id,
+	searched: &[model::Member],
+) -> Vec<User> {
 	let mut users = Vec::new();
 	let mut add = |user: &User| {
 		if users.len() < 256 && !users.iter().any(|u: &User| u.id == user.id) {
 			users.push(user.clone());
 		}
 	};
-	if let Some(request) = &state.member_search[0].request
-		&& request.channel == channel
-		&& state.can_view(channel)
-	{
-		for member in &state.member_search[0].rows {
-			add(&member.user);
-		}
+	for member in searched {
+		add(&member.user);
 	}
 	if let Some(owner) = &state.user {
 		add(owner);
@@ -453,7 +472,7 @@ pub fn insert(draft: &mut String, pick: Pick, editing: bool, remaining: usize) -
 	)
 }
 /// Rank a name against the typed query: prefix hits first, then substrings, then snowflakes.
-fn rank(query: &str, name: &str, id: Id) -> Option<u8> {
+pub(super) fn rank(query: &str, name: &str, id: Id) -> Option<u8> {
 	if query.is_empty() {
 		return Some(1);
 	}

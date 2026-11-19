@@ -1427,7 +1427,14 @@ impl MessagingUi {
 								);
 							}
 							if let Some(glyph) = glyph {
-								channel_marks::paint(ui.painter(), access, row, glyph, name_color);
+								channel_marks::paint(
+									ui.painter(),
+									access,
+									row,
+									glyph,
+									name_color,
+									true,
+								);
 							}
 							let response = response.on_hover_text_with(|| {
 								format!(
