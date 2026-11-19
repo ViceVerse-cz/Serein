@@ -641,10 +641,7 @@ mod tests {
 			picture(preset(854, 480), 1920, 1080, false),
 			Some((854, 480))
 		);
-		assert_eq!(
-			picture(preset(854, 480), 1024, 16, false),
-			Some((854, 16))
-		);
+		assert_eq!(picture(preset(854, 480), 1024, 16, false), Some((854, 16)));
 		assert_eq!(
 			picture(Resolution::Source, 2560, 1440, false),
 			Some((2560, 1440))
