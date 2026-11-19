@@ -30,6 +30,7 @@ tokio.workspace = true
 tokio-tungstenite.workspace = true
 futures-util.workspace = true
 zeroize.workspace = true
+qrcodegen.workspace = true
 platform.workspace = true
 local-store.workspace = true
 winit.workspace = true

@@ -1705,7 +1705,8 @@ pub fn avatar(ui: &mut egui::Ui, name: &str, size: f32) -> egui::Response {
 	paint_avatar(ui, name, size, rect);
 	response.on_hover_text(name)
 }
-pub(crate) fn paint_avatar(ui: &egui::Ui, name: &str, size: f32, rect: egui::Rect) {
+/// The initials avatar painted into `rect`, for a place the layout does not allocate.
+pub fn paint_avatar(ui: &egui::Ui, name: &str, size: f32, rect: egui::Rect) {
 	let initials: String = name
 		.split_whitespace()
 		.take(2)

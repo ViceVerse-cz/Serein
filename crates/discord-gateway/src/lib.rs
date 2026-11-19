@@ -9,6 +9,7 @@ mod member_search;
 mod presence;
 #[cfg(test)]
 mod recovery_tests;
+pub mod remote_auth;
 mod thread_events;
 mod voice;
 #[cfg(debug_assertions)]
@@ -278,7 +279,7 @@ pub fn validated_url(value: &str) -> Result<String, Failure> {
 	{
 		return Err(Failure::Protocol);
 	}
-	url.set_query(Some("v=10&encoding=json&compress=zlib-stream"));
+	url.set_query(Some("v=9&encoding=json&compress=zlib-stream"));
 	Ok(url.to_string())
 }
 
@@ -329,6 +330,13 @@ fn reaction_event(
 		channel: target.channel_id,
 		message: target.message_id,
 	})
+}
+
+/// The first message on a new socket.
+enum Handshake {
+	Resume(serde_json::Value),
+	/// Already encoded, so the identify keeps its field order.
+	Identify(Zeroizing<String>),
 }
 
 #[derive(Default)]
@@ -1668,19 +1676,41 @@ async fn run_session(
 		outgoing_activity.update_presence(&own_presence.borrow_and_update())?;
 		outgoing_activity.update_afk(*afk.borrow_and_update());
 		let handshake = if let (Some(session), Some(sequence)) = (&state.session, state.sequence) {
-			serde_json::json!({"op":6,"d":{"token":secret.expose(),"session_id":session.as_str(),"seq":sequence}})
+			Handshake::Resume(
+				serde_json::json!({"op":6,"d":{"token":secret.expose(),"session_id":session.as_str(),"seq":sequence}}),
+			)
 		} else {
-			// Normal-user Identify with the same client properties as REST (unofficial). How
-			// the service weighs a mismatch between the two is unverified.
-			let mut properties: serde_json::Value =
-				serde_json::from_str(&client_core::fingerprint::properties()).unwrap_or_default();
+			// Normal-user Identify with the same client properties as REST, plus what the
+			// desktop client adds when it connects after its first screen (unofficial,
+			// observed 2026-11-19). Composed as text so the fields keep the client's order;
+			// a JSON map would sort them.
+			let mut properties = client_core::fingerprint::properties();
+			properties.pop();
+			properties
+				.push_str(r#","is_fast_connect":false,"gateway_connect_reasons":"AppSkeleton""#);
 			if let Some(installation) = client_core::fingerprint::installation_id() {
-				properties["installation_id"] = installation.into();
+				properties.push_str(r#","installation_id":"#);
+				properties.push_str(&serde_json::Value::from(installation).to_string());
 			}
-			serde_json::json!({"op":2,"d":{"token":secret.expose(),"compress":false,"properties":properties,"presence":outgoing_activity.identify_presence()}})
+			properties.push('}');
+			let token = Zeroizing::new(
+				serde_json::to_string(secret.expose()).map_err(|_| Failure::Protocol)?,
+			);
+			let mut identify =
+				Zeroizing::new(String::with_capacity(token.len() + properties.len() + 256));
+			identify.push_str(r#"{"op":2,"d":{"token":"#);
+			identify.push_str(&token);
+			identify.push_str(r#","properties":"#);
+			identify.push_str(&properties);
+			identify.push_str(r#","presence":"#);
+			identify.push_str(&outgoing_activity.identify_presence().to_string());
+			identify.push_str(r#","compress":false}}"#);
+			Handshake::Identify(identify)
 		};
-		let encoded = Zeroizing::new(handshake.to_string());
-		drop(handshake);
+		let encoded = match handshake {
+			Handshake::Resume(value) => Zeroizing::new(value.to_string()),
+			Handshake::Identify(text) => text,
+		};
 		if !matches!(
 			timeout(
 				Duration::from_secs(5),
@@ -3458,7 +3488,7 @@ mod tests {
 			}
 			assert_eq!(
 				validated_url("wss://gateway.discord.gg/?compress=zlib-stream").unwrap(),
-				"wss://gateway.discord.gg/?v=10&encoding=json&compress=zlib-stream"
+				"wss://gateway.discord.gg/?v=9&encoding=json&compress=zlib-stream"
 			);
 		}
 	}

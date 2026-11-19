@@ -1,7 +1,8 @@
 //! Client identity presented to Discord over REST and the Gateway.
 //!
-//! Observed (unofficial): Discord's web client sends a super-properties payload, a browser
-//! user agent, locale and timezone on REST and the Gateway. How the service weighs any of
+//! Observed (unofficial): Discord's desktop client sends a super-properties payload, its
+//! Electron user agent, locale and timezone on REST and the Gateway; a 0.0.423 session was
+//! recorded on 2026-11-19 (see the compatibility notes). How the service weighs any of
 //! them is unverified; an earlier Serein identity without them coincided with account
 //! restrictions (spam flag, attachment limits), which is not proof of cause. Every transport
 //! uses the desktop metadata below. Embedded verification keeps its engine-specific identity.
@@ -13,18 +14,22 @@
 const CHROME_MAJOR: &str = "149";
 /// Safari version advertised on macOS and Linux, where verification runs in WebKit.
 const SAFARI_VERSION: &str = "26.4";
-/// Observed in the public `/app` bundle on 2026-11-12; see identity provenance in the
-/// compatibility notes. The remote web build is separate from the native host version.
-pub const CLIENT_BUILD_NUMBER: u64 = 670_026;
+/// Observed in the public `/app` bundle and a recorded desktop 0.0.423 session on
+/// 2026-11-19. The remote web build is separate from the native host version.
+pub const CLIENT_BUILD_NUMBER: u64 = 676_376;
+/// The macOS updater's metadata version in the same recording. Discord's update manifests
+/// do not expose it, and no Windows or Linux value was observed, so only macOS sends one.
+const MACOS_NATIVE_BUILD_NUMBER: u64 = 98_981;
 mod locale;
+mod os;
 pub use locale::{accept_language, discord_locale, system_locale, timezone};
-/// Stable host versions from Discord's platform update manifests on 2026-11-12.
+/// Stable host versions from Discord's platform update manifests on 2026-11-19.
 /// Keep the platform mapping explicit: a macOS host version is not a Linux/Windows one.
 fn desktop_version() -> &'static str {
 	match std::env::consts::OS {
-		"windows" => "1.0.9268",
-		"macos" => "0.0.422",
-		_ => "1.0.169",
+		"windows" => "1.0.9269",
+		"macos" => "0.0.423",
+		_ => "1.0.170",
 	}
 }
 /// Retained paired engine baseline: the pinned wreq-util has no Chromium 152 profile.
@@ -112,25 +117,91 @@ pub fn accept_encoding() -> &'static str {
 	"gzip, deflate, br, zstd"
 }
 
-/// Gateway `identify.d.properties` and the decoded `X-Super-Properties` payload.
+/// A JSON string literal for `value`.
+fn json(value: &str) -> String {
+	let mut out = String::with_capacity(value.len() + 2);
+	out.push('"');
+	for c in value.chars() {
+		match c {
+			'"' => out.push_str("\\\""),
+			'\\' => out.push_str("\\\\"),
+			c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+			c => out.push(c),
+		}
+	}
+	out.push('"');
+	out
+}
+
+/// A random version-4 UUID for this launch, as the desktop client makes one per start.
+fn launch_id() -> &'static str {
+	static ID: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+		let mut bytes = [0_u8; 16];
+		if getrandom::fill(&mut bytes).is_err() {
+			return String::new();
+		}
+		bytes[6] = (bytes[6] & 0x0f) | 0x40;
+		bytes[8] = (bytes[8] & 0x3f) | 0x80;
+		let hex: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
+		format!(
+			"{}-{}-{}-{}-{}",
+			&hex[..8],
+			&hex[8..12],
+			&hex[12..16],
+			&hex[16..20],
+			&hex[20..]
+		)
+	});
+	&ID
+}
+
+/// Gateway `identify.d.properties` and the decoded `X-Super-Properties` payload: the
+/// desktop client's fields, in its order (observed in a recorded 0.0.423 session). The web
+/// client's device and referrer fields are not part of it. `launch_signature`, the
+/// analytics heartbeat session and the focus state are left out.
 pub fn properties() -> String {
-	// Hand-built JSON keeps this crate free of a serde dependency; every value is a fixed
-	// literal or a validated ASCII string (see `locale`), so no escaping is required.
-	format!(
-		concat!(
-			"{{\"os\":\"{os}\",\"browser\":\"{browser}\",\"device\":\"\",\"system_locale\":\"{locale}\",",
-			"\"browser_user_agent\":\"{ua}\",\"browser_version\":\"{version}\",\"os_version\":\"\",",
-			"\"referrer\":\"\",\"referring_domain\":\"\",\"referrer_current\":\"\",\"referring_domain_current\":\"\",",
-			"\"client_version\":\"{DESKTOP_VERSION}\",\"release_channel\":\"stable\",\"client_build_number\":{build},\"client_event_source\":null}}"
-		),
-		os = os_name(),
-		locale = system_locale(),
-		browser = browser(),
-		ua = user_agent(),
-		version = browser_version(),
-		build = CLIENT_BUILD_NUMBER,
-		DESKTOP_VERSION = desktop_version(),
-	)
+	let os = &*os::OS;
+	let mut fields: Vec<(&str, String)> = vec![
+		("os", json(os_name())),
+		("browser", json(browser())),
+		("release_channel", json("stable")),
+		("client_version", json(desktop_version())),
+		("os_version", json(&os.version)),
+		("os_version_is_release", "true".into()),
+	];
+	if let Some(sdk) = &os.sdk {
+		fields.push(("os_sdk_version", json(sdk)));
+	}
+	fields.extend([
+		("os_arch", json(os::arch())),
+		("app_arch", json(os::arch())),
+		("system_locale", json(system_locale())),
+		("has_client_mods", "false".into()),
+		("client_launch_id", json(launch_id())),
+		("browser_user_agent", json(&user_agent())),
+		("browser_version", json(&browser_version())),
+	]);
+	if let Some(linux) = &os.linux {
+		fields.push(("window_manager", json(&linux.window_manager)));
+		if let Some(distro) = &linux.distro {
+			fields.push(("distro", json(distro)));
+		}
+		fields.push(("runtime_environment", json(linux.runtime_environment)));
+		fields.push(("display_server", json(&linux.display_server)));
+	}
+	if let Some(revision) = &os.build_revision {
+		fields.push(("os_build_revision", json(revision)));
+	}
+	fields.push(("client_build_number", CLIENT_BUILD_NUMBER.to_string()));
+	if cfg!(target_os = "macos") {
+		fields.push(("native_build_number", MACOS_NATIVE_BUILD_NUMBER.to_string()));
+	}
+	fields.push(("client_event_source", "null".into()));
+	let body: Vec<String> = fields
+		.into_iter()
+		.map(|(key, value)| format!("\"{key}\":{value}"))
+		.collect();
+	format!("{{{}}}", body.join(","))
 }
 
 /// The installation ID Discord issued this device, once known.
@@ -209,6 +280,11 @@ pub fn nonce(unix_ms: u128, sequence: u64) -> String {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	/// Free-text OS fields (a distribution name) must not break the JSON both transports send.
+	#[test]
+	fn properties_are_valid_json_with_escaped_text() {
+		assert_eq!(json("a\"b\\c\u{1}"), r#""a\"b\\c\u0001""#);
+	}
 	#[test]
 	fn base64_padding() {
 		{

@@ -3213,6 +3213,53 @@ not assumed disabled. Contributions depending on that switch remain unknown unti
 count reconciliation. This is conservative local behavior, not a verified service-equivalence claim.
 No new service setting, protocol request or Identify capability is introduced.
 
+### Desktop client recording — November 19
+
+**Observed on the owner's official client; one machine, one account.** The owner's
+Homebrew-installed Discord for macOS (0.0.423, Electron 44.10.2, Chromium 152.0.7977.169,
+web build 676376, native build 98981) was signed in to a burner account and relaunched
+with the Chromium debugging port bound to 127.0.0.1. Startup, a password login and a QR
+login were recorded over the DevTools protocol. Authorization, cookies, the identify token,
+the email, password, tickets and URL query secrets were removed before anything was saved.
+No message, call or setting change was made. Static sources were the installed app, the
+desktop core module from the stable update manifest (hash matched) and the public `/app`
+bundle.
+
+- **REST:** `/api/v9`, all over HTTP/3. Headers as Serein already sends, with
+  `sec-ch-ua: "Not?A_Brand";v="24", "Chromium";v="152"`. No `X-Installation-ID` was sent and
+  no `/apex` request was made, before or after login.
+- **Super-properties (desktop):** `os`, `browser: "Discord Client"`, `release_channel`,
+  `client_version`, `os_version` (Electron's system version), `os_version_is_release`,
+  `os_sdk_version` (Darwin major on macOS, build number on Windows), `os_arch`, `app_arch`,
+  `system_locale`, `has_client_mods`, `client_launch_id`, `browser_user_agent`,
+  `browser_version` (the Electron version), Linux's `window_manager`, `distro`,
+  `runtime_environment` and `display_server` or Windows' `os_build_revision`, then
+  `client_build_number`, `native_build_number` and `client_event_source`. REST adds
+  `launch_signature`, `client_heartbeat_session_id` and `client_app_state`. The web client's
+  `device` and referrer fields are absent.
+- **Gateway:** `encoding=etf&v=9&compress=zstd-stream`. The fast-connect identify has
+  `capabilities: 1767421` (1734653 without channel obfuscation), the properties with
+  `is_fast_connect: true` and `client_state: {guild_versions: {}}`, and no presence. After a
+  login the identify adds `presence`, `compress: false`, `qos_token`,
+  `is_fast_connect: false` and `gateway_connect_reasons: "AppSkeleton"`. The client then sends
+  op 4, op 41 (analytics heartbeat session) and op 40 (QoS).
+- **Login:** `GET /experiments` (no fingerprint yet, `X-Context-Properties` with the page
+  path), then `GET /auth/location-metadata` with `X-Fingerprint`, then `POST /auth/login`
+  with `{"login","password","undelete":false,"login_source":null,"gift_code_sku_id":null}`,
+  referer `https://discord.com/login`, `Origin` and `X-Fingerprint`. The burner had no MFA, so
+  the MFA step was not recorded.
+- **QR:** the remote-auth socket sent hello (with `timeout_ms`), init, nonce proof,
+  `pending_remote_init`, `pending_ticket` and `pending_login`; the ticket went to
+  `/users/@me/remote-auth/login` with `X-Fingerprint`. Both recorded fingerprints equal
+  base64url(SHA-256(the SPKI key sent in init)).
+
+Serein adopted the API version, the super-properties field set and order, the identify
+extras of a non-fast-connect start, the opening login requests and the host versions
+(macOS 0.0.423, Windows 1.0.9269, Linux 1.0.170). It does not adopt `launch_signature`,
+analytics, ETF, zstd, `capabilities` or HTTP/3, and keeps the Chromium 148 handshake: the
+Chromium 152 profile needs TLS options the pinned wreq does not have. One recording does not
+show how Discord weighs any of these values.
+
 ### Desktop metadata reference — November 12
 
 **Unofficial; static source comparison only, live interoperability unverified.**

@@ -14,6 +14,7 @@ mod gif_favorites;
 mod group_actions;
 mod guild_folders;
 mod interactions;
+pub mod login;
 mod message_options;
 mod messaging_permissions;
 mod onboarding;
@@ -60,7 +61,8 @@ const FOREGROUND_PERMITS: usize = 2;
 const READ_RATE_LIMIT_RETRIES: u8 = 2;
 /// Longer JSON limits fail the read at once, so sign-in never stalls silently.
 const MAX_READ_RATE_LIMIT_WAIT: Duration = Duration::from_secs(10);
-const API_ORIGIN: &str = "https://discord.com/api/v10";
+/// v9, as the desktop client calls it (observed 2026-11-19), not the bot API's v10.
+const API_ORIGIN: &str = "https://discord.com/api/v9";
 /// One thread channel, or one message, stays far below this documented read budget.
 const THREAD_PREVIEW_BYTES: usize = 64 * 1024;
 
@@ -101,7 +103,7 @@ fn route_label(method: &Method, path: &str) -> Box<str> {
 }
 
 /// The one REST origin. A block or rate limit never moves requests to another host.
-pub fn api_v10_base() -> &'static str {
+pub fn api_base() -> &'static str {
 	API_ORIGIN
 }
 
@@ -132,6 +134,74 @@ pub struct DiscordApi {
 struct ProxyState {
 	receiver: tokio::sync::watch::Receiver<Option<proxy::ApiProxy>>,
 	cached: Option<(proxy::ApiProxy, Client)>,
+}
+
+impl ProxyState {
+	/// The client for the configured route, waiting until a route is configured.
+	async fn client(&mut self, direct: &Client) -> Result<Client, Failure> {
+		let route = loop {
+			let current = self.receiver.borrow_and_update().clone();
+			if let Some(route) = current {
+				break route;
+			}
+			self.cached = None;
+			self.receiver
+				.changed()
+				.await
+				.map_err(|_| Failure::ProtocolAt("API proxy configuration unavailable"))?;
+		};
+		if let Some((previous, client)) = &self.cached
+			&& previous == &route
+		{
+			return Ok(client.clone());
+		}
+		// Drop the old route first: invalid configuration must never reuse a direct connection.
+		self.cached = None;
+		let client = if route == proxy::ApiProxy::Direct {
+			direct.clone()
+		} else {
+			api_client(&route)?
+		};
+		self.cached = Some((route, client.clone()));
+		Ok(client)
+	}
+}
+/// Asks Discord for this device's installation ID and keeps it. Best effort and bounded.
+async fn read_installation(client: &Client, base: &str) {
+	#[derive(serde::Deserialize)]
+	struct Apex {
+		installation: String,
+	}
+	let fetch = async {
+		let response = client
+			.get(format!("{base}/apex/experiments?surface=2"))
+			.send()
+			.await
+			.ok()?;
+		if !response.status().is_success()
+			|| response
+				.content_length()
+				.is_some_and(|n| n > MAX_WIRE as u64)
+		{
+			return None;
+		}
+		let mut bytes = Vec::new();
+		let mut body = std::pin::pin!(response.bytes_stream());
+		while let Some(chunk) = futures_util::StreamExt::next(&mut body)
+			.await
+			.transpose()
+			.ok()?
+		{
+			if bytes.len() + chunk.len() > MAX_WIRE {
+				return None;
+			}
+			bytes.extend_from_slice(&chunk);
+		}
+		decode::<Apex>(&bytes).ok()
+	};
+	if let Ok(Some(apex)) = tokio::time::timeout(Duration::from_secs(5), fetch).await {
+		device::set_installation(&apex.installation);
+	}
 }
 
 /// The typed extras one request may carry. Headers come only from these fields; no caller
@@ -365,10 +435,6 @@ impl DiscordApi {
 	/// identifies. Unofficial: SakuraCord's desktop sign-in reads it from an unauthenticated
 	/// `GET /apex/experiments?surface=2`. Best effort and bounded; Serein works without it.
 	pub async fn ensure_installation(&self) {
-		#[derive(serde::Deserialize)]
-		struct Apex {
-			installation: String,
-		}
 		// One attempt per process: a reconnect must not wait on an endpoint that gave no ID.
 		static ASKED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 		// Without a route yet the request could only wait; a later connection asks instead.
@@ -382,69 +448,13 @@ impl DiscordApi {
 		let base = API_ORIGIN;
 		#[cfg(test)]
 		let base = self.base.as_str();
-		let fetch = async {
-			let response = self
-				.rest_client()
-				.await
-				.ok()?
-				.get(format!("{base}/apex/experiments?surface=2"))
-				.send()
-				.await
-				.ok()?;
-			if !response.status().is_success()
-				|| response
-					.content_length()
-					.is_some_and(|n| n > MAX_WIRE as u64)
-			{
-				return None;
-			}
-			let mut bytes = Vec::new();
-			let mut body = std::pin::pin!(response.bytes_stream());
-			while let Some(chunk) = futures_util::StreamExt::next(&mut body)
-				.await
-				.transpose()
-				.ok()?
-			{
-				if bytes.len() + chunk.len() > MAX_WIRE {
-					return None;
-				}
-				bytes.extend_from_slice(&chunk);
-			}
-			decode::<Apex>(&bytes).ok()
-		};
-		if let Ok(Some(apex)) = tokio::time::timeout(Duration::from_secs(5), fetch).await {
-			device::set_installation(&apex.installation);
+		if let Ok(client) = self.rest_client().await {
+			read_installation(&client, base).await;
 		}
 	}
 	/// Credential-free client snapshot for Discord REST; authorization is added per request.
 	pub async fn rest_client(&self) -> Result<Client, Failure> {
-		let mut state = self.proxy.lock().await;
-		let route = loop {
-			let current = state.receiver.borrow_and_update().clone();
-			if let Some(route) = current {
-				break route;
-			}
-			state.cached = None;
-			state
-				.receiver
-				.changed()
-				.await
-				.map_err(|_| Failure::ProtocolAt("API proxy configuration unavailable"))?;
-		};
-		if let Some((previous, client)) = &state.cached
-			&& previous == &route
-		{
-			return Ok(client.clone());
-		}
-		// Drop the old route first: invalid configuration must never reuse a direct connection.
-		state.cached = None;
-		let client = if route == proxy::ApiProxy::Direct {
-			self.client.clone()
-		} else {
-			api_client(&route)?
-		};
-		state.cached = Some((route, client.clone()));
-		Ok(client)
+		self.proxy.lock().await.client(&self.client).await
 	}
 	async fn block_response(&self, retry_after: Option<f64>) -> Failure {
 		let delay = safe_delay(retry_after)

@@ -1009,6 +1009,7 @@ dependencies = [
 name = "client-core"
 version = "0.1.0"
 dependencies = [
+ "getrandom 0.4.3",
  "iana-time-zone",
  "model",
  "session-cache",
@@ -1557,6 +1558,7 @@ dependencies = [
 name = "discord-api"
 version = "0.1.0"
 dependencies = [
+ "bytes",
  "client-core",
  "discord-protocol",
  "futures-util",
@@ -1574,6 +1576,7 @@ dependencies = [
 name = "discord-gateway"
 version = "0.1.0"
 dependencies = [
+ "btls",
  "client-core",
  "discord-protocol",
  "flate2",
@@ -5626,6 +5629,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d55d956fa96f5ec02be2e13af0e20391a5aa83d6a074e3ad368959d0fab299ea"
 
 [[package]]
+name = "qrcodegen"
+version = "1.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4339fc7a1021c9c1621d87f5e3505f2805c8c105420ba2f2a4df86814590c142"
+
+[[package]]
 name = "quick-error"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6350,6 +6359,7 @@ dependencies = [
  "opus2",
  "platform",
  "png",
+ "qrcodegen",
  "rasterlottie",
  "resvg",
  "rtrb",

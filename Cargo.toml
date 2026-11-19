@@ -30,6 +30,10 @@ serde_json = { version = "1", features = ["raw_value"] }
 # Browser TLS/HTTP2 fingerprint matching the advertised client identity on every transport.
 wreq = { version = "=6.0.0-rc.31", features = ["json", "stream", "gzip", "deflate", "brotli", "zstd", "ws", "cookies"] }
 wreq-util = { version = "=3.0.0-rc.14", default-features = false, features = ["emulation"] }
+# The BoringSSL wreq already links, used directly for the QR sign-in key. Same release as wreq's.
+btls = "=0.5.6"
+# QR sign-in code rendering; no dependencies of its own.
+qrcodegen = "=1.8.0"
 rasterlottie = { version = "=0.2.2", default-features = false }
 # Same release as wreq's `ws`, so one tungstenite is built; TLS comes from wreq.
 tokio-tungstenite = { version = "=0.29.0", default-features = false, features = ["connect"] }
