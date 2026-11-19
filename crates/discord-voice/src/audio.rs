@@ -261,8 +261,21 @@ impl Audio {
 					{
 						// A live call keeps its place in the channel: the device is reopened as soon
 						// as the system offers it again, exactly as in the official client.
+						if worker_gate
+							.revision
+							.compare_exchange(
+								revision,
+								revision + 1,
+								Ordering::AcqRel,
+								Ordering::Acquire,
+							)
+							.is_err()
+						{
+							// A device change landed first; the next iteration owns it.
+							continue;
+						}
+						let next = revision + 1;
 						recovery_attempts += 1;
-						let next = worker_gate.revision.fetch_add(1, Ordering::AcqRel) + 1;
 						streams = None;
 						if recovery_attempts >= MAX_RECOVERY_ATTEMPTS {
 							worker_gate.devices_missing.store(true, Ordering::Release);
