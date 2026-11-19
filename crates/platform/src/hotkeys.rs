@@ -756,6 +756,10 @@ fn native_hotkey(chord: &KeyChord) -> Option<HotKey> {
 	if !chord.is_valid() || (chord.modifiers == 0 && !is_standalone_global_key(&chord.key)) {
 		return None;
 	}
+	// global-hotkey maps keypad Enter to VK_RETURN on Windows, so it would also fire on main Enter.
+	if cfg!(windows) && chord.key == "NumpadEnter" {
+		return None;
+	}
 	let mut value = String::new();
 	if chord.modifiers & model::keybinds::PRIMARY != 0 {
 		value.push_str(if cfg!(target_os = "macos") {
@@ -1106,9 +1110,13 @@ mod tests {
 
 	#[test]
 	fn keypad_keys_register_globally_without_modifiers() {
-		for key in ["Numpad5", "NumpadEnter", "NumpadMultiply", "NumpadDecimal"] {
+		for key in ["Numpad5", "NumpadMultiply", "NumpadDecimal"] {
 			assert!(native_hotkey(&KeyChord::new(key, 0)).is_some(), "{key}");
 		}
+		assert_eq!(
+			native_hotkey(&KeyChord::new("NumpadEnter", 0)).is_none(),
+			cfg!(windows)
+		);
 		assert!(native_hotkey(&KeyChord::new("Num5", 0)).is_none());
 	}
 
