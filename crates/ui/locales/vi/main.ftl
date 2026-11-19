@@ -240,7 +240,7 @@ account-menu-label-30-minutes = 30 phút
 # Context: label
 account-menu-label-4-hours = 4 giờ
 # Context: label
-account-menu-label-don-t-clear = không rõ ràng
+account-menu-label-don-t-clear = Không tự động xóa
 # Context: label
 account-menu-label-today = hôm nay
 # Context: presence_menu
@@ -1099,7 +1099,7 @@ extensions-ui-toolbar-working-on-your-last-action = Đang thực hiện hành đ
 ## crates/ui/src/fonts.rs
 # Context: show
 # Context: show
-fonts-show-inter-default = Liên (mặc định)
+fonts-show-inter-default = Inter (mặc định)
 # Context: show
 fonts-show-interface-font = Phông chữ giao diện
 # Context: show
@@ -2175,7 +2175,7 @@ profiles-view-full-profile = Xem hồ sơ đầy đủ
 profiles-copy-username = Sao chép tên người dùng
 profiles-username-unavailable = Mở hồ sơ này để tải tên người dùng
 profiles-ignore = Bỏ qua
-profiles-unignore = Bỏ qua
+profiles-unignore = Ngừng bỏ qua
 profiles-ignore-hint = Sử dụng cài đặt Bỏ qua của Discord mà không chặn. Họ không được thông báo.
 profiles-report-user-profile = Báo cáo hồ sơ người dùng
 profiles-report-hint = Mở biểu mẫu hỗ trợ của Discord trong trình duyệt của bạn và sao chép ID người dùng cho biểu mẫu đó
@@ -2190,7 +2190,7 @@ profiles-more-menu-copy-webhook-id = Sao chép ID webhook
 # Context: more_menu
 profiles-more-menu-edit-friend-nickname = Chỉnh sửa biệt danh bạn bè
 # Context: more_menu
-profiles-more-menu-mute = Tắt mic
+profiles-more-menu-mute = Tắt thông báo
 # Context: more_menu
 profiles-more-menu-mute-this-direct-message-s-notifications-until-you-unmute-it = Tắt tiếng thông báo của tin nhắn trực tiếp này cho đến khi bạn bật tiếng nó.
 # Context: more_menu
@@ -2650,7 +2650,7 @@ server-admin-member-card-invite = Mời
 # Context: member_card
 server-admin-member-card-join-method = Phương thức tham gia
 # Context: member_card
-server-admin-member-card-joined-discord = Đã tham gia bất hòa
+server-admin-member-card-joined-discord = Đã tham gia Discord
 # Context: member_card
 server-admin-member-card-member-actions = Hành động của thành viên
 # Context: member_card
@@ -2964,7 +2964,7 @@ server-integrations-summary-card-app = ứng dụng
 # Context: summary_card
 server-integrations-summary-card-bot = Bot
 # Context: summary_card
-server-integrations-summary-card-twitch = giật
+server-integrations-summary-card-twitch = Twitch
 # Context: summary_card
 server-integrations-summary-card-youtube = YouTube
 # Context: webhooks
@@ -4190,7 +4190,7 @@ verification-show-verify = Xác minh
 # Context: show
 verification-show-safer-in-the-official-discord-app = Việc hoàn thành bước kiểm tra này trong ứng dụng Discord chính thức sẽ an toàn hơn. Discord có thể yêu cầu các tài khoản mới hơn xác minh số điện thoại sau khi kiểm tra được giải quyết trong Serein.
 # Context: show
-verification-show-open-discord = Mở bất hòa
+verification-show-open-discord = Mở Discord
 
 ## crates/ui/src/video.rs
 # Context: show_player
@@ -4215,7 +4215,7 @@ video-show-player-seek-video = Tìm kiếm video
 video-show-player-video = video
 # Context: show_player
 video-show-player-video-volume = Âm lượng video
-video-show-player-mute = Tắt mic
+video-show-player-mute = Tắt tiếng
 video-show-player-unmute = Bật tiếng
 
 ## crates/ui/src/voice.rs
