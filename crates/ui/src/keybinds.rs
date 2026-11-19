@@ -239,7 +239,12 @@ fn capture(ui: &mut egui::Ui, bindings: &mut Keybinds, capturing: &mut Option<Ca
 			CaptureTarget::BuiltIn(action) => (Some(action), None),
 			CaptureTarget::Custom(index) => (None, Some(index)),
 		};
-		if let Some(other) = bindings.conflict(&chord, ignore_builtin, ignore_custom) {
+		// A keypad key and the main-row key it types share one logical key; keep them apart.
+		let alias = KeyChord::new(&keypad_alias(&chord.key), chord.modifiers);
+		if let Some(other) = bindings
+			.conflict(&chord, ignore_builtin, ignore_custom)
+			.or_else(|| bindings.conflict(&alias, ignore_builtin, ignore_custom))
+		{
 			let now = ui.input(|input| input.time);
 			ui.data_mut(|data| {
 				data.insert_temp(
@@ -267,6 +272,32 @@ fn capture(ui: &mut egui::Ui, bindings: &mut Keybinds, capturing: &mut Option<Ca
 		}
 		*capturing = None;
 	}
+}
+
+/// The key whose press a keypad key also produces logically, and the reverse.
+fn keypad_alias(name: &str) -> String {
+	const PAIRS: [(&str, &str); 5] = [
+		("NumpadAdd", "Plus"),
+		("NumpadSubtract", "Minus"),
+		("NumpadDivide", "Slash"),
+		("NumpadDecimal", "Period"),
+		("NumpadEnter", "Enter"),
+	];
+	if let Some(digit) = name.strip_prefix("Numpad").filter(|d| d.len() == 1) {
+		return format!("Num{digit}");
+	}
+	if let Some(digit) = name.strip_prefix("Num").filter(|d| d.len() == 1) {
+		return format!("Numpad{digit}");
+	}
+	PAIRS
+		.iter()
+		.find_map(|(pad, main)| match name {
+			n if n == *pad => Some(*main),
+			n if n == *main => Some(*pad),
+			_ => None,
+		})
+		.unwrap_or(name)
+		.to_owned()
 }
 
 fn section(
@@ -1011,6 +1042,30 @@ const KEYS: &[(Key, &str)] = &[
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn keypad_and_main_row_keys_conflict_both_ways() {
+		let mut bindings = Keybinds::default();
+		bindings.toggle_mute = KeyChord::new("Num5", 0);
+		let mut capturing = Some(CaptureTarget::BuiltIn(KeybindAction::ToggleDeafen));
+		let ctx = egui::Context::default();
+		let mut output = ctx.run_ui(
+			egui::RawInput {
+				events: vec![Event::Key {
+					key: Key::Num5,
+					physical_key: Some(Key::Numpad5),
+					pressed: true,
+					repeat: false,
+					modifiers: Modifiers::NONE,
+				}],
+				..Default::default()
+			},
+			|ui| capture(ui, &mut bindings, &mut capturing),
+		);
+		output.textures_delta.clear();
+		assert_ne!(bindings.toggle_deafen.key, "Numpad5");
+		assert_eq!(keypad_alias("NumpadAdd"), "Plus");
+	}
 
 	#[test]
 	fn keypad_chords_match_by_position_not_the_main_row_digit() {

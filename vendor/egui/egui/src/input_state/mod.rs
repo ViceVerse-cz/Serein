@@ -411,9 +411,12 @@ impl InputState {
                     let keypad = physical_key.filter(|key| key.is_keypad());
                     if *pressed {
                         let first_press = keys_down.insert(*key);
-                        if let Some(keypad) = keypad {
-                            keys_down.insert(keypad);
-                        }
+                        // A keypad press is new unless that keypad key was already held,
+                        // even when the same-valued main-row key is down.
+                        let first_press = match keypad {
+                            Some(keypad) => keys_down.insert(keypad),
+                            None => first_press,
+                        };
                         *repeat = !first_press;
                     } else {
                         keys_down.remove(key);
