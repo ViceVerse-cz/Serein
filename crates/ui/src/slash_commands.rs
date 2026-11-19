@@ -1331,7 +1331,7 @@ fn value_text(value: &Value) -> String {
 struct UserPicker {
 	field: Option<egui::Id>,
 	query: String,
-	selected: Option<Id>,
+	selected: Option<(Id, usize)>,
 	dismissed: bool,
 	browse: bool,
 	open: bool,
@@ -1359,6 +1359,12 @@ impl UserPicker {
 							"search-filters-user-picker-search-users",
 						))
 						.char_limit(65)
+						.event_filter(egui::EventFilter {
+							escape: true,
+							horizontal_arrows: true,
+							vertical_arrows: true,
+							..Default::default()
+						})
 						.return_key(None)
 						.desired_width((ui.available_width() - 25.0).max(24.0)),
 				);
@@ -1398,6 +1404,7 @@ impl UserPicker {
 				..Self::default()
 			};
 		}
+		self.open = false;
 		let valid_id = value.parse::<Id>().is_ok();
 		let raw = value.trim();
 		let typed = raw.strip_prefix('@').unwrap_or(raw);
@@ -1412,7 +1419,15 @@ impl UserPicker {
 			self.dismissed = !self.browse;
 		}
 		let searching = !raw.is_empty() && !valid_id;
-		if self.dismissed || (!searching && !self.browse) {
+		let closed = self.dismissed || (!searching && !self.browse);
+		let keyboard_browse = closed
+			&& !response.changed()
+			&& ui.input_mut(|input| user_picker_key(input, egui::Key::ArrowDown));
+		if keyboard_browse {
+			self.browse = true;
+			self.dismissed = false;
+			self.selected = None;
+		} else if closed {
 			self.popup_rect = None;
 			let submit = !searching && !response.changed() && inline_submit(ui, bindings);
 			return (response, submit, None);
@@ -1453,53 +1468,37 @@ impl UserPicker {
 			})
 			.collect();
 		candidates.sort_unstable_by(|a, b| (a.0, &a.1, a.2.id).cmp(&(b.0, &b.1, b.2.id)));
-		candidates.truncate(32);
-		let mut pick = None;
-		let mut moved = false;
-		ui.input_mut(|input| {
-			// IME Enter belongs to composition. A text edit and Enter in one frame
-			// must also leave the new candidates visible before accepting a user.
-			if input
-				.events
-				.iter()
-				.any(|event| matches!(event, egui::Event::Ime(_)))
-			{
-				return;
+		let previous = self.selected;
+		let mut index =
+			previous.and_then(|(id, _)| candidates.iter().position(|item| item.2.id == id));
+		if !query.is_empty() {
+			const SUGGESTIONS: usize = 32;
+			// Keep the user's existing choice available even when late results rank above it.
+			if let Some(row) = index.filter(|row| *row >= SUGGESTIONS) {
+				candidates.swap(row, SUGGESTIONS - 1);
+				index = Some(SUGGESTIONS - 1);
 			}
-			let mut pressed = |key| {
-				let matched = input.events.iter().any(|event| {
-					matches!(event, egui::Event::Key { key: pressed, pressed: true, modifiers, .. }
-						if *pressed == key && *modifiers == egui::Modifiers::NONE)
-				});
-				matched && input.consume_key(egui::Modifiers::NONE, key)
-			};
-			if pressed(egui::Key::Escape) {
+			candidates.truncate(SUGGESTIONS);
+		}
+		let mut pick = None;
+		ui.input_mut(|input| {
+			if user_picker_key(input, egui::Key::Escape) {
 				self.dismissed = true;
 				self.browse = false;
 				return;
 			}
-			if !candidates.is_empty() {
-				let len = candidates.len();
-				let index = self
-					.selected
-					.and_then(|id| candidates.iter().position(|item| item.2.id == id));
-				let next = if pressed(egui::Key::ArrowDown) {
-					Some(index.map_or(0, |index| (index + 1) % len))
-				} else if pressed(egui::Key::ArrowUp) {
-					Some(index.map_or(len - 1, |index| (index + len - 1) % len))
-				} else {
-					None
-				};
-				if let Some(next) = next {
-					self.selected = Some(candidates[next].2.id);
-					moved = true;
+			let len = candidates.len();
+			if len != 0 {
+				if keyboard_browse || user_picker_key(input, egui::Key::ArrowDown) {
+					index = Some(index.map_or(0, |index| (index + 1) % len));
+				} else if user_picker_key(input, egui::Key::ArrowUp) {
+					index = Some(index.map_or(len - 1, |index| (index + len - 1) % len));
 				}
-				if pressed(egui::Key::Enter)
+				if !keyboard_browse
+					&& user_picker_key(input, egui::Key::Enter)
 					&& !response.changed()
-					&& let Some(selected) = self.selected
-					&& candidates.iter().any(|item| item.2.id == selected)
 				{
-					pick = Some(selected);
+					pick = index.map(|index| candidates[index].2.id);
 				}
 			}
 		});
@@ -1507,11 +1506,11 @@ impl UserPicker {
 			self.popup_rect = None;
 			return (response, false, None);
 		}
-		// Keep the highlighted identity stable if a server response reorders the list.
-		// A new default becomes selectable after it has been presented.
-		if !query.is_empty() && self.selected.is_none() {
-			self.selected = candidates.first().map(|item| item.2.id);
-		}
+		// Present a replacement highlight before Enter can accept a different identity.
+		self.selected = index
+			.or_else(|| (!query.is_empty() || previous.is_some()).then_some(0))
+			.and_then(|row| candidates.get(row).map(|item| (item.2.id, row)));
+		let moved = self.selected != previous;
 		let lookup = !query.is_empty()
 			&& query.chars().count() <= 64
 			&& !query.chars().any(char::is_control)
@@ -1556,7 +1555,7 @@ impl UserPicker {
 								} else {
 									format!("{label} · @{}", user.name)
 								};
-								let selected = self.selected == Some(user.id);
+								let selected = self.selected.is_some_and(|(id, _)| id == user.id);
 								let row = ui
 									.push_id(user.id, |ui| {
 										ui.add(
@@ -1588,6 +1587,26 @@ impl UserPicker {
 		self.open = true;
 		(response, false, lookup.then(|| query.to_owned()))
 	}
+}
+
+fn user_picker_key(input: &mut egui::InputState, key: egui::Key) -> bool {
+	// Leave keyboard handling to the text editor during an IME composition.
+	if input
+		.events
+		.iter()
+		.any(|event| matches!(event, egui::Event::Ime(_)))
+	{
+		return false;
+	}
+	let mut pressed = false;
+	input.events.retain(|event| {
+		let matched = matches!(event, egui::Event::Key {
+			key: pressed_key, pressed: true, modifiers, ..
+		} if *pressed_key == key && *modifiers == egui::Modifiers::NONE);
+		pressed |= matched;
+		!matched
+	});
+	pressed
 }
 
 fn argument(
@@ -1878,6 +1897,80 @@ mod tests {
 	}
 
 	#[test]
+	fn slash_user_search_browses_all_users_and_keeps_focus_on_escape() {
+		let ctx = egui::Context::default();
+		let mut state = test_support::demo_state();
+		let channel = state.selected.unwrap();
+		let mut last_user = state.user.clone().unwrap();
+		last_user.name = "zzzz-last-user".into();
+		last_user.id = Id(8400);
+		let mut users: Vec<_> = (8300..8340)
+			.map(|id| {
+				let mut user = last_user.clone();
+				user.id = Id(id);
+				user.name = format!("member-{id}");
+				user
+			})
+			.collect();
+		let expected = last_user.id.to_string();
+		users.push(last_user);
+		state
+			.channels
+			.iter_mut()
+			.find(|c| c.id == channel)
+			.unwrap()
+			.recipients = users;
+		let mut picker = UserPicker::default();
+		let mut value = String::new();
+		let id = egui::Id::unique("slash-user-browse-test");
+		let bindings = model::Keybinds::default();
+		ctx.memory_mut(|memory| memory.request_focus(id));
+		let frame = |picker: &mut UserPicker, value: &mut String, events| {
+			let mut submitted = false;
+			ctx.run_ui(
+				egui::RawInput {
+					events,
+					..Default::default()
+				},
+				|ui| {
+					ui.add_space(310.0);
+					let (_, submit, _) = picker.show(ui, value, &state, channel, id, &bindings);
+					submitted |= submit;
+				},
+			)
+			.drop_without_applying_deltas();
+			ctx.input_mut(|input| input.keys_down.clear());
+			submitted
+		};
+		let key = |key| {
+			vec![egui::Event::Key {
+				key,
+				physical_key: None,
+				pressed: true,
+				repeat: false,
+				modifiers: egui::Modifiers::NONE,
+			}]
+		};
+
+		frame(&mut picker, &mut value, vec![]);
+		assert!(!frame(&mut picker, &mut value, key(egui::Key::ArrowDown)));
+		assert!(picker.open);
+		assert!(!frame(&mut picker, &mut value, key(egui::Key::ArrowUp)));
+		assert!(!frame(&mut picker, &mut value, key(egui::Key::Enter)));
+		assert_eq!(
+			value, expected,
+			"the last known user remains available when browsing"
+		);
+		assert!(!frame(&mut picker, &mut value, key(egui::Key::ArrowDown)));
+		assert!(picker.open);
+		assert!(!frame(&mut picker, &mut value, key(egui::Key::Escape)));
+		assert!(!picker.open);
+		assert!(ctx.memory(|memory| memory.has_focus(id)));
+		assert!(frame(&mut picker, &mut value, key(egui::Key::Enter)));
+		assert_eq!(value, expected);
+	}
+
+	#[test]
 	fn slash_user_search_keeps_the_highlighted_user_when_results_arrive() {
 		use client_core::{Envelope, Event, interactions};
 		let ctx = egui::Context::default();
@@ -1990,28 +2083,37 @@ mod tests {
 			generation: state.generation,
 			event: Event::MemberSearch {
 				request: request.clone(),
-				result: Ok(vec![model::Member {
-					user: remote,
-					nick: Some("Team Able".into()),
-					roles: vec![],
-					status: None,
-					custom_status: None,
-					activities: vec![],
-					clients: Default::default(),
-				}]),
+				result: Ok((0..40)
+					.map(|index| {
+						let mut user = remote.clone();
+						user.id = Id(remote.id.0 + index);
+						model::Member {
+							user,
+							nick: Some(format!("Team Able {index:02}")),
+							roles: vec![],
+							status: None,
+							custom_status: None,
+							activities: vec![],
+							clients: Default::default(),
+						}
+					})
+					.collect()),
 			},
 		});
 		assert_eq!(
 			state.member_search[0].rows[0].nick.as_deref(),
-			Some("Team Able")
+			Some("Team Able 00")
 		);
-		assert!(frame(&mut view, &mut state, 1.7, vec![enter()]).is_empty());
+		assert_eq!(state.member_search[0].rows.len(), 40);
+		assert!(frame(&mut view, &mut state, 1.7, vec![]).is_empty());
+		assert_eq!(view.slash_commands.user_picker.selected, Some((local, 31)));
+		assert!(frame(&mut view, &mut state, 1.8, vec![enter()]).is_empty());
 		assert_eq!(
 			view.slash_commands.active.as_ref().unwrap().values[0].1,
 			local.to_string(),
 			"an earlier-sorting server nickname must not replace the highlighted user"
 		);
-		let commands = frame(&mut view, &mut state, 1.8, vec![enter()]);
+		let commands = frame(&mut view, &mut state, 1.9, vec![enter()]);
 		let [Command::Interaction(request)] = commands.as_slice() else {
 			panic!("a separate Enter should run the command");
 		};
