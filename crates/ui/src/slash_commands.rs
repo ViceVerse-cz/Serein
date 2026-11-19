@@ -60,6 +60,7 @@ pub(super) struct Menu {
 	argument_rect: Option<egui::Rect>,
 	focus_argument: bool,
 	focused_option: usize,
+	user_picker: UserPicker,
 	pub active: Option<Active>,
 	pub error: Option<&'static str>,
 	pub run: bool,
@@ -74,6 +75,7 @@ impl Menu {
 		self.enabled = false;
 		self.rect = None;
 		self.argument_rect = None;
+		self.user_picker = UserPicker::default();
 		self.run = false;
 		self.retry = false;
 	}
@@ -274,7 +276,8 @@ impl Menu {
 					}
 				)
 			});
-			if input.consume_key(egui::Modifiers::NONE, egui::Key::Escape) {
+			if !self.user_picker.open && input.consume_key(egui::Modifiers::NONE, egui::Key::Escape)
+			{
 				self.dismissed = true;
 				return None;
 			}
@@ -318,6 +321,7 @@ impl Menu {
 		self.dismissed = false;
 		self.focus_argument = self.active.is_some();
 		self.focused_option = 0;
+		self.user_picker = UserPicker::default();
 		Some(draft.chars().count())
 	}
 	pub fn show(
@@ -329,7 +333,7 @@ impl Menu {
 		avatars: &mut Avatars,
 	) -> Option<Pick> {
 		self.rect = None;
-		if !self.visible() {
+		if !self.visible() || self.user_picker.open {
 			return None;
 		}
 		let colors = design::palette(ui);
@@ -718,12 +722,14 @@ impl Menu {
 		state: &State,
 		channel: Id,
 		bindings: &model::Keybinds,
-	) -> bool {
+	) -> String {
 		self.argument_rect = None;
+		self.user_picker.open = false;
 		let submit_failed = self.error.is_some();
 		let Some(active) = self.active.as_mut() else {
-			return false;
+			return String::new();
 		};
+		let mut member_query = String::new();
 		let command = state
 			.application_commands
 			.commands
@@ -732,6 +738,9 @@ impl Menu {
 		let allowed =
 			command.is_some_and(|command| state.can_use_application_command(channel, command));
 		let options = command.and_then(|command| command.options_at(&active.path).ok());
+		if !allowed {
+			self.user_picker = UserPicker::default();
+		}
 		if allowed && let Some(options) = options {
 			active
 				.values
@@ -875,7 +884,9 @@ impl Menu {
 						let had_focus = ui.memory(|memory| memory.has_focus(id));
 						// Discord rings the offending chip in red: a value outside its limits,
 						// or a required value still missing after a submission attempt.
-						let invalid = option.problem(value).is_some()
+						let user_argument = option.kind == 6 && option.choices.is_empty();
+						let invalid = (option.problem(value).is_some()
+							&& (!user_argument || !had_focus || submit_failed))
 							|| (value.is_empty() && option.required && submit_failed);
 						ui.allocate_ui_with_layout(
 							egui::vec2(chip_width, CHIP),
@@ -941,13 +952,24 @@ impl Menu {
 								)
 								.on_hover_text(&option.description);
 								ui.add_space(18.0);
-								if had_focus
-									&& option.choices.is_empty()
-									&& option.kind != 5 && inline_submit(ui, bindings)
-								{
-									self.run = true;
-								}
-								let response = argument(ui, option, value, state, channel, id);
+								let response = if user_argument {
+									let (response, submit, query) = self
+										.user_picker
+										.show(ui, value, state, channel, id, bindings);
+									self.run |= submit;
+									if let Some(query) = query {
+										member_query = query;
+									}
+									response
+								} else {
+									if had_focus
+										&& option.choices.is_empty() && option.kind != 5
+										&& inline_submit(ui, bindings)
+									{
+										self.run = true;
+									}
+									argument(ui, option, value, state, channel, id)
+								};
 								if focus_first && index == 0 {
 									response.request_focus();
 								}
@@ -968,8 +990,10 @@ impl Menu {
 			self.error = None;
 			self.dismissed = false;
 			self.focus_argument = false;
+			self.user_picker = UserPicker::default();
+			member_query.clear();
 		}
-		true
+		member_query
 	}
 	fn help(&mut self, ui: &mut egui::Ui, state: &State, channel: Id) {
 		let Some(active) = self.active.as_ref() else {
@@ -1303,6 +1327,269 @@ fn value_text(value: &Value) -> String {
 	}
 }
 
+#[derive(Default)]
+struct UserPicker {
+	field: Option<egui::Id>,
+	query: String,
+	selected: Option<Id>,
+	dismissed: bool,
+	browse: bool,
+	open: bool,
+	popup_rect: Option<egui::Rect>,
+}
+
+impl UserPicker {
+	fn show(
+		&mut self,
+		ui: &mut egui::Ui,
+		value: &mut String,
+		state: &State,
+		channel: Id,
+		id: egui::Id,
+		bindings: &model::Keybinds,
+	) -> (egui::Response, bool, Option<String>) {
+		let (response, browse) = ui
+			.horizontal(|ui| {
+				let response = ui.add(
+					egui::TextEdit::singleline(value)
+						.id(id)
+						.align(egui::Align2::LEFT_CENTER)
+						.frame(egui::Frame::NONE)
+						.hint_text(crate::i18n::translate(
+							"search-filters-user-picker-search-users",
+						))
+						.char_limit(65)
+						.return_key(None)
+						.desired_width((ui.available_width() - 25.0).max(24.0)),
+				);
+				let browse = ui
+					.add(
+						egui::Button::new("▾").sense(egui::Sense::click() - egui::Sense::FOCUSABLE),
+					)
+					.on_hover_text(crate::i18n::translate(
+						"search-filters-user-picker-search-users",
+					))
+					.clicked();
+				(response, browse)
+			})
+			.inner;
+
+		let pointer_in_popup = self.field == Some(id)
+			&& self.popup_rect.is_some_and(|rect| {
+				ui.input(|input| {
+					let pointer = &input.pointer;
+					(pointer.any_down() || pointer.any_released())
+						&& pointer.interact_pos().is_some_and(|pos| rect.contains(pos))
+				})
+			});
+		// A click in the popup must keep the text field alive through release.
+		if ui.is_enabled() && (browse || pointer_in_popup) {
+			response.request_focus();
+		}
+		if !ui.is_enabled() || !response.has_focus() {
+			if self.field == Some(id) {
+				*self = Self::default();
+			}
+			return (response, false, None);
+		}
+		if self.field != Some(id) {
+			*self = Self {
+				field: Some(id),
+				..Self::default()
+			};
+		}
+		let valid_id = value.parse::<Id>().is_ok();
+		let raw = value.trim();
+		let typed = raw.strip_prefix('@').unwrap_or(raw);
+		if response.changed() || self.query != typed {
+			self.query = typed.to_owned();
+			self.selected = None;
+			self.dismissed = false;
+			self.browse = false;
+		}
+		if browse {
+			self.browse = !self.browse;
+			self.dismissed = !self.browse;
+		}
+		let searching = !raw.is_empty() && !valid_id;
+		if self.dismissed || (!searching && !self.browse) {
+			self.popup_rect = None;
+			let submit = !searching && !response.changed() && inline_submit(ui, bindings);
+			return (response, submit, None);
+		}
+
+		// The arrow can browse known users even when a numeric ID is already entered.
+		let query = if valid_id { "" } else { typed };
+		let local_query = query.to_lowercase();
+		let remote = mentions::searched_members(state, channel, Some(query));
+		let source = mentions::MentionSource { state, channel };
+		let mut candidates: Vec<_> = mentions::known_users_with_search(state, channel, remote)
+			.into_iter()
+			.filter_map(|user| {
+				let member = remote.iter().find(|member| member.user.id == user.id);
+				let label = member
+					.and_then(|member| member.nick.as_deref())
+					.filter(|nick| !nick.is_empty())
+					.map_or_else(
+						|| {
+							mentions::mention_label(
+								user.id,
+								std::slice::from_ref(&user),
+								Some(&source),
+							)
+						},
+						|nick| format!("@{nick}"),
+					);
+				let rank = [
+					label.strip_prefix('@').unwrap_or(&label),
+					&user.name,
+					state.user_display_name(&user),
+				]
+				.into_iter()
+				.filter_map(|name| mentions::rank(&local_query, name, user.id))
+				.min()
+				.or_else(|| member.map(|_| 2))?;
+				Some((rank, label, user))
+			})
+			.collect();
+		candidates.sort_unstable_by(|a, b| (a.0, &a.1, a.2.id).cmp(&(b.0, &b.1, b.2.id)));
+		candidates.truncate(32);
+		let mut pick = None;
+		let mut moved = false;
+		ui.input_mut(|input| {
+			// IME Enter belongs to composition. A text edit and Enter in one frame
+			// must also leave the new candidates visible before accepting a user.
+			if input
+				.events
+				.iter()
+				.any(|event| matches!(event, egui::Event::Ime(_)))
+			{
+				return;
+			}
+			let mut pressed = |key| {
+				let matched = input.events.iter().any(|event| {
+					matches!(event, egui::Event::Key { key: pressed, pressed: true, modifiers, .. }
+						if *pressed == key && *modifiers == egui::Modifiers::NONE)
+				});
+				matched && input.consume_key(egui::Modifiers::NONE, key)
+			};
+			if pressed(egui::Key::Escape) {
+				self.dismissed = true;
+				self.browse = false;
+				return;
+			}
+			if !candidates.is_empty() {
+				let len = candidates.len();
+				let index = self
+					.selected
+					.and_then(|id| candidates.iter().position(|item| item.2.id == id));
+				let next = if pressed(egui::Key::ArrowDown) {
+					Some(index.map_or(0, |index| (index + 1) % len))
+				} else if pressed(egui::Key::ArrowUp) {
+					Some(index.map_or(len - 1, |index| (index + len - 1) % len))
+				} else {
+					None
+				};
+				if let Some(next) = next {
+					self.selected = Some(candidates[next].2.id);
+					moved = true;
+				}
+				if pressed(egui::Key::Enter)
+					&& !response.changed()
+					&& let Some(selected) = self.selected
+					&& candidates.iter().any(|item| item.2.id == selected)
+				{
+					pick = Some(selected);
+				}
+			}
+		});
+		if self.dismissed {
+			self.popup_rect = None;
+			return (response, false, None);
+		}
+		// Keep the highlighted identity stable if a server response reorders the list.
+		// A new default becomes selectable after it has been presented.
+		if !query.is_empty() && self.selected.is_none() {
+			self.selected = candidates.first().map(|item| item.2.id);
+		}
+		let lookup = !query.is_empty()
+			&& query.chars().count() <= 64
+			&& !query.chars().any(char::is_control)
+			&& state.gateway_connected
+			&& state.selected == Some(channel)
+			&& state.can_view(channel)
+			&& state
+				.channel(channel)
+				.is_some_and(|channel| channel.guild.is_some());
+		let search = &state.member_search[0];
+		let current = search
+			.request
+			.as_ref()
+			.is_some_and(|request| request.channel == channel && request.query == query);
+		if pick.is_none() {
+			let ctx = ui.ctx();
+			let width = (ctx.content_rect().width() - 16.0).clamp(24.0, 280.0);
+			self.popup_rect = egui::Popup::from_response(&response)
+				.id(id.with("users"))
+				.open(true)
+				.align(egui::RectAlign::TOP_START)
+				.gap(4.0)
+				.width(width)
+				.show(|ui| {
+					ui.set_width(width);
+					if candidates.is_empty() {
+						let label = if current && let Some(error) = search.error {
+							crate::i18n::translate_if_key(error)
+						} else if lookup && (!current || !search.finished) {
+							crate::i18n::translate("search-pane-searching")
+						} else {
+							crate::i18n::translate("search-filters-user-picker-no-matching-users")
+						};
+						ui.add(egui::Label::new(label).wrap());
+					}
+					egui::ScrollArea::vertical()
+						.max_height(180.0)
+						.show(ui, |ui| {
+							for (_, label, user) in &candidates {
+								let text = if label.strip_prefix('@') == Some(&user.name) {
+									label.clone()
+								} else {
+									format!("{label} · @{}", user.name)
+								};
+								let selected = self.selected == Some(user.id);
+								let row = ui
+									.push_id(user.id, |ui| {
+										ui.add(
+											egui::Button::selectable(selected, text)
+												.sense(
+													egui::Sense::click() - egui::Sense::FOCUSABLE,
+												)
+												.truncate(),
+										)
+									})
+									.inner;
+								if selected && moved {
+									row.scroll_to_me(None);
+								}
+								if row.clicked() {
+									pick = Some(user.id);
+								}
+							}
+						});
+				})
+				.map(|popup| popup.response.rect);
+		}
+		if let Some(user) = pick {
+			*value = user.to_string();
+			*self = Self::default();
+			response.request_focus();
+			return (response, false, None);
+		}
+		self.open = true;
+		(response, false, lookup.then(|| query.to_owned()))
+	}
+}
+
 fn argument(
 	ui: &mut egui::Ui,
 	option: &CommandOption,
@@ -1529,6 +1816,215 @@ impl crate::MessagingUi {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn slash_user_search_picks_a_user_on_pointer_release() {
+		let ctx = egui::Context::default();
+		let mut state = test_support::demo_state();
+		let user = state.user.as_mut().unwrap();
+		user.name = "synthetic-target".into();
+		let expected = user.id.to_string();
+		let channel = state.selected.unwrap();
+		let mut picker = UserPicker::default();
+		let mut value = "synthetic-target".to_owned();
+		let id = egui::Id::unique("slash-user-pointer-test");
+		let bindings = model::Keybinds::default();
+		ctx.memory_mut(|memory| memory.request_focus(id));
+		let mut frame = |events| {
+			ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(390.0, 600.0),
+					)),
+					events,
+					..Default::default()
+				},
+				|ui| {
+					ui.add_space(310.0);
+					let (_, submit, _) =
+						picker.show(ui, &mut value, &state, channel, id, &bindings);
+					assert!(!submit);
+				},
+			)
+		};
+		frame(vec![]).drop_without_applying_deltas();
+		let output = frame(vec![]);
+		let pos = output
+			.shapes
+			.iter()
+			.find_map(|shape| {
+				let egui::Shape::Text(text) = &shape.shape else {
+					return None;
+				};
+				(text.galley.text() == "@synthetic-target")
+					.then(|| text.pos + text.galley.rect.center().to_vec2())
+			})
+			.expect("the matching user is rendered in the popup");
+		output.drop_without_applying_deltas();
+		for pressed in [true, false] {
+			frame(vec![
+				egui::Event::PointerMoved(pos),
+				egui::Event::PointerButton {
+					pos,
+					button: egui::PointerButton::Primary,
+					pressed,
+					modifiers: egui::Modifiers::NONE,
+				},
+			])
+			.drop_without_applying_deltas();
+		}
+		assert_eq!(value, expected);
+	}
+
+	#[test]
+	fn slash_user_search_keeps_the_highlighted_user_when_results_arrive() {
+		use client_core::{Envelope, Event, interactions};
+		let ctx = egui::Context::default();
+		design::apply(&ctx);
+		let mut state = test_support::demo_state();
+		state.auth = client_core::auth::AuthState::Authenticated;
+		state.gateway_connected = true;
+		state.freshness = model::Freshness::Fresh;
+		let mut permissions = test_support::permission_snapshot(&state);
+		for guild in &mut permissions.guilds {
+			for role in guild.roles.iter_mut().flatten() {
+				role.bits |= model::permissions::USE_APPLICATION_COMMANDS;
+			}
+		}
+		state.permissions.replace(permissions).unwrap();
+		let channel = state.selected.unwrap();
+		let local = state.user.as_mut().unwrap();
+		local.name = "team-z".into();
+		let mut remote = local.clone();
+		remote.id = Id(701);
+		remote.name = "out-of-window".into();
+		let local = local.id;
+		let Some(Command::ApplicationCommands { request, .. }) =
+			state.request_application_commands(channel, false)
+		else {
+			panic!("load the synthetic catalog");
+		};
+		let app = model::application_commands::Command {
+			id: Id(987),
+			version: Id(1),
+			application_id: Id(986),
+			kind: 1,
+			name: "user-info".into(),
+			description: "Look up a user.".into(),
+			application_name: "Synthetic app".into(),
+			options: vec![CommandOption {
+				kind: 6,
+				name: "user".into(),
+				description: "A user".into(),
+				required: true,
+				..Default::default()
+			}],
+			guild_id: None,
+			contexts: None,
+			integration_types: None,
+			application_icon: None,
+			default_member_permissions: None,
+			permissions: Default::default(),
+			application_permissions: Default::default(),
+		};
+		state.apply_application_commands(channel, request, Ok(vec![app]));
+		state.drafts.insert(channel, "/user-info ".into());
+		let mut view = crate::MessagingUi::default();
+		view.slash_commands
+			.refresh(&state, channel, "/user-info ", true);
+		view.slash_commands.active = Some(Active {
+			id: Id(987),
+			name: "user-info".into(),
+			path: vec![],
+			values: vec![],
+		});
+		let editor = egui::Id::unique(("slash-argument", channel, Id(987), "user"));
+		ctx.memory_mut(|memory| memory.request_focus(editor));
+		let frame = |view: &mut crate::MessagingUi, state: &mut State, time, events| {
+			let mut commands = vec![];
+			ctx.run_ui(
+				egui::RawInput {
+					time: Some(time),
+					events,
+					..Default::default()
+				},
+				|ui| {
+					ui.set_width(390.0);
+					ui.add_space(310.0);
+					view.composer(ui, state, channel, &ctx, &mut commands);
+				},
+			)
+			.drop_without_applying_deltas();
+			ctx.input_mut(|input| input.keys_down.clear());
+			commands
+		};
+		let enter = || egui::Event::Key {
+			key: egui::Key::Enter,
+			physical_key: None,
+			pressed: true,
+			repeat: false,
+			modifiers: egui::Modifiers::NONE,
+		};
+		assert!(frame(&mut view, &mut state, 1.0, vec![]).is_empty());
+		assert!(
+			frame(
+				&mut view,
+				&mut state,
+				1.1,
+				vec![egui::Event::Text("team".into()), enter(),]
+			)
+			.is_empty(),
+			"typing and Enter in one frame cannot select or submit"
+		);
+		assert_eq!(
+			view.slash_commands.active.as_ref().unwrap().values[0].1,
+			"team"
+		);
+		let commands = frame(&mut view, &mut state, 1.6, vec![]);
+		let [Command::MemberSearch(request)] = commands.as_slice() else {
+			panic!("send the debounced search for out-of-window members");
+		};
+		assert_eq!(request.query, "team");
+		state.apply(Envelope {
+			generation: state.generation,
+			event: Event::MemberSearch {
+				request: request.clone(),
+				result: Ok(vec![model::Member {
+					user: remote,
+					nick: Some("Team Able".into()),
+					roles: vec![],
+					status: None,
+					custom_status: None,
+					activities: vec![],
+					clients: Default::default(),
+				}]),
+			},
+		});
+		assert_eq!(
+			state.member_search[0].rows[0].nick.as_deref(),
+			Some("Team Able")
+		);
+		assert!(frame(&mut view, &mut state, 1.7, vec![enter()]).is_empty());
+		assert_eq!(
+			view.slash_commands.active.as_ref().unwrap().values[0].1,
+			local.to_string(),
+			"an earlier-sorting server nickname must not replace the highlighted user"
+		);
+		let commands = frame(&mut view, &mut state, 1.8, vec![enter()]);
+		let [Command::Interaction(request)] = commands.as_slice() else {
+			panic!("a separate Enter should run the command");
+		};
+		let interactions::Data::ApplicationCommand { invocation } = &request.data else {
+			panic!("expected a slash-command invocation");
+		};
+		assert_eq!(invocation.options[0].kind, 6);
+		assert_eq!(
+			invocation.options[0].value,
+			Some(Value::String(local.to_string()))
+		);
+	}
+
 	#[test]
 	fn slash_picker_selects_before_sending_and_preserves_failed_fields() {
 		for (width, theme) in [(1000.0, egui::Theme::Dark), (390.0, egui::Theme::Light)] {

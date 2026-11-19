@@ -4056,9 +4056,11 @@ impl MessagingUi {
                                 ui.set_width(ui.available_width());
                         if application_command {
                             return ui.scope(|ui| {
-                                ui.add_enabled_ui(keyboard_enabled, |ui| {
-                                    self.slash_commands.composer(ui, state, channel, &self.keybinds);
+                                let query = ui.add_enabled_ui(keyboard_enabled, |ui| {
+                                    self.slash_commands.composer(ui, state, channel, &self.keybinds)
                                 });
+                                self.mention_lookup.text = query.inner;
+                                self.mention_lookup.sync(ctx, state, channel, 0, commands);
                                 if self.slash_commands.active.is_none() {
                                     ctx.memory_mut(|memory| memory.request_focus(composer_id));
                                 }
