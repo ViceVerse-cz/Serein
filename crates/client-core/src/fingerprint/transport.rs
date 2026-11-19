@@ -9,20 +9,30 @@ fn profile() -> (wreq_util::Profile, wreq_util::Platform) {
 		"windows" => Platform::Windows,
 		_ => Platform::Linux,
 	};
-	let profile = Profile::Chrome148;
+	let profile = Profile::Chrome152;
 	(profile, platform)
 }
 
 /// TLS and HTTP/2 handshake of [`super::browser`], so every transport agrees with
 /// [`super::user_agent`]. Every Discord connection must take its handshake from here.
-pub fn emulation() -> wreq_util::Emulation {
+///
+/// Chromium 152's own profile, less the `trust_anchors` extension: Chrome sends it, but the
+/// recorded desktop client's Electron 44.10.2 did not (2026-11-19). Every other ClientHello
+/// field matched that recording.
+pub fn emulation() -> wreq::Emulation {
 	let (profile, platform) = profile();
-	wreq_util::Emulation::builder()
-		.profile(profile)
-		.platform(platform)
-		// Its headers describe a page navigation; each transport sends its own.
-		.headers(false)
-		.build()
+	let mut emulation = wreq::IntoEmulation::into_emulation(
+		wreq_util::Emulation::builder()
+			.profile(profile)
+			.platform(platform)
+			// Its headers describe a page navigation; each transport sends its own.
+			.headers(false)
+			.build(),
+	);
+	if let Some(tls) = &mut emulation.tls_options {
+		tls.trust_anchors = None;
+	}
+	emulation
 }
 
 /// Domains the official web client reaches with the page's own handshake.

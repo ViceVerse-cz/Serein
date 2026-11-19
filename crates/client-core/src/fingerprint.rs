@@ -6,9 +6,8 @@
 //! them is unverified; an earlier Serein identity without them coincided with account
 //! restrictions (spam flag, attachment limits), which is not proof of cause. Every transport
 //! uses the desktop metadata below. Embedded verification keeps its engine-specific identity.
-//! Locale and timezone come from the operating system. Host versions are observed
-//! platform metadata; the older paired engine/profile baseline remains
-//! an unofficial reference, not evidence of an Electron runtime.
+//! Locale and timezone come from the operating system. Host and engine versions are those of
+//! the recorded client, not evidence of an Electron runtime.
 
 /// Chrome version advertised on Windows, where verification runs in Chromium WebView2.
 const CHROME_MAJOR: &str = "149";
@@ -32,10 +31,10 @@ fn desktop_version() -> &'static str {
 		_ => "1.0.170",
 	}
 }
-/// Retained paired engine baseline: the pinned wreq-util has no Chromium 152 profile.
-/// The downloaded Linux core declares Electron 44.9.3, so this is not a current runtime claim.
-const ELECTRON_VERSION: &str = "42.7.1";
-const DESKTOP_CHROMIUM_VERSION: &str = "148.0.7778.280";
+/// The engine of the recorded desktop 0.0.423 client (2026-11-19), paired with wreq-util's
+/// Chromium 152 handshake. Not a claim that Serein runs on Electron.
+const ELECTRON_VERSION: &str = "44.10.2";
+const DESKTOP_CHROMIUM_VERSION: &str = "152.0.7977.169";
 const WEBKIT: bool = !cfg!(windows);
 
 /// Discord's spelling of the host operating system.
@@ -105,7 +104,8 @@ pub fn client_hints() -> Option<[(&'static str, String); 3]> {
 	Some([
 		(
 			"sec-ch-ua",
-			r#""Not/A)Brand";v="99", "Chromium";v="148""#.to_owned(),
+			// Electron's brands: no "Google Chrome", unlike the browser profile's own hints.
+			r#""Not?A_Brand";v="24", "Chromium";v="152""#.to_owned(),
 		),
 		("sec-ch-ua-mobile", "?0".to_owned()),
 		("sec-ch-ua-platform", format!("\"{platform}\"")),

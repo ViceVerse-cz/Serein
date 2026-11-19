@@ -3256,9 +3256,13 @@ bundle.
 Serein adopted the API version, the super-properties field set and order, the identify
 extras of a non-fast-connect start, the opening login requests and the host versions
 (macOS 0.0.423, Windows 1.0.9269, Linux 1.0.170). It does not adopt `launch_signature`,
-analytics, ETF, zstd, `capabilities` or HTTP/3, and keeps the Chromium 148 handshake: the
-Chromium 152 profile needs TLS options the pinned wreq does not have. One recording does not
-show how Discord weighs any of these values.
+analytics, ETF, zstd, `capabilities` or HTTP/3. Its transport now uses wreq-util's Chromium 152
+profile from pinned upstream revisions, less `trust_anchors`. The recorded client's TCP
+ClientHellos (taken through a local CONNECT proxy that read only the ClientHello) and Serein's
+matched in ciphers, extension set, groups, ML-DSA-including signature algorithms, ALPN, ALPS,
+key shares and certificate compression; the ECH GREASE length varied per connection in both.
+HTTP/2 settings inside TLS were not compared. One recording does not show how Discord weighs
+any of these values.
 
 ### Desktop metadata reference — November 12
 

@@ -47,10 +47,14 @@ Serein now matches its super-properties field for field (OS version and SDK vers
 architectures, `has_client_mods`, a per-launch `client_launch_id`, build 676376, the macOS
 native build number, and on Linux the desktop, distribution, packaging and session type),
 calls REST and the Gateway at v9, and sends the identify extras of a non-fast-connect start.
-It still advertises Electron 42.7.1 and Chromium 148 with the paired Chromium 148
-wreq/BoringSSL handshake: the pinned wreq has no Chromium 152 TLS profile, and the real client
-reaches the API over HTTP/3, which wreq lacks. `launch_signature`, the analytics heartbeat
-session, focus state, `capabilities`, ETF encoding and zstd compression are not sent.
+It advertises Electron 44.10.2 and Chromium 152.0.7977.169 with wreq-util's Chromium 152
+handshake, less the `trust_anchors` extension that Electron did not send; the resulting TCP
+ClientHello matched the recorded client's in every field except the ECH GREASE length, which
+the real client varies per connection. That profile and the BoringSSL it needs exist only on
+upstream branches, so wreq, wreq-util and btls are pinned git revisions (see `Cargo.toml`).
+The real client reaches the API over HTTP/3, which wreq lacks. `launch_signature`, the
+analytics heartbeat session, focus state, `capabilities`, ETF encoding and zstd compression
+are not sent.
 REST also carries the Discord-issued installation ID as `X-Installation-ID`, and the Gateway identify
 carries it as `installation_id`; with Discord's own cookies these keep one device across launches
 (see [storage policy](storage-policy.md#discord-device-state-november-13-2026)). Captchas for
@@ -72,8 +76,8 @@ Locale/timezone come from the OS with en-US/UTC fallbacks. Startup sends no
 Settings writers wait for that accepted identity, so saved-login account checks
 complete before any presence, idle-timeout or activity-sharing settings write.
 Hosts other than Discord (updater, extension downloads, external uploads, third-party
-media) get no emulation; the updater and external uploads send a `Serein/x.y` user agent. Certificates are verified against the Mozilla
-roots bundled with wreq, not the operating system trust store, so a TLS-inspecting proxy
+media) get no emulation; the updater and external uploads send a `Serein/x.y` user agent. Certificates are verified against the Chromium
+Root Store bundled with wreq, not the operating system trust store, so a TLS-inspecting proxy
 whose root is installed only in the OS is rejected.
 
 Close/drop invalidates pending results, clears the secret/scripts/handler, cancels evaluation,
