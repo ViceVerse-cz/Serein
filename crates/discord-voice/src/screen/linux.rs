@@ -298,8 +298,7 @@ pub(super) fn run(
 						// a resized window must settle so a drag does not restart the encoder on
 						// every step.
 						if !measured
-							|| failed
-							|| resized.is_some_and(|(_, at)| at.elapsed() >= RESIZE_SETTLE)
+							|| failed || resized.is_some_and(|(_, at)| at.elapsed() >= RESIZE_SETTLE)
 						{
 							measured = true;
 							source_size = Some(size);
