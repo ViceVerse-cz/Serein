@@ -359,6 +359,7 @@ impl Desktop {
 	/// an indeterminate bar and a way out to the welcome screen.
 	pub(super) fn restoring_screen(&mut self, ui: &mut egui::Ui, stage: &str) {
 		let p = ui::design::palette(ui);
+		let screen = self.extensions.start_screen();
 		egui::CentralPanel::default()
 			.frame(egui::Frame::NONE.fill(ui::design::window_palette(ui).canvas))
 			.show(ui, |ui| {
@@ -401,22 +402,17 @@ impl Desktop {
 				let time = ui.input(|i| i.time) as f32;
 				ui.ctx().request_repaint();
 				ui.vertical_centered(|ui| {
-					ui.add_space((ui.available_height() * 0.5 - 140.0).max(12.0));
-					app_mark(ui, 48.0);
-					ui.add_space(20.0);
-					ui.label(
-						ui::design::semibold(
-							ui,
-							ui::i18n::translate("main-restoring-screen-welcome-back"),
-							24.0,
-						)
-						.color(p.text_strong),
+					ui.add_space(
+						(ui.available_height() * 0.5 - 140.0 - self.start_screen.lift()).max(12.0),
 					);
-					ui.add_space(8.0);
-					ui.label(
-						egui::RichText::new(format!("{stage}…"))
-							.size(15.0)
-							.color(p.muted),
+					// A granted plugin's screen replaces the mark and copy with its own images
+					// and text; the bar and the way out below always stay.
+					self.start_screen.header(
+						ui,
+						screen,
+						|ui| app_mark(ui, 48.0),
+						&ui::i18n::translate("main-restoring-screen-welcome-back"),
+						&format!("{stage}…"),
 					);
 					ui.add_space(24.0);
 					// Indeterminate track: progress is unknown, so a sweeping segment.
@@ -463,6 +459,8 @@ impl Desktop {
 							}
 						},
 					);
+					// Sizes plugin images so the button keeps clear padding below it.
+					self.start_screen.end(ui);
 				});
 			});
 	}

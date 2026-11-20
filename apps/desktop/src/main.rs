@@ -26,6 +26,7 @@ mod extension_events;
 mod extension_forum_data;
 mod extension_member_details;
 mod extension_message_content;
+mod extension_start_screen;
 mod extensions;
 mod font_import;
 mod game_activity;
@@ -1070,6 +1071,8 @@ struct Desktop {
 	proxy_auth: proxy_auth::Authentication,
 	api_proxy: tokio::sync::watch::Sender<Option<discord_api::proxy::ApiProxy>>,
 	extensions: extension_bridge::Bridge,
+	/// Plugin start-screen playback; its textures exist only while that screen shows.
+	start_screen: ui::StartScreenView,
 	extension_close_pending: bool,
 	login: Option<platform::LoginView>,
 	native: native_login::NativeLogin,
@@ -1118,6 +1121,8 @@ struct Desktop {
 	window_minimum: Option<winit::dpi::PhysicalSize<u32>>,
 	/// A sampled placement waiting to remain unchanged for the rest interval.
 	geometry_rest: app_settings::GeometryRest,
+	/// The user's own placement while a plugin start screen or interface layout sizes the window.
+	plugin_size: app_settings::PluginWindowSize,
 	#[cfg(feature = "demo")]
 	rendering_demo: Option<rendering_demo::RenderingDemo>,
 	avatars: Option<avatars::AvatarWorker>,
@@ -2630,6 +2635,7 @@ impl Desktop {
 			proxy_auth: proxy_auth::Authentication::default(),
 			api_proxy: tokio::sync::watch::channel(None).0,
 			extensions: extension_bridge::Bridge::default(),
+			start_screen: ui::StartScreenView::default(),
 			extension_close_pending: false,
 			login: None,
 			native,
@@ -2682,6 +2688,7 @@ impl Desktop {
 			memory_diagnostics: MemoryDiagnostics::from_env(),
 			window_minimum: None,
 			geometry_rest: app_settings::GeometryRest::default(),
+			plugin_size: app_settings::PluginWindowSize::default(),
 			#[cfg(feature = "demo")]
 			rendering_demo: (demo && std::env::args().any(|arg| arg == "--demo-rendering"))
 				.then(rendering_demo::RenderingDemo::default),
@@ -5951,7 +5958,10 @@ impl Desktop {
 	}
 	fn refresh_monitor(&mut self) -> Option<Duration> {
 		let monitor = self.window.current_monitor()?;
-		app_settings::update_window_minimum(&self.window, &monitor, &mut self.window_minimum);
+		// A plugin window size keeps its own minimum until the user's placement returns.
+		if !self.plugin_size.active() {
+			app_settings::update_window_minimum(&self.window, &monitor, &mut self.window_minimum);
+		}
 		let millihertz = monitor.refresh_rate_millihertz()?;
 		(1_000..=1_000_000)
 			.contains(&millihertz)
@@ -6018,7 +6028,10 @@ impl eframe::App for Desktop {
 	fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
 		// Before the pass begins, so the whole frame resolves System to the same theme.
 		self.sync_system_theme(ctx);
-		if self.maximize_after_show && self.window.is_visible() == Some(true) {
+		if self.maximize_after_show
+			&& self.window.is_visible() == Some(true)
+			&& !self.plugin_size.active()
+		{
 			self.maximize_after_show = false;
 			self.window.set_maximized(true);
 		}
@@ -6030,6 +6043,7 @@ impl eframe::App for Desktop {
 			&& !self.state.demo
 			&& self.app_settings.loaded
 			&& !self.maximize_after_show
+			&& !self.plugin_size.active()
 			&& let Some(viewport) = raw_input.viewports.get(&raw_input.viewport_id)
 			&& viewport.minimized != Some(true)
 			&& viewport.fullscreen != Some(true)
@@ -6789,6 +6803,8 @@ impl eframe::App for Desktop {
 			ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
 			self.confirming_close = true;
 		}
+		// The window size the interface layout shown this frame asks for.
+		let mut interface_size = None;
 		if self.login.is_some() {
 			let p = ui::design::palette(ui);
 			egui::Panel::top("login-header")
@@ -6880,6 +6896,7 @@ impl eframe::App for Desktop {
 				self.messaging.notification_sound_status = "Could not save device notification settings. Changes apply only until restart.";
 			}
 			let mut commands = self.messaging.show(ui, &mut self.state);
+			interface_size = self.messaging.plugin_interface_size();
 			self.extensions.cancel_stale_message_events(&self.state);
 			self.choose_interaction_files(&ctx);
 			if let Some(command) = self.captcha.sync(
@@ -7364,6 +7381,22 @@ impl eframe::App for Desktop {
 		} else {
 			self.sign_in_screen(ui);
 		}
+		// A start screen's window size while it shows, otherwise the interface layout's.
+		let requested = self
+			.start_screen
+			.window()
+			.map(|window| (window.width, window.height))
+			.or_else(|| interface_size.map(|size| (size.width, size.height)))
+			.map(|(width, height)| {
+				winit::dpi::LogicalSize::new(u32::from(width), u32::from(height))
+			});
+		self.start_screen.retire();
+		self.plugin_size.sync(
+			&self.window,
+			requested,
+			&mut self.window_minimum,
+			self.app_settings.current.window_geometry,
+		);
 		// Outside the signed-in branch so leaving an account still restores the window mode.
 		let video = self.messaging.video().take_fullscreen_request();
 		let voice = self.messaging.take_voice_fullscreen_request();

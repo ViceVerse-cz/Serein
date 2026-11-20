@@ -4942,3 +4942,7 @@ moderation-delete-week = Последние 7 дней
 moderation-confirm-timeout = Тайм-аут
 # Context: moderation
 moderation-confirm-ban = Забанить
+
+## crates/ui/src/interface_ui.rs
+# Context: interface_tree
+interface-ui-empty = Плагину пока нечего показать.

@@ -23,6 +23,10 @@ mod app;
 pub use app::*;
 mod extended;
 pub use extended::*;
+mod start_screen;
+pub use start_screen::*;
+mod interface_ui;
+pub use interface_ui::*;
 
 pub const API_VERSION: u32 = 1;
 pub const MAX_PACKAGE_BYTES: usize = 16 * 1024 * 1024;
@@ -149,6 +153,10 @@ pub enum Capability {
 	ContextMenus,
 	/// Switch on host-defined interface tweaks from activation and panel actions.
 	InterfaceTweaks,
+	/// Replace the client's main panes with a declarative tree of rows.
+	InterfaceUi,
+	/// Customize the start (connecting) screen shown before any account loads.
+	StartScreen,
 }
 
 /// Host-defined interface behavior that a plugin may switch on for the whole client from
@@ -466,6 +474,11 @@ pub struct Invocation {
 	/// Milliseconds elapsed since this plugin was enabled for the current session.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub tick_ms: Option<u64>,
+	/// True when the host routed a double click on an interface row or dock item, or
+	/// Enter on the focused row or dock item; single clicks and Space leave it false.
+	/// Panel button activations leave it false.
+	#[serde(default, skip_serializing_if = "interface_ui::is_false")]
+	pub double_clicked: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -731,6 +744,18 @@ pub struct Output {
 	/// with `interface_tweaks` only.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub interface_tweaks: Option<Vec<InterfaceTweak>>,
+	/// Replaces the plugin's declarative interface tree; `None` restores the normal layout.
+	/// Requires `interface_ui`; activation, panel, message-event and app-event actions.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub interface_ui: Option<InterfaceUi>,
+	/// Replaces this plugin's device-level start screen; an explicit `null` clears it and an
+	/// omitted field keeps it. Requires `start_screen`; activation and panel actions only.
+	#[serde(
+		default,
+		skip_serializing_if = "Option::is_none",
+		deserialize_with = "start_screen::present"
+	)]
+	pub start_screen: Option<Option<StartScreen>>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -904,7 +929,8 @@ impl Manifest {
 		}
 		let mut ids = BTreeSet::new();
 		for action in &self.actions {
-			if !valid_id(&action.id)
+			// The reserved interface-row action keeps the SDK's spelling.
+			if !(valid_id(&action.id) || action.id == INTERFACE_CLICK_ACTION)
 				|| !ids.insert(&action.id)
 				|| action.label.is_empty()
 				|| action.label.len() > 128
@@ -1322,6 +1348,31 @@ impl Output {
 				return Err(Error::Invalid);
 			}
 		}
+		if let Some(interface) = &self.interface_ui {
+			if !manifest.capabilities.contains(&Capability::InterfaceUi)
+				|| !matches!(
+					surface,
+					Surface::Activation
+						| Surface::Panel | Surface::MessageEvent
+						| Surface::AppEvent
+				) {
+				return Err(Error::Capability);
+			}
+			interface.validate().map_err(|_| Error::Invalid)?;
+			if serde_json::to_vec(interface).is_ok_and(|bytes| bytes.len() > MAX_IO_BYTES) {
+				return Err(Error::Limit);
+			}
+		}
+		if let Some(start) = &self.start_screen {
+			if !manifest.capabilities.contains(&Capability::StartScreen)
+				|| !matches!(surface, Surface::Activation | Surface::Panel)
+			{
+				return Err(Error::Capability);
+			}
+			if let Some(screen) = start {
+				screen.validate().map_err(|_| Error::Invalid)?;
+			}
+		}
 		if surface == Surface::Tick
 			&& (self.rich_presence.is_some()
 				|| self.image_sharing
@@ -1501,7 +1552,11 @@ fn validate_elements(
 				(id, label)
 			}
 		};
-		if !valid_id(id)
+		// The reserved interface-row action keeps the SDK's spelling, which `valid_id`
+		// rejects; a Button for that exact declared action is accepted.
+		let reserved =
+			matches!(element, Element::Button { id, .. } if *id == INTERFACE_CLICK_ACTION);
+		if (!reserved && !valid_id(id))
 			|| !ids.insert(id.clone())
 			|| label.is_empty()
 			|| label.len() > 128

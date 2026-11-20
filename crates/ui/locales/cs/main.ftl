@@ -5060,3 +5060,7 @@ moderation-delete-week = Posledních 7 dní
 moderation-confirm-timeout = Oddechový čas
 # Context: moderation
 moderation-confirm-ban = Zabanovat
+
+## crates/ui/src/interface_ui.rs
+# Context: interface_tree
+interface-ui-empty = Tento zásuvný modul zatím nemá co zobrazit.

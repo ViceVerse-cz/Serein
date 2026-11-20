@@ -322,6 +322,11 @@ pub struct InstalledExtension {
 	pub api_proxy: Option<extensions::ApiProxyConfig>,
 	/// Interface tweaks the granted activation action switched on.
 	pub interface_tweaks: Vec<extensions::InterfaceTweak>,
+	/// Interface tree the granted plugin last returned, replacing the main panes while set.
+	pub interface_ui: Option<extensions::InterfaceUi>,
+	/// Start screen the granted plugin last restated this session: `Some(None)` cleared it and
+	/// `None` means it restated nothing, so a saved one stays.
+	pub start_screen: Option<Option<extensions::StartScreen>>,
 }
 
 pub enum Event {
@@ -483,6 +488,14 @@ struct Gate {
 	wake_cancel: Arc<tokio::sync::Notify>,
 }
 impl Gate {
+	/// A gate no job cancellation reaches, for device files written outside the job queue.
+	fn detached() -> Self {
+		Self {
+			epoch: 0,
+			generation: Arc::new(AtomicU64::new(0)),
+			wake_cancel: Arc::new(tokio::sync::Notify::new()),
+		}
+	}
 	fn check(&self) -> Result<(), String> {
 		if self.epoch == self.generation.load(Ordering::Acquire) {
 			Ok(())
@@ -540,6 +553,12 @@ impl Stored {
 			{
 				return Err("Interface tweaks were not granted".into());
 			}
+			if output.interface_ui.is_some() && !self.grants.contains(&Capability::InterfaceUi) {
+				return Err("Interface replacement was not granted".into());
+			}
+			if output.start_screen.is_some() && !self.grants.contains(&Capability::StartScreen) {
+				return Err("Start screen customization was not granted".into());
+			}
 			Ok(output)
 		});
 		let background_image = if active {
@@ -594,6 +613,14 @@ impl Stored {
 				.ok()
 				.and_then(|output| output.interface_tweaks.clone())
 				.unwrap_or_default(),
+			interface_ui: result
+				.as_ref()
+				.ok()
+				.and_then(|output| output.interface_ui.clone()),
+			start_screen: result
+				.as_ref()
+				.ok()
+				.and_then(|output| output.start_screen.clone()),
 			// Current protector packages have a no-op activation; consent still opts in.
 			preserve_deleted_messages: activation.is_some()
 				&& result.is_ok()
@@ -893,6 +920,12 @@ fn run(root: &Path, job: Job, gate: &Gate) -> Result<Event, String> {
 			{
 				return Err("Interface tweaks were not granted".into());
 			}
+			if output.interface_ui.is_some() && !stored.grants.contains(&Capability::InterfaceUi) {
+				return Err("Interface replacement was not granted".into());
+			}
+			if output.start_screen.is_some() && !stored.grants.contains(&Capability::StartScreen) {
+				return Err("Start screen customization was not granted".into());
+			}
 			if let Some(data) = output.storage.take() {
 				if !stored.grants.contains(&Capability::Storage) || data.len() > MAX_STORAGE {
 					return Err("Plugin data exceeds its granted storage budget".into());
@@ -1089,7 +1122,7 @@ fn scope(root: &Path, kind: ExtensionKind, account: Option<&str>) -> Result<Path
 	}
 }
 
-fn account_key(account: &str) -> Result<String, String> {
+pub(crate) fn account_key(account: &str) -> Result<String, String> {
 	if account.is_empty() || account.len() > 128 {
 		return Err("Invalid extension account scope".into());
 	}
@@ -1191,6 +1224,8 @@ fn load(
 							summary.image_sharing = false;
 							summary.rich_presence = None;
 							summary.interface_tweaks.clear();
+							summary.interface_ui = None;
+							summary.start_screen = None;
 							summary.error = Some(error);
 							summary
 						}
@@ -1226,6 +1261,8 @@ fn load(
 						rich_presence: None,
 						api_proxy: None,
 						interface_tweaks: Vec::new(),
+						interface_ui: None,
+						start_screen: None,
 					},
 				});
 			}
@@ -1333,7 +1370,7 @@ fn count_directories(path: &Path) -> Result<usize, String> {
 	Ok(count)
 }
 
-fn read_bounded(path: &Path, limit: usize) -> Result<Vec<u8>, String> {
+pub(crate) fn read_bounded(path: &Path, limit: usize) -> Result<Vec<u8>, String> {
 	let file = File::open(path).map_err(|_| "Cannot read extension file")?;
 	if !file
 		.metadata()
@@ -1402,6 +1439,18 @@ fn atomic_write(path: &Path, bytes: &[u8], gate: &Gate) -> Result<(), String> {
 		let _ = remove_file(&temporary);
 	}
 	result
+}
+
+/// Atomically replaces, or with `None` removes, a device-level file beside the extension
+/// directories, outside the job queue and its cancellation.
+pub(crate) fn write_device_file(path: &Path, bytes: Option<&[u8]>) -> Result<(), String> {
+	let Some(bytes) = bytes else {
+		return remove_file(path);
+	};
+	if let Some(parent) = path.parent() {
+		fs::create_dir_all(parent).map_err(|_| "Cannot create extension directory")?;
+	}
+	atomic_write(path, bytes, &Gate::detached())
 }
 
 fn remove_file(path: &Path) -> Result<(), String> {
@@ -1738,11 +1787,7 @@ mod tests {
 		}
 	}
 	fn gate() -> Gate {
-		Gate {
-			epoch: 0,
-			generation: Arc::new(AtomicU64::new(0)),
-			wake_cancel: Arc::new(tokio::sync::Notify::new()),
-		}
+		Gate::detached()
 	}
 
 	fn theme(id: &str) -> Package {

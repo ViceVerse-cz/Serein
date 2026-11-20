@@ -4915,3 +4915,7 @@ moderation-delete-week = 過去7日間
 moderation-confirm-timeout = タイムアウト
 # Context: moderation
 moderation-confirm-ban = BAN
+
+## crates/ui/src/interface_ui.rs
+# Context: interface_tree
+interface-ui-empty = このプラグインにはまだ表示するものがありません。

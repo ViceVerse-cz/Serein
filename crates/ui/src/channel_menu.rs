@@ -69,8 +69,20 @@ impl ChannelMenu {
 		self.dialog.is_some()
 	}
 
+	/// Closes an open dialog the way its guild becoming inactive does: an open
+	/// integrations page hands the admin state back. A layout that replaces the channel
+	/// panes calls this, so a dialog it cannot draw does not stay open behind them.
+	pub fn close_dialog(&mut self, state: &mut State) {
+		let Some(dialog) = self.dialog.take() else {
+			return;
+		};
+		if dialog.integrations_opened {
+			state.close_server_admin();
+		}
+	}
+
 	/// Fixture-only: open the settings dialog for `channel`, as its context menu would.
-	#[cfg(feature = "demo")]
+	#[cfg(any(test, feature = "demo"))]
 	pub fn preview_settings(&mut self, channel: Id, generation: u64) {
 		self.generation = generation;
 		self.requested = Some((channel, Intent::Dialog(Kind::Edit)));

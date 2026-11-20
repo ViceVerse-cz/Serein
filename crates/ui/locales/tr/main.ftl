@@ -4918,3 +4918,7 @@ moderation-delete-week = Son 7 gün
 moderation-confirm-timeout = Zaman aşımı
 # Context: moderation
 moderation-confirm-ban = Yasakla
+
+## crates/ui/src/interface_ui.rs
+# Context: interface_tree
+interface-ui-empty = Bu eklentinin henüz gösterecek bir şeyi yok.

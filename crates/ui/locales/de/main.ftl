@@ -4937,3 +4937,7 @@ moderation-delete-week = Letzte 7 Tage
 moderation-confirm-timeout = Timeout
 # Context: moderation
 moderation-confirm-ban = Bannen
+
+## crates/ui/src/interface_ui.rs
+# Context: interface_tree
+interface-ui-empty = Dieses Plugin hat noch nichts anzuzeigen.
