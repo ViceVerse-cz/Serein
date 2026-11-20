@@ -142,8 +142,16 @@ impl SearchUi {
 		self.pins
 	}
 	/// Per-frame bookkeeping: Escape closes, navigation resets and closed views cancel requests.
-	pub fn sync(&mut self, ctx: &egui::Context, state: &mut State, commands: &mut Vec<Command>) {
-		if self.open
+	/// `escape_available` is false while a modal above search owns Escape for this frame.
+	pub fn sync(
+		&mut self,
+		ctx: &egui::Context,
+		state: &mut State,
+		commands: &mut Vec<Command>,
+		escape_available: bool,
+	) {
+		if escape_available
+			&& self.open
 			&& self.filter_draft.is_none()
 			&& self.viewing.is_none()
 			&& ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
@@ -2240,7 +2248,7 @@ mod tests {
 					..Default::default()
 				},
 				|ui| {
-					view.sync(&ctx, &mut state, &mut commands);
+					view.sync(&ctx, &mut state, &mut commands, true);
 					view.header_input(ui, &mut state, &mut commands);
 				},
 			)
@@ -2420,7 +2428,7 @@ mod tests {
 		assert!(!view.focus);
 	}
 	fn run(ui: &mut egui::Ui, view: &mut SearchUi, state: &mut State, commands: &mut Vec<Command>) {
-		view.sync(ui.ctx(), state, commands);
+		view.sync(ui.ctx(), state, commands, true);
 		if view.open {
 			if !view.pins {
 				view.header_input(ui, state, commands);

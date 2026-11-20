@@ -5726,7 +5726,12 @@ impl MessagingUi {
 		{
 			self.search.focus_conversation(channel, state);
 		}
-		self.search.sync(&ctx, state, &mut commands);
+		self.search.sync(
+			&ctx,
+			state,
+			&mut commands,
+			self.attachment_view_open.is_none(),
+		);
 		self.search.extension_actions = self.extensions.message_actions();
 		let search_open =
 			self.search.results_visible(state) && state.selected.is_some() && !selected_voice;
@@ -8377,6 +8382,54 @@ mod composer_tests {
 		assert!(view.timeline.opening.is_some());
 		frame(&mut view, &mut state, vec![edit_key(egui::Key::Escape)]);
 		assert!(view.timeline.opening.is_none());
+	}
+
+	#[test]
+	fn staged_viewer_escape_preserves_background_search() {
+		let ctx = egui::Context::default();
+		let mut state = edit_state();
+		let mut view = MessagingUi::default();
+		let frame = |view: &mut MessagingUi, state: &mut State, events| {
+			let output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(1000.0, 700.0),
+					)),
+					events,
+					..Default::default()
+				},
+				|ui| {
+					view.show(ui, state);
+				},
+			);
+			output.drop_without_applying_deltas();
+		};
+		// The first frame adopts the selected conversation, which would close a search opened
+		// before it; open search only once the view follows the selection.
+		frame(&mut view, &mut state, vec![]);
+		view.search.open = true;
+		view.preview_attachment("synthetic.png", 1024, None);
+		view.attachment_view_file = Some(("synthetic.png".into(), 1024, None));
+		view.attachment_view_scope = Some((state.generation, state.selected));
+		view.attachment_view_open = Some(0);
+		for _ in 0..3 {
+			frame(&mut view, &mut state, vec![]);
+		}
+		assert!(view.attachment_view_open.is_some());
+		assert!(view.search.open);
+		frame(&mut view, &mut state, vec![edit_key(egui::Key::Escape)]);
+		assert!(
+			view.attachment_view_open.is_none(),
+			"Escape closes the staged viewer"
+		);
+		assert!(
+			view.search.open,
+			"Escape belongs to the staged viewer, not the search behind it"
+		);
+		// With the viewer closed, Escape returns to the search it was covering.
+		frame(&mut view, &mut state, vec![edit_key(egui::Key::Escape)]);
+		assert!(!view.search.open);
 	}
 
 	#[test]

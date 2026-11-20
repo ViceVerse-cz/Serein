@@ -58,6 +58,10 @@ const PREVIEW_SOURCE_BYTES: u64 = PREVIEW_ALLOC;
 /// Longest a full-size viewer waits for its file. A stalled path must not hold the single
 /// viewer slot after the viewer closes, or the next staged image never starts decoding.
 const VIEW_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+/// At most this many viewer reads run at once. A stalled read keeps its permit until the
+/// blocking read itself returns, not until the viewer stops waiting for it.
+static VIEW_READS: std::sync::LazyLock<tokio::sync::Semaphore> =
+	std::sync::LazyLock::new(|| tokio::sync::Semaphore::new(2));
 const SHARE_BYTES: usize = 8 * 1024 * 1024;
 /// Conversations left with staged files that keep them for the next visit.
 const PARKED_CONVERSATIONS: usize = 8;
@@ -346,10 +350,12 @@ async fn view(source: &Source, edge: u32, cancelled: &Arc<AtomicBool>) -> Option
 	if !previewable(source.filename()) || cancelled.load(Ordering::Acquire) {
 		return None;
 	}
-	let bytes = tokio::time::timeout(
-		VIEW_READ_TIMEOUT,
-		source.preview_bytes(PREVIEW_SOURCE_BYTES),
-	)
+	let bytes = tokio::time::timeout(VIEW_READ_TIMEOUT, async {
+		let permit = VIEW_READS.acquire().await.ok()?;
+		source
+			.preview_bytes_holding(PREVIEW_SOURCE_BYTES, permit)
+			.await
+	})
 	.await
 	.ok()??;
 	if cancelled.load(Ordering::Acquire) {

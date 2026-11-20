@@ -85,7 +85,7 @@ fn frame_with_width(
 				});
 			}
 			if pane {
-				view.search.sync(ctx, state, &mut commands);
+				view.search.sync(ctx, state, &mut commands, true);
 				view.search.pane(
 					ui,
 					state,
@@ -464,7 +464,7 @@ fn pane_frame(
 			..Default::default()
 		},
 		|ui| {
-			view.search.sync(ctx, state, &mut commands);
+			view.search.sync(ctx, state, &mut commands, true);
 			view.search.pane(
 				ui,
 				state,
