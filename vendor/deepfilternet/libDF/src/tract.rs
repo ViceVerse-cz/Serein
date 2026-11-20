@@ -1065,19 +1065,20 @@ pub fn as_slice_complex(buffer: &[f32]) -> &[Complex32] {
     }
 }
 
-#[allow(clippy::needless_pass_by_ref_mut)]
+// Serein: derive the pointer with `as_mut_ptr`. `as_ptr` reborrows the exclusive slice as
+// shared, and `slice::as_ptr` forbids writing through the returned pointer.
 pub fn as_slice_mut_complex(buffer: &mut [f32]) -> &mut [Complex32] {
     unsafe {
-        let ptr = buffer.as_ptr() as *mut Complex32;
+        let ptr = buffer.as_mut_ptr() as *mut Complex32;
         let len = buffer.len();
         std::slice::from_raw_parts_mut(ptr, len / 2)
     }
 }
 
-#[allow(clippy::needless_pass_by_ref_mut)]
+// Serein: as above, write through a pointer from `as_mut_ptr`.
 pub fn as_slice_mut_real(buffer: &mut [Complex32]) -> &mut [f32] {
     unsafe {
-        let ptr = buffer.as_ptr() as *mut f32;
+        let ptr = buffer.as_mut_ptr() as *mut f32;
         let len = buffer.len();
         std::slice::from_raw_parts_mut(ptr, len * 2)
     }

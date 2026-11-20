@@ -20,8 +20,10 @@ Relative to `d375b2d`, the fork's `lib.rs` and `tract.rs`:
 - build against current tract (the 0.21.6 symbol and 0.21.7 ndarray 0.16 APIs) and read
   the local SNR without `to_scalar()`, which tract 0.21.5+ rejects for multi-channel
   models (Serein runs one channel);
-- remove the per-frame heap allocations from `DfTract::process` and the STFT
-  analysis/synthesis buffers;
+- reuse the noisy-spectrum ring and the FFT and STFT analysis/synthesis buffers across
+  frames instead of allocating them every frame. `DfTract::process` still allocates every
+  frame: it clones the complex features into an owned tensor, permutes them for the
+  encoder, and runs tract inference;
 - process every frame, including digital silence, instead of zeroing the output after
   more than five near-silent frames, and guard the band normalization against the 0/0
   that sustained silence would then produce;
@@ -35,7 +37,7 @@ and the DeepFilterNet3 model.
 
 - `libDF/src/lib.rs`, `transforms.rs`, `logging.rs`: copied unchanged; they match the Git
   blobs of the commit above.
-- `libDF/src/tract.rs`: the fork's file plus the Serein change below.
+- `libDF/src/tract.rs`: the fork's file plus the Serein changes below.
 - `libDF/LICENSE`, `LICENSE-MIT`, `LICENSE-APACHE`: copied unchanged (MIT OR Apache-2.0).
 - `libDF/Cargo.toml.orig`: the unchanged fork manifest.
 - `models/DeepFilterNet3_onnx.tar.gz`: the unchanged DeepFilterNet3 ONNX export
@@ -47,7 +49,7 @@ Omitted files: the dataset/augmentation/HDF5 modules, `capi.rs`, `wasm.rs`, `uti
 `wav_utils.rs`, the binaries, the Python packages, the LADSPA plugin, the demo and every
 other model archive. The features that would compile them no longer exist.
 
-## Serein change to `tract.rs`
+## Serein changes to `tract.rs`
 
 `DfTract` holds tract `TValue` buffers (`Rc`), so it cannot be built on one thread and
 used on another. Serein splits its constructor so the slow part can run off the audio
@@ -58,7 +60,14 @@ worker:
 - `DfTract::from_models(DfModels, &RuntimeParams)` builds the runtime state from them.
 - `DfTract::new` is now `from_models(DfModels::new(..)?, ..)`; its behavior is unchanged.
 
-The rest of the file is the fork's code. The change is marked `Serein:` in the source.
+`as_slice_mut_complex` and `as_slice_mut_real` take the pointer they write through from
+`as_mut_ptr` instead of `as_ptr`. `as_ptr` reborrows the exclusive slice as shared, and
+`slice::as_ptr` forbids writes through the returned pointer, so the fork's helpers were
+undefined behavior on every processed frame. The DeepFilterNet unit test and the `echo`
+check give identical results before and after the change. The fork has the same defect,
+so the fix belongs upstream too.
+
+The rest of the file is the fork's code. The changes are marked `Serein:` in the source.
 
 ## Manifest changes
 
@@ -74,6 +83,7 @@ The rest of the file is the fork's code. The change is marked `Serein:` in the s
 - `repository` points at the fork; `license` uses the SPDX `OR` form; `readme`, binaries
   and dev-dependencies are dropped.
 - A `[lints]` table silences rustc and Clippy warnings from the third-party source.
+- `rust-version` is 1.85, which tract 0.22.5 requires, instead of the fork's 1.70.
 
 tract 0.21.4, used by the first version of this integration, rejected this model's node
 names in builds with debug assertions. tract 0.22.5 does not, so the workspace no longer
@@ -89,7 +99,8 @@ outside `target_os = "windows"` with `target_arch = "aarch64"`, and
 
 Remove this directory when a crates.io `deep_filter` release ships the tract runtime and
 a default model. On any update, re-copy the listed files from one fork commit, re-apply
-and re-check the `DfModels` split, record the commit here, re-verify the model hash, and
+and re-check the `DfModels` split and the `as_mut_ptr` helper fix (unless upstream has
+fixed it), record the commit here, re-verify the model hash, and
 run `cargo test -p discord-voice deepfilternet` and
 `cargo run -p discord-voice --example echo`. Those checks are synthetic; they are not
 evidence of call quality, device behavior or live Discord compatibility.

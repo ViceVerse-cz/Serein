@@ -210,8 +210,9 @@ The optional DeepFilterNet microphone suppressor uses **DeepFilterNet Plus / dee
 0.5.7-pre** (MIT OR Apache-2.0, Hendrik Schröter and contributors), vendored from
 [ismailivanov/DeepFilterNetPlus](https://github.com/ismailivanov/DeepFilterNetPlus) commit
 `2dc5273d16e1e3769527ad0740654c5ccde581cc`, a maintained fork of Rikorose/DeepFilterNet,
-with a trimmed manifest. Its `tract.rs` carries one Serein modification that lets the
-networks load on another thread; `vendor/deepfilternet/SEREIN-PATCH.md` describes it. The
+with a trimmed manifest. Its `tract.rs` carries two Serein modifications: one lets the
+networks load on another thread, and one makes two slice helpers sound.
+`vendor/deepfilternet/SEREIN-PATCH.md` describes both. The
 unmodified **DeepFilterNet3** ONNX model is embedded in the executable under the same
 license. Inference uses the **tract 0.22.5** crates (tract-core, tract-data, tract-hir,
 tract-linalg, tract-nnef, tract-onnx, tract-onnx-opl, tract-pulse, tract-pulse-opl; MIT OR

@@ -7,7 +7,7 @@ edition = "2021"
 description = "Noise supression using deep filtering"
 repository = "https://github.com/ismailivanov/DeepFilterNetPlus"
 license = "MIT OR Apache-2.0"
-rust-version = "1.70"
+rust-version = "1.85"
 publish = false
 
 [lib]
