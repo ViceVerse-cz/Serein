@@ -1408,7 +1408,7 @@ mod tests {
 		);
 		view.apply_extension_effect(&ctx, &mut state, effect, &mut commands)
 			.unwrap();
-		view.search.sync(&ctx, &mut state, &mut commands);
+		view.search.sync(&ctx, &mut state, &mut commands, true);
 		assert!(view.search.open);
 		assert_eq!(state.search.as_ref().unwrap().query, "hello");
 		assert!(matches!(
@@ -1427,7 +1427,7 @@ mod tests {
 		);
 		view.apply_extension_effect(&ctx, &mut state, effect, &mut commands)
 			.unwrap();
-		view.search.sync(&ctx, &mut state, &mut commands);
+		view.search.sync(&ctx, &mut state, &mut commands, true);
 		assert!(!view.search.open);
 		assert_eq!(view.guild, Some(Id(10)));
 		assert_eq!(state.archives.as_ref().unwrap().parent, Id(20));

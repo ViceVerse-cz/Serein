@@ -204,6 +204,15 @@ impl Source {
 	/// Whole selection bytes for a local preview, only while the file is at most `limit` bytes
 	/// and still matches the inspected metadata. Pasted images reuse their in-memory buffer.
 	pub async fn preview_bytes(&self, limit: u64) -> Option<std::sync::Arc<[u8]>> {
+		self.preview_bytes_holding(limit, ()).await
+	}
+	/// The same read, but `hold` lives until the blocking read itself ends. A caller that stops
+	/// waiting for this future still keeps its own accounting until the file read returns.
+	pub async fn preview_bytes_holding<T: Send + 'static>(
+		&self,
+		limit: u64,
+		hold: T,
+	) -> Option<std::sync::Arc<[u8]>> {
 		if self.size > limit {
 			return None;
 		}
@@ -214,8 +223,15 @@ impl Source {
 		if !self.matches(&metadata) {
 			return None;
 		}
-		let bytes = tokio::fs::read(&self.path).await.ok()?;
-		(bytes.len() as u64 == self.size).then(|| bytes.into())
+		let path = self.path.clone();
+		let size = self.size;
+		tokio::task::spawn_blocking(move || {
+			let bytes = std::fs::read(&path).ok()?;
+			drop(hold);
+			(bytes.len() as u64 == size).then(|| bytes.into())
+		})
+		.await
+		.ok()?
 	}
 	fn matches(&self, metadata: &std::fs::Metadata) -> bool {
 		metadata.is_file()

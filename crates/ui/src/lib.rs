@@ -474,6 +474,16 @@ pub struct MessagingUi {
 	pub attachment_previews: Vec<Option<std::sync::Arc<egui::ColorImage>>>,
 	/// GPU copies of `attachment_previews`, keyed by the pixel buffer they were uploaded from.
 	attachment_textures: Vec<Option<(usize, egui::TextureHandle)>>,
+	/// Staged file the user opened full size; the app decodes it into `attachment_view_image`.
+	pub attachment_view_open: Option<usize>,
+	/// Stable upload selection keys, in the same order as `attachment_files`.
+	pub attachment_keys: Vec<u64>,
+	attachment_view_file: Option<(String, u64, Option<u64>)>,
+	pub attachment_view_image: Option<(usize, Option<std::sync::Arc<egui::ColorImage>>)>,
+	/// Conversation the open viewer belongs to, so switching leaves it behind.
+	attachment_view_scope: Option<(u64, Option<Id>)>,
+	/// GPU copy of the full-size decode above.
+	attachment_view_texture: Option<(usize, egui::TextureHandle)>,
 	pub attach_requested: bool,
 	pub host_attachment_requested: Option<usize>,
 	pub attachment_paste_requested: Option<AttachmentPaste>,
@@ -1019,6 +1029,88 @@ impl MessagingUi {
 					.map(|(_, handle)| handle.clone())
 			})
 			.collect()
+	}
+	/// Clears a viewer whose conversation or selected file changed, before requesting a decode.
+	pub fn validate_attachment_view(&mut self, state: &State) {
+		let valid = self.attachment_view_open.is_some_and(|index| {
+			self.attachment_view_scope == Some((state.generation, state.selected))
+				&& self
+					.selected_files()
+					.get(index)
+					.is_some_and(|(name, bytes)| {
+						self.attachment_view_file.as_ref()
+							== Some(&(
+								name.clone(),
+								*bytes,
+								self.attachment_keys.get(index).copied(),
+							))
+					})
+		});
+		if !valid {
+			self.attachment_view_open = None;
+			self.attachment_view_scope = None;
+			self.attachment_view_file = None;
+			self.attachment_view_image = None;
+			self.attachment_view_texture = None;
+		}
+	}
+	/// Full-size look at one staged image; the tray thumbnail shows until the decode lands.
+	fn attachment_viewer(&mut self, ctx: &egui::Context, state: &State) {
+		self.validate_attachment_view(state);
+		let Some(index) = self.attachment_view_open else {
+			return;
+		};
+		let (filename, _) = self.selected_files()[index].clone();
+		let decoded = self
+			.attachment_view_image
+			.as_ref()
+			.filter(|(current, _)| *current == index)
+			.map(|(_, image)| image.clone());
+		let failed = matches!(decoded, Some(None));
+		// A staged file the app never received has no decode to wait for: the offline fixtures
+		// stage pixels only, so their thumbnail is the whole picture instead of a stuck spinner.
+		let decodable = self
+			.attachment_view_file
+			.as_ref()
+			.is_some_and(|(_, _, key)| key.is_some());
+		let loading = decoded.is_none() && decodable;
+		let full = decoded.flatten();
+		let texture = match full {
+			Some(image) => {
+				let key = std::sync::Arc::as_ptr(&image) as usize;
+				if self
+					.attachment_view_texture
+					.as_ref()
+					.is_none_or(|(current, _)| *current != key)
+				{
+					let handle = ctx.load_texture(
+						"attachment-view",
+						egui::ImageData::Color(image),
+						egui::TextureOptions::LINEAR,
+					);
+					self.attachment_view_texture = Some((key, handle));
+				}
+				self.attachment_view_texture
+					.as_ref()
+					.map(|(_, handle)| handle.clone())
+			}
+			None => {
+				self.attachment_view_texture = None;
+				None
+			}
+		};
+		let thumbnail = self.attachment_textures(ctx).get(index).cloned().flatten();
+		if attachments::pending_viewer(
+			ctx,
+			&filename,
+			texture.or(thumbnail).as_ref(),
+			failed,
+			loading,
+		) {
+			self.attachment_view_open = None;
+			self.attachment_view_scope = None;
+			self.attachment_view_texture = None;
+		}
 	}
 	/// Moves staged files and thumbnails into the optimistic row for `command`.
 	pub fn stage_pending_upload(&mut self, ctx: &egui::Context, command: &Command) {
@@ -4120,7 +4212,7 @@ impl MessagingUi {
                     egui::pos2(ui.max_rect().right() + 10.0, ui.max_rect().top()),
                 );
                 if !editing_here && (self.attachment.is_some() || self.attachment_loading > 0) {
-                    self.attachment_tray(ui, state.can_send(channel), upload_limit);
+                    self.attachment_tray(ui, state, state.can_send(channel), upload_limit);
                 }
                 // Tall drafts stack the actions in bottom-aligned columns so the text keeps the
                 // width. Last pass's visible draft height decides.
@@ -4679,7 +4771,13 @@ impl MessagingUi {
 		}
 	}
 	/// Selected-file cards above the composer input, in the style of Discord's upload tray.
-	fn attachment_tray(&mut self, ui: &mut egui::Ui, can_host: bool, upload_limit: u64) {
+	fn attachment_tray(
+		&mut self,
+		ui: &mut egui::Ui,
+		state: &State,
+		can_host: bool,
+		upload_limit: u64,
+	) {
 		let colors = design::palette(ui);
 		let textures = self.attachment_textures(ui.ctx());
 		ui.add_space(4.0);
@@ -4697,7 +4795,7 @@ impl MessagingUi {
 					for (index, (filename, bytes)) in files.iter().enumerate() {
 						ui.push_id(index, |ui| {
 							ui.vertical(|ui| {
-								if ui
+								match ui
 									.scope(|ui| {
 										attachments::pending_card(
 											ui,
@@ -4709,7 +4807,22 @@ impl MessagingUi {
 									})
 									.inner
 								{
-									self.remove_attachment_index = Some(index);
+									attachments::PendingAction::Remove => {
+										self.remove_attachment_index = Some(index);
+										self.attachment_view_open = None;
+										self.attachment_view_scope = None;
+									}
+									attachments::PendingAction::Preview => {
+										self.attachment_view_file = Some((
+											filename.clone(),
+											*bytes,
+											self.attachment_keys.get(index).copied(),
+										));
+										self.attachment_view_open = Some(index);
+										self.attachment_view_scope =
+											Some((state.generation, state.selected));
+									}
+									attachments::PendingAction::None => {}
 								}
 								if *bytes > upload_limit
 									&& ui
@@ -5614,7 +5727,12 @@ impl MessagingUi {
 		{
 			self.search.focus_conversation(channel, state);
 		}
-		self.search.sync(&ctx, state, &mut commands);
+		self.search.sync(
+			&ctx,
+			state,
+			&mut commands,
+			self.attachment_view_open.is_none(),
+		);
 		self.search.extension_actions = self.extensions.message_actions();
 		let search_open =
 			self.search.results_visible(state) && state.selected.is_some() && !selected_voice;
@@ -6328,6 +6446,7 @@ impl MessagingUi {
 		self.thread_create.show(&ctx, state, &mut commands);
 		self.new_message
 			.show(&ctx, state, &mut self.avatars, &mut commands);
+		self.attachment_viewer(&ctx, state);
 		self.screen.show(&ctx, state);
 		if let Some(id) = self.timeline.channel_reference_load.take()
 			&& state.channel(id).is_none()
@@ -8264,6 +8383,54 @@ mod composer_tests {
 		assert!(view.timeline.opening.is_some());
 		frame(&mut view, &mut state, vec![edit_key(egui::Key::Escape)]);
 		assert!(view.timeline.opening.is_none());
+	}
+
+	#[test]
+	fn staged_viewer_escape_preserves_background_search() {
+		let ctx = egui::Context::default();
+		let mut state = edit_state();
+		let mut view = MessagingUi::default();
+		let frame = |view: &mut MessagingUi, state: &mut State, events| {
+			let output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(1000.0, 700.0),
+					)),
+					events,
+					..Default::default()
+				},
+				|ui| {
+					view.show(ui, state);
+				},
+			);
+			output.drop_without_applying_deltas();
+		};
+		// The first frame adopts the selected conversation, which would close a search opened
+		// before it; open search only once the view follows the selection.
+		frame(&mut view, &mut state, vec![]);
+		view.search.open = true;
+		view.preview_attachment("synthetic.png", 1024, None);
+		view.attachment_view_file = Some(("synthetic.png".into(), 1024, None));
+		view.attachment_view_scope = Some((state.generation, state.selected));
+		view.attachment_view_open = Some(0);
+		for _ in 0..3 {
+			frame(&mut view, &mut state, vec![]);
+		}
+		assert!(view.attachment_view_open.is_some());
+		assert!(view.search.open);
+		frame(&mut view, &mut state, vec![edit_key(egui::Key::Escape)]);
+		assert!(
+			view.attachment_view_open.is_none(),
+			"Escape closes the staged viewer"
+		);
+		assert!(
+			view.search.open,
+			"Escape belongs to the staged viewer, not the search behind it"
+		);
+		// With the viewer closed, Escape returns to the search it was covering.
+		frame(&mut view, &mut state, vec![edit_key(egui::Key::Escape)]);
+		assert!(!view.search.open);
 	}
 
 	#[test]

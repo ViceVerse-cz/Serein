@@ -313,6 +313,10 @@ attachments-media-menu-unavailable-for-synthetic-attachments = 合成附件無�
 attachments-open-original-open-original = 開啟原始檔案…
 # Context: pending_card
 attachments-pending-card-remove-attachment = 移除附件
+# Context: pending_viewer
+attachments-pending-viewer-full-size-unavailable = 無法顯示原尺寸預覽
+attachments-pending-viewer-loading = 正在載入完整尺寸圖片…
+attachments-pending-viewer-close = 關閉（Esc）
 attachments-loading-card-preparing = 準備中…
 
 # Context: show_status
