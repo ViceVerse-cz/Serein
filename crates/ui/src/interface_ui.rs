@@ -1116,6 +1116,76 @@ mod tests {
 		);
 	}
 
+	/// Checks that the layout keeps its obligations when it replaces the panes: a channel
+	/// settings dialog left open by them closes instead of lingering invisibly with the
+	/// settings-open gate shut, and a capped mark-all-read continuation still issues its
+	/// next batch, like the layout it stands in for.
+	#[test]
+	fn plugin_layout_closes_a_left_open_channel_dialog_and_continues_mark_all_read() {
+		let mut state = one_server();
+		state.auth = client_core::auth::AuthState::Authenticated;
+		state.gateway_connected = true;
+		let mut client = Client::new(None);
+		client
+			.view
+			.preview_channel_settings(Id(20), state.generation);
+		client.frame(&mut state, vec![]);
+		assert!(
+			client.view.channel_menu.is_open(),
+			"the normal layout opened the settings dialog"
+		);
+		// One more unread channel than a bulk acknowledgement covers: the acknowledged first
+		// batch leaves a continuation due on the next frame.
+		let extra = client_core::MAX_BULK_ACK as u64 + 1;
+		state.channels.extend((0..extra).map(|index| {
+			let mut unread = channel(1000 + index, 0, "more to read");
+			unread.last_message = Some(Id(500));
+			unread
+		}));
+		state
+			.permissions
+			.replace(test_support::permission_snapshot(&state))
+			.unwrap();
+		state
+			.apply_read_state(client_core::read_state::Event::Snapshot {
+				entries: Some(
+					(0..extra)
+						.map(|index| (Id(1000 + index), Some(Id(100)), 0))
+						.collect(),
+				),
+				version: None,
+				partial: false,
+			})
+			.unwrap();
+		let Some(Command::MarkAllRead { request, channels }) = state.prepare_mark_all_read() else {
+			panic!("first bulk acknowledgement");
+		};
+		assert_eq!(channels.len(), client_core::MAX_BULK_ACK);
+		state
+			.apply_read_state(client_core::read_state::Event::AllAck {
+				request,
+				acked: channels.len(),
+				result: Ok(()),
+			})
+			.unwrap();
+
+		client
+			.view
+			.set_plugin_interface(Some(interface(vec![node("server:10", "Voice club")], None)));
+		let issued = client.commands.len();
+		client.frame(&mut state, vec![]);
+		assert!(
+			!client.view.channel_menu.is_open(),
+			"the replaced panes' dialog closed"
+		);
+		assert!(
+			client.commands[issued..].iter().any(
+				|command| matches!(command, Command::MarkAllRead { channels, .. } if channels.len() == 1)
+			),
+			"the remaining batch was issued"
+		);
+	}
+
 	/// Checks that a click routes the row's id to the owning plugin through its
 	/// `interface_click` panel action, a double click flags `double_clicked`, rows without ids
 	/// stay inert, and keyboard activation follows the focused row by its id even after a

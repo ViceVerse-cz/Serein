@@ -429,12 +429,21 @@ impl MessagingUi {
 		&'a self,
 		state: &'a State,
 	) -> impl Iterator<Item = VoiceRosterRow<'a>> + 'a {
+		// Snapshots and the change key walk every row each frame, so rows needing the
+		// member fallback share one index of the loaded list. It is built on first use:
+		// rows filtered out or already carrying their member never pay for it.
+		let mut index = None;
 		state.voice.roster.iter().filter_map(move |entry| {
 			if !state.can_view(entry.channel) {
 				return None;
 			}
 			let shown = shown_participant(state, entry);
-			let (user, name) = resolve_member(state, entry);
+			let member = entry.member.as_ref().or_else(|| {
+				index
+					.get_or_insert_with(|| MemberIndex::build(state))
+					.get(entry.guild, entry.participant.user)
+			});
+			let (user, name) = resolve_member_with(state, member, entry);
 			Some(VoiceRosterRow {
 				entry,
 				name: user.map(|_| name),
@@ -5084,6 +5093,16 @@ pub(crate) fn resolve_member<'a>(
 					.find(|m| m.user.id == entry.participant.user)
 			})
 	});
+	resolve_member_with(state, member, entry)
+}
+
+/// [`resolve_member`] with the member already resolved, so a roster walker can share one
+/// [`MemberIndex`] instead of rescanning the member list per row.
+fn resolve_member_with<'a>(
+	state: &'a State,
+	member: Option<&'a model::Member>,
+	entry: &'a RosterEntry,
+) -> (Option<&'a model::User>, &'a str) {
 	let user = member
 		.map(|m| &m.user)
 		.or_else(|| participant_user(state, entry.channel, entry.participant.user));
@@ -5092,6 +5111,44 @@ pub(crate) fn resolve_member<'a>(
 		.or_else(|| user.map(|u| u.name.as_str()))
 		.unwrap_or("Participant");
 	(user, name)
+}
+
+/// The loaded member list indexed by user, so a whole roster resolves names without
+/// rescanning the slots per row. Only the guild the list was loaded for resolves, like
+/// the per-row scan it replaces.
+struct MemberIndex<'a> {
+	guild: Option<Id>,
+	members: std::collections::HashMap<Id, &'a model::Member>,
+}
+
+impl<'a> MemberIndex<'a> {
+	fn build(state: &'a State) -> Self {
+		let Some(list) = state.members.as_ref() else {
+			return Self {
+				guild: None,
+				members: std::collections::HashMap::new(),
+			};
+		};
+		// The first matching slot wins, as the per-row scan did.
+		let mut members = std::collections::HashMap::with_capacity(list.slots.len());
+		for member in list.slots.iter().flatten().filter_map(|slot| match slot {
+			model::MemberSlot::Person(member) => Some(member),
+			_ => None,
+		}) {
+			members.entry(member.user.id).or_insert(member);
+		}
+		Self {
+			guild: list.guild,
+			members,
+		}
+	}
+
+	fn get(&self, guild: Id, user: Id) -> Option<&'a model::Member> {
+		if self.guild != Some(guild) {
+			return None;
+		}
+		self.members.get(&user).copied()
+	}
 }
 
 /// Find a call participant's user from self, DM recipients or the roster.

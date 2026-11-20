@@ -893,7 +893,7 @@ impl MessagingUi {
 		self.forum.preview_layout(layout);
 	}
 	/// Fixture-only: open the settings dialog of `channel` at startup.
-	#[cfg(feature = "demo")]
+	#[cfg(any(test, feature = "demo"))]
 	pub fn preview_channel_settings(&mut self, channel: Id, generation: u64) {
 		self.channel_menu.preview_settings(channel, generation);
 	}
@@ -5285,9 +5285,15 @@ impl MessagingUi {
 			if state.search.is_some() {
 				commands.push(state.clear_search());
 			}
+			// Nor can they draw the channel menu: an open settings dialog would stay open
+			// invisibly and keep the settings-open gate shut, so it closes here.
+			self.channel_menu.close_dialog(state);
 			self.show_plugin_interface(ui, state, &mut commands, &interface);
 			// A plugin chat visit is remembered like one from the channel list.
 			self.sync_last_channels(state);
+			if let Some(command) = state.continue_mark_all_read() {
+				commands.push(command);
+			}
 			let mut commands = self.show_overlays(ui, state, ctx, commands, settings_open, None);
 			// No sidebar runs in this layout, so a Threads request raised this frame opens here.
 			self.take_archive_request(state, &mut commands);

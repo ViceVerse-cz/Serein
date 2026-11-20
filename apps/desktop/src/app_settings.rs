@@ -290,6 +290,9 @@ pub struct PluginWindowSize {
 	normal: Option<Placement>,
 	/// The plugin size last applied, in logical pixels.
 	applied: Option<winit::dpi::LogicalSize<u32>>,
+	/// The monitor size and window scale that size was clamped and centred for; a
+	/// different display invalidates `applied` so an unchanged request re-applies.
+	display: (Option<winit::dpi::PhysicalSize<u32>>, f64),
 }
 
 #[derive(Clone, Copy)]
@@ -309,11 +312,12 @@ impl PluginWindowSize {
 	}
 
 	/// Gives the window the logical size a plugin asks for, clamped to its monitor and
-	/// centered there, again whenever the request changes. The user's own size, position
-	/// and maximized state are kept from when the first request takes over and restored
-	/// once none asks. A minimized window defers takeover until it is restored, and a
-	/// maximized one never records the maximized geometry as the user's own: the saved
-	/// normal placement is restored instead, and without one restore just re-maximizes.
+	/// centered there, again whenever the request changes or the monitor size or scale it
+	/// was clamped for does. The user's own size, position and maximized state are kept
+	/// from when the first request takes over and restored once none asks. A minimized
+	/// window defers takeover until it is restored, and a maximized one never records the
+	/// maximized geometry as the user's own: the saved normal placement is restored
+	/// instead, and without one restore just re-maximizes.
 	pub fn sync(
 		&mut self,
 		window: &winit::window::Window,
@@ -323,6 +327,7 @@ impl PluginWindowSize {
 	) {
 		let Some(requested) = requested else {
 			self.applied = None;
+			self.display = (None, 0.0);
 			let Some(normal) = self.normal.take() else {
 				return;
 			};
@@ -347,6 +352,19 @@ impl PluginWindowSize {
 			}
 			return;
 		};
+		let monitor = window.current_monitor().filter(|monitor| {
+			let available = monitor.size();
+			available.width > 0 && available.height > 0
+		});
+		// A monitor size or scale change invalidates the applied size, so the clamp,
+		// minimum and centring below re-run for an unchanged request on the new display.
+		let display = (
+			monitor.as_ref().map(|monitor| monitor.size()),
+			window.scale_factor(),
+		);
+		if self.applied == Some(requested) && self.display != display {
+			self.applied = None;
+		}
 		if self.applied == Some(requested) {
 			return;
 		}
@@ -356,6 +374,7 @@ impl PluginWindowSize {
 			return;
 		}
 		self.applied = Some(requested);
+		self.display = display;
 		if self.normal.is_none() {
 			let (size, position) = if window.is_maximized() {
 				// Never capture geometry measured while maximized: the saved placement is
@@ -392,10 +411,6 @@ impl PluginWindowSize {
 			outer.width.saturating_sub(inner.width),
 			outer.height.saturating_sub(inner.height),
 		];
-		let monitor = window.current_monitor().filter(|monitor| {
-			let available = monitor.size();
-			available.width > 0 && available.height > 0
-		});
 		let mut size = requested.to_physical::<u32>(window.scale_factor());
 		if let Some(monitor) = &monitor {
 			let available = monitor.size();
