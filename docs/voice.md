@@ -471,7 +471,7 @@ attenuation at 12 dB (Low) or 24 dB (Moderate), runs the full model (High, the d
 or adds the model's post-filter, which attenuates very noisy sections further (Very
 high). Changing the strength does not reload the network. Its STFT overlap and two
 look-ahead frames delay the microphone by 30 ms, compared with 10 ms for RNNoise.
-Selecting it decodes and optimizes the network on a short-lived helper thread (221–233 ms
+Selecting it decodes and optimizes the network on a short-lived helper thread (176–194 ms
 in a release build on a Ryzen 5 7600X). Meanwhile the audio worker keeps playing call
 audio, and the microphone stays gated, as during any processing change, until the
 model is installed. Two copies of the model state let mute, device and security resets

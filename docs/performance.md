@@ -147,6 +147,42 @@ branch presented three frames about 1.0 s after the move and saved the new posit
 gains no frames, and while a placement is unsaved the wake adds at most one frame per 500 ms.
 Interactive drags were not re-measured.
 
+## DeepFilterNet Plus runtime, rebased — November 20, 2026
+
+Re-measured after rebasing the suppressor onto main `f8b49a56`, on the same machine as the
+November 6 section below: Windows 11 Pro x64 (build 26200), Ryzen 5 7600X, 32 GB RAM, pinned
+Rust 1.99.1, locked dependencies. Both packages come from `cargo xtask package` (voice
+included, demo and development data disabled) in the same worktree, with each `dist/` moved
+aside before the next build. NSIS is unavailable, so neither has an installer.
+
+| Metric / method | Baseline main `f8b49a56` | This branch | Delta |
+| --- | ---: | ---: | ---: |
+| Release executable | 101,002,240 B | 126,966,272 B | +25,964,032 B (+25.71%) |
+| `dist/` regular-file payload (233 / 300 files) | 105,376,166 B | 131,724,380 B | +26,348,214 B (+25.00%) |
+| ZIP of `dist/` (Python `ZIP_DEFLATED` level 9, sorted paths) | 55,920,712 B | 70,027,569 B | +14,106,857 B (+25.23%) |
+
+A throwaway release harness, not committed, ran five rounds. Each round timed
+`Echo::capture` over 500 20 ms frames for RNNoise and then DeepFilterNet. The input was a
+synthetic 110 Hz harmonic vowel with 500 Hz and 1.9 kHz formants, a 4 Hz syllabic envelope
+and white noise; echo cancellation and automatic gain were on and the gate was off. The
+DeepFilterNet load was timed while the worker polled `Echo::configure` every millisecond:
+
+| Metric, median of 5 rounds (range) | RNNoise | DeepFilterNet (High) |
+| --- | ---: | ---: |
+| Per-frame median | 0.134 ms (0.133–0.140) | 0.782 ms (0.773–0.806) |
+| Per-frame p99 | 0.244 ms (0.188–0.272) | 1.324 ms (1.294–1.376) |
+| Network load on the helper thread | — | 181.7 ms (175.8–194.3) |
+| Longest `Echo::configure` call on the worker during the load | — | 0.387 ms (0.340–0.502) |
+| Reset (copy the fresh model state) | — | 0.490 ms (0.413–0.593) |
+
+The DeepFilterNet median is about 3.9% of each 20 ms frame. These frames are synthetic, not
+the upstream sample speech and recorded noise behind the November 6 per-frame figures, so
+the two sections' per-frame numbers are not directly comparable. The quality table below
+was not re-run: the vendored runtime and model are unchanged. Timings are elapsed
+single-thread component times on a desktop whose background load was not controlled.
+Process memory, whole-app CPU, other CPUs, macOS and Linux, physical microphones,
+perceived quality and live calls are unmeasured.
+
 ## DeepFilterNet Plus runtime — November 6, 2026
 
 This continues the DeepFilterNet suppressor first proposed in PR #581, whose October 7
