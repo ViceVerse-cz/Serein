@@ -159,7 +159,7 @@ impl Desktop {
 		self.app_settings.apply(&mut self.messaging);
 		self.messaging.share_game_activity = self.game_activity.enabled;
 		ctx.memory_mut(|m| *m = egui::Memory::default());
-		let _ = ui::emoji::install(ctx);
+		ui::emoji::install(ctx, crate::emoji_raster::backend());
 		ui::design::apply(ctx);
 		ctx.set_theme(self.appearance);
 		self.sync_system_theme(ctx);

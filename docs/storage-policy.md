@@ -146,7 +146,8 @@ advancing animation frames. Accepted worker results get a fresh
 minute. The existing maintenance deadline includes both artwork pools, so an
 idle window can trim them. Expiry updates byte accounting and removes associated
 animation/playback state. Existing 512-item / 64-MiB artwork and 1,024-item /
-16-MiB emoji ceilings remain. Unicode's shared low-resolution atlas is unchanged.
+16-MiB emoji ceilings remain. Unicode emoji rasters have their own bounded working set,
+described under bundled Twemoji artwork below.
 Returning to expired artwork uses the existing bounded worker and disk cache;
 a disk miss may fetch again. GPU resources may stay reserved in the driver after
 the handle is released. No persisted data, credentials or preferences are removed.
@@ -388,10 +389,9 @@ and driver retention mean this is not an equivalent process-RSS guarantee.
 
 Startup builds the bundled base font set without inflating the 16,467,736-byte
 CJK face. Its existing on-demand worker adds that face only after CJK text is
-encountered. The Twemoji PNG decodes into one 16,515,072-byte egui pixel buffer
-and premultiplies alpha in place, removing the separate full-size RGBA conversion
-buffer. Decoder and GPU staging allocations remain additional; these are not
-whole-process RSS guarantees. No assets, image quality or cache limits change.
+encountered. Twemoji artwork is no longer decoded at startup; it is rasterised on demand
+(see bundled Twemoji artwork below). Decoder and GPU staging allocations remain additional;
+these are not whole-process RSS guarantees. No assets, image quality or cache limits change.
 
 The CJK detector remembers at most 512 immutable layout-job identities through weak
 references, within a 128 KiB fixed-allocation budget. It never retains text, style
@@ -1030,14 +1030,31 @@ Pinned-message summaries share search's single session-only 25-item / 64 KiB res
 
 Uploads do not persist local source paths, signed staging targets or file bytes. Pending filename/size labels remain bounded session metadata; existing recovery drafts retain only composed text, so retrying an attachment requires selecting the source again. Files are opened for reading and checked for observable size/modification changes; this is not an immutable snapshot guarantee. Cancellation stops the local job, but bytes already uploaded to Discord staging may remain there without a created message; no remote cleanup or retention guarantee is claimed. Completed messages and their returned attachment metadata can enter the existing bounded history cache. The OS file picker may retain OS-managed recent-location history. No new application log or hidden upload recovery store is introduced.
 
-Twemoji artwork is public bundled data, not an account cache: one 5,225,108-byte PNG
-and a fixed 4,009-entry Unicode index are embedded in the executable. A startup worker
-decodes one 2,048×2,016 RGBA atlas (15.75 MiB); the GPU texture has the same pixel
-payload, with driver overhead additional. The decoder writes directly into the final
-CPU pixel buffer and premultiplies alpha in place; decoder scratch and upload staging
-can add temporary storage. The context retains the single atlas until exit,
-including across logout; there are no emoji downloads, disk writes, or growing texture
-queues. Unknown sequences and explicit text-presentation selectors remain font text.
+Twemoji artwork is public bundled data, not an account cache: the scalable artwork
+(4,009 individually zstd-compressed SVGs, each limited to 64 KiB compressed and decoded)
+and a fixed 4,009-entry Unicode index are embedded in the executable. Nothing is decoded
+at startup. Each emoji is rasterised when first drawn, at the exact pixel edge it covers
+(16 to 256 px), on one to four worker threads (one fewer than the available cores) that
+run at the lowest OS priority (Windows `THREAD_PRIORITY_LOWEST`, Linux nice 10, macOS
+utility QoS). Painted and prefetched requests wait in two queues of at most 512 jobs each;
+a full queue drops its oldest job, and painted jobs not requested in the current or
+previous frame are skipped. Finished rasters wait in a queue of at most 1,024 items /
+16 MiB. They are packed into shared 512×512 RGBA texture pages (1 MiB each, at most
+sixteen, created on demand; small pages fit memory the GPU allocator already holds), each divided by a buddy allocator into power-of-two square blocks
+of 16 to 256 pixels; a raster takes the smallest block at least its edge, its outermost pixel
+ring is made transparent, and its whole block is uploaded with the rest transparent, at most
+4 MiB of blocks per frame. At
+most 1,024 rasters are kept. When no block is free and sixteen pages exist, the least recently
+drawn rasters are evicted, undrawn prefetches first, but never rasters drawn in the current or
+previous frame: a painted raster that does not fit beside them stays an empty slot, without
+being requested again, until idle release frees space, and a prefetched one is dropped.
+Prefetching pauses while blocks reserve more than 12 MiB and covers at most one screen
+beyond the visible area. Rasters not drawn for 60 seconds are released at the existing
+artwork maintenance deadline, and a page left empty is then freed, so an idle session
+returns to no emoji pages. Driver overhead and upload staging are additional.
+There are no emoji downloads, disk writes or retries; an emoji whose artwork fails to
+rasterise lays out as text from its next layout for the rest of the session. Unknown sequences and explicit text-presentation selectors
+remain font text.
 
 GIF search and trending results retain at most eight session-memory pages / 768 KiB for ten
 minutes. Reopening a fresh query reuses its page without a REST request; least-recently-used
@@ -1103,7 +1120,7 @@ bounded sender name and message preview to the OS; an already-cached local avata
 be used. Other alert kinds remain generic. The OS may keep its own notification/permission history.
 Logout invalidates queued work and requests dismissal; this does not erase OS records.
 See notification limits and platform behavior. Composer artwork uses
-the existing Twemoji atlas and custom-image cache; saved drafts keep their original wire
+the on-demand Twemoji rasters and custom-image cache; saved drafts keep their original wire
 text, with no extra rendered-token storage.
 
 
@@ -1739,7 +1756,8 @@ characters / 512 UTF-8 bytes. Live member rows win only when they carry a
 nickname. Missing membership keeps the stored nick or the usual name.
 
 Custom emoji artwork shares the existing account-isolated image disk cache
-(4,096 files / 1 GiB, 90-day inactivity retention). Its GPU working set is separate
+(4,096 files / 1 GiB, 90-day inactivity retention), one file per requested 32 to 256 px
+rendition (at most four per emoji). Its GPU working set is separate
 from avatars and media, bounded to 1,024 textures / 16 MiB with least-recently-used
 eviction. Evicted textures reload from disk when available.
 
@@ -1975,11 +1993,10 @@ state. Windows keeps at most four owned 32×32 icons and one fixed 128-code-unit
 tooltip descriptor. Background voice/tray logic runs once per event tick; active
 calls request a 50 ms repaint. These ticks neither open audio devices nor create
 new network payloads.
-Bundled scalable emoji retain the existing 1,024-item / 16 MiB emoji texture LRU.
-Their local-only request keys select 64, 128 or 256-pixel renditions. Each SVG has
-a 64 KiB decompression/window limit and shares the media worker’s eight decode
-permits, 1,024-item bounded requests and 128-item / 128 MiB result queue. No runtime
-network or disk cache is used for this bundled artwork, including in offline demo.
+Bundled scalable emoji no longer use the media worker or its image cache; their bounds are
+described under bundled Twemoji artwork above. Each SVG keeps its 64 KiB
+decompression/window limit. No runtime network or disk cache is used for this bundled
+artwork, including in offline demo.
 
 ## Plugin start screen (preview)
 

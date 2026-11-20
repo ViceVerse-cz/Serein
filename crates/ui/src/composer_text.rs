@@ -16,6 +16,9 @@ struct Inline {
 	label: Option<Arc<egui::Galley>>,
 	background: Color32,
 	image: Option<Image<'static>>,
+	/// Bundled Unicode emoji; its raster is looked up at paint, so arriving rasters need no
+	/// relayout.
+	unicode: Option<Box<str>>,
 	asset: Option<model::ImageShare>,
 	icon: Option<crate::icons::Icon>,
 	game_icon: Option<String>,
@@ -166,7 +169,7 @@ impl Layout {
 		colors.mention_bg.hash(&mut key);
 		colors.muted.hash(&mut key);
 		avatars.revision.hash(&mut key);
-		emoji::ready(ui.ctx()).hash(&mut key);
+		emoji::layout_revision(ui.ctx()).hash(&mut key);
 		demo.hash(&mut key);
 		if text.contains("<:") || text.contains("<a:") || text.contains("](https://") {
 			static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
@@ -218,6 +221,7 @@ impl Layout {
 			let mut label = None;
 			let mut background = colors.accent.gamma_multiply(0.12);
 			let mut image = None;
+			let mut unicode = None;
 			let mut asset = None;
 			let mut icon = None;
 			let mut game_icon = None;
@@ -293,8 +297,8 @@ impl Layout {
 				len
 			} else {
 				let grapheme = tail.graphemes(true).next().expect("nonempty tail");
-				image = emoji::image(ui.ctx(), grapheme, size);
-				artwork = image.is_some() || emoji::lookup(grapheme).is_some();
+				artwork = emoji::artwork(ui.ctx(), grapheme).is_some();
+				unicode = artwork.then(|| grapheme.into());
 				grapheme.len()
 			};
 			let label = label.map(|(text, color)| {
@@ -320,6 +324,7 @@ impl Layout {
 					label,
 					background,
 					image,
+					unicode,
 					asset,
 					icon,
 					game_icon,
@@ -407,7 +412,7 @@ impl Layout {
 			}
 			if let Some(asset) = inline.asset {
 				// Only visible slots may request or refresh artwork, even on a cache hit.
-				avatars.touch_share_image(ui.ctx(), asset, self.demo);
+				avatars.touch_share_image(ui.ctx(), asset, emoji::inline_size(ui), self.demo);
 			}
 			if let Some(label) = &inline.label {
 				painter.rect_filled(rect, 3, inline.background);
@@ -444,7 +449,12 @@ impl Layout {
 					label.clone(),
 					Color32::PLACEHOLDER,
 				);
-			} else if let Some(image) = &inline.image {
+			} else if let Some(image) = inline
+				.unicode
+				.as_deref()
+				.and_then(|text| emoji::image(ui.ctx(), text, emoji::inline_size(ui)))
+				.or_else(|| inline.image.clone())
+			{
 				let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect));
 				child.set_clip_rect(clip);
 				image.paint_at(
@@ -980,6 +990,30 @@ mod tests {
 			primary_guild: None,
 			cosmetics: None,
 		}]
+	}
+
+	/// Artwork that fails after a draft was laid out lays the draft out again with the emoji
+	/// as text, instead of keeping its empty slot.
+	#[test]
+	fn failed_emoji_artwork_relays_the_draft_out_as_text() {
+		let ctx = egui::Context::default();
+		crate::fonts::install(&ctx);
+		emoji::install_rasteriser_for_tests(&ctx, false);
+		let mut avatars = Avatars::default();
+		let mut layout = Layout::default();
+		let mut frame = |layout: &mut Layout| {
+			ctx.run_ui(Default::default(), |ui| {
+				layout.galley(ui, "hi 🙂", 300.0, &[], &[], &[], false, &mut avatars, true);
+				emoji::image(ui.ctx(), "🙂", emoji::inline_size(ui));
+			})
+			.drop_without_applying_deltas();
+		};
+		frame(&mut layout);
+		assert!(layout.inlines.iter().any(|inline| inline.unicode.is_some()));
+		emoji::run_jobs(&ctx);
+		frame(&mut layout);
+		frame(&mut layout);
+		assert!(layout.inlines.iter().all(|inline| inline.unicode.is_none()));
 	}
 
 	/// #918: right-to-left drafts read in visual order, and the caret and pointer follow it.

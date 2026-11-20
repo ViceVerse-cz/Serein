@@ -28,7 +28,7 @@ pub(crate) struct PreviewEmoji {
 }
 
 enum PreviewImage {
-	Emoji(usize),
+	Emoji,
 	Channel(crate::icons::Icon),
 }
 
@@ -2020,7 +2020,6 @@ impl Formatted {
 								&[(label.clone(), Style::default())],
 								ui,
 								Some(url),
-								false,
 								render.images,
 								render.demo,
 								render.guilds,
@@ -2047,7 +2046,6 @@ impl Formatted {
 								spans,
 								ui,
 								Some(url),
-								self.jumbo,
 								render.images,
 								render.demo,
 								render.guilds,
@@ -2074,7 +2072,6 @@ impl Formatted {
 							spans,
 							ui,
 							None,
-							self.jumbo,
 							render.images,
 							render.demo,
 							render.guilds,
@@ -2261,7 +2258,7 @@ impl Formatted {
 		struct Object {
 			text: String,
 			custom: Option<Id>,
-			image: Option<egui::Image<'static>>,
+			unicode: bool,
 			fallback: Option<std::sync::Arc<egui::epaint::Galley>>,
 			spoiler: Option<u8>,
 		}
@@ -2270,7 +2267,6 @@ impl Formatted {
 		let mut objects = Vec::new();
 		let mut inputs = Vec::new();
 		let size = crate::emoji::inline_size(ui);
-		let mut atlas = None;
 		let mut hidden = None;
 		for (text, style) in spans {
 			if let Some(region) = style.spoiler
@@ -2294,7 +2290,7 @@ impl Formatted {
 				objects.push(Object {
 					text: label.clone(),
 					custom: None,
-					image: None,
+					unicode: false,
 					fallback: None,
 					spoiler: Some(region),
 				});
@@ -2392,7 +2388,7 @@ impl Formatted {
 				objects.push(Object {
 					text: label,
 					custom: None,
-					image: None,
+					unicode: false,
 					fallback: Some(galley),
 					spoiler: None,
 				});
@@ -2417,7 +2413,7 @@ impl Formatted {
 				);
 				let cluster = &text[offset..offset + len];
 				let cell = if custom.is_none() && !style.code {
-					crate::emoji::lookup(cluster)
+					crate::emoji::artwork(ui.ctx(), cluster)
 				} else {
 					None
 				};
@@ -2453,11 +2449,7 @@ impl Formatted {
 					objects.push(Object {
 						text: cluster.into(),
 						custom: custom.map(|(id, _)| id),
-						image: cell.and_then(|cell| {
-							atlas
-								.get_or_insert_with(|| crate::emoji::atlas(ui.ctx()))
-								.map(|atlas| crate::emoji::image_cell(atlas, cluster, cell, size))
-						}),
+						unicode: cell.is_some(),
 						fallback,
 						spoiler: None,
 					});
@@ -2519,7 +2511,12 @@ impl Formatted {
 					}
 				} else {
 					let image = object.custom.map_or_else(
-						|| object.image.clone(),
+						|| {
+							object
+								.unicode
+								.then(|| crate::emoji::image(ui.ctx(), &object.text, size))
+								.flatten()
+						},
 						|id| render.images.custom_image(ui.ctx(), id, size, render.demo),
 					);
 					artwork.push(crate::select::Artwork {
@@ -2653,7 +2650,6 @@ impl Formatted {
 		spans: &[(String, Style)],
 		ui: &mut egui::Ui,
 		url: Option<&str>,
-		jumbo: bool,
 		images: &mut crate::avatars::Avatars,
 		demo: bool,
 		guilds: &[model::Guild],
@@ -2670,7 +2666,6 @@ impl Formatted {
 		}
 		let size = crate::emoji::inline_size(ui);
 		let link = url.is_some();
-		let mut atlas = None;
 		let body = egui::TextStyle::Body.resolve(ui.style());
 		let mut job = LayoutJob::default();
 		let source: String = spans.iter().map(|(text, _)| text.as_str()).collect();
@@ -2740,7 +2735,7 @@ impl Formatted {
 				);
 				let cluster = &text[offset..offset + len];
 				let cell = if custom.is_none() && !style.code && shared.is_none() {
-					crate::emoji::lookup(cluster)
+					crate::emoji::artwork(ui.ctx(), cluster)
 				} else {
 					None
 				};
@@ -2870,9 +2865,16 @@ impl Formatted {
 				wrap,
 			));
 		}
-		// Resolve artwork only after its slot is positioned inside the viewport.
+		// Resolve artwork only after its slot is positioned inside the viewport. Unicode emoji
+		// laid out within a screen of it (a timeline's overscan rows) are rasterised ahead.
+		let clip = ui.clip_rect();
+		let ahead = clip.expand2(egui::vec2(0.0, clip.height()));
 		for (index, rect) in &slots {
-			if !ui.is_rect_visible(*rect) || !rect.intersect(ui.clip_rect()).is_positive() {
+			if !ui.is_rect_visible(*rect) || !rect.intersect(clip).is_positive() {
+				let inline = &inlines[*index];
+				if inline.cell.is_some() && shared.is_none() && ahead.intersects(*rect) {
+					crate::emoji::prefetch(ui.ctx(), &inline.text, size);
+				}
 				continue;
 			}
 			let inline = &mut inlines[*index];
@@ -2887,17 +2889,9 @@ impl Formatted {
 				None => shared
 					.and_then(|asset| images.share_image(ui.ctx(), asset, size, demo))
 					.or_else(|| {
-						inline.cell.and_then(|cell| {
-							if jumbo && let Some(image) = images.unicode_image(ui.ctx(), cell, size)
-							{
-								return Some(image.alt_text(&inline.text));
-							}
-							atlas
-								.get_or_insert_with(|| crate::emoji::atlas(ui.ctx()))
-								.map(|atlas| {
-									crate::emoji::image_cell(atlas, &inline.text, cell, size)
-								})
-						})
+						inline
+							.cell
+							.and_then(|_| crate::emoji::image(ui.ctx(), &inline.text, size))
 					}),
 			};
 		}
@@ -2983,14 +2977,14 @@ impl Formatted {
 						)
 						.on_hover_cursor(egui::CursorIcon::PointingHand);
 					if hit.hovered() {
-						// Default emoji use a sharper raster than the inline atlas cell.
+						// Default emoji get a raster made for the card's larger artwork.
 						let art = inline
 							.cell
 							.filter(|_| inline.custom.is_none() && shared.is_none())
-							.and_then(|cell| {
-								images.unicode_image(
+							.and_then(|_| {
+								crate::emoji::ready_image(
 									ui.ctx(),
-									cell,
+									&inline.text,
 									crate::emoji_details::HOVER_ART,
 								)
 							})
@@ -3279,15 +3273,15 @@ impl Formatted {
 			let mut start = 0;
 			if !style.code {
 				for (offset, cluster) in take.grapheme_indices(true) {
-					let Some(cell) = crate::emoji::lookup(cluster) else {
+					if crate::emoji::artwork(ui.ctx(), cluster).is_none() {
 						continue;
-					};
+					}
 					job.append(&take[start..offset], 0.0, format.clone());
 					emojis.push(PreviewEmoji {
 						at: job.text.len(),
 						len: 1,
 						text: cluster.into(),
-						image: PreviewImage::Emoji(cell),
+						image: PreviewImage::Emoji,
 					});
 					job.append(
 						" ",
@@ -3391,9 +3385,8 @@ impl Formatted {
 		}
 		let emojis: Vec<_> = emojis
 			.iter()
-			.filter(|emoji| matches!(emoji.image, PreviewImage::Emoji(_)))
+			.filter(|emoji| matches!(emoji.image, PreviewImage::Emoji))
 			.collect();
-		let atlas = crate::emoji::atlas(ui.ctx());
 		let mut next = 0;
 		for placed in &galley.rows {
 			for glyph in &placed.glyphs {
@@ -3412,11 +3405,11 @@ impl Formatted {
 					rect.center(),
 					egui::Vec2::splat(PREVIEW_EMOJI_SIZE),
 				);
-				if let PreviewImage::Emoji(cell) = emoji.image
-					&& let Some(atlas) = atlas
+				if matches!(emoji.image, PreviewImage::Emoji)
+					&& let Some(image) =
+						crate::emoji::image(ui.ctx(), &emoji.text, PREVIEW_EMOJI_SIZE)
 				{
-					crate::emoji::image_cell(atlas, &emoji.text, cell, PREVIEW_EMOJI_SIZE)
-						.paint_at(ui, rect);
+					image.paint_at(ui, rect);
 				}
 				next += 1;
 			}
@@ -3644,6 +3637,7 @@ mod tests {
 	#[test]
 	fn inline_preview_preserves_emoji_placeholder_near_limit() {
 		let ctx = egui::Context::default();
+		crate::emoji::install_for_tests(&ctx);
 		let output = ctx.run_ui(Default::default(), |ui| {
 			// 118 chars ("a " * 59) + "x😀 more" -> emoji fits in 120 limit
 			let prefix = "a ".repeat(59);
@@ -6597,7 +6591,7 @@ mod tests {
 			assert_eq!(
 				images.take_requests(),
 				if visible {
-					vec!["emoji-90001".to_string()]
+					vec!["emoji-90001@32".to_string()]
 				} else {
 					Vec::new()
 				},
@@ -6610,7 +6604,7 @@ mod tests {
 	fn rtl_markdown_links_emoji_and_spoilers_keep_native_actions_and_concealment() {
 		let ctx = egui::Context::default();
 		crate::fonts::install(&ctx);
-		crate::emoji::install(&ctx).unwrap();
+		crate::emoji::install_for_tests(&ctx);
 		let source = "مرحبا [رابط English تجريبي](https://example.com) plain_unlinked 🙂 <:synthetic:90001> ||SECRET_PRIVATE|| نهاية";
 		let parsed = Formatted::parse(source);
 		let opening = std::cell::RefCell::new(None);

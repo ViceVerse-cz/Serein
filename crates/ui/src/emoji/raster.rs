@@ -1,0 +1,866 @@
+//! Unicode emoji rasterised on demand at the exact pixel size they are drawn.
+//!
+//! The application supplies a [`Backend`] that rasterises one bundled scalable artwork. A few
+//! low-priority worker threads run it; the UI thread only queues work, and uploads finished
+//! rasters at the start of a pass. Painted emoji go on the "now" queue and prefetched ones on
+//! the "later" queue. Painted work that was not requested in this or the previous pass was
+//! scrolled away and is skipped. Nothing is retried or written to disk: a raster that fails can
+//! only mean a corrupt bundled asset, and its emoji shows as text for the rest of the session.
+use super::pages::{self, Pages, Slot};
+use egui::{ColorImage, Context};
+use std::{
+	collections::{HashMap, HashSet, VecDeque},
+	sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError},
+	time::{Duration, Instant},
+};
+
+/// Jobs each queue holds; a full queue drops its oldest job.
+const QUEUE: usize = 512;
+/// Uploaded rasters kept, by count and by the page bytes their blocks reserve; least
+/// recently drawn are evicted first.
+const TEXTURES: usize = 1024;
+const TEXTURE_BYTES: usize = pages::PAGES * (pages::PAGE * pages::PAGE * 4) as usize;
+/// Rasters not drawn for this long are released on a later pass.
+const IDLE: Duration = Duration::from_secs(60);
+/// Prefetching pauses when the rasters it may not evict (drawn in this or the previous pass,
+/// or prefetched and not drawn yet) reserve this share of [`TEXTURE_BYTES`].
+const PREFETCH_BYTES: usize = TEXTURE_BYTES / 4 * 3;
+/// Rasters above which prefetching pauses, as for [`PREFETCH_BYTES`].
+const PREFETCH_ITEMS: usize = TEXTURES / 4 * 3;
+/// Least time between two idle sweeps.
+const SWEEP: Duration = Duration::from_secs(1);
+/// Rasters refused for want of space are not requested again until space frees.
+const REFUSED: usize = 4096;
+/// Finished rasters uploaded per pass; the rest wait for the next pass.
+const UPLOAD_BYTES: usize = 4 * 1024 * 1024;
+/// Finished rasters waiting for upload; workers pause beyond either bound.
+const FINISHED: usize = 1024;
+const FINISHED_BYTES: usize = 16 * 1024 * 1024;
+/// Smallest and largest raster edge in physical pixels.
+pub const MIN_EDGE: u32 = 16;
+pub const MAX_EDGE: u32 = 256;
+
+/// Renders one bundled compressed SVG into an `edge` × `edge` premultiplied image.
+pub type Rasterize = dyn Fn(&[u8], u32) -> Option<ColorImage> + Send + Sync;
+
+/// Rasterises bundled emoji artwork for [`super::install`]; supplied by the application.
+#[derive(Clone)]
+pub struct Backend {
+	/// Renders one bundled compressed SVG (see [`super::decode_bundled_svg`]) into an
+	/// `edge` × `edge` premultiplied image, or `None` when the artwork is invalid. Runs on a
+	/// worker thread, never during rendering.
+	pub rasterize: Arc<Rasterize>,
+	/// Runs first on each worker thread, for example to lower its OS scheduling priority.
+	pub on_worker_start: fn(),
+}
+
+/// Bundled artwork cell and square edge in physical pixels.
+type Key = (usize, u32);
+
+#[derive(Default)]
+struct Entry {
+	/// Last pass that asked for this raster.
+	pass: u64,
+	/// Painted at least once since it was queued, rather than only prefetched.
+	painted: bool,
+	now: bool,
+	later: bool,
+	running: bool,
+}
+
+/// The two job queues with per-key request passes. Entries live until their raster is
+/// uploaded or every queued copy of the job was dropped or cancelled.
+#[derive(Default)]
+struct Queues {
+	now: VecDeque<Key>,
+	later: VecDeque<Key>,
+	entries: HashMap<Key, Entry>,
+	pass: u64,
+}
+
+impl Queues {
+	/// Queues `key` unless it is already queued there or running; true when a job was added.
+	fn request(&mut self, key: Key, later: bool) -> bool {
+		let pass = self.pass;
+		let entry = self.entries.entry(key).or_default();
+		entry.pass = pass;
+		entry.painted |= !later;
+		let queued = if later {
+			entry.later || entry.now
+		} else {
+			entry.now
+		};
+		if entry.running || queued {
+			return false;
+		}
+		if later {
+			entry.later = true;
+		} else {
+			entry.now = true;
+		}
+		let queue = if later {
+			&mut self.later
+		} else {
+			&mut self.now
+		};
+		let dropped = (queue.len() >= QUEUE).then(|| queue.pop_front()).flatten();
+		queue.push_back(key);
+		if let Some(dropped) = dropped {
+			self.forget(dropped, later);
+		}
+		true
+	}
+	/// One queued copy of `key` left its queue without running.
+	fn forget(&mut self, key: Key, later: bool) {
+		if let Some(entry) = self.entries.get_mut(&key) {
+			if later {
+				entry.later = false;
+			} else {
+				entry.now = false;
+			}
+			if !entry.now && !entry.later && !entry.running {
+				self.entries.remove(&key);
+			}
+		}
+	}
+	/// The next job to run, painted work first.
+	fn take(&mut self) -> Option<Key> {
+		loop {
+			let (key, later) = match self.now.pop_front() {
+				Some(key) => (key, false),
+				None => (self.later.pop_front()?, true),
+			};
+			let Some(entry) = self.entries.get_mut(&key) else {
+				continue;
+			};
+			if entry.running {
+				if later {
+					entry.later = false;
+				} else {
+					entry.now = false;
+				}
+				continue;
+			}
+			// Painted work not asked for in this or the previous pass was scrolled away.
+			if !later && entry.pass + 1 < self.pass {
+				self.forget(key, false);
+				continue;
+			}
+			entry.now = false;
+			entry.later = false;
+			entry.running = true;
+			return Some(key);
+		}
+	}
+	fn idle(&self) -> bool {
+		self.entries.is_empty()
+	}
+}
+
+#[derive(Default)]
+struct State {
+	queues: Queues,
+	finished: VecDeque<(Key, Option<ColorImage>)>,
+	finished_bytes: usize,
+	/// Held only while work is outstanding, so idle workers do not keep the context alive.
+	///
+	/// A worker holding it keeps the context (and so this service) alive; the cycle lasts only
+	/// until the queues drain and finished rasters are uploaded, which [`Service::maintain`]
+	/// does every frame.
+	repaint: Option<Context>,
+	started: bool,
+	shutdown: bool,
+}
+
+#[derive(Default)]
+struct Shared {
+	state: Mutex<State>,
+	wake: Condvar,
+}
+
+impl Shared {
+	fn lock(&self) -> MutexGuard<'_, State> {
+		self.state.lock().unwrap_or_else(PoisonError::into_inner)
+	}
+}
+
+struct Raster {
+	slot: Slot,
+	used: Instant,
+	/// Last pass that drew it; 0 for a prefetched raster not drawn yet.
+	pass: u64,
+}
+
+#[derive(Default)]
+struct Cache {
+	rasters: HashMap<Key, Raster>,
+	pages: Pages,
+	/// Page bytes reserved by the rasters' blocks.
+	bytes: usize,
+	/// Cells whose artwork failed to rasterise; at most one per bundled cell.
+	failed: HashSet<usize>,
+	/// Painted rasters that did not fit beside the ones on screen; they stay empty, without
+	/// being requested again, until space frees.
+	refused: HashSet<Key>,
+	/// Prefetched rasters that did not fit, for example in fragmented pages; not prefetched
+	/// again until space frees, but still requested when painted.
+	prefetch_refused: HashSet<Key>,
+	/// Rasters and page bytes prefetching must leave room beside, counted once per pass.
+	live: (usize, usize),
+	pass: Option<u64>,
+	now: Option<Instant>,
+	swept: Option<Instant>,
+}
+
+impl Cache {
+	fn remove(&mut self, key: &Key) {
+		if let Some(raster) = self.rasters.remove(key) {
+			self.pages.free(raster.slot);
+			self.bytes -= pages::block_bytes(key.1);
+		}
+	}
+	/// Stores a finished raster in a page block. When no block is free and no page can be
+	/// added, evicts the least recently drawn rasters that were not drawn in this or the
+	/// previous pass: undrawn prefetches first for a painted raster, last for a prefetched one.
+	/// False when it does not fit beside those.
+	fn insert(
+		&mut self,
+		ctx: &Context,
+		key: Key,
+		image: &ColorImage,
+		(now, pass): (Instant, u64),
+		painted: bool,
+	) -> bool {
+		self.remove(&key);
+		let slot = loop {
+			if self.rasters.len() < TEXTURES
+				&& let Some(slot) = self.pages.alloc(ctx, key.1)
+			{
+				break slot;
+			}
+			let Some(oldest) = self
+				.rasters
+				.iter()
+				.filter(|(_, raster)| raster.pass + 1 < pass)
+				.min_by_key(|(_, raster)| (!painted && raster.pass == 0, raster.pass, raster.used))
+				.map(|(key, _)| *key)
+			else {
+				return false;
+			};
+			self.remove(&oldest);
+		};
+		self.pages.upload(slot, image);
+		self.bytes += pages::block_bytes(key.1);
+		self.rasters.insert(
+			key,
+			Raster {
+				slot,
+				used: now,
+				pass: if painted { pass } else { 0 },
+			},
+		);
+		true
+	}
+	/// Releases rasters idle for [`IDLE`] that the previous pass did not draw either, then
+	/// the pages left empty.
+	fn sweep(&mut self, now: Instant, pass: u64) {
+		if self
+			.swept
+			.is_some_and(|swept| now.saturating_duration_since(swept) < SWEEP)
+		{
+			return;
+		}
+		self.swept = Some(now);
+		let idle: Vec<Key> = self
+			.rasters
+			.iter()
+			.filter(|(_, raster)| {
+				raster.pass + 1 < pass && now.saturating_duration_since(raster.used) >= IDLE
+			})
+			.map(|(key, _)| *key)
+			.collect();
+		for key in &idle {
+			self.remove(key);
+		}
+		if !idle.is_empty() {
+			self.unrefuse();
+		}
+		self.pages.release_empty();
+	}
+	/// Counts the rasters prefetching must leave room beside, and lets refused rasters be
+	/// requested again once a raster drawn by the `previous` pass may be evicted, as when the
+	/// view scrolled away from it.
+	fn review(&mut self, pass: u64, previous: Option<u64>) {
+		let (mut items, mut bytes, mut released) = (0, 0, false);
+		for (key, raster) in &self.rasters {
+			if raster.pass == 0 || raster.pass + 1 >= pass {
+				items += 1;
+				bytes += pages::block_bytes(key.1);
+			} else if previous.is_some_and(|previous| raster.pass + 1 >= previous) {
+				released = true;
+			}
+		}
+		self.live = (items, bytes);
+		if released {
+			self.unrefuse();
+		}
+	}
+	fn unrefuse(&mut self) {
+		self.refused.clear();
+		self.prefetch_refused.clear();
+	}
+	/// When an undrawn raster next becomes idle, for the host's maintenance deadline. A raster
+	/// that became idle while sweeps were throttled is released at the next allowed sweep.
+	fn next_release(&self, now: Instant) -> Option<Instant> {
+		let sweep = self.swept.map_or(now, |swept| swept + SWEEP);
+		self.rasters
+			.values()
+			.map(|raster| (raster.used + IDLE).max(sweep))
+			.filter(|release| *release > now)
+			.min()
+	}
+}
+
+pub(super) struct Service {
+	shared: Arc<Shared>,
+	backend: Backend,
+	cache: Mutex<Cache>,
+}
+
+impl Drop for Service {
+	fn drop(&mut self) {
+		self.shared.lock().shutdown = true;
+		self.shared.wake.notify_all();
+	}
+}
+
+/// The raster's state for a painted or prefetched emoji.
+pub(super) enum Lookup {
+	/// A page texture and the raster's exact pixels in it.
+	Ready(egui::TextureId, egui::Rect),
+	Pending,
+	Failed,
+}
+
+fn id() -> egui::Id {
+	egui::Id::unique("serein-emoji-rasters")
+}
+
+pub(super) fn install(ctx: &Context, backend: Backend) {
+	let service = Arc::new(Service {
+		shared: Arc::default(),
+		backend,
+		cache: Mutex::default(),
+	});
+	ctx.data_mut(|data| data.insert_temp(id(), service));
+}
+
+pub(super) fn service(ctx: &Context) -> Option<Arc<Service>> {
+	ctx.data(|data| data.get_temp::<Arc<Service>>(id()))
+}
+
+/// Square raster edge for `size` points: the physical pixels it covers.
+pub(super) fn edge(ctx: &Context, size: f32) -> u32 {
+	let physical = (size * ctx.pixels_per_point()).ceil();
+	if physical.is_finite() {
+		(physical as u32).clamp(MIN_EDGE, MAX_EDGE)
+	} else {
+		MIN_EDGE
+	}
+}
+
+impl Service {
+	fn cache(&self) -> MutexGuard<'_, Cache> {
+		self.cache.lock().unwrap_or_else(PoisonError::into_inner)
+	}
+	/// Uploads finished rasters once per pass, within [`UPLOAD_BYTES`].
+	fn begin_pass(&self, ctx: &Context, cache: &mut Cache) -> (Instant, u64) {
+		let pass = ctx.cumulative_pass_nr();
+		if cache.pass == Some(pass)
+			&& let Some(now) = cache.now
+		{
+			return (now, pass);
+		}
+		let now = Instant::now();
+		let previous = cache.pass.replace(pass);
+		cache.now = Some(now);
+		let mut finished = Vec::new();
+		{
+			let mut state = self.shared.lock();
+			state.queues.pass = pass;
+			let mut uploaded = 0;
+			while let Some(((_, edge), image)) = state.finished.front() {
+				let bytes = image.as_ref().map_or(0, |image| image.pixels().len() * 4);
+				// Each upload writes the raster's whole page block.
+				let upload = image.as_ref().map_or(0, |_| pages::block_bytes(*edge));
+				if uploaded > 0 && uploaded + upload > UPLOAD_BYTES {
+					ctx.request_repaint();
+					break;
+				}
+				uploaded += upload;
+				state.finished_bytes -= bytes;
+				let (key, image) = state.finished.pop_front().expect("finished raster");
+				let painted = state
+					.queues
+					.entries
+					.remove(&key)
+					.is_some_and(|entry| entry.painted);
+				finished.push((key, image, painted));
+			}
+			if state.queues.idle() && state.finished.is_empty() {
+				state.repaint = None;
+			}
+		}
+		if !finished.is_empty() {
+			self.shared.wake.notify_all();
+		}
+		for (key, image, painted) in finished {
+			match image {
+				Some(image) => {
+					if !cache.insert(ctx, key, &image, (now, pass), painted) {
+						let refused = if painted {
+							&mut cache.refused
+						} else {
+							&mut cache.prefetch_refused
+						};
+						if refused.len() >= REFUSED {
+							refused.clear();
+						}
+						refused.insert(key);
+					}
+				}
+				// Layout caches keyed on the failure count lay the emoji out as text next pass.
+				None => {
+					if cache.failed.insert(key.0) {
+						ctx.request_repaint();
+					}
+				}
+			}
+		}
+		cache.review(pass, previous);
+		cache.sweep(now, pass);
+		(now, pass)
+	}
+	/// A painted raster: cached, or requested for this pass.
+	pub(super) fn paint(&self, ctx: &Context, key: Key) -> Lookup {
+		let mut cache = self.cache();
+		let (now, pass) = self.begin_pass(ctx, &mut cache);
+		if cache.failed.contains(&key.0) {
+			return Lookup::Failed;
+		}
+		if let Some(raster) = cache.rasters.get_mut(&key) {
+			raster.used = now;
+			raster.pass = pass;
+			let slot = raster.slot;
+			if let Some(texture) = cache.pages.texture(slot) {
+				return Lookup::Ready(texture, slot.uv());
+			}
+		}
+		if cache.refused.contains(&key) {
+			return Lookup::Pending;
+		}
+		drop(cache);
+		self.request(ctx, key, false);
+		Lookup::Pending
+	}
+	/// Queues a raster at lower priority unless it is cached or failed.
+	pub(super) fn prefetch(&self, ctx: &Context, key: Key) {
+		let mut cache = self.cache();
+		self.begin_pass(ctx, &mut cache);
+		if cache.failed.contains(&key.0)
+			|| cache.rasters.contains_key(&key)
+			|| cache.prefetch_refused.contains(&key)
+			|| cache.live.1 > PREFETCH_BYTES
+			|| cache.live.0 > PREFETCH_ITEMS
+		{
+			return;
+		}
+		drop(cache);
+		self.request(ctx, key, true);
+	}
+	/// Uploads finished rasters, releases idle ones and drops the context handle once work
+	/// is done, even in passes that draw no emoji. Returns the next idle deadline.
+	pub(super) fn maintain(&self, ctx: &Context) -> Option<Instant> {
+		let mut cache = self.cache();
+		let (now, _) = self.begin_pass(ctx, &mut cache);
+		cache.next_release(now)
+	}
+	/// Whether the artwork of `cell` failed to rasterise this session.
+	pub(super) fn failed(&self, cell: usize) -> bool {
+		self.cache().failed.contains(&cell)
+	}
+	/// How many artwork cells have failed this session.
+	pub(super) fn failures(&self) -> usize {
+		self.cache().failed.len()
+	}
+	fn request(&self, ctx: &Context, key: Key, later: bool) {
+		let mut state = self.shared.lock();
+		if !state.queues.request(key, later) {
+			return;
+		}
+		if state.repaint.is_none() {
+			state.repaint = Some(ctx.clone());
+		}
+		if !std::mem::replace(&mut state.started, true) {
+			self.start_workers();
+		}
+		drop(state);
+		self.shared.wake.notify_one();
+	}
+	fn start_workers(&self) {
+		let workers = std::thread::available_parallelism()
+			.map_or(1, |count| count.get().saturating_sub(1))
+			.clamp(1, 4);
+		for index in 0..workers {
+			let shared = Arc::clone(&self.shared);
+			let backend = self.backend.clone();
+			// A worker that cannot start leaves its share to the others; with none, the
+			// slots stay empty rather than failing the UI.
+			let _ = std::thread::Builder::new()
+				.name(format!("emoji-raster-{index}"))
+				.spawn(move || {
+					(backend.on_worker_start)();
+					while work(&shared, &backend, true) {}
+				});
+		}
+	}
+}
+
+/// Takes one job, waiting for one when `wait`; false once the service shuts down or, without
+/// waiting, when there is nothing to do.
+fn work(shared: &Shared, backend: &Backend, wait: bool) -> bool {
+	let key = {
+		let mut state = shared.lock();
+		loop {
+			if state.shutdown {
+				return false;
+			}
+			if state.finished.len() < FINISHED
+				&& state.finished_bytes < FINISHED_BYTES
+				&& let Some(key) = state.queues.take()
+			{
+				break key;
+			}
+			if !wait {
+				return false;
+			}
+			state = shared
+				.wake
+				.wait(state)
+				.unwrap_or_else(PoisonError::into_inner);
+		}
+	};
+	let (cell, edge) = key;
+	let image = super::bundled_svg(&format!("emoji-unicode-{cell}-{edge}"))
+		.and_then(|(source, edge)| {
+			std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+				(backend.rasterize)(source, edge)
+			}))
+			.ok()
+			.flatten()
+		})
+		.filter(|image| {
+			image.resolution() == [edge as usize, edge as usize]
+				&& image.pixels().len() == (edge * edge) as usize
+		});
+	let repaint = {
+		let mut state = shared.lock();
+		state.finished_bytes += image.as_ref().map_or(0, |image| image.pixels().len() * 4);
+		state.finished.push_back((key, image));
+		state.repaint.clone()
+	};
+	if let Some(ctx) = repaint {
+		ctx.request_repaint();
+	}
+	true
+}
+
+#[cfg(test)]
+pub(super) fn install_inline(ctx: &Context, backend: Backend) {
+	install(ctx, backend);
+	service(ctx).expect("installed").shared.lock().started = true;
+}
+
+/// Runs every queued job on the calling thread; for tests that install without workers.
+#[cfg(test)]
+pub(super) fn run_jobs(ctx: &Context) {
+	let service = service(ctx).expect("installed");
+	while work(&service.shared, &service.backend, false) {}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn full_queues_drop_their_oldest_jobs() {
+		let mut queues = Queues::default();
+		for cell in 0..QUEUE + 88 {
+			assert!(queues.request((cell, 32), false));
+			assert!(queues.request((cell, 64), true));
+		}
+		assert_eq!(queues.now.len(), QUEUE);
+		assert_eq!(queues.later.len(), QUEUE);
+		assert_eq!(queues.entries.len(), 2 * QUEUE);
+		assert!(!queues.entries.contains_key(&(87, 32)));
+		assert_eq!(queues.take(), Some((88, 32)));
+		// A key already queued or running is not queued twice.
+		assert!(!queues.request((88, 32), false));
+		assert!(!queues.request((89, 32), false));
+	}
+
+	#[test]
+	fn painted_jobs_scrolled_away_are_cancelled_but_prefetches_are_not() {
+		let mut queues = Queues {
+			pass: 1,
+			..Default::default()
+		};
+		queues.request((1, 32), false); // Scrolled past after this pass.
+		queues.request((2, 32), true); // A one-off prefetch, such as a hover prewarm.
+		queues.request((3, 32), false);
+		queues.pass = 2;
+		queues.request((3, 32), false); // Still on screen.
+		queues.request((4, 32), false);
+		queues.request((2, 32), false); // Painted now, after it was prefetched.
+		queues.pass = 3;
+		assert_eq!(queues.take(), Some((3, 32)));
+		assert_eq!(queues.take(), Some((4, 32)));
+		assert_eq!(queues.take(), Some((2, 32)));
+		assert_eq!(queues.take(), None);
+		assert!(!queues.entries.contains_key(&(1, 32)));
+		assert_eq!(queues.entries.len(), 3, "taken jobs stay until uploaded");
+	}
+
+	#[test]
+	fn rasters_stay_within_item_byte_and_upload_bounds() {
+		let ctx = Context::default();
+		let now = Instant::now();
+		let mut cache = Cache::default();
+		let small = ColorImage::filled([16, 16], egui::Color32::WHITE);
+		for cell in 0..TEXTURES + 100 {
+			assert!(cache.insert(&ctx, (cell, 16), &small, (now, 2), false));
+		}
+		assert_eq!(cache.rasters.len(), TEXTURES);
+		let large = ColorImage::filled([256, 256], egui::Color32::WHITE);
+		for cell in 0..100 {
+			assert!(cache.insert(&ctx, (cell, 256), &large, (now, 2), false));
+			assert!(cache.bytes <= TEXTURE_BYTES);
+			assert!(cache.pages.count() <= pages::PAGES);
+		}
+		let reserved: usize = cache
+			.rasters
+			.keys()
+			.map(|key| pages::block_bytes(key.1))
+			.sum();
+		assert_eq!(cache.bytes, reserved);
+
+		// A burst of finished rasters uploads within the per-pass budget.
+		install_inline(
+			&ctx,
+			Backend {
+				rasterize: Arc::new(|_, edge| {
+					Some(ColorImage::filled([edge as usize; 2], egui::Color32::WHITE))
+				}),
+				on_worker_start: || {},
+			},
+		);
+		let service = service(&ctx).unwrap();
+		ctx.run_ui(Default::default(), |ui| {
+			for cell in 0..40 {
+				service.prefetch(ui.ctx(), (cell, 256));
+			}
+		})
+		.drop_without_applying_deltas();
+		run_jobs(&ctx);
+		ctx.run_ui(Default::default(), |ui| {
+			service.prefetch(ui.ctx(), (0, 256));
+		})
+		.drop_without_applying_deltas();
+		assert!(service.cache().bytes <= UPLOAD_BYTES);
+		assert!(!service.shared.lock().finished.is_empty());
+	}
+
+	/// Two rasters idle 100 ms apart: the second is not stranded by the sweep throttle.
+	#[test]
+	fn rasters_idle_during_a_throttled_sweep_are_still_released() {
+		let ctx = Context::default();
+		let start = Instant::now();
+		let mut cache = Cache::default();
+		let image = ColorImage::filled([16, 16], egui::Color32::WHITE);
+		let later = start + Duration::from_millis(100);
+		assert!(cache.insert(&ctx, (0, 16), &image, (start, 1), false));
+		assert!(cache.insert(&ctx, (1, 16), &image, (later, 1), false));
+		cache.sweep(start + IDLE, 5);
+		assert_eq!(cache.rasters.len(), 1);
+		let now = later + IDLE;
+		cache.sweep(now, 5);
+		assert_eq!(cache.rasters.len(), 1, "throttled");
+		let retry = cache
+			.next_release(now)
+			.expect("a deadline for the idle raster");
+		cache.sweep(retry, 5);
+		assert!(cache.rasters.is_empty());
+		assert_eq!(cache.next_release(retry), None);
+	}
+
+	/// Prefetching pauses when painted rasters near the item cap, not only the byte cap, so
+	/// small prefetches cannot evict each other and be requested again in a loop.
+	#[test]
+	fn prefetch_pauses_near_the_raster_cap() {
+		let ctx = Context::default();
+		install_inline(
+			&ctx,
+			Backend {
+				rasterize: Arc::new(|_, edge| {
+					Some(ColorImage::filled([edge as usize; 2], egui::Color32::WHITE))
+				}),
+				on_worker_start: || {},
+			},
+		);
+		let service = service(&ctx).unwrap();
+		let painted: Vec<Key> = (0..=PREFETCH_ITEMS).map(|cell| (cell, 16)).collect();
+		let frame = |prefetch: bool| {
+			ctx.run_ui(Default::default(), |ui| {
+				for &key in &painted {
+					service.paint(ui.ctx(), key);
+				}
+				if prefetch {
+					for cell in 0..300 {
+						service.prefetch(ui.ctx(), (TEXTURES + cell, 16));
+					}
+				}
+			})
+			.drop_without_applying_deltas();
+		};
+		// The painted keys outnumber a queue, so they arrive over a few passes.
+		for _ in 0..3 {
+			frame(false);
+			run_jobs(&ctx);
+		}
+		frame(false);
+		assert!(service.cache().bytes <= PREFETCH_BYTES);
+		assert_eq!(service.cache().rasters.len(), PREFETCH_ITEMS + 1);
+		frame(true);
+		assert!(service.shared.lock().queues.idle(), "nothing prefetched");
+		// Once scrolled away they stay cached but no longer hold prefetching back.
+		for _ in 0..2 {
+			ctx.run_ui(Default::default(), |ui| {
+				service.prefetch(ui.ctx(), (TEXTURES, 16));
+			})
+			.drop_without_applying_deltas();
+		}
+		assert!(!service.shared.lock().queues.idle(), "prefetched again");
+	}
+
+	/// More distinct emoji on screen than the cache holds, by raster count (small emoji) or
+	/// by page space (large ones): the visible ones stay, the rest stay empty, and the workers
+	/// and repaints stop instead of evicting and re-rendering.
+	#[test]
+	fn more_painted_emoji_than_fit_settle_without_evicting_visible_ones() {
+		for (capacity, edge) in [
+			(TEXTURES, 16),
+			(
+				pages::PAGES * ((pages::PAGE / 256) * (pages::PAGE / 256)) as usize,
+				254,
+			),
+		] {
+			settle_without_evicting_visible_ones(capacity, edge);
+		}
+	}
+
+	fn settle_without_evicting_visible_ones(capacity: usize, edge: u32) {
+		let ctx = Context::default();
+		install_inline(
+			&ctx,
+			Backend {
+				rasterize: Arc::new(|_, edge| {
+					Some(ColorImage::filled([edge as usize; 2], egui::Color32::WHITE))
+				}),
+				on_worker_start: || {},
+			},
+		);
+		let service = service(&ctx).unwrap();
+		let keys: Vec<Key> = (0..capacity + 50).map(|cell| (cell, edge)).collect();
+		let mut shown = HashSet::new();
+		for _ in 0..12 {
+			let mut ready = HashSet::new();
+			ctx.run_ui(Default::default(), |ui| {
+				for &key in &keys {
+					if let Lookup::Ready(..) = service.paint(ui.ctx(), key) {
+						ready.insert(key);
+					}
+				}
+			})
+			.drop_without_applying_deltas();
+			assert!(shown.is_subset(&ready), "a visible raster was evicted");
+			shown = ready;
+			run_jobs(&ctx);
+		}
+		assert_eq!(shown.len(), capacity);
+		assert!(service.cache().pages.count() <= pages::PAGES);
+		let state = service.shared.lock();
+		assert!(state.queues.idle() && state.finished.is_empty());
+		assert!(
+			state.repaint.is_none(),
+			"settled work holds no repaint handle"
+		);
+		drop(state);
+		// Scrolled to the ones that did not fit: they arrive once the rasters drawn before
+		// leave the screen, not only after those idle out.
+		let rest: Vec<Key> = keys
+			.into_iter()
+			.filter(|key| !shown.contains(key))
+			.collect();
+		let mut ready = 0;
+		// Large rasters upload over a few passes within the per-pass budget.
+		for _ in 0..8 {
+			ready = 0;
+			ctx.run_ui(Default::default(), |ui| {
+				for &key in &rest {
+					if let Lookup::Ready(..) = service.paint(ui.ctx(), key) {
+						ready += 1;
+					}
+				}
+			})
+			.drop_without_applying_deltas();
+			run_jobs(&ctx);
+		}
+		assert_eq!(ready, rest.len());
+	}
+
+	#[test]
+	fn painted_emoji_arrive_once_and_failed_artwork_falls_back_to_text() {
+		let ctx = Context::default();
+		install_inline(
+			&ctx,
+			Backend {
+				rasterize: Arc::new(|_, edge| {
+					(edge != 40).then(|| ColorImage::filled([edge as usize; 2], egui::Color32::RED))
+				}),
+				on_worker_start: || {},
+			},
+		);
+		let cell = super::super::lookup("🙂").unwrap();
+		let pass = |key| {
+			let mut lookup = None;
+			ctx.run_ui(Default::default(), |ui| {
+				lookup = Some(service(ui.ctx()).unwrap().paint(ui.ctx(), key));
+			})
+			.drop_without_applying_deltas();
+			lookup.unwrap()
+		};
+		assert!(matches!(pass((cell, 24)), Lookup::Pending));
+		assert!(
+			matches!(pass((cell, 24)), Lookup::Pending),
+			"requested once"
+		);
+		assert_eq!(service(&ctx).unwrap().shared.lock().queues.now.len(), 1);
+		run_jobs(&ctx);
+		assert!(matches!(pass((cell, 24)), Lookup::Ready(..)));
+		// Artwork that cannot be rasterised shows as text, without retrying.
+		assert!(matches!(pass((cell, 40)), Lookup::Pending));
+		run_jobs(&ctx);
+		assert!(matches!(pass((cell, 40)), Lookup::Failed));
+		assert!(service(&ctx).unwrap().shared.lock().queues.idle());
+	}
+}

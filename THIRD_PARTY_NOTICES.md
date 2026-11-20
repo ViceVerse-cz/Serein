@@ -171,7 +171,7 @@ Native Save As uses rfd 0.17.2 (MIT) and its pollster 0.4.0 dependency (MIT OR A
 
 Single-file upload streaming enables existing reqwest's `stream` feature and Tokio's `fs` feature. The native dependency addition is **tokio-util 0.7.19** (MIT, Tokio Contributors); its unmodified registry `LICENSE` is included as `assets/licenses/files/tokio-util-LICENSE-MIT` and staged in both package variants. Existing futures-util remains MIT OR Apache-2.0. Cargo.lock also gains wasm-streams 0.5.0 through reqwest's wasm-only target declaration; it is not selected by these native builds. See the dated addendum in [the dependency inventory](docs/dependency-versions.md).
 
-Twemoji 17.0.3 graphics © Twitter, Inc. and other contributors are licensed under **CC BY 4.0**, separately from Serein code. Source: https://github.com/jdecked/twemoji/tree/v17.0.3. The bundled images are resized and packed into an atlas; see [assets/twemoji/README.md](assets/twemoji/README.md) for provenance and modifications. The full license is `assets/twemoji/LICENSE-GRAPHICS`, staged in both packages as `licenses/Twemoji-CC-BY-4.0.txt`. No Twemoji JavaScript is bundled.
+Twemoji 17.0.3 graphics © Twitter, Inc. and other contributors are licensed under **CC BY 4.0**, separately from Serein code. Source: https://github.com/jdecked/twemoji/tree/v17.0.3. The bundled SVGs are unmodified and individually compressed; see [assets/twemoji/README.md](assets/twemoji/README.md) for provenance and modifications. The full license is `assets/twemoji/LICENSE-GRAPHICS`, staged in both packages as `licenses/Twemoji-CC-BY-4.0.txt`. No Twemoji JavaScript is bundled.
 
 Interface icons are **Phosphor Icons 2.1.1**, Copyright (c) 2023 Phosphor Icons, licensed under the **MIT License** (npm package `@phosphor-icons/core`, https://github.com/phosphor-icons/core). Seventy-five upstream SVGs plus one derived slashed-headphones glyph are rasterized into `assets/icons/atlas.png`; the unmodified license is `assets/icons/LICENSE`, staged in both packages as `licenses/Phosphor-Icons-MIT.txt`. Ten brand marks (PlayStation, Battle.net, Epic Games, League of Legends, Riot Games, Bungie, Roblox, Crunchyroll, eBay, Bluesky) in the same atlas are **Simple Icons 16.30.0** (npm package `simple-icons`, https://github.com/simple-icons/simple-icons), released under **CC0 1.0**; the license is `assets/icons/LICENSE-SIMPLE-ICONS`, staged as `licenses/Simple-Icons-CC0.txt`. Brand marks remain trademarks of their respective owners. Provenance and file hashes are in [assets/icons/README.md](assets/icons/README.md).
 
@@ -312,7 +312,7 @@ New resolved dependencies are data-url 0.3.2 (MIT OR Apache-2.0), float-cmp 0.9.
 Existing tiny-skia, kurbo, roxmltree and ruzstd are reused. Registry archive checksums
 are in Cargo.lock; all unmodified upstream license texts are retained under
 `assets/licenses/files` and copied by the existing package workflow. Twemoji SVGs
-retain the same CC BY 4.0 attribution and license as the atlas, as described in
+retain their CC BY 4.0 attribution and license, as described in
 [assets/twemoji/README.md](assets/twemoji/README.md).
 
 - `resvg-0.48.1-LICENSE-APACHE`: SHA-256 `a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9`; unmodified registry `resvg-0.48.1`/LICENSE-APACHE.
