@@ -1491,8 +1491,7 @@ impl UserPicker {
 		};
 		let closed = self.dismissed || (!searching && !self.browse);
 		let keyboard_browse = !mention
-			&& closed
-			&& !response.changed()
+			&& closed && !response.changed()
 			&& match keys.as_mut() {
 				Some(keys) => keys.take_first(egui::Key::ArrowDown),
 				None => ui

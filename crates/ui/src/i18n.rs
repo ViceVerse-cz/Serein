@@ -558,7 +558,6 @@ mod tests {
 		);
 	}
 
-
 	#[test]
 	fn vietnamese_catalog_formats_every_english_message_without_fallback() {
 		let english = Language::English.source();
