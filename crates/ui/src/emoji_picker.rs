@@ -609,6 +609,11 @@ impl Picker {
 			}
 		};
 	}
+	pub(crate) fn open_emojis(&mut self) {
+		self.pending_open = true;
+		self.tab = Tab::Emoji;
+		self.focus = true;
+	}
 	pub(crate) fn open_stickers(&mut self, sticker: Option<&model::Sticker>) {
 		self.pending_open = true;
 		self.tab = Tab::Stickers;

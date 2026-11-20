@@ -1156,6 +1156,10 @@ struct Desktop {
 	gsync: std::sync::Arc<std::sync::atomic::AtomicBool>,
 	tray: Option<platform::tray::Tray>,
 	hotkeys: platform::hotkeys::Hotkeys,
+	/// When a released push-to-talk key stops transmitting, after the release delay.
+	ptt_release: Option<std::time::Instant>,
+	/// Push-to-talk chords last frame, so rebinding ends the key hold instead of lingering.
+	ptt_chords: (bool, Vec<model::KeyChord>),
 	/// Linux desktop light/dark preference; winit reports it everywhere else.
 	system_theme: platform::system_theme::SystemTheme,
 	tray_error: Option<&'static str>,
@@ -2580,7 +2584,7 @@ impl Desktop {
 			move || ctx.request_repaint()
 		});
 		if !demo {
-			hotkeys.sync(&messaging.keybinds, &runtime);
+			hotkeys.sync(&messaging.keybinds, messaging.voice_push_to_talk, &runtime);
 		}
 		let system_theme = platform::system_theme::SystemTheme::watch(&runtime, {
 			let ctx = cc.egui_ctx.clone();
@@ -2729,6 +2733,8 @@ impl Desktop {
 			app_menu,
 			instance: Default::default(),
 			hotkeys,
+			ptt_release: None,
+			ptt_chords: (true, Vec::new()),
 			system_theme,
 			tray_error: None,
 			#[cfg(feature = "demo")]
@@ -6221,7 +6227,16 @@ impl eframe::App for Desktop {
 			.as_ref()
 			.is_some_and(|connection| *connection.afk.borrow());
 		self.sync_fonts(ctx);
-		self.hotkeys.sync(&self.messaging.keybinds, &self.runtime);
+		// Raw focus follows the window even while it is hidden and runs no UI pass.
+		self.hotkeys.set_activity(
+			ctx.input(|input| input.raw.focused),
+			self.state.voice.active.is_some(),
+		);
+		self.hotkeys.sync(
+			&self.messaging.keybinds,
+			self.messaging.voice_push_to_talk,
+			&self.runtime,
+		);
 		self.messaging.global_keybind_status = self.hotkeys.status();
 		let voice_toggles = self.hotkeys.take_toggle_pending()
 			| self
@@ -6353,8 +6368,16 @@ impl eframe::App for Desktop {
 		#[cfg(target_os = "macos")]
 		self.app_menu(ctx);
 		// Like Discord, Ctrl+Q exits even when closing the window only hides it to the tray.
+		// Windows reports AltGr as Ctrl+Alt, so AltGr+Q (@ on many layouts) must not quit.
 		#[cfg(not(target_os = "macos"))]
-		if ctx.input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, egui::Key::Q)) {
+		if ctx.input_mut(|input| {
+			let quit = input.events.iter().position(|event| {
+				matches!(event, egui::Event::Key {
+					key: egui::Key::Q, pressed: true, repeat: false, modifiers, ..
+				} if modifiers.command && !modifiers.alt)
+			});
+			quit.map(|index| input.events.remove(index)).is_some()
+		}) {
 			self.tray_window.quit(ctx);
 		}
 		let window_visible = self.window.is_visible();
@@ -6458,9 +6481,41 @@ impl eframe::App for Desktop {
 				}
 			}
 		}
-		self.messaging.voice_ptt_active = self.messaging.voice_push_to_talk
-			&& self.state.voice.active.is_some()
-			&& (self.messaging.push_to_talk_down(ctx) || self.hotkeys.push_to_talk_down());
+		let talking = self.messaging.voice_push_to_talk && self.state.voice.active.is_some();
+		let held =
+			talking && (self.messaging.push_to_talk_down(ctx) || self.hotkeys.push_to_talk_down());
+		let now = std::time::Instant::now();
+		let chords: Vec<_> = self
+			.messaging
+			.keybinds
+			.chords(model::KeybindAction::PushToTalk)
+			.cloned()
+			.collect();
+		let global = self.messaging.keybinds.global_enabled;
+		let rebound = std::mem::replace(&mut self.ptt_chords, (global, chords)) != self.ptt_chords;
+		// Rebinding, or typing in the composer over a keyboard hold, cancels it; only a real
+		// release lingers. A mouse hold is not typing.
+		let mouse_hold = self
+			.ptt_chords
+			.1
+			.iter()
+			.any(|chord| model::keybinds::is_mouse_button(&chord.key));
+		let cancelled = rebound
+			|| (!mouse_hold
+				&& ctx.input(|input| input.raw.focused)
+				&& ctx.egui_wants_keyboard_input());
+		if held || cancelled {
+			self.ptt_release = None;
+		} else if self.messaging.voice_ptt_active && self.ptt_release.is_none() {
+			self.ptt_release = Some(now + self.messaging.keybinds.push_to_talk_release());
+		}
+		// Like Discord, transmission lingers for the release delay so a word is not clipped.
+		let lingering = talking && self.ptt_release.is_some_and(|until| until > now);
+		match self.ptt_release {
+			Some(until) if lingering => ctx.request_repaint_after(until - now),
+			_ => self.ptt_release = None,
+		}
+		self.messaging.voice_ptt_active = held || lingering;
 		self.notification_runtime.ptt(
 			self.messaging.voice_push_to_talk,
 			!self.fixture_only

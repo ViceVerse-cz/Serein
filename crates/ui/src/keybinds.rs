@@ -15,6 +15,20 @@ const NAVIGATION: &[KeybindAction] = &[
 	KeybindAction::SwitchConversation,
 	KeybindAction::SearchConversation,
 	KeybindAction::CloseOverlay,
+	KeybindAction::NavigateBack,
+	KeybindAction::NavigateForward,
+	KeybindAction::PreviousChannel,
+	KeybindAction::NextChannel,
+	KeybindAction::PreviousUnreadChannel,
+	KeybindAction::NextUnreadChannel,
+	KeybindAction::PreviousServer,
+	KeybindAction::NextServer,
+];
+const CHAT: &[KeybindAction] = &[
+	KeybindAction::MarkChannelRead,
+	KeybindAction::OpenEmojiPicker,
+	KeybindAction::OpenGifPicker,
+	KeybindAction::OpenStickerPicker,
 ];
 const MESSAGES: &[KeybindAction] = &[
 	KeybindAction::SendMessage,
@@ -48,6 +62,14 @@ pub(super) fn show(
 		"Navigation",
 		"Move around Serein without reaching for the mouse.",
 		NAVIGATION,
+		bindings,
+		capturing,
+	);
+	section(
+		ui,
+		"Chat",
+		"Act on the open conversation.",
+		CHAT,
 		bindings,
 		capturing,
 	);
@@ -88,6 +110,19 @@ pub(super) fn show_voice(
 ) {
 	let colors = design::palette(ui);
 	voice_section(ui, bindings, capturing);
+	ui.add_space(10.0);
+	let mut release = bindings
+		.push_to_talk_release_ms
+		.min(model::keybinds::MAX_PUSH_TO_TALK_RELEASE_MS);
+	design::slider_row(
+		ui,
+		"Push to Talk Release Delay",
+		Some("Keep transmitting briefly after you let go, so the end of a word is not cut off."),
+		&mut release,
+		0..=model::keybinds::MAX_PUSH_TO_TALK_RELEASE_MS,
+		" ms",
+	);
+	bindings.push_to_talk_release_ms = release;
 	ui.add_space(10.0);
 	ui.label(design::eyebrow(
 		ui,
@@ -494,16 +529,25 @@ fn egui_modifiers(bits: u8) -> Modifiers {
 	}
 }
 
+/// Extra Shift still matches, so a symbol that needs Shift on some layouts keeps working. Extra
+/// Alt does not: Windows reports AltGr as Ctrl+Alt, and AltGr+Q must type @ rather than run
+/// a Ctrl+Q shortcut.
 pub(crate) fn pressed(input: &mut InputState, chord: &KeyChord) -> bool {
+	let wanted = egui_modifiers(chord.modifiers);
+	let modifiers_match = |modifiers: Modifiers| {
+		modifiers.matches_logically(wanted) && (wanted.alt || !modifiers.alt)
+	};
 	if let Some(button) = button_from_name(&chord.key) {
-		let wanted = egui_modifiers(chord.modifiers);
-		consume_button(input, button, |modifiers| {
-			modifiers.matches_logically(wanted)
-		})
-	} else {
-		key_name_to_egui(&chord.key)
-			.is_some_and(|key| input.consume_key(egui_modifiers(chord.modifiers), key))
+		return consume_button(input, button, modifiers_match);
 	}
+	let Some(key) = key_name_to_egui(&chord.key) else {
+		return false;
+	};
+	let matched = input.events.iter().any(|event| {
+		matches!(event, Event::Key { key: event_key, pressed: true, modifiers, .. }
+			if *event_key == key && modifiers_match(*modifiers))
+	});
+	matched && input.consume_key(wanted, key)
 }
 
 pub(crate) fn pressed_exact(input: &mut InputState, chord: &KeyChord) -> bool {
@@ -546,9 +590,9 @@ pub(crate) fn down(input: &InputState, chord: &KeyChord) -> bool {
 		Some(button) => input.pointer.button_down(button),
 		None => key_name_to_egui(&chord.key).is_some_and(|key| input.key_down(key)),
 	};
-	held && input
-		.modifiers
-		.matches_logically(egui_modifiers(chord.modifiers))
+	// Extra Alt never matches, as in `pressed`.
+	let wanted = egui_modifiers(chord.modifiers);
+	held && input.modifiers.matches_logically(wanted) && (wanted.alt || !input.modifiers.alt)
 }
 
 fn chord_parts(chord: &KeyChord) -> Vec<String> {
@@ -1016,7 +1060,7 @@ mod tests {
 				physical_key: None,
 				pressed: true,
 				repeat: false,
-				modifiers: Modifiers::COMMAND,
+				modifiers: Modifiers::COMMAND | Modifiers::SHIFT,
 			}],
 			&mut bindings,
 			&mut capturing,
@@ -1024,7 +1068,10 @@ mod tests {
 		assert_eq!(capturing, None);
 		assert_eq!(
 			bindings.chord(KeybindAction::PushToTalk),
-			&KeyChord::new("OpenBracket", modifier_bits(Modifiers::COMMAND))
+			&KeyChord::new(
+				"OpenBracket",
+				modifier_bits(Modifiers::COMMAND | Modifiers::SHIFT)
+			)
 		);
 		let parts = chord_parts(bindings.chord(KeybindAction::PushToTalk));
 		assert_eq!(parts.last().map(String::as_str), Some("["));

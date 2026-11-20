@@ -49,6 +49,10 @@ pub fn is_mouse_button(name: &str) -> bool {
 /// Upper bound on user-defined extra bindings, keeping saved preferences small.
 pub const MAX_CUSTOM_BINDINGS: usize = 32;
 
+/// Discord's push-to-talk release delay range and default, in milliseconds.
+pub const MAX_PUSH_TO_TALK_RELEASE_MS: u16 = 2000;
+pub const DEFAULT_PUSH_TO_TALK_RELEASE_MS: u16 = 20;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum KeybindAction {
@@ -56,6 +60,18 @@ pub enum KeybindAction {
 	SwitchConversation,
 	SearchConversation,
 	CloseOverlay,
+	NavigateBack,
+	NavigateForward,
+	PreviousChannel,
+	NextChannel,
+	PreviousUnreadChannel,
+	NextUnreadChannel,
+	PreviousServer,
+	NextServer,
+	MarkChannelRead,
+	OpenEmojiPicker,
+	OpenGifPicker,
+	OpenStickerPicker,
 	SendMessage,
 	InsertNewLine,
 	EditLastMessage,
@@ -74,11 +90,23 @@ pub enum KeybindAction {
 }
 
 impl KeybindAction {
-	pub const ALL: [Self; 19] = [
+	pub const ALL: [Self; 31] = [
 		Self::ShowShortcuts,
 		Self::SwitchConversation,
 		Self::SearchConversation,
 		Self::CloseOverlay,
+		Self::NavigateBack,
+		Self::NavigateForward,
+		Self::PreviousChannel,
+		Self::NextChannel,
+		Self::PreviousUnreadChannel,
+		Self::NextUnreadChannel,
+		Self::PreviousServer,
+		Self::NextServer,
+		Self::MarkChannelRead,
+		Self::OpenEmojiPicker,
+		Self::OpenGifPicker,
+		Self::OpenStickerPicker,
 		Self::SendMessage,
 		Self::InsertNewLine,
 		Self::EditLastMessage,
@@ -102,6 +130,18 @@ impl KeybindAction {
 			Self::SwitchConversation => "Switch Conversation",
 			Self::SearchConversation => "Search Current Conversation",
 			Self::CloseOverlay => "Close Settings or Dialog",
+			Self::NavigateBack => "Navigate Back",
+			Self::NavigateForward => "Navigate Forward",
+			Self::PreviousChannel => "Previous Channel",
+			Self::NextChannel => "Next Channel",
+			Self::PreviousUnreadChannel => "Previous Unread Channel",
+			Self::NextUnreadChannel => "Next Unread Channel",
+			Self::PreviousServer => "Previous Server",
+			Self::NextServer => "Next Server",
+			Self::MarkChannelRead => "Mark Channel as Read",
+			Self::OpenEmojiPicker => "Open Emoji Picker",
+			Self::OpenGifPicker => "Open GIF Picker",
+			Self::OpenStickerPicker => "Open Sticker Picker",
 			Self::SendMessage => "Send Message",
 			Self::InsertNewLine => "Insert New Line",
 			Self::EditLastMessage => "Edit Last Editable Message",
@@ -122,7 +162,10 @@ impl KeybindAction {
 
 	/// Actions that may stay unassigned, stored as an empty key.
 	pub const fn is_optional(self) -> bool {
-		matches!(self, Self::PushToMute | Self::CopyIssueDiagnostics)
+		matches!(
+			self,
+			Self::PushToMute | Self::CopyIssueDiagnostics | Self::OpenEmojiPicker
+		)
 	}
 
 	pub const fn is_global(self) -> bool {
@@ -141,6 +184,19 @@ pub struct Keybinds {
 	pub switch_conversation: KeyChord,
 	pub search_conversation: KeyChord,
 	pub close_overlay: KeyChord,
+	pub navigate_back: KeyChord,
+	pub navigate_forward: KeyChord,
+	pub previous_channel: KeyChord,
+	pub next_channel: KeyChord,
+	pub previous_unread_channel: KeyChord,
+	pub next_unread_channel: KeyChord,
+	pub previous_server: KeyChord,
+	pub next_server: KeyChord,
+	pub mark_channel_read: KeyChord,
+	/// Unassigned by default: Discord's Ctrl+E is Serein's Inline Code.
+	pub open_emoji_picker: KeyChord,
+	pub open_gif_picker: KeyChord,
+	pub open_sticker_picker: KeyChord,
 	pub send_message: KeyChord,
 	pub insert_new_line: KeyChord,
 	pub edit_last_message: KeyChord,
@@ -158,6 +214,9 @@ pub struct Keybinds {
 	pub toggle_deafen: KeyChord,
 	/// Unassigned by default; the empty key is valid only for optional actions.
 	pub copy_issue_diagnostics: KeyChord,
+	/// How long push-to-talk keeps transmitting after its key is released, so the end of a
+	/// word is not cut off. Clamped to [`MAX_PUSH_TO_TALK_RELEASE_MS`] where it is used.
+	pub push_to_talk_release_ms: u16,
 	/// Extra user-defined bindings for any action; unassigned rows are not saved.
 	#[serde(
 		default,
@@ -210,12 +269,36 @@ where
 
 impl Default for Keybinds {
 	fn default() -> Self {
+		// Discord's defaults; history uses Cmd+[ and Cmd+] on macOS, where Alt+arrows move by word.
+		let (back, forward) = if cfg!(target_os = "macos") {
+			(
+				KeyChord::new("OpenBracket", PRIMARY),
+				KeyChord::new("CloseBracket", PRIMARY),
+			)
+		} else {
+			(
+				KeyChord::new("ArrowLeft", ALT),
+				KeyChord::new("ArrowRight", ALT),
+			)
+		};
 		Self {
 			global_enabled: true,
 			show_shortcuts: KeyChord::new("Slash", PRIMARY),
 			switch_conversation: KeyChord::new("K", PRIMARY),
 			search_conversation: KeyChord::new("F", PRIMARY),
 			close_overlay: KeyChord::new("Escape", 0),
+			navigate_back: back,
+			navigate_forward: forward,
+			previous_channel: KeyChord::new("ArrowUp", ALT),
+			next_channel: KeyChord::new("ArrowDown", ALT),
+			previous_unread_channel: KeyChord::new("ArrowUp", ALT | SHIFT),
+			next_unread_channel: KeyChord::new("ArrowDown", ALT | SHIFT),
+			previous_server: KeyChord::new("ArrowUp", PRIMARY | ALT),
+			next_server: KeyChord::new("ArrowDown", PRIMARY | ALT),
+			mark_channel_read: KeyChord::new("PageDown", SHIFT),
+			open_emoji_picker: KeyChord::new("", 0),
+			open_gif_picker: KeyChord::new("G", PRIMARY),
+			open_sticker_picker: KeyChord::new("S", PRIMARY),
 			send_message: KeyChord::new("Enter", 0),
 			insert_new_line: KeyChord::new("Enter", SHIFT),
 			edit_last_message: KeyChord::new("ArrowUp", 0),
@@ -231,6 +314,7 @@ impl Default for Keybinds {
 			toggle_mute: KeyChord::new("M", PRIMARY | SHIFT),
 			toggle_deafen: KeyChord::new("D", PRIMARY | SHIFT),
 			copy_issue_diagnostics: KeyChord::new("", 0),
+			push_to_talk_release_ms: DEFAULT_PUSH_TO_TALK_RELEASE_MS,
 			custom: Vec::new(),
 		}
 	}
@@ -243,6 +327,18 @@ impl Keybinds {
 			KeybindAction::SwitchConversation => &self.switch_conversation,
 			KeybindAction::SearchConversation => &self.search_conversation,
 			KeybindAction::CloseOverlay => &self.close_overlay,
+			KeybindAction::NavigateBack => &self.navigate_back,
+			KeybindAction::NavigateForward => &self.navigate_forward,
+			KeybindAction::PreviousChannel => &self.previous_channel,
+			KeybindAction::NextChannel => &self.next_channel,
+			KeybindAction::PreviousUnreadChannel => &self.previous_unread_channel,
+			KeybindAction::NextUnreadChannel => &self.next_unread_channel,
+			KeybindAction::PreviousServer => &self.previous_server,
+			KeybindAction::NextServer => &self.next_server,
+			KeybindAction::MarkChannelRead => &self.mark_channel_read,
+			KeybindAction::OpenEmojiPicker => &self.open_emoji_picker,
+			KeybindAction::OpenGifPicker => &self.open_gif_picker,
+			KeybindAction::OpenStickerPicker => &self.open_sticker_picker,
 			KeybindAction::SendMessage => &self.send_message,
 			KeybindAction::InsertNewLine => &self.insert_new_line,
 			KeybindAction::EditLastMessage => &self.edit_last_message,
@@ -267,6 +363,18 @@ impl Keybinds {
 			KeybindAction::SwitchConversation => &mut self.switch_conversation,
 			KeybindAction::SearchConversation => &mut self.search_conversation,
 			KeybindAction::CloseOverlay => &mut self.close_overlay,
+			KeybindAction::NavigateBack => &mut self.navigate_back,
+			KeybindAction::NavigateForward => &mut self.navigate_forward,
+			KeybindAction::PreviousChannel => &mut self.previous_channel,
+			KeybindAction::NextChannel => &mut self.next_channel,
+			KeybindAction::PreviousUnreadChannel => &mut self.previous_unread_channel,
+			KeybindAction::NextUnreadChannel => &mut self.next_unread_channel,
+			KeybindAction::PreviousServer => &mut self.previous_server,
+			KeybindAction::NextServer => &mut self.next_server,
+			KeybindAction::MarkChannelRead => &mut self.mark_channel_read,
+			KeybindAction::OpenEmojiPicker => &mut self.open_emoji_picker,
+			KeybindAction::OpenGifPicker => &mut self.open_gif_picker,
+			KeybindAction::OpenStickerPicker => &mut self.open_sticker_picker,
 			KeybindAction::SendMessage => &mut self.send_message,
 			KeybindAction::InsertNewLine => &mut self.insert_new_line,
 			KeybindAction::EditLastMessage => &mut self.edit_last_message,
@@ -318,6 +426,14 @@ impl Keybinds {
 					})
 					.map(|(_, binding)| binding.action)
 			})
+	}
+
+	/// The release delay within Discord's range.
+	pub fn push_to_talk_release(&self) -> std::time::Duration {
+		std::time::Duration::from_millis(u64::from(
+			self.push_to_talk_release_ms
+				.min(MAX_PUSH_TO_TALK_RELEASE_MS),
+		))
 	}
 
 	pub fn is_valid(&self) -> bool {

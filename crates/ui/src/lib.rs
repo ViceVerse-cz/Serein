@@ -646,6 +646,25 @@ pub struct MessagingUi {
 	pub blur: u8,
 }
 
+/// Servers in rail order: ones not yet in folder settings first, then each folder's servers,
+/// whether or not the folder is expanded.
+fn server_order(state: &State) -> Vec<Id> {
+	let foldered: Vec<Id> = state
+		.guild_folders
+		.iter()
+		.flat_map(|settings| &settings.folders)
+		.flat_map(|folder| folder.guild_ids.iter().copied())
+		.filter(|id| state.guild(*id).is_some())
+		.collect();
+	state
+		.guilds
+		.iter()
+		.map(|guild| guild.id)
+		.filter(|id| !foldered.contains(id))
+		.chain(foldered.iter().copied())
+		.collect()
+}
+
 /// Context strip (reply/edit) drawn as the rounded top of the composer block.
 fn composer_cap(
 	ui: &mut egui::Ui,
@@ -771,8 +790,10 @@ impl MessagingUi {
 	/// Text entry suppresses held keys, but a held mouse button is never typing.
 	fn voice_hold_down(&self, ctx: &egui::Context, action: model::KeybindAction) -> bool {
 		let wants_keyboard = ctx.egui_wants_keyboard_input();
+		// Raw focus follows the window even when a hidden window runs no UI pass, which would
+		// otherwise keep the last visible frame's key state.
 		ctx.input(|input| {
-			input.focused
+			input.raw.focused
 				&& self.keybinds.chords(action).any(|chord| {
 					(!wants_keyboard || model::keybinds::is_mouse_button(&chord.key))
 						&& crate::keybinds::down(input, chord)
@@ -810,7 +831,7 @@ impl MessagingUi {
 		ctx: &egui::Context,
 		registered_globally: impl Fn(model::KeybindAction, &model::KeyChord) -> bool,
 	) -> u8 {
-		if !ctx.input(|input| input.focused) {
+		if !ctx.input(|input| input.raw.focused) {
 			return 0;
 		}
 		let wants_keyboard = ctx.egui_wants_keyboard_input();
@@ -1720,6 +1741,120 @@ impl MessagingUi {
 					);
 				}
 			});
+	}
+	/// Discord's focused navigation and picker shortcuts. They run before the composer, so a
+	/// chord such as Alt+Up moves between channels instead of the text cursor.
+	fn navigation_shortcuts(
+		&mut self,
+		ctx: &egui::Context,
+		state: &mut State,
+		composer_open: bool,
+		commands: &mut Vec<Command>,
+	) {
+		use model::KeybindAction as Action;
+		const ACTIONS: [Action; 12] = [
+			Action::NavigateBack,
+			Action::NavigateForward,
+			Action::PreviousChannel,
+			Action::NextChannel,
+			Action::PreviousUnreadChannel,
+			Action::NextUnreadChannel,
+			Action::PreviousServer,
+			Action::NextServer,
+			Action::MarkChannelRead,
+			Action::OpenEmojiPicker,
+			Action::OpenGifPicker,
+			Action::OpenStickerPicker,
+		];
+		// Exact modifiers, so Alt+Shift+Down is not taken as Alt+Down. A default that an older
+		// profile already gave to another action stays with that action.
+		let Some(action) = ctx.input_mut(|input| {
+			ACTIONS.into_iter().find(|action| {
+				let builtin = self.keybinds.chord(*action);
+				std::iter::once(builtin)
+					.filter(|chord| {
+						chord.is_valid()
+							&& self.keybinds.conflict(chord, Some(*action), None).is_none()
+					})
+					.chain(
+						self.keybinds
+							.custom
+							.iter()
+							.filter(|binding| binding.action == *action)
+							.map(|binding| &binding.chord)
+							.filter(|chord| chord.is_valid()),
+					)
+					.any(|chord| crate::keybinds::pressed_exact(input, chord))
+			})
+		}) else {
+			return;
+		};
+		let reachable =
+			|id| state.can_view(id) && state.channel(id).is_some_and(client_core::navigable);
+		let channel = match action {
+			Action::NavigateBack | Action::NavigateForward => {
+				self.navigate_history(state, commands, action == Action::NavigateBack);
+				None
+			}
+			// The same checks `State::select` makes, so a row it would refuse is skipped.
+			Action::PreviousChannel | Action::NextChannel => {
+				self.channel_cache
+					.step(state.selected, action == Action::NextChannel, |id| {
+						reachable(id)
+					})
+			}
+			Action::PreviousUnreadChannel | Action::NextUnreadChannel => {
+				self.channel_cache
+					.step(state.selected, action == Action::NextUnreadChannel, |id| {
+						reachable(id) && state.unread(id) == Some(true)
+					})
+			}
+			Action::PreviousServer | Action::NextServer => {
+				let order = server_order(state);
+				let len = order.len();
+				let current = self
+					.guild
+					.and_then(|guild| order.iter().position(|id| *id == guild));
+				let next = match (current, action == Action::NextServer) {
+					_ if len == 0 => None,
+					(Some(index), true) => Some(order[(index + 1) % len]),
+					(Some(index), false) => Some(order[(index + len - 1) % len]),
+					(None, true) => order.first().copied(),
+					(None, false) => order.last().copied(),
+				};
+				if let Some(guild) = next
+					&& self.server_settings.navigate_away(state)
+				{
+					self.guild = Some(guild);
+					commands.extend(state.select_guild(guild));
+				}
+				None
+			}
+			Action::MarkChannelRead => {
+				commands.extend(
+					state
+						.selected
+						.and_then(|channel| state.prepare_mark_channel_read(channel)),
+				);
+				None
+			}
+			Action::OpenEmojiPicker if composer_open => {
+				self.emoji_picker.open_emojis();
+				None
+			}
+			Action::OpenGifPicker if composer_open => {
+				self.emoji_picker.open_gifs("");
+				None
+			}
+			Action::OpenStickerPicker if composer_open => {
+				self.emoji_picker.open_stickers(None);
+				None
+			}
+			_ => None,
+		};
+		if let Some(channel) = channel {
+			commands.extend(state.select(channel));
+		}
 	}
 	fn navigate_history(&mut self, state: &mut State, commands: &mut Vec<Command>, back: bool) {
 		if self.timeline.video.is_fullscreen()
@@ -5212,6 +5347,14 @@ impl MessagingUi {
 				.any(|chord| crate::keybinds::pressed(input, chord))
 		}) {
 			self.switcher.open(&ctx);
+		}
+		if !settings_open
+			&& !self.switcher.is_open()
+			&& !self.ime_active
+			&& self.keybind_capture.is_none()
+			&& ctx.input(|input| input.focused)
+		{
+			self.navigation_shortcuts(&ctx, state, composer_open, &mut commands);
 		}
 		self.switcher_frame = self.switcher.is_open();
 		let direct_origin = (state.selected, state.request);

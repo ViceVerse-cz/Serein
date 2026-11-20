@@ -208,10 +208,33 @@ fn drop_move(
 pub(super) struct Cache {
 	key: Option<CacheKey>,
 	rows: Vec<CachedRow>,
+	/// Listed text conversations in sidebar order, for previous/next channel shortcuts.
+	order: Vec<Id>,
 }
 impl Cache {
 	pub(super) fn invalidate(&mut self) {
 		self.key = None;
+	}
+
+	/// The listed conversation before or after `from` that passes `wanted`, wrapping around.
+	/// From outside the list, the first or last one.
+	pub(super) fn step(
+		&self,
+		from: Option<Id>,
+		forward: bool,
+		wanted: impl Fn(Id) -> bool,
+	) -> Option<Id> {
+		let len = self.order.len();
+		let start = from.and_then(|id| self.order.iter().position(|current| *current == id));
+		(1..=len)
+			.map(|offset| match (start, forward) {
+				(Some(start), true) => (start + offset) % len,
+				(Some(start), false) => (start + len - offset) % len,
+				(None, true) => offset - 1,
+				(None, false) => len - offset,
+			})
+			.map(|index| self.order[index])
+			.find(|id| Some(*id) != from && wanted(*id))
 	}
 }
 
@@ -696,6 +719,14 @@ impl MessagingUi {
 					rows.extend(entries.into_iter().map(Row::Participant));
 				}
 			}
+			// Rosters lift their channels out of the tree, so each id appears once.
+			self.channel_cache.order.clear();
+			self.channel_cache
+				.order
+				.extend(rows.iter().filter_map(|row| match row {
+					Row::Channel(channel, ..) if !voice_lane(channel.kind) => Some(channel.id),
+					_ => None,
+				}));
 			let participants: BTreeMap<_, _> = state
 				.voice
 				.roster

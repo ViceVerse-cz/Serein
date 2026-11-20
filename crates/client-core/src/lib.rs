@@ -1135,7 +1135,7 @@ impl Default for State {
 	}
 }
 /// Channels the conversation pane can present: text, voice, and forum containers.
-fn navigable(channel: &Channel) -> bool {
+pub fn navigable(channel: &Channel) -> bool {
 	channel.supports_text()
 		|| channel.kind == 2
 		|| (channel.guild.is_some() && matches!(channel.kind, 15 | 16))

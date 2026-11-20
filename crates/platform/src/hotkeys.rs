@@ -1,4 +1,6 @@
 //! Native global voice bindings, using the desktop portal on Wayland.
+mod poll;
+
 use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState, hotkey::HotKey};
 use model::{KeyChord, KeybindAction, Keybinds, keybinds::is_mouse_button};
 #[cfg(target_os = "linux")]
@@ -15,10 +17,8 @@ const UNAVAILABLE: &str =
 	"Global voice keybinds are unavailable on this system; they work while Serein is focused.";
 const INVALID: &str = "One or more voice bindings cannot be registered globally; they still work while Serein is focused.";
 const MODIFIER_REQUIRED: &str = "Add Ctrl, Alt, Shift, or Command to use a voice binding globally; it still works while Serein is focused.";
-
-#[cfg(target_os = "windows")]
-/// Mouse poller identities, kept out of the range `global-hotkey` assigns to real hotkeys.
-const MOUSE_ID: u32 = 1 << 31;
+#[cfg(target_os = "macos")]
+const INPUT_MONITORING: &str = "Allow Serein in System Settings > Privacy & Security > Input Monitoring to use single-key voice bindings in other apps.";
 
 static NATIVE_INPUTS: Mutex<Vec<Weak<NativeInput>>> = Mutex::new(Vec::new());
 
@@ -82,6 +82,15 @@ impl NativeInput {
 		*self.state.lock().expect("native hotkey state poisoned") = NativeState::default();
 	}
 
+	/// Releases keys at or above `first`, which a stopped source can no longer release.
+	fn release_from(&self, first: u32) {
+		self.state
+			.lock()
+			.expect("native hotkey state poisoned")
+			.held
+			.retain(|(id, _)| *id < first);
+	}
+
 	fn register(&self, id: u32, action: KeybindAction) {
 		self.state
 			.lock()
@@ -130,8 +139,12 @@ pub struct Hotkeys {
 	bindings: Option<Vec<(KeybindAction, KeyChord)>>,
 	native: Arc<NativeInput>,
 	status: &'static str,
-	#[cfg(target_os = "windows")]
-	mouse: Option<mouse::Poller>,
+	/// Plain keys and mouse buttons, watched without registering them.
+	poller: Option<poll::Poller>,
+	poll_flags: poll::Flags,
+	/// Whether Input Monitoring allows the watched keyboard keys; `None` when none are watched.
+	#[cfg(target_os = "macos")]
+	listen_access: Option<bool>,
 	#[cfg(target_os = "linux")]
 	portal: Option<tokio::task::JoinHandle<()>>,
 	#[cfg(target_os = "linux")]
@@ -181,8 +194,10 @@ impl Hotkeys {
 			bindings: None,
 			native,
 			status,
-			#[cfg(target_os = "windows")]
-			mouse: None,
+			poller: None,
+			poll_flags: poll::Flags::default(),
+			#[cfg(target_os = "macos")]
+			listen_access: None,
 			#[cfg(target_os = "linux")]
 			portal: None,
 			#[cfg(target_os = "linux")]
@@ -202,11 +217,38 @@ impl Hotkeys {
 		}
 	}
 
-	pub fn sync(&mut self, keybinds: &Keybinds, _runtime: &tokio::runtime::Runtime) {
+	/// Focus and call state for the key poller: keyboard keys stay with focused input while
+	/// Serein is focused, and polling slows down outside a call.
+	pub fn set_activity(&mut self, focused: bool, in_call: bool) {
+		self.poll_flags
+			.focused
+			.store(focused, std::sync::atomic::Ordering::Relaxed);
+		let joined = !self
+			.poll_flags
+			.in_call
+			.swap(in_call, std::sync::atomic::Ordering::Relaxed)
+			&& in_call;
+		#[cfg(target_os = "macos")]
+		if joined && self.listen_access == Some(false) {
+			self.listen_access = Some(poll::listen_access(true));
+		}
+		#[cfg(not(target_os = "macos"))]
+		let _ = joined;
+	}
+
+	/// `push_to_talk` is the voice input mode; its key is only watched while it is on.
+	pub fn sync(
+		&mut self,
+		keybinds: &Keybinds,
+		push_to_talk: bool,
+		_runtime: &tokio::runtime::Runtime,
+	) {
 		let next = keybinds.global_enabled.then(|| {
 			KeybindAction::ALL
 				.into_iter()
-				.filter(|action| action.is_global())
+				.filter(|action| {
+					action.is_global() && (push_to_talk || *action != KeybindAction::PushToTalk)
+				})
 				.flat_map(|action| {
 					keybinds
 						.chords(action)
@@ -273,11 +315,9 @@ impl Hotkeys {
 			return;
 		}
 
-		let Some(manager) = &self.manager else {
-			return;
-		};
 		let mut failed = false;
 		let mut modifier_required = false;
+		let mut polled = Vec::new();
 		for (action, chord) in &next {
 			// An unassigned binding, such as the default push-to-mute row, is simply absent.
 			if chord.key.is_empty() {
@@ -287,20 +327,21 @@ impl Hotkeys {
 				failed = true;
 				continue;
 			}
-			if is_mouse_button(&chord.key) {
-				// Windows polls mouse bindings below; elsewhere they stay focused-only.
-				failed |= cfg!(not(target_os = "windows"));
-				continue;
-			}
-			if chord.modifiers == 0 && !is_standalone_global_key(&chord.key) {
-				modifier_required |= !matches!(
-					action,
-					KeybindAction::PushToTalk | KeybindAction::PushToMute
-				);
+			let pollable = poll::supported(&chord.key);
+			// Registering a plain key or button would take it from every other app, so those
+			// are watched instead, like Discord does.
+			if pollable && (chord.modifiers == 0 || is_mouse_button(&chord.key)) {
+				polled.push((*action, chord.clone()));
 				continue;
 			}
 			let Some(hotkey) = native_hotkey(chord) else {
-				failed = true;
+				if pollable {
+					polled.push((*action, chord.clone()));
+				} else if chord.modifiers == 0 {
+					modifier_required = true;
+				} else {
+					failed = true;
+				}
 				continue;
 			};
 			// Cmd/Ctrl variants can translate to the same native hotkey. A same-action alias
@@ -314,31 +355,46 @@ impl Hotkeys {
 				failed |= *registered != *action;
 				continue;
 			}
-			match manager.register(hotkey) {
-				Ok(()) => {
+			match self
+				.manager
+				.as_ref()
+				.map(|manager| manager.register(hotkey))
+			{
+				Some(Ok(())) => {
 					self.native.register(hotkey.id(), *action);
 					self.registered.push((hotkey, *action, chord.clone()));
 				}
-				Err(_) => failed = true,
+				// Another app already owns this shortcut: watching it still works.
+				_ if pollable => polled.push((*action, chord.clone())),
+				_ => failed = true,
 			}
 		}
-		#[cfg(target_os = "windows")]
-		{
-			self.mouse = mouse::Poller::start(&next, self.native.clone());
-		}
-		if failed {
-			self.status = INVALID;
+		self.status = if failed {
+			INVALID
 		} else if modifier_required {
-			self.status = MODIFIER_REQUIRED;
+			MODIFIER_REQUIRED
 		} else {
-			self.status = READY;
+			READY
+		};
+		#[cfg(target_os = "macos")]
+		{
+			self.listen_access = polled
+				.iter()
+				.any(|(_, chord)| !is_mouse_button(&chord.key))
+				.then(|| {
+					poll::listen_access(
+						self.poll_flags
+							.in_call
+							.load(std::sync::atomic::Ordering::Relaxed),
+					)
+				});
 		}
+		self.poller = poll::Poller::start(polled, self.native.clone(), self.poll_flags.clone());
 	}
 
 	fn unregister_all(&mut self) {
 		// Stop the poller first so it cannot publish a stale press after the clear.
-		#[cfg(target_os = "windows")]
-		drop(self.mouse.take());
+		drop(self.poller.take());
 		self.native.clear();
 		if let Some(manager) = &self.manager {
 			for (hotkey, ..) in self.registered.drain(..) {
@@ -366,9 +422,8 @@ impl Hotkeys {
 		{
 			return true;
 		}
-		#[cfg(target_os = "windows")]
-		if let Some(poller) = &self.mouse
-			&& poller.registers(action, chord)
+		if let Some(poller) = &self.poller
+			&& poller.owns_focused(action, chord)
 		{
 			return true;
 		}
@@ -387,7 +442,6 @@ impl Hotkeys {
 
 	/// Bits for mute/deafen bindings currently owned by the native global registrar.
 	pub fn global_toggle_mask(&self) -> u8 {
-		#[cfg_attr(not(target_os = "windows"), allow(unused_mut))]
 		let mut mask = self.registered.iter().fold(0, |mask, (_, action, _)| {
 			mask | match action {
 				KeybindAction::ToggleMute => 1,
@@ -395,8 +449,7 @@ impl Hotkeys {
 				_ => 0,
 			}
 		});
-		#[cfg(target_os = "windows")]
-		if let Some(poller) = &self.mouse {
+		if let Some(poller) = &self.poller {
 			mask |= poller.toggle_mask();
 		}
 		#[cfg(target_os = "linux")]
@@ -433,6 +486,10 @@ impl Hotkeys {
 				4 => MODIFIER_REQUIRED,
 				_ => WAYLAND_UNAVAILABLE,
 			};
+		}
+		#[cfg(target_os = "macos")]
+		if self.listen_access == Some(false) {
+			return INPUT_MONITORING;
 		}
 		self.status
 	}
@@ -853,165 +910,6 @@ fn code_name(name: &str) -> Option<&'static str> {
 		"F23" => Some("F23"),
 		"F24" => Some("F24"),
 		_ => None,
-	}
-}
-
-/// Windows has no global mouse-button hotkeys, so the physical button state is polled instead.
-#[cfg(target_os = "windows")]
-mod mouse {
-	use super::{KeyChord, KeybindAction, MOUSE_ID, NativeInput};
-	use model::keybinds::{ALT, CTRL, PRIMARY, SHIFT};
-	use std::sync::{
-		Arc,
-		atomic::{AtomicBool, Ordering},
-	};
-	use std::time::Duration;
-	use windows::Win32::UI::Input::KeyboardAndMouse::{
-		GetAsyncKeyState, VIRTUAL_KEY, VK_CONTROL, VK_MBUTTON, VK_MENU, VK_SHIFT, VK_XBUTTON1,
-		VK_XBUTTON2,
-	};
-
-	/// Well under an ordinary click, which stays down for tens of milliseconds.
-	const PERIOD: Duration = Duration::from_millis(10);
-
-	/// Runs only while a global voice action is bound to a mouse button.
-	pub(super) struct Poller {
-		stop: Arc<AtomicBool>,
-		thread: Option<std::thread::JoinHandle<()>>,
-		toggles: u8,
-		chords: Vec<(KeybindAction, KeyChord)>,
-	}
-
-	impl Poller {
-		pub(super) fn start(
-			bindings: &[(KeybindAction, KeyChord)],
-			native: Arc<NativeInput>,
-		) -> Option<Self> {
-			let watched: Vec<_> = bindings
-				.iter()
-				.filter_map(|(action, chord)| Some((*action, button(&chord.key)?, chord.modifiers)))
-				.collect();
-			if watched.is_empty() {
-				return None;
-			}
-			let toggles = watched.iter().fold(0, |mask, (action, ..)| {
-				mask | match action {
-					KeybindAction::ToggleMute => 1,
-					KeybindAction::ToggleDeafen => 2,
-					_ => 0,
-				}
-			});
-			// Only mouse chords are polled, so keyboard chords never count as global here.
-			let chords: Vec<_> = bindings
-				.iter()
-				.filter(|(_, chord)| button(&chord.key).is_some())
-				.cloned()
-				.collect();
-			// One group per action and physical button; modifier variants within a group OR.
-			let mut toggle_groups: Vec<(KeybindAction, VIRTUAL_KEY)> = Vec::new();
-			for (action, button, _) in &watched {
-				if matches!(
-					action,
-					KeybindAction::ToggleMute | KeybindAction::ToggleDeafen
-				) && !toggle_groups.iter().any(|(group_action, group_button)| {
-					group_action == action && group_button.0 == button.0
-				}) {
-					toggle_groups.push((*action, *button));
-				}
-			}
-			let stop = Arc::new(AtomicBool::new(false));
-			let stopped = stop.clone();
-			let thread = std::thread::Builder::new()
-				.name("serein-mouse-keybinds".into())
-				.spawn(move || {
-					let mut held = vec![false; watched.len()];
-					let mut held_toggles = vec![false; toggle_groups.len()];
-					while !stopped.load(Ordering::Relaxed) {
-						let next: Vec<bool> = watched
-							.iter()
-							.map(|(_, button, modifiers)| {
-								key_down(*button) && modifiers_match(*modifiers)
-							})
-							.collect();
-						for (index, ((action, ..), (was, now))) in
-							watched.iter().zip(held.iter().zip(&next)).enumerate()
-						{
-							// Toggle chords fold into one transition per button below.
-							if was != now
-								&& !matches!(
-									action,
-									KeybindAction::ToggleMute | KeybindAction::ToggleDeafen
-								) {
-								native.apply(MOUSE_ID + index as u32, *action, *now);
-							}
-						}
-						for (group, (action, button)) in toggle_groups.iter().enumerate() {
-							let down = watched.iter().zip(&next).any(
-								|((watched, watched_button, _), down)| {
-									watched == action && watched_button.0 == button.0 && *down
-								},
-							);
-							if down != held_toggles[group] {
-								held_toggles[group] = down;
-								native.apply(MOUSE_ID + 64 + group as u32, *action, down);
-							}
-						}
-						held = next;
-						std::thread::sleep(PERIOD);
-					}
-				})
-				.ok()?;
-			Some(Self {
-				stop,
-				thread: Some(thread),
-				toggles,
-				chords,
-			})
-		}
-
-		/// Mute/deafen bits this poller owns, so focused input does not toggle them twice.
-		pub(super) fn toggle_mask(&self) -> u8 {
-			self.toggles
-		}
-
-		/// Whether this poller watches the exact chord.
-		pub(super) fn registers(&self, action: KeybindAction, chord: &KeyChord) -> bool {
-			self.chords
-				.iter()
-				.any(|(watched, current)| *watched == action && current == chord)
-		}
-	}
-
-	impl Drop for Poller {
-		fn drop(&mut self) {
-			self.stop.store(true, Ordering::Relaxed);
-			if let Some(thread) = self.thread.take() {
-				let _ = thread.join();
-			}
-		}
-	}
-
-	fn button(name: &str) -> Option<VIRTUAL_KEY> {
-		match name {
-			"MouseMiddle" => Some(VK_MBUTTON),
-			"MouseExtra1" => Some(VK_XBUTTON1),
-			"MouseExtra2" => Some(VK_XBUTTON2),
-			_ => None,
-		}
-	}
-
-	/// Mirrors egui's `matches_logically` for focused input: extra Shift or Alt still
-	/// match, while Ctrl must agree so Ctrl+button stays a distinct binding.
-	fn modifiers_match(modifiers: u8) -> bool {
-		key_down(VK_CONTROL) == (modifiers & (PRIMARY | CTRL) != 0)
-			&& (modifiers & SHIFT == 0 || key_down(VK_SHIFT))
-			&& (modifiers & ALT == 0 || key_down(VK_MENU))
-	}
-
-	#[allow(unsafe_code)]
-	fn key_down(key: VIRTUAL_KEY) -> bool {
-		// SAFETY: GetAsyncKeyState only reads global input state for a virtual-key code.
-		unsafe { GetAsyncKeyState(i32::from(key.0)) < 0 }
 	}
 }
 
