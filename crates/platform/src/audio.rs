@@ -26,14 +26,28 @@ pub fn output_config(
 		|| {
 			device
 				.default_output_config()
-				.map_err(|_| "Default audio format is unavailable")
+				.map_err(|error| output_error(&error, "Default audio format is unavailable"))
 		},
 		|| {
 			device
 				.supported_output_configs()
-				.map_err(|_| "Speaker formats are unavailable")
+				.map_err(|error| output_error(&error, "Speaker formats are unavailable"))
 		},
 	)
+}
+
+/// Fixed reasons keep the call card and the bounded log readable; the raw backend error is not
+/// reported because it is unbounded and does not change what the person can do.
+fn output_error(error: &cpal::Error, fallback: &'static str) -> &'static str {
+	match error.kind() {
+		cpal::ErrorKind::HostUnavailable => "System audio service is unavailable",
+		cpal::ErrorKind::DeviceNotAvailable | cpal::ErrorKind::StreamInvalidated => {
+			"Audio output device is unavailable; check the speaker selection"
+		}
+		cpal::ErrorKind::DeviceBusy => "Audio output device is in use by another application",
+		cpal::ErrorKind::UnsupportedConfig => "Audio output device has no usable format",
+		_ => fallback,
+	}
 }
 
 fn select_output_config<I: Iterator<Item = SupportedStreamConfigRange>>(
