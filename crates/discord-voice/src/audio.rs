@@ -368,13 +368,18 @@ impl Audio {
 						active.input_gate = crate::activity::InputGate::default();
 						active.processing = processing;
 					}
-					if let Err(error) = echo.configure(processing) {
-						emit(Err(error));
-						break 'audio;
-					}
+					// DeepFilterNet loads off this thread: capture stays gated until it is ready,
+					// while playback keeps flowing.
+					let ready = match echo.configure(processing) {
+						Ok(ready) => ready,
+						Err(error) => {
+							emit(Err(error));
+							break 'audio;
+						}
+					};
 					// Publish readiness under the same watch lock as configuration changes.
 					let latest_processing = selected_processing.borrow();
-					let prepared = *latest_processing == processing;
+					let prepared = ready && *latest_processing == processing;
 					if !worker_gate
 						.processing_ready
 						.swap(prepared, Ordering::AcqRel)
@@ -1159,6 +1164,13 @@ impl Playback {
 		value
 	}
 }
+/// Configures `dsp` and waits for a DeepFilterNet load, as the worker does by polling.
+#[cfg(any(test, debug_assertions))]
+fn configure_ready(dsp: &mut echo::Echo, processing: Processing) {
+	while !dsp.configure(processing).unwrap() {
+		std::thread::sleep(Duration::from_millis(1));
+	}
+}
 /// Offline processing exercise: no audio host, native streams or Discord transport.
 #[cfg(debug_assertions)]
 pub fn debug_processing_check() {
@@ -1203,12 +1215,21 @@ pub fn debug_processing_check() {
 	let mut frame = original;
 	dsp.capture(&mut frame, false).unwrap();
 	assert_eq!(frame, original, "Studio must bypass DSP");
-	for suppression in [NoiseSuppression::RnNoise, NoiseSuppression::WebRtc] {
-		dsp.configure(Processing {
-			suppression,
-			..Processing::default()
-		})
-		.unwrap();
+	for suppression in [
+		NoiseSuppression::RnNoise,
+		NoiseSuppression::WebRtc,
+		NoiseSuppression::DeepFilterNet,
+	] {
+		if suppression.supported() != suppression {
+			continue;
+		}
+		configure_ready(
+			&mut dsp,
+			Processing {
+				suppression,
+				..Processing::default()
+			},
+		);
 		for _ in 0..40 {
 			let mut frame = original;
 			dsp.render(&[0.0; 960]).unwrap();
@@ -1231,13 +1252,67 @@ pub fn debug_processing_check() {
 		"Live switch back to Studio must bypass DSP"
 	);
 	println!(
-		"Offline voice processing passed: profiles, legacy mapping, sensitivity/release, Studio bypass, RNNoise/WebRTC inference and history reset. No devices opened."
+		"Offline voice processing passed: profiles, legacy mapping, sensitivity/release, Studio bypass, RNNoise/WebRTC/DeepFilterNet inference and history reset. No devices opened."
 	);
 }
 
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[test]
+	#[cfg(not(all(target_os = "windows", target_arch = "aarch64")))]
+	fn deepfilternet_loads_off_worker_caps_strength_and_resets_history() {
+		let mut dsp = echo::Echo::new();
+		let full = Processing {
+			suppression: NoiseSuppression::DeepFilterNet,
+			suppression_level: 2,
+			..Processing::studio()
+		};
+		// The networks load on a helper thread instead of stalling the audio worker.
+		assert!(!dsp.configure(full).unwrap());
+		configure_ready(&mut dsp, full);
+		let mut seed = 17_u32;
+		let mut noise = || -> Frame {
+			std::array::from_fn(|_| {
+				seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+				(seed as i32 as f32 / i32::MAX as f32) * 0.05
+			})
+		};
+		fn residual(dsp: &mut echo::Echo, noise: &mut impl FnMut() -> Frame) -> f32 {
+			let (mut before, mut after) = (0.0, 0.0);
+			for tick in 0..60 {
+				let raw = noise();
+				let mut clean = raw;
+				dsp.capture(&mut clean, false).unwrap();
+				assert!(clean.iter().all(|s| s.is_finite() && s.abs() <= 1.0));
+				if tick >= 30 {
+					before += raw.iter().map(|s| s * s).sum::<f32>();
+					after += clean.iter().map(|s| s * s).sum::<f32>();
+				}
+			}
+			after / before
+		}
+		let full_residual = residual(&mut dsp, &mut noise);
+		assert!(full_residual < 0.1, "{full_residual}");
+		// Low caps attenuation at 12 dB (residual energy 0.063) without reloading the networks.
+		assert!(
+			dsp.configure(Processing {
+				suppression_level: 0,
+				..full
+			})
+			.unwrap()
+		);
+		let low_residual = residual(&mut dsp, &mut noise);
+		assert!((0.03..0.13).contains(&low_residual), "{low_residual}");
+		// Look-ahead and recurrent state hold earlier microphone audio; a reset must drop it.
+		let probe = noise();
+		let [mut first, mut second] = [probe; 2];
+		dsp.reset();
+		dsp.capture(&mut first, false).unwrap();
+		dsp.reset();
+		dsp.capture(&mut second, false).unwrap();
+		assert_eq!(first, second);
+	}
 	fn audio_without_devices() -> Audio {
 		let (settings, _) = tokio::sync::watch::channel(Devices::default());
 		let (processing, _) =

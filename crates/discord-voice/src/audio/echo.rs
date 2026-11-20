@@ -1,17 +1,134 @@
 //! Worker-owned speech processing; never runs in device callbacks.
+use deep::{DeepFilter, Models};
 use model::voice_settings::{NoiseSuppression, Processing, VoiceProcessing};
 use nnnoiseless::DenoiseState;
 use sonora::{
 	AudioProcessing, Config, StreamConfig,
 	config::{AdaptiveDigital, EchoCanceller, GainController2, NoiseSuppressionLevel},
 };
-use std::time::{Duration, Instant};
+use std::{
+	thread::JoinHandle,
+	time::{Duration, Instant},
+};
 
 pub struct Echo {
 	processor: AudioProcessing,
 	gain: Option<AudioProcessing>,
 	noise: Option<Box<DenoiseState<'static>>>,
+	deep: Option<Box<DeepFilter>>,
+	/// DeepFilterNet networks being decoded and optimized on a helper thread.
+	deep_load: Option<JoinHandle<Option<Models>>>,
 	settings: Processing,
+}
+
+const DEEP_FAILED: &str = "DeepFilterNet noise suppression could not start";
+
+#[cfg(not(all(target_os = "windows", target_arch = "aarch64")))]
+mod deep {
+	use super::DEEP_FAILED;
+	use df::tract::{DfModels, DfParams, DfTract, RuntimeParams};
+	use ndarray::{ArrayView2, ArrayViewMut2};
+	use std::thread::JoinHandle;
+
+	pub type Models = DfModels;
+
+	/// Bundled DeepFilterNet3. The model keeps recurrent and look-ahead history, so a reset
+	/// restarts from `fresh` instead of decoding and optimizing the network again.
+	pub struct DeepFilter {
+		fresh: DfTract,
+		model: DfTract,
+		level: u8,
+	}
+	/// The reference command-line stage thresholds. The narrower library defaults skip the
+	/// stateful decoders on many speech frames, which audibly clips speech in moderate noise.
+	fn params() -> RuntimeParams {
+		RuntimeParams::default_with_ch(1).with_thresholds(-15.0, 35.0, 35.0)
+	}
+	impl DeepFilter {
+		/// Decoding and optimizing the networks takes about a fifth of a second; doing it on a
+		/// helper thread keeps the worker servicing playback meanwhile.
+		pub fn load() -> Result<JoinHandle<Option<DfModels>>, &'static str> {
+			std::thread::Builder::new()
+				.name("voice-deepfilternet".into())
+				.spawn(|| DfModels::new(DfParams::default(), &params()).ok())
+				.map_err(|_| DEEP_FAILED)
+		}
+		pub fn start(models: DfModels, level: u8) -> Result<Box<Self>, &'static str> {
+			let fresh = DfTract::from_models(models, &params())
+				.ok()
+				.filter(|model| model.sr == 48_000 && model.hop_size == 480)
+				.ok_or(DEEP_FAILED)?;
+			let mut deep = Box::new(Self {
+				model: fresh.clone(),
+				fresh,
+				level: u8::MAX,
+			});
+			deep.set_level(level);
+			Ok(deep)
+		}
+		/// Low and Moderate cap the attenuation so some room sound remains; High runs the
+		/// full model; Very high adds its post-filter, which attenuates very noisy sections
+		/// further.
+		pub fn set_level(&mut self, level: u8) {
+			if level == self.level {
+				return;
+			}
+			let (limit_db, post_filter_beta) = match level {
+				0 => (12.0, 0.0),
+				1 => (24.0, 0.0),
+				2 => (100.0, 0.0),
+				_ => (100.0, 0.02),
+			};
+			for model in [&mut self.fresh, &mut self.model] {
+				model.set_atten_lim(limit_db);
+				model.set_pf_beta(post_filter_beta);
+			}
+			self.level = level;
+		}
+		pub fn reset(&mut self) {
+			self.model.clone_from(&self.fresh);
+		}
+		pub fn process(&mut self, frame: &mut [f32; 480]) -> Result<(), &'static str> {
+			let input = *frame;
+			let noisy = ArrayView2::from_shape((1, 480), &input);
+			let clean = ArrayViewMut2::from_shape((1, 480), frame);
+			let (Ok(noisy), Ok(clean)) = (noisy, clean) else {
+				return Err("DeepFilterNet noise suppression failed");
+			};
+			self.model
+				.process(noisy, clean)
+				.map(|_| ())
+				.map_err(|_| "DeepFilterNet noise suppression failed")
+		}
+	}
+}
+
+/// Windows on Arm builds omit DeepFilterNet; `VoiceProcessing::effective` substitutes
+/// RNNoise there, so this uninhabited stand-in never loads.
+#[cfg(all(target_os = "windows", target_arch = "aarch64"))]
+mod deep {
+	use super::DEEP_FAILED;
+	use std::thread::JoinHandle;
+
+	pub enum Models {}
+	pub enum DeepFilter {}
+	impl DeepFilter {
+		pub fn load() -> Result<JoinHandle<Option<Models>>, &'static str> {
+			Err(DEEP_FAILED)
+		}
+		pub fn start(models: Models, _: u8) -> Result<Box<Self>, &'static str> {
+			match models {}
+		}
+		pub fn set_level(&mut self, _: u8) {
+			match *self {}
+		}
+		pub fn reset(&mut self) {
+			match *self {}
+		}
+		pub fn process(&mut self, _: &mut [f32; 480]) -> Result<(), &'static str> {
+			match *self {}
+		}
+	}
 }
 
 fn processor(config: Config) -> AudioProcessing {
@@ -35,16 +152,37 @@ impl Echo {
 			}),
 			gain: None,
 			noise: None,
+			deep: None,
+			deep_load: None,
 			settings: VoiceProcessing::from_legacy(false).effective(),
 		}
 	}
 
-	pub fn configure(&mut self, settings: Processing) -> Result<(), &'static str> {
+	/// Applies `settings` and reports whether the selected processing is ready. DeepFilterNet
+	/// loads on a helper thread, so the worker keeps calling this until it returns true.
+	pub fn configure(&mut self, settings: Processing) -> Result<bool, &'static str> {
 		if !settings.is_valid() {
 			return Err("Invalid microphone processing settings");
 		}
+		let deep_selected = settings.suppression == NoiseSuppression::DeepFilterNet;
+		if !deep_selected {
+			// An unfinished load keeps its handle, so a quick switch back reuses it.
+			self.deep = None;
+		} else if self.deep.is_none() && self.deep_load.is_none() {
+			self.deep_load = Some(DeepFilter::load()?);
+		}
+		if let Some(load) = self.deep_load.take_if(|load| load.is_finished())
+			&& deep_selected
+		{
+			let models = load.join().ok().flatten().ok_or(DEEP_FAILED)?;
+			self.deep = Some(DeepFilter::start(models, settings.suppression_level)?);
+		}
+		if let Some(deep) = &mut self.deep {
+			deep.set_level(settings.suppression_level);
+		}
+		let ready = !deep_selected || self.deep.is_some();
 		if settings == self.settings {
-			return Ok(());
+			return Ok(ready);
 		}
 		if settings.suppression == NoiseSuppression::RnNoise && self.noise.is_none() {
 			self.noise = Some(noise_state());
@@ -89,7 +227,7 @@ impl Echo {
 			self.gain = None;
 		}
 		self.settings = settings;
-		Ok(())
+		Ok(ready)
 	}
 
 	pub fn reset(&mut self) {
@@ -100,6 +238,9 @@ impl Echo {
 		}
 		if self.noise.is_some() {
 			self.noise = Some(noise_state());
+		}
+		if let Some(deep) = &mut self.deep {
+			deep.reset();
 		}
 	}
 
@@ -148,6 +289,13 @@ impl Echo {
 				for sample in &mut output {
 					*sample = (*sample / 32768.0).clamp(-1.0, 1.0);
 				}
+				if let Some(start) = start {
+					noise_time += start.elapsed();
+				}
+			}
+			if let Some(deep) = &mut self.deep {
+				let start = time_noise.then(Instant::now);
+				deep.process(&mut output)?;
 				if let Some(start) = start {
 					noise_time += start.elapsed();
 				}
