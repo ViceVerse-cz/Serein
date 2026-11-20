@@ -772,9 +772,10 @@ impl MessagingUi {
 		press
 	}
 
-	/// True while a drive needs the cursor position, including outside the window.
-	pub fn tracking_pointer(&self) -> bool {
-		self.scroll.tracking()
+	/// True while a drive or a text selection drag needs the cursor position, including
+	/// outside the window.
+	pub fn tracking_pointer(&self, ctx: &egui::Context) -> bool {
+		self.scroll.tracking() || select::dragging(ctx)
 	}
 
 	/// Returns whether the configured push-to-talk chord is held in the focused window.
@@ -11267,7 +11268,7 @@ pub fn debug_image_sharing(state: &mut State) -> (Vec<model::ImageShare>, String
 		pending::show(
 			ui,
 			state.pending.last().unwrap(),
-			(false, 10, false),
+			(false, 10, false, u64::MAX),
 			state,
 			(
 				&mut view.avatars,

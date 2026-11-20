@@ -139,6 +139,10 @@ impl egui::Plugin for Selection {
 }
 
 impl Selection {
+	pub fn dragging(&self) -> bool {
+		self.mapped && self.dragging
+	}
+
 	pub fn active(&self) -> bool {
 		self.mapped
 			&& matches!((self.anchor,self.focus),(Some(a),Some(b)) if a.id != b.id || a.byte != b.byte)
@@ -430,6 +434,7 @@ pub(super) fn native(
 	pos: Pos2,
 	mut galley: std::sync::Arc<egui::epaint::Galley>,
 	color: egui::Color32,
+	order: Option<egui::text_selection::SelectionOrder>,
 ) {
 	let text = &galley.job.text;
 	let bytes = |point: Pos2| {
@@ -446,13 +451,14 @@ pub(super) fn native(
 		bytes,
 	);
 	if !ui.ctx().plugin_or_default::<Selection>().lock().mapped {
-		egui::text_selection::LabelSelectionState::label_text_selection(
+		egui::text_selection::LabelSelectionState::ordered_label_text_selection(
 			ui,
 			response,
 			pos,
 			galley,
 			color,
 			Stroke::NONE,
+			order,
 		);
 		return;
 	}

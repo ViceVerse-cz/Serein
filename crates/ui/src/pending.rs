@@ -29,8 +29,9 @@ const MAX_WIDTH: f32 = 432.0;
 pub fn show(
 	ui: &mut egui::Ui,
 	pending: &Pending,
-	// Whether the row continues a group, and the gap above a new group.
-	(compact, gap, irc): (bool, i8, bool),
+	// Whether the row continues a group, the gap above a new group, and its selection order
+	// after every sent message.
+	(compact, gap, irc, item): (bool, i8, bool, u64),
 	state: &State,
 	media: (
 		&mut crate::avatars::Avatars,
@@ -170,7 +171,8 @@ pub fn show(
 							let id = ui.scope_id().with("spoilers");
 							let mut revealed =
 								ui.data_mut(|data| data.get_temp::<u32>(id).unwrap_or(0));
-							let mut surface = crate::select::Surface::new(ui, "pending-body");
+							let mut surface =
+								crate::select::Surface::new(ui, "pending-body").ordered(item, 2);
 							let jumbo = formatted.jumbo();
 							text_line = ui
 								.scope(|ui| {

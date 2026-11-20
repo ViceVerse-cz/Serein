@@ -6121,7 +6121,7 @@ impl eframe::App for Desktop {
 		if let Some(period) = self.frame_period() {
 			raw_input.predicted_dt = period.as_secs_f32();
 		}
-		let track = self.messaging.tracking_pointer();
+		let track = self.messaging.tracking_pointer(ctx);
 		let intercepted = self.pointer.intercept(
 			raw_input,
 			&self.window,

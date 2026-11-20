@@ -44,6 +44,7 @@ requests are squashed from the PR head that was reviewed; all of them are unmerg
 | 0024 | [#8698](https://github.com/emilk/egui/pull/8698) | `epaint`, `egui` | Right-to-left runs get one glyph per char instead of `2n - 1`, so editor cursors stay inside the text (End then Ctrl+ArrowLeft in Arabic text no longer overflows). Merged with 0009's direction override, and ported to harfrust 0.15's in-place `Buffer`, which the PR head predates. |
 | 0025 | Serein | `epaint` | Laying out a multi-paragraph job one paragraph at a time keeps an empty first section, which carries `Label`'s wrap indentation, so text continuing a line after an inline widget (a heading after a channel chip) is no longer painted over that line. |
 | 0026 | Serein | `epaint` | The glyph atlas starts over once it outgrows 16 MiB, described below. |
+| 0027 | Serein | `egui` | Opt-in `SelectionOrder` keeps a label selection whose ends scroll out of a virtualized list, described below. |
 
 ## Serein patch: RTL shaping metadata
 
@@ -77,6 +78,32 @@ that keep galleys must key on `layout_generation` (Serein's composer and RTL cac
 Limit: a clear runs at any viewport's `begin_pass`. An immediate viewport opened in the middle of
 its parent's pass could clear the atlas under the parent's already-queued text, as the upstream
 reset could. Serein opens no immediate viewports.
+
+## Serein patch: ordered label selection
+
+Upstream pairs the two ends of a label selection by the order labels are shown in a pass and
+drops the selection when either end is not shown, so scrolling an end out of Serein's
+virtualized timeline lost it. `LabelSelectionState::ordered_label_text_selection` takes a
+`SelectionOrder { item, index }` (Serein: message snowflake, or the nonce above 2^63 for a
+pending row, then the label's place in its row). When both ends are in ordered labels, labels
+are ranked by that order instead of by pass order or stale screen positions, unordered labels
+are left out, and the selection is kept while an end is not laid out. It is cleared when an end
+is missing between labels that are shown (the row was removed).
+
+Copy with an end out of view assembles each ordered label's retained selected text (an
+`Arc<LayoutJob>` and byte range, at most 4 MiB charged with its allocations and 4,096 labels).
+It copies only when every label of the selection was shown with the characters the selection's
+final ends give it since the selection last changed around it, so rows skipped by a jump or a
+shift-click, or a label that did not fit, are never silently left out: Copy then copies nothing
+until they are shown. `forget_items` marks edited or removed rows out of date the same way. A
+widget that already copied in the pass (a focused text edit with a selection) keeps the
+clipboard. `is_dragging` and `selection_rect` let Serein scroll the timeline while a selection
+is dragged past its edge and keep right-clicks outside the shown selection for their own menus.
+
+Unordered labels keep upstream behavior. Serein's bidi selection engine (`crates/ui/src/select`)
+is separate and unchanged. Limit: Copy pressed in the same pass a drag moves an end past a
+label that the drag rules skip (a centered rule outside the selection's column) uses that
+pass's shown text, as upstream does.
 
 ## Serein patch: Windows window-drag repaints
 

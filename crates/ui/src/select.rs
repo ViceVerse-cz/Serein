@@ -4,7 +4,7 @@ use egui::{
 	Color32, CursorIcon, Event, FullOutput, Id, InteractOptions, LayerId, Order, PointerButton,
 	Popup, PopupAnchor, Pos2, RawInput, Rect, Response, Sense,
 	epaint::{Galley, TextShape},
-	text_selection::LabelSelectionState,
+	text_selection::{LabelSelectionState, SelectionOrder},
 };
 use std::sync::Arc;
 mod mapped;
@@ -57,6 +57,7 @@ pub struct Surface {
 	holes: Vec<Hole>,
 	overlays: Vec<Overlay>,
 	cover: Option<Rect>,
+	order: Option<SelectionOrder>,
 }
 
 impl Surface {
@@ -69,7 +70,15 @@ impl Surface {
 			holes: Vec::new(),
 			overlays: Vec::new(),
 			cover: None,
+			order: None,
 		}
+	}
+
+	/// Rank this block's text at `item` in a virtualized list, from `first` on, so a selection
+	/// survives its ends scrolling out of view (see [`SelectionOrder`]).
+	pub fn ordered(mut self, item: u64, first: u32) -> Self {
+		self.order = Some(SelectionOrder { item, index: first });
+		self
 	}
 
 	/// Stretch the tiled bands to `rect` so a drag can start on empty chat chrome.
@@ -240,14 +249,24 @@ impl Surface {
 			pointer.is_some_and(|pos| self.holes.iter().any(|hole| hole.rect.contains(pos)));
 		let menu_open = Popup::is_any_open(ui.ctx());
 		let holes: Vec<Rect> = self.holes.iter().map(|hole| hole.rect).collect();
+		// Count runs and embeds whether shown or not, so each keeps its order out of view.
+		let mut order = self.order;
+		let mut next = || {
+			let current = order;
+			if let Some(order) = &mut order {
+				order.index += 1;
+			}
+			current
+		};
 		for (position, run) in runs.into_iter().enumerate() {
 			while embeds
 				.get(embedded)
 				.is_some_and(|embed| embed.after <= position)
 			{
-				show_embed(ui, &embeds[embedded], menu_open);
+				show_embed(ui, &embeds[embedded], menu_open, next());
 				embedded += 1;
 			}
+			let order = next();
 			if !run.rect.is_positive() || !ui.is_rect_visible(run.rect) {
 				continue;
 			}
@@ -353,10 +372,10 @@ impl Surface {
 			} else {
 				ui.visuals().text_color()
 			};
-			mapped::native(ui, &response, run.galley_pos, run.galley, color);
+			mapped::native(ui, &response, run.galley_pos, run.galley, color, order);
 		}
 		for embed in &embeds[embedded..] {
-			show_embed(ui, embed, menu_open);
+			show_embed(ui, embed, menu_open, next());
 		}
 		for over in self.overlays {
 			ui.interact_opt(
@@ -423,6 +442,13 @@ impl egui::Plugin for Pointer {
 	fn input_hook(&mut self, ctx: &egui::Context, input: &mut RawInput) {
 		#[cfg(target_os = "macos")]
 		normalize_control_click(input, &mut self.control_primary);
+		// A selection dragged out of the window keeps its last position, so the timeline keeps
+		// scrolling and the selection keeps following where the OS reports no outside position.
+		if input.focused && dragging(ctx) {
+			input
+				.events
+				.retain(|event| !matches!(event, Event::PointerGone));
+		}
 		if let Some(pos) = input.events.iter().rev().find_map(|event| match event {
 			Event::PointerButton {
 				button: PointerButton::Primary,
@@ -434,16 +460,23 @@ impl egui::Plugin for Pointer {
 		}) {
 			self.selection_start = Some(pos);
 		}
-		let selecting = has_selection(ctx);
-		let secondary = input.events.iter().any(|event| {
-			matches!(
-				event,
-				Event::PointerButton {
-					button: PointerButton::Secondary,
-					pressed: true,
-					..
-				}
-			)
+		let secondary_at = input.events.iter().find_map(|event| match event {
+			Event::PointerButton {
+				button: PointerButton::Secondary,
+				pressed: true,
+				pos,
+				..
+			} => Some(*pos),
+			_ => None,
+		});
+		let secondary = secondary_at.is_some();
+		// A selection kept out of view leaves right-clicks elsewhere to their own menus.
+		let selecting = secondary_at.is_some_and(|pos| {
+			ctx.plugin::<LabelSelectionState>()
+				.lock()
+				.selection_rect()
+				.contains(pos)
+				|| ctx.plugin_or_default::<mapped::Selection>().lock().active()
 		});
 		let secondary_release = input.events.iter().any(|event| {
 			matches!(
@@ -459,6 +492,12 @@ impl egui::Plugin for Pointer {
 			self.selection_secondary |= secondary;
 			if secondary {
 				self.cached = String::new();
+				// The menu's Copy is the chat selection's, not a focused draft's.
+				ctx.memory_mut(|memory| {
+					if let Some(id) = memory.focused() {
+						memory.surrender_focus(id);
+					}
+				});
 			}
 			input.events.retain(|event| {
 				!matches!(
@@ -571,6 +610,43 @@ pub(crate) fn clear(ctx: &egui::Context) {
 	}
 }
 
+/// The text of these timeline items changed, or with `removed` they are gone: a selection kept
+/// out of view copies again only once they have been shown again, and one that ended in a
+/// removed item is cleared.
+pub fn forget_items(ctx: &egui::Context, items: &[u64], removed: bool) {
+	let Some(plugin) = ctx.plugin_opt::<LabelSelectionState>() else {
+		return;
+	};
+	if items.is_empty() {
+		return;
+	}
+	let (touched, ends) = {
+		let mut selection = plugin.lock();
+		(selection.forget_items(items), selection.ordered_ends())
+	};
+	if removed
+		&& ends.is_some_and(|(primary, secondary)| {
+			items.contains(&primary.item) || items.contains(&secondary.item)
+		}) {
+		clear(ctx);
+	} else if touched {
+		// The menu's Copy holds the text from when it opened.
+		Popup::close_id(ctx, Id::unique("chat-selection-copy"));
+		if let Some(pointer) = ctx.plugin_opt::<Pointer>() {
+			pointer.lock().cached = String::new();
+		}
+	}
+}
+
+/// True while a drag that began on chat text is selecting.
+pub fn dragging(ctx: &egui::Context) -> bool {
+	ctx.plugin_opt::<LabelSelectionState>()
+		.is_some_and(|plugin| plugin.lock().is_dragging())
+		|| ctx
+			.plugin_opt::<mapped::Selection>()
+			.is_some_and(|plugin| plugin.lock().dragging())
+}
+
 /// True when a label range is active.
 pub fn has_selection(ctx: &egui::Context) -> bool {
 	ctx.plugin::<LabelSelectionState>().lock().has_selection()
@@ -585,6 +661,35 @@ pub fn has_selection_in(ctx: &egui::Context, rect: Rect) -> bool {
 			.plugin_opt::<Pointer>()
 			.and_then(|plugin| plugin.lock().selection_start)
 			.is_some_and(|start| rect.contains(start))
+}
+
+/// Wheel-like scroll for this frame, positive upwards, while a selection that began in `area`
+/// is dragged past its top or bottom edge, so the drag reaches rows out of view.
+pub fn edge_scroll(ui: &egui::Ui, area: Rect) -> f32 {
+	let ctx = ui.ctx();
+	if !dragging(ctx) || Popup::is_any_open(ctx) || !has_selection_in(ctx, area) {
+		return 0.0;
+	}
+	let Some(pos) = ui.input(|input| {
+		input
+			.pointer
+			.primary_down()
+			.then(|| input.pointer.latest_pos())
+			.flatten()
+	}) else {
+		return 0.0;
+	};
+	let depth = if pos.y < area.top() {
+		area.top() - pos.y
+	} else if pos.y > area.bottom() {
+		area.bottom() - pos.y
+	} else {
+		return 0.0;
+	};
+	// Faster the further past the edge, in points per second.
+	let speed = depth.signum() * (depth.abs() * 20.0).clamp(240.0, 3000.0);
+	ui.ctx().request_repaint();
+	speed * ui.input(|input| input.stable_dt).min(0.05)
 }
 
 pub fn open_menu(ctx: &egui::Context) -> bool {
@@ -611,7 +716,7 @@ pub(crate) fn band_sense() -> Sense {
 }
 
 /// Paint a deferred widget galley, registering its selection unless a menu owns the pointer.
-fn show_embed(ui: &mut egui::Ui, embed: &Embed, menu_open: bool) {
+fn show_embed(ui: &mut egui::Ui, embed: &Embed, menu_open: bool, order: Option<SelectionOrder>) {
 	if !embed.response.rect.is_positive() || !ui.is_rect_visible(embed.response.rect) {
 		return;
 	}
@@ -637,6 +742,7 @@ fn show_embed(ui: &mut egui::Ui, embed: &Embed, menu_open: bool) {
 		embed.galley_pos,
 		embed.galley.clone(),
 		color,
+		order,
 	);
 }
 
@@ -1095,6 +1201,125 @@ mod tests {
 			"only selection popup memory is reset"
 		);
 		Popup::close_all(&ctx);
+	}
+
+	#[test]
+	fn ordered_selection_survives_its_rows_leaving_the_layout_and_copies_them() {
+		let ctx = egui::Context::default();
+		install(&ctx);
+		let rows = [
+			(1, "first message"),
+			(2, "second message"),
+			(3, "third"),
+			(4, "fourth"),
+			(5, "fifth"),
+		];
+		let shown = std::cell::Cell::new(0b11111_u8);
+		let ends = std::cell::RefCell::new([(Pos2::ZERO, Pos2::ZERO); 5]);
+		let mut render = |ui: &mut egui::Ui| {
+			for (item, text) in rows {
+				// A virtualized row out of view is not laid out at all.
+				if shown.get() & (1 << (item - 1)) == 0 {
+					continue;
+				}
+				let mut surface = Surface::new(ui, ("row", item)).ordered(item, 2);
+				let (pos, galley, response) =
+					egui::Label::new(text).selectable(false).layout_in_ui(ui);
+				let middle = galley.size().y / 2.0;
+				ends.borrow_mut()[item as usize - 1] = (
+					pos + egui::vec2(0.1, middle),
+					pos + egui::vec2(galley.size().x + 1.0, middle),
+				);
+				surface.run(ui, &response, pos, galley, Vec::new());
+				surface.finish(ui);
+			}
+		};
+		let mut pass = |rows: u8, events: Vec<Event>, shift: bool| {
+			shown.set(rows);
+			let modifiers = egui::Modifiers {
+				shift,
+				..Default::default()
+			};
+			let mut events = events;
+			events.insert(0, Event::ModifiersChanged(modifiers));
+			let output = ctx.run_ui(input(events), &mut render);
+			let text = output
+				.platform_output
+				.commands
+				.iter()
+				.find_map(|command| match command {
+					egui::OutputCommand::CopyText(text) => Some(text.clone()),
+					_ => None,
+				});
+			output.drop_without_applying_deltas();
+			text
+		};
+		pass(0b11111, Vec::new(), false);
+		let (from, to) = (ends.borrow()[0].0, ends.borrow()[1].1);
+		for events in [
+			press(from, true),
+			vec![Event::PointerMoved(to)],
+			press(to, false),
+		] {
+			pass(0b11111, events, false);
+		}
+		let both = Some("first message\nsecond message".to_owned());
+		assert_eq!(pass(0b11111, vec![Event::Copy], false), both);
+		for (rows, case) in [
+			(0b11110, "the first end left the layout"),
+			(0b11100, "both ends left the layout"),
+			(0b11111, "scrolling back"),
+		] {
+			pass(rows, Vec::new(), false);
+			assert!(has_selection(&ctx), "{case}: the selection is kept");
+			assert_eq!(
+				pass(rows, vec![Event::Copy], false),
+				both,
+				"{case}: copy keeps both rows"
+			);
+		}
+
+		// Shift-click a row reached without showing the rows between it and the selection.
+		pass(0b10000, Vec::new(), false);
+		let far = ends.borrow()[4].1;
+		for events in [press(far, true), press(far, false), Vec::new()] {
+			pass(0b10000, events, true);
+		}
+		assert_eq!(
+			pass(0b10000, vec![Event::Copy], false),
+			None,
+			"rows never shown inside the selection are not silently left out"
+		);
+		pass(0b11110, Vec::new(), false);
+		let all = Some("first message\nsecond message\nthird\nfourth\nfifth".to_owned());
+		assert_eq!(
+			pass(0b11110, vec![Event::Copy], false),
+			all,
+			"showing them completes it"
+		);
+
+		// Rows edited or removed out of view are not copied from what was kept for them.
+		pass(0b00001, Vec::new(), false);
+		forget_items(&ctx, &[3], false);
+		assert_eq!(
+			pass(0b00001, vec![Event::Copy], false),
+			None,
+			"an edited row"
+		);
+		pass(0b11110, Vec::new(), false);
+		assert_eq!(pass(0b11110, vec![Event::Copy], false), all);
+		forget_items(&ctx, &[4, 2], false);
+		pass(0b11100, Vec::new(), false);
+		assert_eq!(
+			pass(0b00001, vec![Event::Copy], false),
+			None,
+			"showing one of several changed rows leaves the others out of date"
+		);
+		// Scrolling back over them shows each one next to the row before it.
+		pass(0b11111, Vec::new(), false);
+		assert_eq!(pass(0b11110, vec![Event::Copy], false), all);
+		forget_items(&ctx, &[1], true);
+		assert!(!has_selection(&ctx), "a removed end clears the selection");
 	}
 
 	#[test]
