@@ -301,6 +301,30 @@ impl State {
 	pub fn user_display_name<'a>(&'a self, user: &'a model::User) -> &'a str {
 		self.friend_nickname(user.id).unwrap_or(&user.name)
 	}
+	/// Device preference: a confirmed friend's private nickname wins over a server nickname.
+	pub fn set_prefer_friend_nickname(&mut self, prefer: bool) {
+		self.prefer_friend_nickname = prefer;
+	}
+	/// The author label message rendering shows. The friend-nickname preference applies only
+	/// here, so typing pills, notifications and every other caller of the shared resolver
+	/// keep the names they showed before this preference existed.
+	pub fn message_render_name<'a>(&'a self, message: &'a model::Message) -> &'a str {
+		if message.author.webhook {
+			return &message.author.name;
+		}
+		if self.prefer_friend_nickname
+			// A nickname only describes a current friendship. The friend set is authoritative
+			// even when block state is unknown, so this does not go through `friend()`.
+			&& self
+				.user_actions
+				.friends
+				.contains_key(&message.author.id)
+			&& let Some(nick) = self.friend_nickname(message.author.id)
+		{
+			return nick;
+		}
+		self.message_author_name(message)
+	}
 	pub fn message_author_name<'a>(&'a self, message: &'a model::Message) -> &'a str {
 		if message.author.webhook {
 			return &message.author.name;
@@ -709,6 +733,17 @@ impl State {
 				}
 			}
 			self.user_actions.friends_known = true;
+			// A snapshot is authoritative for who is a friend, so a private nickname or a
+			// friendship start only survives while the friendship does: drop entries for
+			// users it no longer lists.
+			let Actions {
+				friends,
+				nicknames,
+				friends_since,
+				..
+			} = &mut self.user_actions;
+			nicknames.retain(|user, _| friends.contains_key(user));
+			friends_since.retain(|user, _| friends.contains_key(user));
 		}
 		Ok(())
 	}
