@@ -142,6 +142,8 @@ fn page_with(state: &mut State, total: u64, excerpt: &str) {
 				excerpt: excerpt.into(),
 				attachments: vec![],
 				embeds: vec![],
+				forwarded: false,
+				forward_origin: None,
 			}],
 			total,
 			partial: false,

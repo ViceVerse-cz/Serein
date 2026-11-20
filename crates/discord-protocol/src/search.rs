@@ -38,6 +38,16 @@ pub(crate) struct Hit {
 	embeds: crate::embeds::EmbedList,
 	#[serde(default)]
 	hit: Option<bool>,
+	#[serde(default, deserialize_with = "crate::threads::lenient")]
+	flags: Option<u64>,
+	#[serde(rename = "type", default, deserialize_with = "crate::threads::lenient")]
+	kind: Option<u8>,
+	#[serde(default, deserialize_with = "crate::threads::lenient")]
+	message_reference: Option<crate::Reference>,
+	/// Decoded only for the chosen hit, so a malformed snapshot on a context message, or
+	/// one the hit cannot use, never rejects the page.
+	#[serde(default)]
+	message_snapshots: Option<Box<serde_json::value::RawValue>>,
 }
 pub(crate) fn list<'de, D: Deserializer<'de>, T: Deserialize<'de>, const N: usize>(
 	d: D,
@@ -88,12 +98,13 @@ impl Reply {
 		} else {
 			hits.sort_unstable_by_key(|h| std::cmp::Reverse(h.id));
 		}
-		let page = SearchPage {
+		let mut page = SearchPage {
 			hits,
 			total,
 			partial: self.doing_deep_historical_index,
 			pin_cursor: None,
 		};
+		page.fit_media();
 		if !page.valid(channel, cursor, oldest) {
 			return Err("Invalid search results");
 		}
@@ -102,7 +113,28 @@ impl Reply {
 }
 
 impl Hit {
-	pub(crate) fn into_hit(self) -> SearchHit {
+	pub(crate) fn into_hit(mut self) -> SearchHit {
+		// A forward's own content is empty; its text and media are the snapshot's.
+		let forward = self
+			.message_snapshots
+			.and_then(|raw| serde_json::from_str::<crate::Snapshots>(raw.get()).ok())
+			.and_then(|mut snapshots| {
+				snapshots.forward(self.kind.unwrap_or(0), self.message_reference.as_ref())
+			});
+		let forwarded = forward.is_some();
+		let mut forward_origin = None;
+		let mut flags = self.flags.unwrap_or(0);
+		if let Some((body, origin)) = forward {
+			self.content = body.content;
+			self.attachments = body.attachments;
+			self.embeds = body.embeds;
+			flags = body.flags;
+			forward_origin = origin;
+		}
+		// Suppressed embeds stay hidden here as in the conversation.
+		if flags & 4 != 0 {
+			self.embeds.0.clear();
+		}
 		let excerpt = if self.content.len() > 8192 {
 			model::PREVIEW_LIMIT_NOTICE.into()
 		} else {
@@ -121,6 +153,8 @@ impl Hit {
 			excerpt,
 			attachments: self.attachments.0,
 			embeds: crate::embeds::bounded(self.embeds.0),
+			forwarded,
+			forward_origin,
 		}
 	}
 }
@@ -150,6 +184,77 @@ mod tests {
 		assert!(page.partial);
 		assert_eq!(page.hits[0].excerpt, "hidden ||synthetic spoiler|| <@42>");
 		assert_eq!(page.hits[0].mentions[0].name, "Mentioned");
+		// A forward's outer content is empty; the hit shows its snapshot and source.
+		// An omitted outer type is a default message, as in history.
+		let mut forward = hit(3, 1, "");
+		forward["message_reference"] = json!({"type":1,"channel_id":"9","message_id":"2"});
+		forward["message_snapshots"] = json!([{"message":{"type":0,"content":"forwarded words",
+			"embeds":[{"type":"rich","title":"Snapshot embed"}]}}]);
+		forward["hit"] = json!(true);
+		// Malformed optional data on a context entry, or a forward's source, loses nothing else.
+		let mut context = hit(2, 1, "context");
+		context["hit"] = json!(false);
+		context["message_snapshots"] = json!(null);
+		let page = decode(json!({"total_results":1,"messages":[[context, forward.clone()]]}))
+			.unwrap()
+			.into_page(Some(Id(1)), None, false)
+			.unwrap();
+		let hit_page = &page.hits[0];
+		assert!(hit_page.forwarded);
+		assert_eq!(hit_page.excerpt, "forwarded words");
+		assert_eq!(hit_page.embeds[0].title.as_deref(), Some("Snapshot embed"));
+		assert_eq!(
+			hit_page.forward_origin,
+			Some(model::ForwardOrigin {
+				guild: None,
+				channel: Id(9),
+				message: Id(2),
+			})
+		);
+		forward["message_reference"]["guild_id"] = json!("0");
+		forward["message_snapshots"][0]["message"]["flags"] = json!(4);
+		let page = decode(json!({"total_results":1,"messages":[[forward]]}))
+			.unwrap()
+			.into_page(Some(Id(1)), None, false)
+			.unwrap();
+		assert_eq!(page.hits[0].excerpt, "forwarded words");
+		assert_eq!(page.hits[0].forward_origin.unwrap().guild, None);
+		// An unusable source ID drops only the source link.
+		let mut sourceless = forward.clone();
+		sourceless["message_reference"]["message_id"] = json!("0");
+		let page = decode(json!({"total_results":1,"messages":[[sourceless]]}))
+			.unwrap()
+			.into_page(Some(Id(1)), None, false)
+			.unwrap();
+		assert!(page.hits[0].forwarded && page.hits[0].forward_origin.is_none());
+		assert_eq!(page.hits[0].excerpt, "forwarded words");
+		// Suppressed snapshot embeds stay hidden, as in the conversation.
+		assert!(page.hits[0].embeds.is_empty());
+		// Media that overflows the retained budget is shed from the last hits; every
+		// excerpt survives.
+		let heavy = |id: u64| {
+			let mut value = hit(id, 1, "heavy");
+			let url = |kind: &str, n: u64| {
+				format!("https://{kind}/attachments/1/{n}/{}.png", "x".repeat(560))
+			};
+			value["attachments"] = (0..10)
+				.map(|n| {
+					json!({"id":(id * 100 + n).to_string(),"filename":"a.png",
+					"url":url("cdn.discordapp.com", n),"proxy_url":url("media.discordapp.net", n)})
+				})
+				.collect();
+			json!([value])
+		};
+		let page =
+			decode(json!({"total_results":25,"messages":(1..=25).map(heavy).collect::<Vec<_>>()}))
+				.unwrap()
+				.into_page(Some(Id(1)), None, true)
+				.unwrap();
+		assert_eq!(page.hits.len(), 25);
+		assert!(page.hits.iter().all(|hit| hit.excerpt == "heavy"));
+		assert!(page.bytes() <= model::MAX_SEARCH_BYTES);
+		assert_eq!(page.hits[0].attachments.len(), 10);
+		assert!(page.hits[24].attachments.is_empty());
 		for value in [
 			json!({"total_results":1}),
 			json!({"total_results":1,"messages":[[hit(3,2,"wrong channel")]]}),

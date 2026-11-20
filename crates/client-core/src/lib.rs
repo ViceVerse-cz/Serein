@@ -6354,6 +6354,7 @@ mod tests {
 			reply_deleted: false,
 			interaction: None,
 			forwarded: false,
+			forward_origin: None,
 			unsupported: false,
 			components: vec![],
 			application_id: None,

@@ -425,6 +425,19 @@ impl Interaction {
 		size_of::<Self>() + self.user.heap_bytes() + self.command.capacity()
 	}
 }
+/// The original message a forward copied, from its type-1 `message_reference`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct ForwardOrigin {
+	/// Absent for a forward from a direct message.
+	pub guild: Option<Id>,
+	pub channel: Id,
+	pub message: Id,
+}
+impl ForwardOrigin {
+	pub fn valid(&self) -> bool {
+		self.guild.is_none_or(|id| id.0 != 0) && self.channel.0 != 0 && self.message.0 != 0
+	}
+}
 /// Message flag: this message started a thread, whose thread channel shares its ID.
 /// [Documented message flags](https://docs.discord.com/developers/resources/message#message-object)
 pub const HAS_THREAD: u64 = 1 << 5;
@@ -464,6 +477,8 @@ pub struct Message {
 	pub reply_deleted: bool,
 	/// Body is the immutable snapshot attached to a forwarded message.
 	pub forwarded: bool,
+	/// Where a forwarded snapshot was first sent; absent for older cached rows.
+	pub forward_origin: Option<ForwardOrigin>,
 	/// The application command invocation this message answers.
 	pub interaction: Option<Box<Interaction>>,
 	pub unsupported: bool,

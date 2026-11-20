@@ -1376,6 +1376,7 @@ mod tests {
 			reply_deleted: false,
 			interaction: None,
 			forwarded: false,
+			forward_origin: None,
 			unsupported: false,
 			extra_content: Default::default(),
 			attachments: Vec::new(),

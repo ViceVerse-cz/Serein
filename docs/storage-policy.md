@@ -610,6 +610,14 @@ message storage; source channels/messages are never fetched. Existing rows retai
 their content and default to ordinary messages until refreshed. Schema-15 binaries
 cannot reopen this upgraded cache.
 
+Forward sources (schema 29, no version change): a nullable `forward_origin` JSON column, at
+most 128 bytes, keeps the source server, channel and message IDs from a forward's type-1
+`message_reference` so cached forwards keep their "server · time" source line. Only forwarded
+rows keep one; a malformed or zero-ID value, or one on another row, loads as absent. Rows cached
+before the column, or by older binaries that still open this schema, show no source line until
+refreshed. The source is never fetched: the line names only joined servers and loaded
+conversations, and opens the message through the existing chat-link navigation.
+
 Channel preferences (September 21, schema 15): favorites, pins and collapsed categories are
 device-local, account-isolated SQLite preferences. Pins cover home DMs. Favorites cover guild
 channels. All three lists together contain at most 256 IDs,

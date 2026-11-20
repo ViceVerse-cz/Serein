@@ -103,6 +103,9 @@ pub struct SearchHit {
 	/// Media shown under the excerpt, bounded like message attachments.
 	pub attachments: Vec<crate::Attachment>,
 	pub embeds: Vec<crate::Embed>,
+	/// The excerpt and media are a forwarded snapshot.
+	pub forwarded: bool,
+	pub forward_origin: Option<crate::ForwardOrigin>,
 }
 pub struct SearchPage {
 	pub hits: Vec<SearchHit>,
@@ -112,6 +115,18 @@ pub struct SearchPage {
 	pub pin_cursor: Option<i128>,
 }
 impl SearchPage {
+	/// Drop media from the last hits until the page fits its byte budget, so a page of
+	/// attachment-heavy messages keeps every excerpt instead of failing as a whole.
+	pub fn fit_media(&mut self) {
+		for index in (0..self.hits.len()).rev() {
+			if self.bytes() <= MAX_SEARCH_BYTES {
+				return;
+			}
+			let hit = &mut self.hits[index];
+			hit.attachments = Vec::new();
+			hit.embeds = Vec::new();
+		}
+	}
 	pub fn bytes(&self) -> usize {
 		self.hits.capacity() * size_of::<SearchHit>()
 			+ self

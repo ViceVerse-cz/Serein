@@ -312,3 +312,107 @@ impl ForwardDialog {
 		}
 	}
 }
+
+/// Discord's source line under a forward: the server (or direct message) it came from and when
+/// it was first sent. Only a joined server or a loaded conversation is named, and only then does
+/// the line open that message; returns its link when clicked. The link is kept out of the
+/// text-selection `surface` so a click opens it instead of starting a selection.
+pub(super) fn origin(
+	ui: &mut egui::Ui,
+	state: &State,
+	key: Id,
+	origin: &model::ForwardOrigin,
+	images: &mut Avatars,
+	demo: bool,
+	surface: &mut crate::select::Surface,
+) -> Option<String> {
+	let colors = design::palette(ui);
+	let place = match origin.guild {
+		Some(guild) => state
+			.guild(guild)
+			.map(|guild| (Some(guild), None, guild.name.as_str())),
+		None => state
+			.channel(origin.channel)
+			.filter(|channel| channel.guild.is_none() && matches!(channel.kind, 1 | 3))
+			.map(|channel| {
+				let icon = crate::channel_pill::icon(channel, &state.channels);
+				(None, Some(icon), state.conversation_name(channel))
+			}),
+	};
+	// Fixture IDs do not encode a real creation timestamp.
+	let time = (origin.message.0 >= 1 << 22)
+		.then(|| {
+			time::OffsetDateTime::from_unix_timestamp(
+				model::threads::snowflake_ms(origin.message) / 1000,
+			)
+			.ok()
+		})
+		.flatten()
+		.map(crate::local_time::calendar);
+	if place.is_none() && time.is_none() {
+		return None;
+	}
+	let id = ui.scope_id().with(("forward-origin", key));
+	let hovered = place.is_some()
+		&& ui
+			.ctx()
+			.read_response(id)
+			.is_some_and(|response| response.hovered());
+	let color = if hovered { colors.text } else { colors.muted };
+	let text = |text: &str| {
+		egui::Label::new(egui::RichText::new(text).size(13.0).color(color)).selectable(false)
+	};
+	let row = ui.horizontal(|ui| {
+		let gap = 4.0;
+		ui.spacing_mut().item_spacing.x = gap;
+		if let Some((guild, icon, name)) = place {
+			let (rect, _) = ui.allocate_exact_size(egui::Vec2::splat(16.0), egui::Sense::hover());
+			match (guild, icon) {
+				(Some(guild), _) => images.paint_guild(ui, guild, rect, demo, 4),
+				(None, Some(icon)) => crate::icons::paint(ui.painter(), icon, rect, color),
+				(None, None) => {}
+			}
+			// A long name truncates before the time and chevron, never pushing them out.
+			let font = egui::FontId::proportional(13.0);
+			let width = |text: &str| {
+				ui.painter()
+					.layout_no_wrap(text.to_owned(), font.clone(), color)
+					.size()
+					.x
+			};
+			let trailing = time
+				.as_deref()
+				.map_or(0.0, |time| width("•") + width(time) + 2.0 * gap)
+				+ 12.0 + gap;
+			ui.scope(|ui| {
+				ui.set_max_width((ui.available_width() - trailing).max(0.0));
+				ui.add(text(name).truncate());
+			});
+			if time.is_some() {
+				ui.add(text("•"));
+			}
+		}
+		if let Some(time) = &time {
+			ui.add(text(time));
+		}
+		if place.is_some() {
+			let (rect, _) = ui.allocate_exact_size(egui::Vec2::splat(12.0), egui::Sense::hover());
+			crate::icons::paint(ui.painter(), crate::icons::Icon::ChevronRight, rect, color);
+		}
+	});
+	let (_, _, name) = place?;
+	let response = ui.interact(row.response.rect, id, egui::Sense::click());
+	surface.keep(&response);
+	let label = time.map_or_else(|| name.to_owned(), |time| format!("{name} • {time}"));
+	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Link, ui.is_enabled(), &label));
+	let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
+	response.clicked().then(|| {
+		let scope = origin
+			.guild
+			.map_or_else(|| "@me".into(), |guild| guild.to_string());
+		format!(
+			"https://discord.com/channels/{scope}/{}/{}",
+			origin.channel, origin.message
+		)
+	})
+}

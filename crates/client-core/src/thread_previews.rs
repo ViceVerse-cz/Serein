@@ -363,6 +363,7 @@ mod tests {
 			kind: 0,
 			reply_deleted: false,
 			forwarded: false,
+			forward_origin: None,
 			interaction: None,
 			unsupported: false,
 			extra_content: Default::default(),

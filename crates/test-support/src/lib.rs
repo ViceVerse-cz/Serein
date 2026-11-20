@@ -140,6 +140,7 @@ pub fn message(id: u64, channel: Id) -> Message {
 		reply_deleted: false,
 		interaction: None,
 		forwarded: false,
+		forward_origin: None,
 		unsupported: false,
 		components: vec![],
 		sticker_items: vec![],
@@ -1231,9 +1232,16 @@ pub fn chat_demo_state() -> State {
 pub fn forwarded_demo_state() -> State {
 	let mut state = audio_demo_state();
 	let messages: Vec<_> = state.timeline.iter().cloned().collect();
+	let guild = state.guilds.first().map(|guild| guild.id);
 	state.timeline.clear();
 	for mut message in messages {
 		message.forwarded = true;
+		// A source in a joined server with a real snowflake time, as Discord sends it.
+		message.forward_origin = Some(model::ForwardOrigin {
+			guild,
+			channel: message.channel,
+			message: Id(1_300_000_000_000_000_000 + message.id.0),
+		});
 		message.content.clear();
 		state.timeline.insert(message, false, false).unwrap();
 	}
@@ -2087,6 +2095,8 @@ mod tests {
 					excerpt: "pin".into(),
 					attachments: vec![],
 					embeds: vec![],
+					forwarded: false,
+					forward_origin: None,
 				})
 				.collect(),
 			total: 0,
@@ -2220,6 +2230,8 @@ mod tests {
 					excerpt: "synthetic match".into(),
 					attachments: vec![],
 					embeds: vec![],
+					forwarded: false,
+					forward_origin: None,
 				}],
 				total,
 				partial: false,
@@ -2335,6 +2347,8 @@ mod tests {
 					excerpt: "index text".into(),
 					attachments: vec![],
 					embeds: vec![],
+					forwarded: false,
+					forward_origin: None,
 				}],
 				total: 50,
 				partial: false,

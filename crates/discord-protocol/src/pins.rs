@@ -30,7 +30,7 @@ impl Reply {
 		let pin_cursor = self
 			.has_more
 			.then(|| self.items.last().expect("nonempty pin page").pinned_at.0);
-		let page = SearchPage {
+		let mut page = SearchPage {
 			hits: self
 				.items
 				.into_iter()
@@ -41,6 +41,7 @@ impl Reply {
 			partial: self.has_more,
 			pin_cursor,
 		};
+		page.fit_media();
 		if !page.valid_pins(channel) {
 			return Err("Invalid pinned messages");
 		}

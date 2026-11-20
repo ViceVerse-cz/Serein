@@ -606,6 +606,15 @@ unavailable fallback. This adds received-forward display, not a forwarding actio
 Synthetic checks cover decoding, cache persistence and rendering; live acceptance
 has not been tested by the agent.
 
+Since November 21, 2026 a forward also shows its source under the snapshot: the server icon
+and name (or the direct message) and the original send time, read from the documented
+`message_reference` `guild_id`, `channel_id` and `message_id` and the snowflake. Only a joined
+server or loaded conversation is named, and clicking opens that message through the existing
+chat-link navigation; otherwise just the time shows. Search results decode the same snapshot,
+so forwarded hits show their text, media, label and source instead of an empty card.
+Unofficial: search hits carrying `message_snapshots` is inferred from the message object,
+not separately documented for search. Synthetic checks only; not tested live.
+
 ## Channel context menu — September 12, 2026
 
 Guild channel rows support right-click and Shift+F10 actions. Mark As Read uses
