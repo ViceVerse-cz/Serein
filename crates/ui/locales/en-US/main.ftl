@@ -319,6 +319,7 @@ attachments-pending-card-remove-attachment = Remove attachment
 # Context: pending_viewer
 attachments-pending-viewer-full-size-unavailable = Full-size preview unavailable
 attachments-pending-viewer-loading = Loading full-size image…
+attachments-pending-viewer-close = Close (Esc)
 attachments-loading-card-preparing = Preparing…
 # Context: show_status
 attachments-show-status-cancel-download = Cancel download

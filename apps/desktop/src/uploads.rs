@@ -55,6 +55,9 @@ const PREVIEW_ALLOC: u64 = 64 * 1024 * 1024;
 /// Largest file read whole for a composer thumbnail; larger selections keep the generic card
 /// instead of loading up to the upload limit (and a second copy) just to draw 320 px.
 const PREVIEW_SOURCE_BYTES: u64 = PREVIEW_ALLOC;
+/// Longest a full-size viewer waits for its file. A stalled path must not hold the single
+/// viewer slot after the viewer closes, or the next staged image never starts decoding.
+const VIEW_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 const SHARE_BYTES: usize = 8 * 1024 * 1024;
 /// Conversations left with staged files that keep them for the next visit.
 const PARKED_CONVERSATIONS: usize = 8;
@@ -343,7 +346,12 @@ async fn view(source: &Source, edge: u32, cancelled: &Arc<AtomicBool>) -> Option
 	if !previewable(source.filename()) || cancelled.load(Ordering::Acquire) {
 		return None;
 	}
-	let bytes = source.preview_bytes(PREVIEW_SOURCE_BYTES).await?;
+	let bytes = tokio::time::timeout(
+		VIEW_READ_TIMEOUT,
+		source.preview_bytes(PREVIEW_SOURCE_BYTES),
+	)
+	.await
+	.ok()??;
 	if cancelled.load(Ordering::Acquire) {
 		return None;
 	}
@@ -1289,7 +1297,7 @@ mod tests {
 			let image = view(&viewer_source(width, height), edge, &cancelled)
 				.await
 				.unwrap();
-			assert_eq!(image.size, expected);
+			assert_eq!(image.resolution(), expected);
 		}
 	}
 
@@ -1326,7 +1334,7 @@ mod tests {
 		.unwrap()
 		.unwrap()
 		.unwrap();
-		assert_eq!(image.size, [400, 300]);
+		assert_eq!(image.resolution(), [400, 300]);
 		assert!(!uploads.view_busy.load(Ordering::Acquire));
 	}
 

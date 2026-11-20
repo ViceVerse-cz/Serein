@@ -316,6 +316,7 @@ attachments-pending-card-remove-attachment = 移除附件
 # Context: pending_viewer
 attachments-pending-viewer-full-size-unavailable = 无法显示原尺寸预览
 attachments-pending-viewer-loading = 正在加载全尺寸图片…
+attachments-pending-viewer-close = 关闭（Esc）
 attachments-loading-card-preparing = 准备中…
 
 # Context: show_status

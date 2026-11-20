@@ -316,6 +316,10 @@ attachments-media-menu-unavailable-for-synthetic-attachments = Không có sẵn 
 attachments-open-original-open-original = Mở bản gốc…
 # Context: pending_card
 attachments-pending-card-remove-attachment = Xóa tệp đính kèm
+# Context: pending_viewer
+attachments-pending-viewer-full-size-unavailable = Không thể xem trước kích thước đầy đủ
+attachments-pending-viewer-loading = Đang tải ảnh kích thước đầy đủ…
+attachments-pending-viewer-close = Đóng (Esc)
 attachments-loading-card-preparing = Đang chuẩn bị…
 # Context: show_status
 attachments-show-status-cancel-download = Hủy tải xuống

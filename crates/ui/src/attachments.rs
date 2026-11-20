@@ -314,7 +314,7 @@ pub fn pending_viewer(
 			if stage.is_positive()
 				&& let Some(texture) = image
 			{
-				let pixels = texture.size_vec2().max(egui::vec2(1.0, 1.0));
+				let pixels = texture.resolution_vec2().max(egui::vec2(1.0, 1.0));
 				let scale = (stage.width() / pixels.x).min(stage.height() / pixels.y);
 				let fitted = Rect::from_center_size(stage.center(), pixels * scale.max(0.01));
 				ui.put(
@@ -368,7 +368,13 @@ pub fn pending_viewer(
 					.max_rect(bar.shrink2(egui::vec2(16.0, 8.0)))
 					.layout(egui::Layout::right_to_left(egui::Align::Center)),
 				|ui| {
-					close_clicked = glass_button(ui, Icon::Close, 40.0, "Close (Esc)").clicked();
+					close_clicked = glass_button(
+						ui,
+						Icon::Close,
+						40.0,
+						&crate::i18n::translate("attachments-pending-viewer-close"),
+					)
+					.clicked();
 				},
 			);
 			if close_clicked || backdrop.clicked() {

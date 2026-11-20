@@ -316,6 +316,7 @@ attachments-pending-card-remove-attachment = Eki kaldır
 # Context: pending_viewer
 attachments-pending-viewer-full-size-unavailable = Tam boyutlu önizleme kullanılamıyor
 attachments-pending-viewer-loading = Tam boyutlu resim yükleniyor…
+attachments-pending-viewer-close = Kapat (Esc)
 attachments-loading-card-preparing = Hazırlanıyor…
 # Context: show_status
 attachments-show-status-cancel-download = İndirmeyi iptal et

@@ -1066,7 +1066,13 @@ impl MessagingUi {
 			.filter(|(current, _)| *current == index)
 			.map(|(_, image)| image.clone());
 		let failed = matches!(decoded, Some(None));
-		let loading = decoded.is_none();
+		// A staged file the app never received has no decode to wait for: the offline fixtures
+		// stage pixels only, so their thumbnail is the whole picture instead of a stuck spinner.
+		let decodable = self
+			.attachment_view_file
+			.as_ref()
+			.is_some_and(|(_, _, key)| key.is_some());
+		let loading = decoded.is_none() && decodable;
 		let full = decoded.flatten();
 		let texture = match full {
 			Some(image) => {

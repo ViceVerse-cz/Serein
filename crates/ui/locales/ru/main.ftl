@@ -316,6 +316,7 @@ attachments-pending-card-remove-attachment = Удалить вложение
 # Context: pending_viewer
 attachments-pending-viewer-full-size-unavailable = Полноразмерный просмотр недоступен
 attachments-pending-viewer-loading = Загрузка полноразмерного изображения…
+attachments-pending-viewer-close = Закрыть (Esc)
 attachments-loading-card-preparing = Подготовка…
 # Context: show_status
 attachments-show-status-cancel-download = Отменить загрузку

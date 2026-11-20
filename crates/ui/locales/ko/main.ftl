@@ -316,6 +316,10 @@ attachments-media-menu-unavailable-for-synthetic-attachments = 테스트용 첨�
 attachments-open-original-open-original = 원본 열기…
 # Context: pending_card
 attachments-pending-card-remove-attachment = 첨부 파일 제거
+# Context: pending_viewer
+attachments-pending-viewer-full-size-unavailable = 전체 크기 미리보기를 사용할 수 없음
+attachments-pending-viewer-loading = 전체 크기 이미지 불러오는 중…
+attachments-pending-viewer-close = 닫기(Esc)
 attachments-loading-card-preparing = 준비 중…
 # Context: show_status
 attachments-show-status-cancel-download = 다운로드 취소

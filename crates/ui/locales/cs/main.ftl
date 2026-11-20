@@ -318,6 +318,7 @@ attachments-pending-card-remove-attachment = Odstraňte přílohu
 # Context: pending_viewer
 attachments-pending-viewer-full-size-unavailable = Náhled v plné velikosti není k dispozici
 attachments-pending-viewer-loading = Načítání obrázku…
+attachments-pending-viewer-close = Zavřít (Esc)
 attachments-loading-card-preparing = Připravuje se…
 # Context: show_status
 attachments-show-status-cancel-download = Zrušit stahování
