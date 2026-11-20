@@ -497,8 +497,7 @@ downscaling path. AAC track timestamps need not use the audio sample rate
 as their timescale. Missing FFmpeg or conversion failures appear in the video card. Linux and Windows
 continue to use their installed native codecs. This optional fallback is not bundled
 in release packages; actual codec coverage depends on the local FFmpeg build.
-Windows passes MPEG-4/MOV and WebM/Matroska attachments to Media Foundation; a recognized
-container can still fail when its video or audio codec is not installed.
+Windows passes MPEG-4/MOV and WebM/Matroska attachments to Media Foundation, and Linux passes them to GStreamer's `decodebin`; a recognized container can still fail when its video or audio codec is not installed.
 
 ## HEIC still images
 
