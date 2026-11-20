@@ -56,6 +56,7 @@ impl Settings {
 			convert_emoticons: ui.convert_emoticons,
 			hide_blocked_messages: ui.hide_blocked_messages,
 			hide_ignored_messages: ui.hide_ignored_messages,
+			hide_chat_server_tags: ui.hide_chat_server_tags,
 			preload_on_hover: ui.preload_on_hover,
 			auto_idle: ui.auto_idle,
 			hide_title_bar: ui.hide_title_bar,
@@ -113,6 +114,7 @@ impl Settings {
 		ui.convert_emoticons = value.convert_emoticons;
 		ui.hide_blocked_messages = value.hide_blocked_messages;
 		ui.hide_ignored_messages = value.hide_ignored_messages;
+		ui.hide_chat_server_tags = value.hide_chat_server_tags;
 		ui.preload_on_hover = value.preload_on_hover;
 		ui.auto_idle = value.auto_idle;
 		ui.hide_title_bar = value.hide_title_bar;

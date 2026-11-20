@@ -2264,6 +2264,10 @@ reading-chat-reading-settings-scrolling = 스크롤
 # Context: chat_reading_settings
 reading-chat-reading-settings-scrolling-speed = 스크롤 속도
 # Context: chat_reading_settings
+reading-chat-reading-settings-show-server-tags = 채팅에 서버 태그 표시
+# Context: chat_reading_settings
+reading-chat-reading-settings-show-server-tags-description = 메시지에서 이름 옆에 사용자가 착용한 서버 태그를 표시합니다. 프로필과 멤버 목록은 서버 태그 꾸미기 설정을 따릅니다.
+# Context: chat_reading_settings
 reading-chat-reading-settings-smooth-scrolling = 부드러운 스크롤
 # Context: chat_reading_settings
 reading-chat-reading-settings-compact-message-spacing = 간결한 메시지

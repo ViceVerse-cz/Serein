@@ -166,6 +166,15 @@ impl MessagingUi {
 				&mut value.compact_messages,
 			);
 			design::card_divider(ui);
+			let mut server_tags = !self.hide_chat_server_tags;
+			design::switch(
+				ui,
+				"reading-chat-reading-settings-show-server-tags",
+				Some("reading-chat-reading-settings-show-server-tags-description"),
+				&mut server_tags,
+			);
+			self.hide_chat_server_tags = !server_tags;
+			design::card_divider(ui);
 			design::switch(
 				ui,
 				"reading-double-click-reaction",
@@ -237,6 +246,7 @@ impl MessagingUi {
 			value.hide_media_links = defaults.hide_media_links;
 			self.hide_blocked_messages = false;
 			self.hide_ignored_messages = false;
+			self.hide_chat_server_tags = false;
 			value.compact_messages = defaults.compact_messages;
 			value.double_click_reaction_enabled = defaults.double_click_reaction_enabled;
 			value.double_click_reaction = defaults.double_click_reaction;

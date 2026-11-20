@@ -2308,6 +2308,10 @@ reading-chat-reading-settings-scrolling = Cuộn
 # Context: chat_reading_settings
 reading-chat-reading-settings-scrolling-speed = Tốc độ cuộn
 # Context: chat_reading_settings
+reading-chat-reading-settings-show-server-tags = Hiển thị thẻ máy chủ trong trò chuyện
+# Context: chat_reading_settings
+reading-chat-reading-settings-show-server-tags-description = Hiển thị thẻ máy chủ mà một người đang đeo bên cạnh tên của họ trong tin nhắn. Hồ sơ và danh sách thành viên tuân theo tùy chọn trang trí Thẻ máy chủ.
+# Context: chat_reading_settings
 reading-chat-reading-settings-smooth-scrolling = Cuộn mượt mà
 # Context: chat_reading_settings
 reading-chat-reading-settings-compact-message-spacing = Tin nhắn nhỏ gọn

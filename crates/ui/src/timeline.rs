@@ -56,6 +56,8 @@ pub struct TimelineView {
 	applied_hide_media_links: bool,
 	pub(super) hide_blocked_messages: bool,
 	pub(super) hide_ignored_messages: bool,
+	/// Header-only: tags sit on the fixed-height name line, so row heights do not change.
+	pub(super) hide_server_tags: bool,
 	applied_hide_blocked_messages: bool,
 	applied_hide_ignored_messages: bool,
 	pub(super) compact_messages: bool,
@@ -2560,6 +2562,7 @@ impl TimelineView {
 				hide_media_links: self.hide_media_links,
 				hide_blocked_messages: self.hide_blocked_messages,
 				hide_ignored_messages: self.hide_ignored_messages,
+				hide_server_tags: self.hide_server_tags,
 				instant_scrolling: self.instant_scrolling,
 				suppressed_deleted_highlight: std::mem::take(
 					&mut self.suppressed_deleted_highlight,
@@ -3648,6 +3651,11 @@ impl TimelineView {
 								});
 							}
 							let system = message.system_message();
+							let server_tag = message
+								.author
+								.primary_guild
+								.as_deref()
+								.filter(|_| !self.hide_server_tags);
 							let author_colors = state.message_author_colors(message);
 							let name_color = author_colors.map_or(colors.text_strong, |role| {
 								crate::design::role_name_color(
@@ -3728,6 +3736,15 @@ impl TimelineView {
 										),
 										|ui| {
 											ui.set_max_width(width);
+											// The narrow name column keeps the tag only while
+											// the name still gets a readable share of it.
+											let tag_width = |tag: &model::ClanTag| {
+												crate::profiles::server_tag_width(ui, Some(tag))
+													+ ui.spacing().item_spacing.x
+											};
+											let server_tag = server_tag
+												.filter(|tag| width - tag_width(tag) >= 48.0);
+											let trailing = server_tag.map_or(0.0, tag_width);
 											let author = crate::name_styles::in_row(
 												name_hover == Some(message.id),
 												|| {
@@ -3742,7 +3759,7 @@ impl TimelineView {
 															colors.chat,
 														),
 														egui::Sense::click(),
-														0.0,
+														trailing,
 													)
 												},
 											)
@@ -3769,6 +3786,26 @@ impl TimelineView {
 												&message.author,
 											);
 											surface.keep(&author);
+											if let Some(tag) = server_tag {
+												// This header is top-aligned; centre the chip on the name.
+												let tag = ui
+													.allocate_ui_with_layout(
+														egui::vec2(
+															ui.available_width(),
+															author.rect.height(),
+														),
+														egui::Layout::left_to_right(
+															egui::Align::Center,
+														),
+														|ui| {
+															crate::profiles::server_tag(
+																ui, tag, avatars, state.demo,
+															)
+														},
+													)
+													.inner;
+												surface.keep(&tag);
+											}
 										},
 									);
 									ui.spacing_mut().item_spacing.x = body_spacing;
@@ -3806,6 +3843,11 @@ impl TimelineView {
 											egui::Layout::left_to_right(egui::Align::Center),
 											|ui| {
 												ui.spacing_mut().item_spacing.x = 8.0;
+												// The name truncates before the tag or time leave the row.
+												let tag_trailing = server_tag.map_or(0.0, |tag| {
+													crate::profiles::server_tag_width(ui, Some(tag))
+														+ 8.0
+												});
 												let author = crate::name_styles::in_row(
 													name_hover == Some(message.id),
 													|| {
@@ -3820,7 +3862,7 @@ impl TimelineView {
 																colors.chat,
 															),
 															egui::Sense::click(),
-															48.0,
+															48.0 + tag_trailing,
 														)
 													},
 												)
@@ -3848,6 +3890,12 @@ impl TimelineView {
 													&message.author,
 												);
 												surface.keep(&author);
+												if let Some(tag) = server_tag {
+													let tag = crate::profiles::server_tag(
+														ui, tag, avatars, state.demo,
+													);
+													surface.keep(&tag);
+												}
 												let time = timestamp(id);
 												let time = ui
 													.label(

@@ -2302,6 +2302,10 @@ reading-chat-reading-settings-scrolling = Scrolling
 # Context: chat_reading_settings
 reading-chat-reading-settings-scrolling-speed = Scrolling speed
 # Context: chat_reading_settings
+reading-chat-reading-settings-show-server-tags = Show server tags in chat
+# Context: chat_reading_settings
+reading-chat-reading-settings-show-server-tags-description = Show the server tag a person wears beside their name in messages. Profiles and member lists follow the Server tags cosmetic.
+# Context: chat_reading_settings
 reading-chat-reading-settings-smooth-scrolling = Smooth scrolling
 # Context: chat_reading_settings
 reading-chat-reading-settings-compact-message-spacing = Compact messages
