@@ -3228,15 +3228,23 @@ impl MessagingUi {
 						))
 						.width(ui.available_width().min(160.0))
 						.show_ui(ui, |ui| {
+							// Compare against the supported value: a saved DeepFilterNet
+							// setting on builds without it must show RNNoise selected.
+							let mut current = suppression;
 							for (value, label) in choices {
 								if value.supported() != value {
 									continue;
 								}
-								ui.selectable_value(
-									&mut processing.suppression,
-									value,
-									crate::i18n::translate_if_key(label),
-								);
+								if ui
+									.selectable_value(
+										&mut current,
+										value,
+										crate::i18n::translate_if_key(label),
+									)
+									.clicked()
+								{
+									processing.suppression = value;
+								}
 							}
 						});
 				},

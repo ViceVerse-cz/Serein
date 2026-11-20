@@ -215,9 +215,11 @@ networks load on another thread; `vendor/deepfilternet/SEREIN-PATCH.md` describe
 unmodified **DeepFilterNet3** ONNX model is embedded in the executable under the same
 license. Inference uses the **tract 0.22.5** crates (tract-core, tract-data, tract-hir,
 tract-linalg, tract-nnef, tract-onnx, tract-onnx-opl, tract-pulse, tract-pulse-opl; MIT OR
-Apache-2.0, Sonos) and **ndarray 0.16.1** (MIT OR Apache-2.0). This adds 59 locked
-packages: 45 linked into the executable, all MIT and/or Apache-2.0, and 14 compile-time
-proc-macros and build helpers, including **tiny-keccak 2.0.2** (CC0-1.0). The
+Apache-2.0, Sonos) and **ndarray 0.16.1** (MIT OR Apache-2.0). This adds 60 locked
+packages: 45 linked into Linux and macOS executables (one fewer on Windows, where xattr
+is unused, and none on Windows on Arm, which omits DeepFilterNet entirely), all MIT
+and/or Apache-2.0, and 15 compile-time proc-macros and build helpers, including
+**tiny-keccak 2.0.2** (CC0-1.0). The
 DeepFilterNet, tract and linked support-crate license texts are retained unmodified in
 `assets/licenses/voice/`; its `PROVENANCE.md` records their sources, hashes and three
 upstream gaps (nom-language ships no license file, liquid-lib only its MIT text and

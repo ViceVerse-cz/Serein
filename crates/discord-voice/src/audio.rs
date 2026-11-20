@@ -1304,6 +1304,44 @@ mod tests {
 		);
 		let low_residual = residual(&mut dsp, &mut noise);
 		assert!((0.03..0.13).contains(&low_residual), "{low_residual}");
+		// Syllable-rate (4 Hz) amplitude modulation on a 110 Hz harmonic stack with
+		// formant peaks near -20 dBFS and a low hiss floor: unlike a stationary tone,
+		// this carries the temporal dynamics of speech and must be retained.
+		assert!(dsp.configure(full).unwrap());
+		let mut speech_seed = 101_u32;
+		let mut speech = |tick: usize| -> Frame {
+			std::array::from_fn(|i| {
+				speech_seed = speech_seed
+					.wrapping_mul(1_664_525)
+					.wrapping_add(1_013_904_223);
+				let t = (tick * 960 + i) as f32 / 48_000.0;
+				let syllable = 0.5 - 0.5 * (t * 4.0 * std::f32::consts::TAU).cos();
+				let mut vowel = 0.0;
+				for harmonic in 1..=24_u32 {
+					let frequency = harmonic as f32 * 110.0;
+					let first = ((frequency - 500.0) / 160.0).powi(2);
+					let second = ((frequency - 1900.0) / 300.0).powi(2);
+					vowel += (0.05 * (-first).exp() + 0.03 * (-second).exp())
+						* (t * frequency * std::f32::consts::TAU).sin();
+				}
+				syllable * vowel + (speech_seed as i32 as f32 / i32::MAX as f32) * 0.002
+			})
+		};
+		let (mut speech_before, mut speech_after) = (0.0, 0.0);
+		for tick in 0..80 {
+			let raw = speech(tick);
+			let mut clean = raw;
+			dsp.capture(&mut clean, false).unwrap();
+			assert!(clean.iter().all(|s| s.is_finite() && s.abs() <= 1.0));
+			if tick >= 40 {
+				speech_before += raw.iter().map(|s| s * s).sum::<f32>();
+				speech_after += clean.iter().map(|s| s * s).sum::<f32>();
+			}
+		}
+		let speech_residual = speech_after / speech_before;
+		// Measured ~0.9 at full strength; the floor keeps a wide margin while still
+		// failing if the model ever treats syllabic modulation as noise.
+		assert!(speech_residual > 0.25, "{speech_residual}");
 		// Look-ahead and recurrent state hold earlier microphone audio; a reset must drop it.
 		let probe = noise();
 		let [mut first, mut second] = [probe; 2];

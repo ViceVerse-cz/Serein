@@ -138,6 +138,44 @@ fn main() {
 				|| voiced_after > voiced_before * 0.1,
 			"voiced signal must survive suppression: {voiced_before} -> {voiced_after}"
 		);
+		// A syllable-rate amplitude-modulated vowel carries speech-like temporal dynamics
+		// that every suppressor, including DeepFilterNet, must let through.
+		let mut speech_seed = 101_u32;
+		let mut speech = |tick: usize| -> Frame {
+			std::array::from_fn(|i| {
+				speech_seed = speech_seed
+					.wrapping_mul(1_664_525)
+					.wrapping_add(1_013_904_223);
+				let t = (tick * 960 + i) as f32 / 48_000.0;
+				let syllable = 0.5 - 0.5 * (t * 4.0 * std::f32::consts::TAU).cos();
+				let mut vowel = 0.0;
+				for harmonic in 1..=24_u32 {
+					let frequency = harmonic as f32 * 110.0;
+					let first = ((frequency - 500.0) / 160.0).powi(2);
+					let second = ((frequency - 1900.0) / 300.0).powi(2);
+					vowel += (0.05 * (-first).exp() + 0.03 * (-second).exp())
+						* (t * frequency * std::f32::consts::TAU).sin();
+				}
+				syllable * vowel + (speech_seed as i32 as f32 / i32::MAX as f32) * 0.002
+			})
+		};
+		let (mut speech_before, mut speech_after) = (0.0, 0.0);
+		for tick in 0..100 {
+			let mut voiced = speech(tick);
+			let mut raw = voiced;
+			filtered.render(&[0.0; 960]).unwrap();
+			unfiltered.render(&[0.0; 960]).unwrap();
+			filtered.capture(&mut voiced, false).unwrap();
+			unfiltered.capture(&mut raw, false).unwrap();
+			if tick >= 50 {
+				speech_before += raw.iter().map(|s| s * s).sum::<f32>();
+				speech_after += voiced.iter().map(|s| s * s).sum::<f32>();
+			}
+		}
+		assert!(
+			speech_after > speech_before * 0.1,
+			"amplitude-modulated speech must survive suppression: {speech_before} -> {speech_after}"
+		);
 		filtered
 			.configure(model::voice_settings::VoiceProcessing::from_legacy(false).effective())
 			.unwrap();

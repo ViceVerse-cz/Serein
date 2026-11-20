@@ -218,9 +218,10 @@ The embedded model `vendor/deepfilternet/models/DeepFilterNet3_onnx.tar.gz` has 
 Plus fork. The compile-time-only additions — ar_archive_writer 0.5.3, const-random-macro
 0.1.16, derive-new 0.5.9, itertools 0.10.5, liquid-derive 0.26.10, object 0.39.1,
 pastey 0.1.1, pest_derive/pest_generator/pest_meta 2.9.5, prost-derive 0.11.9,
-syn 1.0.109, tiny-keccak 2.0.2 (CC0-1.0, already a `deny.toml` exception) and
-unicode-normalization 0.1.26 — are proc-macros, their dependencies and build helpers that
-are not linked into the executable; no texts are retained for them.
+syn 1.0.109, tiny-keccak 2.0.2 (CC0-1.0, already a `deny.toml` exception), tinyvec 1.13.3
+(Zlib OR Apache-2.0 OR MIT) and unicode-normalization 0.1.26 — are proc-macros, their
+dependencies and build helpers that are not linked into the executable; no texts are retained
+for them.
 
 Gaps: nom-language 0.1.0 ships no license file in its registry archive or its
 `nom-language/` VCS path; the workspace root MIT

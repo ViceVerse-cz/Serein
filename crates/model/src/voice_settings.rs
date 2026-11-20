@@ -128,3 +128,37 @@ impl VoiceProcessing {
 		&mut self.custom
 	}
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	/// Builds without DeepFilterNet must run, offer and highlight RNNoise for a saved
+	/// DeepFilterNet setting; the menu and the audio worker both read this mapping.
+	#[test]
+	fn effective_suppression_is_always_one_this_build_offers() {
+		for saved in [
+			NoiseSuppression::Off,
+			NoiseSuppression::RnNoise,
+			NoiseSuppression::WebRtc,
+			NoiseSuppression::DeepFilterNet,
+		] {
+			let settings = VoiceProcessing {
+				profile: InputProfile::Custom,
+				custom: Processing {
+					suppression: saved,
+					..Processing::studio()
+				},
+			};
+			let effective = settings.effective();
+			// Whatever a build shows is always one of the suppressors it offers.
+			assert_eq!(effective.suppression.supported(), effective.suppression);
+			if saved == NoiseSuppression::DeepFilterNet
+				&& !NoiseSuppression::DEEP_FILTER_NET_AVAILABLE
+			{
+				// Windows on Arm offers and highlights RNNoise for the saved setting.
+				assert_eq!(effective.suppression, NoiseSuppression::RnNoise);
+			}
+		}
+	}
+}
