@@ -128,6 +128,13 @@ fn verify_appimage(path: &Path) -> Result<(), String> {
 	Ok(())
 }
 
+fn is_appdir_executable(appdir: &Path, canonical_exe: &Path) -> bool {
+	["bin/serein", "usr/bin/serein"]
+		.into_iter()
+		.filter_map(|relative| fs::canonicalize(appdir.join(relative)).ok())
+		.any(|candidate| candidate == canonical_exe)
+}
+
 fn installation() -> Result<PathBuf, String> {
 	let exe = std::env::current_exe()
 		.and_then(fs::canonicalize)
@@ -148,10 +155,7 @@ fn installation() -> Result<PathBuf, String> {
 			);
 		}
 		let appdir = PathBuf::from(std::env::var_os("APPDIR").ok_or("Missing AppImage mount.")?);
-		if fs::canonicalize(appdir.join("usr/bin/serein"))
-			.ok()
-			.as_ref() != Some(&exe)
-		{
+		if !is_appdir_executable(&appdir, &exe) {
 			return Err("Run Serein from its AppImage to install updates.".into());
 		}
 		let image = PathBuf::from(std::env::var_os("APPIMAGE").ok_or("Missing AppImage path.")?);

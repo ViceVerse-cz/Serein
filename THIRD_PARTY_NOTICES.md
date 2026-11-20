@@ -12,6 +12,21 @@ unmodified upstream MIT license is bundled at
 `assets/licenses/files/md4-0.10.2-LICENSE-MIT`; `Cargo.lock` records the registry
 archive checksum. Source: https://crates.io/crates/md4/0.10.2 (RustCrypto/hashes).
 
+Portable `x86_64` AppImages additionally embed **uruntime v0.8.3**
+(`uruntime-appimage-dwarfs-lite-x86_64`, MIT, which statically embeds the MIT-licensed
+DwarFS reader/extractor subset from `mhx/dwarfs v0.15.8` while excluding GPL-3.0 writer
+tools), **Anylinux-sharun 3.9.0** (`sharun` and helper libraries, MIT; also bundling
+**dash** and its verbatim `share/licenses/dash-COPYING` notice covering Berkeley
+BSD-3-Clause plus the `mksignames.c` GPL-2.0 generator notice), and **cross-libc-dlopen
+v0.2.11** (MIT). Verbatim runtime/loader notices ship in the AppImage under
+`licenses/AppImage-runtime.txt` (`packaging/appimage/RUNTIME-LICENSE`) and
+`licenses/cross-libc-dlopen-LICENSE.txt`. Build-host-only tools (`quick-sharun.sh` at
+`9ed54a2c6213cf7f72993bd25635a655be78516e` MIT, `appimagetool 0.7.0` MIT, and `mkdwarfs
+v0.15.6`) run only on the build host and are not shipped inside the AppImage. Shared
+libraries staged from the Arch Linux container by `quick-sharun` are inventoried in
+`AppImage-bundled-packages.txt` and retain their upstream licenses; packaging records
+this inventory without completing a full transitive per-artifact legal clearance.
+
 Linux tray integration uses **ksni 0.3.6** (Unlicense), reusing zbus, Tokio and image.
 The unmodified license is retained in `assets/licenses/files/ksni-0.3.6-UNLICENSE`;
 `Cargo.lock` records the archive checksum.

@@ -3,9 +3,10 @@
 Release builds target native packages for Ubuntu 26.04 (`apt`, x86_64 and ARM64), Fedora 43/44 (`dnf`),
 openSUSE Tumbleweed (`zypper`) and Arch (`pacman`), plus a
 [Flatpak bundle](../flatpak/README.md) for distributions with a compatible Flatpak runtime.
-The [AppImage](../appimage/README.md) supports in-app updates on Linux x86_64 with
-the documented host GTK4/WebKit6 runtime; its release build targets Ubuntu 24.04
-for glibc 2.39 compatibility.
+The [AppImage](../appimage/README.md) supports in-app updates on Linux `x86_64` as a
+portable Anylinux DwarFS AppImage (bundling GTK4, WebKitGTK 6.0, GStreamer/PipeWire
+plugins, and glibc in `archlinux:base` release builds while loading host GPU drivers
+via `cross-libc-dlopen`).
 Download the file labelled for your distribution from
 [Releases](https://github.com/ViceVerse-cz/Serein/releases), then use its actual filename:
 
