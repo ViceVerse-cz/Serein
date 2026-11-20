@@ -3566,6 +3566,56 @@ settings-storage-page-removes-cached-messages-and-media-drafts-and-your-login-st
 settings-storage-page-serein-does-not-collect-telemetry-or-upload-diagnostics-discord-retains = Serein은 원격 측정 데이터를 수집하거나 진단 정보를 업로드하지 않습니다. Discord는 자체 정책에 따라 서비스 측 데이터를 보관합니다.
 # Context: storage_page
 settings-storage-page-your-privacy = 개인정보 보호
+# Context: storage_page
+settings-storage-page-saved-login = 저장된 로그인
+# Context: storage_page
+settings-storage-page-plaintext-login = 키링 없이 로그인을 일반 텍스트로 저장
+# Context: storage_page
+settings-storage-page-plaintext-login-description = OS 키링(GNOME 키링, KWallet, 키체인 또는 자격 증명 관리자)이 작동하지 않을 때만 사용됩니다. 토큰은 Serein 데이터 폴더의 비공개 파일에 암호화되지 않은 채 저장되며, 사용자 계정에 접근할 수 있는 사람은 누구나 읽을 수 있습니다. 이 기능을 끄면 해당 파일이 삭제됩니다.
+# Context: safety_hub
+settings-safety-hub-title = 계정 상태 (읽기 전용, 비공식)
+# Context: safety_hub
+settings-safety-hub-read-only-unofficial = 읽기 전용입니다. 확인을 선택하면 Serein이 이 로그인된 계정에 대해 Discord의 Safety Hub를 한 번 요청합니다. 이는 비공식이며 검증되지 않은 일반 세션 동작이므로 Discord가 변경하거나 제거할 수 있습니다. Serein은 플래그, DM 또는 프로필에서 상태를 추론하지 않습니다.
+# Context: safety_hub
+settings-safety-hub-standing = 상태
+# Context: safety_hub
+settings-safety-hub-check = 계정 상태 확인
+# Context: safety_hub
+settings-safety-hub-loading = 확인 중…
+# Context: safety_hub
+settings-safety-hub-not-checked = 확인하지 않음
+# Context: safety_hub
+settings-safety-hub-unavailable = 사용할 수 없음
+# Context: safety_hub
+settings-safety-hub-all-good = 정상
+# Context: safety_hub
+settings-safety-hub-limited = 제한됨
+# Context: safety_hub
+settings-safety-hub-very-limited = 매우 제한됨
+# Context: safety_hub
+settings-safety-hub-at-risk = 위험
+# Context: safety_hub
+settings-safety-hub-suspended = 정지됨
+# Context: safety_hub
+settings-safety-hub-classification = 위반 기록됨 (유형 { $type })
+# Context: safety_hub
+settings-safety-hub-action = 조치 기록됨 (유형 { $type })
+# Context: safety_hub
+settings-safety-hub-expires = { $time }에 만료
+# Context: safety_hub
+settings-safety-hub-appeal-pending = 이의 제기 검토 중
+# Context: safety_hub
+settings-safety-hub-appeal-upheld = 이의 제기 기각됨. 분류가 유지됩니다
+# Context: safety_hub
+settings-safety-hub-appeal-invalidated = 이의 제기 수락됨. 분류가 제거되었습니다
+# Context: safety_hub
+settings-safety-hub-appeal-eligible = Discord가 자체 클라이언트에서 이의 제기를 사용할 수 있다고 보고합니다.
+# Context: safety_hub
+settings-safety-hub-dsa-eligible = Discord가 DSA 이의 제기 자격이 있다고 보고합니다.
+# Context: safety_hub
+settings-safety-hub-open-explanation = 설명 열기
+# Context: safety_hub
+settings-safety-hub-official-info = Discord의 경고 시스템 및 계정 상태 (공식 지원 문서)
 # Context: cosmetic_settings
 settings-cosmetics = 프로필 꾸미기
 # Context: cosmetic_settings

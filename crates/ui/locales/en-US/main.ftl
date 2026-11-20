@@ -3607,6 +3607,53 @@ settings-storage-page-removes-cached-messages-and-media-drafts-and-your-login-st
 settings-storage-page-serein-does-not-collect-telemetry-or-upload-diagnostics-discord-retains = Serein does not collect telemetry or upload diagnostics. Discord retains service-side data according to its own policies.
 # Context: storage_page
 settings-storage-page-your-privacy = Your privacy
+settings-storage-page-saved-login = Saved login
+settings-storage-page-plaintext-login = Save login in plaintext without a keyring
+settings-storage-page-plaintext-login-description = Used only when no OS keyring (GNOME Keyring, KWallet, Keychain or Credential Manager) works. The token is stored unencrypted in a private file in Serein's data folder, where anyone with access to your user account can read it. Turning this off deletes those files.
+# Context: safety_hub
+settings-safety-hub-title = Account standing (read-only, unofficial)
+# Context: safety_hub
+settings-safety-hub-read-only-unofficial = Read-only. After you choose Check, Serein requests Discord's Safety Hub for this signed-in account once. This is an unofficial, unverified normal-session behavior; Discord may change or remove it. Serein never infers standing from flags, DMs or your profile.
+# Context: safety_hub
+settings-safety-hub-standing = Standing
+# Context: safety_hub
+settings-safety-hub-check = Check account standing
+# Context: safety_hub
+settings-safety-hub-loading = Checking…
+# Context: safety_hub
+settings-safety-hub-not-checked = Not checked
+# Context: safety_hub
+settings-safety-hub-unavailable = Unavailable
+# Context: safety_hub
+settings-safety-hub-all-good = All Good
+# Context: safety_hub
+settings-safety-hub-limited = Limited
+# Context: safety_hub
+settings-safety-hub-very-limited = Very limited
+# Context: safety_hub
+settings-safety-hub-at-risk = At risk
+# Context: safety_hub
+settings-safety-hub-suspended = Suspended
+# Context: safety_hub
+settings-safety-hub-classification = Violation recorded (type { $type })
+# Context: safety_hub
+settings-safety-hub-action = Action recorded (type { $type })
+# Context: safety_hub
+settings-safety-hub-expires = Expires { $time }
+# Context: safety_hub
+settings-safety-hub-appeal-pending = Appeal under review
+# Context: safety_hub
+settings-safety-hub-appeal-upheld = Appeal denied; the classification remains
+# Context: safety_hub
+settings-safety-hub-appeal-invalidated = Appeal accepted; the classification was removed
+# Context: safety_hub
+settings-safety-hub-appeal-eligible = Discord reports that an appeal may be available in its own client.
+# Context: safety_hub
+settings-safety-hub-dsa-eligible = Discord reports DSA appeal eligibility.
+# Context: safety_hub
+settings-safety-hub-open-explanation = Open explanation
+# Context: safety_hub
+settings-safety-hub-official-info = Discord's warning system and account standing (official support article)
 # Context: cosmetic_settings
 settings-cosmetics = Profile cosmetics
 # Context: cosmetic_settings

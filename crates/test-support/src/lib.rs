@@ -3,6 +3,7 @@ use client_core::{Envelope, Event, State};
 use model::*;
 mod message_links;
 pub use message_links::{load_message_link_page, message_links_demo_state};
+pub mod safety_hub;
 /// Synthetic Tenor-shaped results. Previews under `/synthetic/` are painted locally; no request.
 pub fn gif_page(query: Option<&str>) -> model::GifPage {
 	const TITLES: [&str; 12] = [

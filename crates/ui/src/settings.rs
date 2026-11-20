@@ -14,6 +14,7 @@ pub(super) struct Settings {
 	pub(super) notifications: crate::notification_settings::Navigation,
 	pub(super) messaging_permissions: crate::messaging_permissions::Navigation,
 	pub(super) games: crate::registered_games::Page,
+	pub(super) safety_hub_opening: Option<String>,
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
@@ -168,7 +169,9 @@ impl Page {
 			Self::LanguageTime => {
 				"language time clock 12 hour 24 hour am pm format locale translation"
 			}
-			Self::Storage => "data privacy local storage clear cache drafts credentials",
+			Self::Storage => {
+				"data privacy local storage clear cache drafts credentials standing safety violations account"
+			}
 			Self::Updates => {
 				"updates auto update release channel production stable nightly download restart version check diagnostics issue bug system info debug"
 			}
@@ -534,7 +537,7 @@ impl MessagingUi {
 										state.voice.active.is_some(),
 										false,
 									),
-									Page::Storage => self.storage_page(ui, state),
+									Page::Storage => self.storage_page(ui, state, commands),
 									Page::Updates => self.update_settings(ui, state.demo),
 									Page::Keybinds => crate::keybinds::show(
 										ui,
@@ -1338,7 +1341,12 @@ impl MessagingUi {
 		self.registered_games_settings(ui, state.demo);
 	}
 
-	fn storage_page(&mut self, ui: &mut egui::Ui, state: &State) {
+	fn storage_page(
+		&mut self,
+		ui: &mut egui::Ui,
+		state: &mut State,
+		commands: &mut Vec<client_core::Command>,
+	) {
 		design::group(
 			ui,
 			&crate::i18n::translate("settings-storage-page-local-storage"),
@@ -1376,6 +1384,7 @@ impl MessagingUi {
 			},
 		);
 		self.image_cache_settings(ui, state.demo);
+		self.safety_hub_settings(ui, state, commands);
 		design::group(
 			ui,
 			&crate::i18n::translate("settings-storage-page-your-privacy"),
