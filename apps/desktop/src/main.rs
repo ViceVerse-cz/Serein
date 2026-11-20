@@ -2605,10 +2605,12 @@ impl Desktop {
 		}
 		// The GPU surface and X11 visual are selected at startup. Opaque launches
 		// keep the same native/compositor path as builds without window effects.
-		// KWin hiding runs its D-Bus worker on the application runtime.
+		// KWin hiding and the session monitor run their D-Bus workers on the application runtime.
 		let tray_window = {
 			let _runtime = runtime.enter();
-			tray_window::State::default()
+			let mut tray_window = tray_window::State::default();
+			tray_window.watch_session(&cc.egui_ctx);
+			tray_window
 		};
 		#[cfg(target_os = "macos")]
 		let app_menu = {

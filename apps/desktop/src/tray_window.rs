@@ -21,6 +21,8 @@ pub struct State {
 	hide_wait: u8,
 	/// Compositor IPC for Wayland sessions where winit cannot hide (Hyprland, KWin).
 	compositor: Option<platform::compositor::Hider>,
+	/// Logout notice: a close while the session ends must exit, never hide to the tray.
+	session: Option<platform::session::Monitor>,
 }
 
 /// Frames a winit hide gets to take effect before it counts as failed.
@@ -54,11 +56,19 @@ impl Default for State {
 			hide_pending: false,
 			hide_wait: 0,
 			compositor: platform::compositor::Hider::detect(),
+			session: None,
 		}
 	}
 }
 
 impl State {
+	/// Follows the desktop session so logout can exit a window hidden to the tray. Needs a Tokio
+	/// runtime context.
+	#[allow(dead_code)]
+	pub fn watch_session(&mut self, ctx: &egui::Context) {
+		let wake = ctx.clone();
+		self.session = platform::session::Monitor::start(move || wake.request_repaint());
+	}
 	/// Restores the window from any thread. Hyprland sends no frames to a parked window, so
 	/// events that must show it cannot wait for the UI to run.
 	pub fn restorer(&self) -> impl Fn() + Send + Sync + 'static {
@@ -131,6 +141,21 @@ impl State {
 		if self.hidden && !tray_available {
 			self.show(ctx);
 		}
+		let ending = self
+			.session
+			.as_ref()
+			.is_some_and(platform::session::Monitor::ending);
+		// Like Electron on session end: quit without waiting for the window to be closed.
+		if !self.system_close
+			&& self
+				.session
+				.as_ref()
+				.is_some_and(platform::session::Monitor::ended)
+		{
+			self.system_close = true;
+			self.exiting = true;
+			ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+		}
 		let (close, minimized) = ctx.input(|input| {
 			(
 				input.viewport().close_requested(),
@@ -169,7 +194,7 @@ impl State {
 			return;
 		}
 		let unseen = was_hidden || native_visible == Some(false);
-		if tray_available && !self.exiting && !unseen {
+		if tray_available && !self.exiting && !unseen && !ending {
 			// Native Wayland cannot hide surfaces through winit, Hyprland ignores minimization
 			// and KWin keeps minimized windows in the taskbar, so their IPC hides the window
 			// instead. Elsewhere never label a possibly visible window hidden; the compositor
@@ -189,13 +214,13 @@ impl State {
 		} else {
 			// Nobody can close a window they cannot see: a hidden window's close comes from the
 			// session ending (Plasma closes every window at logout), so exit instead of blocking it.
-			let system_close = !self.exiting && unseen;
-			self.system_close |= system_close;
+			// The portal also reports logout while the window is visible.
+			self.system_close |= ending || (!self.exiting && unseen);
 			// Registration can finish while the existing exit dialog is open.
 			self.exiting = true;
 			// A hidden window runs only logic passes, and KWin does not show it again while the
 			// session ends, so let this close through instead of waiting for a ui pass.
-			if system_close {
+			if self.system_close {
 				return;
 			}
 			if unseen || self.close_after_show {
