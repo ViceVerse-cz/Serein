@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
-"""Rebuild the bundled Phosphor icon atlas (development only).
+"""Rebuild standalone UI SVG icons and the PNG fallback atlas (development only).
 
-Downloads the version-pinned SVG sources, verifies every file hash, composes one SVG grid and
-rasterizes it with the `resvg` command-line tool. Requires `resvg` 0.45.1 on PATH or `--resvg`:
+Downloads version-pinned SVG sources, verifies every file hash, and emits normalized white
+SVGs. Use `--svg-only` to leave the PNG, index and licenses untouched without requiring resvg:
+
+    python3 tools/generate-icons.py --svg-only
+
+Full regeneration also rasterizes the atlas with `resvg` 0.45.1 on PATH or `--resvg`:
 
     cargo install resvg --version 0.45.1 --root /tmp/resvg-tool
     python3 tools/generate-icons.py --resvg /tmp/resvg-tool/bin/resvg
@@ -165,22 +169,24 @@ def inner_svg(svg):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--resvg", default="resvg", help="path to the resvg executable")
+    parser.add_argument("--svg-only", action="store_true", help="emit only standalone SVGs; no resvg required")
     parser.add_argument("--print-hashes", action="store_true", help="print SHA-256 values instead of checking")
     args = parser.parse_args()
     destination = Path(__file__).resolve().parents[1] / "assets" / "icons"
     destination.mkdir(parents=True, exist_ok=True)
 
-    license_text = fetch("LICENSE")
-    if args.print_hashes:
-        print("LICENSE", hashlib.sha256(license_text).hexdigest())
-    elif hashlib.sha256(license_text).hexdigest() != LICENSE_SHA256:
-        raise ValueError("LICENSE SHA-256 mismatch")
+    if not args.svg_only:
+        license_text = fetch("LICENSE")
+        if args.print_hashes:
+            print("LICENSE", hashlib.sha256(license_text).hexdigest())
+        elif hashlib.sha256(license_text).hexdigest() != LICENSE_SHA256:
+            raise ValueError("LICENSE SHA-256 mismatch")
 
-    simple_license = fetch("LICENSE.md", SIMPLE_BASE)
-    if args.print_hashes:
-        print("SIMPLE LICENSE", hashlib.sha256(simple_license).hexdigest())
-    elif hashlib.sha256(simple_license).hexdigest() != SIMPLE_LICENSE_SHA256:
-        raise ValueError("Simple Icons LICENSE SHA-256 mismatch")
+        simple_license = fetch("LICENSE.md", SIMPLE_BASE)
+        if args.print_hashes:
+            print("SIMPLE LICENSE", hashlib.sha256(simple_license).hexdigest())
+        elif hashlib.sha256(simple_license).hexdigest() != SIMPLE_LICENSE_SHA256:
+            raise ValueError("Simple Icons LICENSE SHA-256 mismatch")
 
     sources = [(name, asset, sha256, False) for name, asset, sha256 in ICONS]
     sources += [(name, asset, sha256, True) for name, asset, sha256 in SIMPLE_ICONS]
@@ -189,11 +195,13 @@ def main():
     rows = (len(sources) + COLUMNS - 1) // COLUMNS
     width, height = COLUMNS * CELL, rows * CELL
     parts = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">']
-    parts.append(
+    slash_mask = (
         '<defs><mask id="slash" maskUnits="userSpaceOnUse" x="0" y="0" width="256" height="256">'
         '<rect width="256" height="256" fill="#fff"/>'
         '<path d="M40 24 L232 216" stroke="#000" stroke-width="44" stroke-linecap="round"/></mask></defs>'
     )
+    parts.append(slash_mask)
+    standalone = []
     index = []
     root = Path(__file__).resolve().parents[1]
     for cell, (name, asset, sha256, simple) in enumerate(sources):
@@ -209,8 +217,7 @@ def main():
             raise ValueError(f"{asset} SHA-256 mismatch: {digest}")
         text = svg.decode("utf-8")
         body = inner_svg(text)
-        x = (cell % COLUMNS) * CELL + PAD
-        y = (cell // COLUMNS) * CELL + PAD
+        x = y = PAD
         if local:
             # Our own mark is trimmed to its bounding box; honour its view box offset.
             box = text.split('viewBox="', 1)[1].split('"', 1)[0].split()
@@ -224,17 +231,32 @@ def main():
         else:
             assert 'viewBox="0 0 256 256"' in text, asset
             scale = GLYPH / 256
-        if name.endswith("-slash") and "slash" not in asset:
+        derived_slash = name.endswith("-slash") and "slash" not in asset
+        if derived_slash:
             # Phosphor has no slashed headphones; compose the upstream glyph with a knocked-out
             # diagonal in the style of its own `*-slash` icons.
             body = (
                 f'<g mask="url(#slash)">{body}</g>'
                 '<path d="M40 24 L232 216" stroke="#fff" stroke-width="16" stroke-linecap="round"/>'
             )
+        glyph = f'<g transform="translate({x:.6f} {y:.6f}) scale({scale:.6f})" fill="#fff">{body}</g>'
+        standalone.append((name, (
+            f'<svg xmlns="http://www.w3.org/2000/svg" width="{CELL}" height="{CELL}" viewBox="0 0 {CELL} {CELL}">'
+            f'{slash_mask if derived_slash else ""}{glyph}</svg>\n'
+        )))
+        x += (cell % COLUMNS) * CELL
+        y += (cell // COLUMNS) * CELL
         parts.append(f'<g transform="translate({x:.6f} {y:.6f}) scale({scale:.6f})" fill="#fff">{body}</g>')
         index.append((name, cell))
     parts.append("</svg>")
     if args.print_hashes:
+        return
+    svg_directory = destination / "svg"
+    svg_directory.mkdir(exist_ok=True)
+    for name, svg in standalone:
+        (svg_directory / f"{name}.svg").write_text(svg, encoding="utf-8")
+    print(f"{len(standalone)} standalone SVG icons; {CELL}x{CELL} cells")
+    if args.svg_only:
         return
     atlas_svg = destination / "atlas.svg"
     atlas_svg.write_text("".join(parts), encoding="utf-8")
