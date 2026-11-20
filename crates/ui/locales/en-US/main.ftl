@@ -2304,7 +2304,9 @@ reading-chat-reading-settings-scrolling-speed = Scrolling speed
 # Context: chat_reading_settings
 reading-chat-reading-settings-show-server-tags = Show server tags in chat
 # Context: chat_reading_settings
-reading-chat-reading-settings-show-server-tags-description = Show the server tag a person wears beside their name in messages. Profiles and member lists follow the Server tags cosmetic.
+reading-chat-reading-settings-show-server-tags-description = Show the server tag a person wears beside their name in messages.
+# Context: chat_reading_settings
+reading-chat-reading-settings-show-server-tags-hidden-everywhere = Off because Appearance › Server tags is off.
 # Context: chat_reading_settings
 reading-chat-reading-settings-smooth-scrolling = Smooth scrolling
 # Context: chat_reading_settings
@@ -5069,7 +5071,7 @@ settings-cosmetics-all-description = Everything below at once. Turning it off al
 settings-cosmetics-gradient-names = Gradient names
 settings-cosmetics-gradient-names-description = Role and Nitro names that blend several colours. Off paints them in their first colour.
 settings-cosmetics-clan-tags = Server tags
-settings-cosmetics-clan-tags-description = The server tag a person wears beside their name.
+settings-cosmetics-clan-tags-description = The server tag a person wears beside their name in profiles, member lists and messages.
 main-sign-in-rate-limited-detail = Discord is rate limiting this sign-in. Wait before trying again. Another attempt before that can make the wait longer.
 
 # Avatar badge while someone is typing.

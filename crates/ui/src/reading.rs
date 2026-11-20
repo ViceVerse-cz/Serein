@@ -166,14 +166,25 @@ impl MessagingUi {
 				&mut value.compact_messages,
 			);
 			design::card_divider(ui);
-			let mut server_tags = !self.hide_chat_server_tags;
-			design::switch(
-				ui,
-				"reading-chat-reading-settings-show-server-tags",
-				Some("reading-chat-reading-settings-show-server-tags-description"),
-				&mut server_tags,
-			);
-			self.hide_chat_server_tags = !server_tags;
+			// Appearance › Server tags hides tags everywhere; this switch then shows that it is off.
+			let hidden_everywhere = self.cosmetics.hide_clan_tags;
+			ui.add_enabled_ui(!hidden_everywhere, |ui| {
+				let mut server_tags = !self.hide_chat_server_tags && !hidden_everywhere;
+				if design::switch(
+					ui,
+					"reading-chat-reading-settings-show-server-tags",
+					Some(if hidden_everywhere {
+						"reading-chat-reading-settings-show-server-tags-hidden-everywhere"
+					} else {
+						"reading-chat-reading-settings-show-server-tags-description"
+					}),
+					&mut server_tags,
+				)
+				.changed()
+				{
+					self.hide_chat_server_tags = !server_tags;
+				}
+			});
 			design::card_divider(ui);
 			design::switch(
 				ui,
