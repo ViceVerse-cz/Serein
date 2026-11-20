@@ -573,6 +573,8 @@ pub struct MessagingUi {
 	pub voice_refresh_devices: bool,
 	pub voice_device_status: &'static str,
 	pub voice_microphone_unavailable: bool,
+	/// The running call or microphone test moved automatic suppression to RNNoise.
+	pub voice_suppression_fell_back: bool,
 	pub voice_push_to_talk: bool,
 	/// Device-local voice intent, retained between calls and restarts.
 	pub voice_muted: bool,

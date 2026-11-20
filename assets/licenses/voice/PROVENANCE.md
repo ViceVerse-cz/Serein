@@ -130,3 +130,31 @@ no PulseAudio server is bundled.
 | enum-primitive-derive-0.3.0-LICENSE | [registry source](https://docs.rs/crate/enum-primitive-derive/0.3.0/source/LICENSE) | `819e0555b295079201b0670bb3302855303bdbbcc739f3819b13e1b3d2ec03bb` |
 | futures-0.3.34-LICENSE-MIT | [registry source](https://docs.rs/crate/futures/0.3.34/source/LICENSE-MIT) | `6652c868f35dfe5e8ef636810a4e576b9d663f3a17fb0f5613ad73583e1b88fd` |
 | futures-0.3.34-LICENSE-APACHE | [registry source](https://docs.rs/crate/futures/0.3.34/source/LICENSE-APACHE) | `275c491d6d1160553c32fd6127061d7f9606c3ea25abfad6ca3f6ed088785427` |
+
+## DeepFilterNet noise suppression — November 20, 2026
+
+`crates/deepfilternet` is Serein's Rust port of the DeepFilterNet3 real-time path. Its
+framing, feature and gain code follows `libDF` (`lib.rs` and `tract.rs`) from
+[ismailivanov/DeepFilterNetPlus](https://github.com/ismailivanov/DeepFilterNetPlus/tree/2dc5273d16e1e3769527ad0740654c5ccde581cc)
+commit `2dc5273d16e1e3769527ad0740654c5ccde581cc`, a maintained fork of
+Rikorose/DeepFilterNet. The license files and the model come from upstream commit
+[`d375b2d8309e0935d165700c91da9de862a99c31`](https://github.com/Rikorose/DeepFilterNet/tree/d375b2d8309e0935d165700c91da9de862a99c31).
+Hashes are of the LF-normalized files.
+
+| File | Component | Exact source | SHA-256 |
+|---|---|---|---|
+| deepfilternet-LICENSE-MIT.txt | DeepFilterNet d375b2d | [pinned upstream](https://github.com/Rikorose/DeepFilterNet/blob/d375b2d8309e0935d165700c91da9de862a99c31/LICENSE-MIT) | `24e6bb09c928af8d8e56268082f87413247ce36b39dd5d33add2f9893968065e` |
+| deepfilternet-LICENSE-APACHE.txt | DeepFilterNet d375b2d | [pinned upstream](https://github.com/Rikorose/DeepFilterNet/blob/d375b2d8309e0935d165700c91da9de862a99c31/LICENSE-APACHE) | `1eaee808c5fb6b4e895ba30425285a5cdc5dd25bba2cd230f264c2200c331aec` |
+
+`crates/deepfilternet/src/dfn3.weights` (8,535,484 bytes, SHA-256
+`7a66ac8f2dc465839070037cc2487bcad1854c974188df4a3046cd0940dcfc22`) holds the tensors of
+upstream's `models/DeepFilterNet3_onnx.tar.gz` (7,983,136 bytes, SHA-256
+`c94d91f70911001c946e0fabb4aa9adc37045f45a03b56008cb0c8244cb63616`) as little-endian `f32`,
+reordered for the runtime's loops and otherwise unchanged. The local-SNR and DF-alpha
+heads, whose outputs Serein does not use, are left out. `tools/generate-deepfilternet-weights.py`
+downloads the pinned archive, checks its hash and rebuilds the file byte for byte.
+
+`crates/deepfilternet/tests/fixtures/reference.f32` is twenty frames of synthetic audio as
+enhanced by DeepFilterNet Plus `2dc5273d` on tract 0.22.5, recorded before that runtime was
+removed from this repository; the test beside it describes the input. The port locks no
+new package: it uses realfft 3.5.0 and bytemuck 1.25.2, both already linked.

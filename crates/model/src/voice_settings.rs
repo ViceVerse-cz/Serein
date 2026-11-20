@@ -30,16 +30,29 @@ pub enum InputProfile {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum NoiseSuppression {
 	Off,
-	#[default]
 	RnNoise,
 	WebRtc,
+	DeepFilterNet,
+	/// DeepFilterNet while this device keeps up with it, RNNoise once it does not.
+	#[default]
+	Auto,
+}
+impl NoiseSuppression {
+	/// How much longer than RNNoise's 10 ms this choice can hold audio back. Push-to-talk
+	/// keeps transmitting this long past its release delay, so the end of a word gets out.
+	pub const fn extra_delay(self) -> std::time::Duration {
+		std::time::Duration::from_millis(match self {
+			Self::DeepFilterNet | Self::Auto => 20,
+			Self::Off | Self::RnNoise | Self::WebRtc => 0,
+		})
+	}
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Processing {
 	pub suppression: NoiseSuppression,
-	/// WebRTC suppression strength, from low (0) through very high (3).
+	/// WebRTC and DeepFilterNet suppression strength, from low (0) through very high (3).
 	pub suppression_level: u8,
 	pub echo_cancellation: bool,
 	pub automatic_gain: bool,
@@ -49,7 +62,7 @@ pub struct Processing {
 impl Default for Processing {
 	fn default() -> Self {
 		Self {
-			suppression: NoiseSuppression::RnNoise,
+			suppression: NoiseSuppression::Auto,
 			suppression_level: 2,
 			echo_cancellation: true,
 			automatic_gain: true,

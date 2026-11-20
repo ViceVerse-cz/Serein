@@ -206,6 +206,19 @@ strength_reduce 0.2.4 and transpose 0.2.3. Their license declarations and retain
 texts/notices are recorded in docs/dependency-versions.md and
 assets/licenses/voice/PROVENANCE.md and staged by the existing voice packager.
 
+The optional DeepFilterNet microphone suppressor is `crates/deepfilternet`, Serein's Rust
+port of the real-time path of **DeepFilterNet** (MIT OR Apache-2.0, Hendrik Schröter and
+contributors). Its framing, feature and gain code follows `libDF` from
+[ismailivanov/DeepFilterNetPlus](https://github.com/ismailivanov/DeepFilterNetPlus) commit
+`2dc5273d16e1e3769527ad0740654c5ccde581cc`, a maintained fork of
+[Rikorose/DeepFilterNet](https://github.com/Rikorose/DeepFilterNet). The embedded weights
+are the tensors of that project's **DeepFilterNet3** ONNX model, reordered by
+`tools/generate-deepfilternet-weights.py` and covered by the same license. The port adds
+no locked package: it uses the realfft and bytemuck releases already listed. The
+DeepFilterNet license texts are retained unmodified in `assets/licenses/voice/`; its
+`PROVENANCE.md` records their sources and the model and weight hashes. No model or SDK is
+downloaded at runtime.
+
 Optional screen sharing adds **screencapturekit 10.0.3** (MIT OR Apache-2.0) on macOS, **windows-capture 2.0.1** (MIT) on Windows and **openh264 / openh264-sys2 0.9.8** (BSD-2-Clause) for source-built Cisco OpenH264 encoding. It reuses **image 0.25.10** (MIT OR Apache-2.0) for bounded scaling. Native frameworks are supplied by the OS. These dependencies stay behind the existing voice feature. Unmodified available license texts and source provenance are retained in `assets/licenses/voice/PROVENANCE.md`; the noted missing binding license text and existing full per-artifact redistribution review remain outstanding.
 
 Camera sending in the macOS build uses **openh264 0.9.8** and

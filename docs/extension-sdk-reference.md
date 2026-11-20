@@ -1180,8 +1180,8 @@ editing a processing field switches to Custom through the native settings path.
 | `input_percent`, `output_percent` | `u16` / integer | Input/output gain, 0 through 200. |
 | `push_to_talk` | `bool` / boolean | Whether push to talk is enabled. |
 | `input_profile` | `String` / string | `voice_isolation`, `studio`, or `custom`. |
-| `suppression` | `String` / string | `off`, `rnnoise`, or `webrtc`. |
-| `suppression_level` | `u8` / integer | Suppression strength, 0 through 3. |
+| `suppression` | `String` / string | `off`, `rnnoise`, `webrtc`, `deepfilternet`, or `auto` (DeepFilterNet, or RNNoise when the device is too busy for it). Voice Isolation reports `auto`. |
+| `suppression_level` | `u8` / integer | Suppression strength, 0 through 3 (low through very high). Used by `webrtc`, `deepfilternet` and, while it runs DeepFilterNet, `auto`; kept but unused with `off`, `rnnoise` or an `auto` session that moved to RNNoise. |
 | `echo_cancellation`, `automatic_gain` | `bool` / boolean | Effective processing options. |
 | `sensitivity_db` | `Option<i16>` / integer or null | Threshold from -80 through 0 dBFS; null means open microphone. |
 
@@ -1216,7 +1216,7 @@ This complete synthetic input shows both groups:
   "app": {
     "audio_settings": {
       "input_percent": 100, "output_percent": 100, "push_to_talk": false,
-      "input_profile": "voice_isolation", "suppression": "rnnoise",
+      "input_profile": "voice_isolation", "suppression": "auto",
       "suppression_level": 2, "echo_cancellation": true,
       "automatic_gain": true, "sensitivity_db": -55
     },

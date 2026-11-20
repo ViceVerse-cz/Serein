@@ -1505,6 +1505,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "deepfilternet"
+version = "0.1.0"
+dependencies = [
+ "bytemuck",
+ "realfft",
+]
+
+[[package]]
 name = "der"
 version = "0.7.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1657,6 +1665,7 @@ dependencies = [
  "client-core",
  "cpal",
  "davey",
+ "deepfilternet",
  "dispatch2",
  "futures-util",
  "getrandom 0.4.3",

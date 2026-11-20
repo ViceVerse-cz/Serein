@@ -25,6 +25,7 @@ rtrb = "=0.4.0"
 cpal = { version = "=0.18.2", default-features = false }
 sonora = { version = "=0.2.0", default-features = false }
 nnnoiseless = { version = "=0.5.2", default-features = false }
+deepfilternet.workspace = true
 openh264 = "=0.9.8"
 image = { version = "=0.25.10", default-features = false }
 

@@ -13,6 +13,7 @@ license = "MIT OR Apache-2.0"
 diagnostics = { path = "crates/diagnostics" }
 extensions = { path = "crates/extensions" }
 discord-voice = { path = "crates/discord-voice" }
+deepfilternet = { path = "crates/deepfilternet" }
 model = { path = "crates/model" }
 client-core = { path = "crates/client-core" }
 discord-protocol = { path = "crates/discord-protocol" }
@@ -87,6 +88,10 @@ opt-level = 3
 # RNNoise suppression, its FFT chain and libopus run per 10-20 ms frame; unoptimized
 # they cost ~40% of a core in debug builds.
 [profile.dev.package.nnnoiseless]
+opt-level = 3
+
+# DeepFilterNet runs its network per 10 ms frame.
+[profile.dev.package.deepfilternet]
 opt-level = 3
 
 [profile.dev.package.easyfft]
