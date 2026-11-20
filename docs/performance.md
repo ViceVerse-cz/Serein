@@ -1989,3 +1989,53 @@ measurements. Same-bucket requests are serialized; exhausted successful response
 hold only their route/bucket, while 429 responses retain the existing conservative
 shared cooldown. Synthetic regressions cover independent-channel progress,
 queued verification expiry, aliases, major resources, eviction and terminal wakeup.
+
+## `interface_ui` extension layout — November 17, 2026
+
+Baseline `789d8300`, task branch `feat/ventrilo-extension` (after commit recorded in the PR).
+Windows 11 build 26200, AMD Ryzen 5 7600X (12 threads), 32 GiB RAM, 3840×2160 at 100% scale,
+wgpu default backend, pinned toolchain and lockfile. Measured with an external plugin that uses
+the generic `interface_ui` capability to replace the main panes with a declarative tree of text
+and voice channels and voice participants; no window shows beside the tree until a channel is
+double-clicked.
+
+Idle process samples of the native `--demo --demo-voice` fixture: 25 s warmup, then 30 samples
+at 1 s intervals; CPU is process processor-time delta over wall time, memory is working set and
+private bytes. Matching debug demo builds are used because release packages exclude the `demo`
+feature; the after build loads the seeded plugin (layout on), the baseline has no plugin.
+
+| Metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Release `dist/serein.exe` (bytes) | 99,460,096 | 99,506,688 | +46,592 (+0.047%) |
+| Idle CPU (%) | 0.42 | 0.26 | −0.16 pp |
+| Peak working set (MiB) | 217.5 | 220.9 | +3.4 |
+| Settled working set (MiB) | 217.5 | 220.9 | +3.4 |
+| Peak private bytes (MiB) | 274.4 | 257.8 | −16.6 |
+
+Single-run samples on a shared desktop: deltas of this size are noise, not improvements or
+regressions. Contended samples were discarded and re-measured on an idle desktop: one baseline
+(11.51% idle CPU) and two after runs (18.91%, and 5.47% while a screenshot capture ran
+concurrently). Frame latency and startup time were not instrumented and are not claimed.
+
+## `start_screen` player — November 17, 2026
+
+The host no longer rasterizes anything for a plugin start screen and runs no render thread for
+it: the plugin ships pre-rendered 2-bit frames and the host only plays them back. When a screen is
+loaded or accepted, its frames are decoded once into one palette-index byte per cell (at most
+655,360 cells for the 160 KiB packed limit). While the connecting screen shows, a displayed
+frame change maps at most 160×160 indices per image through its palette into one reused
+nearest-filtered texture (one 100 KiB RGBA upload per changed image, at most four images), and
+each animation asks for a repaint only at its next frame boundary, at most 30 per second. A
+still image uploads once; nothing runs once the screen is gone.
+
+Throwaway timing harness, Windows 11 build 26200, AMD Ryzen 5 7600X (12 threads), 32 GiB RAM,
+copying the player's decode and palette loops (rustc 1.99.1), 25 frames of 160×160 cells
+(160,000 packed bytes):
+
+| Build | Decode once (640,000 cells) | Map one 160×160 frame | Four images at 30 fps, one core |
+| --- | ---: | ---: | ---: |
+| Release | 0.96 ms | 0.030 ms | 0.36% |
+| Debug | 14.5 ms | 0.24 ms | 2.9% |
+
+Single runs on a shared desktop. Texture upload, GPU time, frame latency and whole-process CPU
+were not instrumented and are not claimed; other screens pay nothing for the feature.

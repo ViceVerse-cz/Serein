@@ -307,6 +307,9 @@ impl Connection {
                 emit_event(&send, &typing_send, Envelope {generation,event}, &ctx)
             };
             let result=async {
+                // As the desktop client loads its page before anything else, so the identity
+                // names the current web build from the first request on.
+                discord_api::ensure_build_number(&api_proxy).await;
                 let api=DiscordApi::with_proxy(secret.clone(), api_proxy)?.reporting_expiry(api_expiry);
                 // The Gateway identify below carries the installation ID once Discord has issued one.
                 api.ensure_installation().await;

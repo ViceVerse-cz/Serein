@@ -94,9 +94,9 @@ impl Gateway {
 			} else {
 				send(&mut socket, json!({"op":1,"d":null})).await;
 				let heartbeat = packet(&mut socket).await;
-				assert_eq!(heartbeat["op"], 1);
+				assert_eq!(heartbeat["op"], 40);
 				assert!(
-					heartbeat["d"].is_null(),
+					heartbeat["d"]["seq"].is_null(),
 					"Identify must clear the resume sequence"
 				);
 				send(&mut socket, json!({"op":11,"d":null})).await;
@@ -235,8 +235,8 @@ async fn recovery_probes_a_ready_socket_and_resumes_only_when_it_is_silent() {
 			gateway.reconnect.notify_one();
 			let probe = packet(&mut socket).await;
 			assert_eq!(
-				(probe["op"].clone(), probe["d"].clone()),
-				(json!(1), json!(41))
+				(probe["op"].clone(), probe["d"]["seq"].clone()),
+				(json!(40), json!(41))
 			);
 			// Queue an old-sequence heartbeat before the ack, like a timer heartbeat
 			// that was already in flight. It must not satisfy the synchronization below.
@@ -253,11 +253,11 @@ async fn recovery_probes_a_ready_socket_and_resumes_only_when_it_is_silent() {
 			let mut older_heartbeat = false;
 			loop {
 				let heartbeat = packet(&mut socket).await;
-				assert_eq!(heartbeat["op"], 1);
-				if heartbeat["d"] == 42 {
+				assert_eq!(heartbeat["op"], 40);
+				if heartbeat["d"]["seq"] == 42 {
 					break;
 				}
-				assert_eq!(heartbeat["d"], 41);
+				assert_eq!(heartbeat["d"]["seq"], 41);
 				older_heartbeat = true;
 				// These precede the ack already sent above. Another ack here could
 				// arrive after the next recovery signal and cancel the unanswered probe.
@@ -267,8 +267,8 @@ async fn recovery_probes_a_ready_socket_and_resumes_only_when_it_is_silent() {
 			gateway.reconnect.notify_one();
 			let probe = packet(&mut socket).await;
 			assert_eq!(
-				(probe["op"].clone(), probe["d"].clone()),
-				(json!(1), json!(42))
+				(probe["op"].clone(), probe["d"]["seq"].clone()),
+				(json!(40), json!(42))
 			);
 			let next = gateway.socket(true, Some(6)).await;
 			drop(socket);

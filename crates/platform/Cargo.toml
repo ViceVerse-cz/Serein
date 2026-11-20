@@ -37,7 +37,7 @@ ksni = "=0.3.6"
 zbus = { version = "=5.19.0", default-features = false, features = ["tokio", "blocking-api"] }
 # Owned directly so a missing Secret Service can be retried after activating KWallet.
 zbus-secret-service-keyring-store = { version = "=1.0.1", features = ["crypto-rust"] }
-ashpd = { version = "=0.13.13", default-features = false, features = ["tokio", "global_shortcuts", "settings"] }
+ashpd = { version = "=0.13.13", default-features = false, features = ["tokio", "global_shortcuts", "inhibit", "settings"] }
 futures-util.workspace = true
 gtk4 = { version = "=0.11.5", features = ["v4_10"] }
 webkit6 = "=0.6.1"

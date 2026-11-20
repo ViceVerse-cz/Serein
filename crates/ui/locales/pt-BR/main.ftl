@@ -4932,3 +4932,7 @@ moderation-delete-week = Últimos 7 dias
 moderation-confirm-timeout = Castigar
 # Context: moderation
 moderation-confirm-ban = Banir
+
+## crates/ui/src/interface_ui.rs
+# Context: interface_tree
+interface-ui-empty = Este plug-in ainda não tem nada para mostrar.

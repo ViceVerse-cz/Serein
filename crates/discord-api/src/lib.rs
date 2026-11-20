@@ -173,8 +173,7 @@ async fn read_installation(client: &Client, base: &str) {
 		installation: String,
 	}
 	let fetch = async {
-		let response = client
-			.get(format!("{base}/apex/experiments?surface=2"))
+		let response = current_identity(client.get(format!("{base}/apex/experiments?surface=2")))
 			.send()
 			.await
 			.ok()?;
@@ -201,6 +200,102 @@ async fn read_installation(client: &Client, base: &str) {
 	};
 	if let Ok(Some(apex)) = tokio::time::timeout(Duration::from_secs(5), fetch).await {
 		device::set_installation(&apex.installation);
+	}
+}
+/// The document the desktop client loads at every start. Its text names the current web build.
+#[cfg(not(test))]
+const APP_PAGE: &str = "https://discord.com/app";
+/// The page was 77 KiB on 2026-11-20; a far larger answer is not it.
+#[cfg(not(test))]
+const MAX_APP_PAGE: usize = 1024 * 1024;
+/// Reads the current web build from Discord's `/app` page once per process, before the
+/// identity is first sent, so it does not report a build that Discord has since replaced
+/// (the number moved by about 1,300 in a day). The desktop client gets its own from this
+/// document; the request carries a page load's headers and no credential. A cold start's
+/// exact headers are unverified: the recording was a reload. Best effort and bounded.
+async fn read_build_number(route: &proxy::ApiProxy) {
+	static READ: tokio::sync::OnceCell<()> = tokio::sync::OnceCell::const_new();
+	READ.get_or_init(|| async {
+		// Tests stay offline and keep the built-in number.
+		#[cfg(test)]
+		let _ = route;
+		#[cfg(not(test))]
+		{
+			let fetch = async {
+				let builder = browser_transport(Client::builder())
+					.redirect(wreq::redirect::Policy::none())
+					.retry(wreq::retry::Policy::never())
+					.cookie_provider(device::store().clone());
+				let response = route
+					.client_builder(builder)
+					.ok()?
+					.build()
+					.ok()?
+					.get(APP_PAGE)
+					.header(
+						wreq::header::ACCEPT,
+						"text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+					)
+					.header(
+						wreq::header::ACCEPT_ENCODING,
+						client_core::fingerprint::accept_encoding(),
+					)
+					.header(
+						wreq::header::ACCEPT_LANGUAGE,
+						client_core::fingerprint::accept_language(),
+					)
+					.header("priority", "u=0, i")
+					.header("sec-fetch-dest", "document")
+					.header("sec-fetch-mode", "navigate")
+					.header("sec-fetch-site", "none")
+					.header("upgrade-insecure-requests", "1")
+					.send()
+					.await
+					.ok()?;
+				if !response.status().is_success()
+					|| response
+						.content_length()
+						.is_some_and(|n| n > MAX_APP_PAGE as u64)
+				{
+					return None;
+				}
+				let mut page = Vec::new();
+				let mut body = std::pin::pin!(response.bytes_stream());
+				while let Some(chunk) = futures_util::StreamExt::next(&mut body)
+					.await
+					.transpose()
+					.ok()?
+				{
+					if page.len() + chunk.len() > MAX_APP_PAGE {
+						return None;
+					}
+					page.extend_from_slice(&chunk);
+				}
+				Some(client_core::fingerprint::adopt_build_number(
+					&String::from_utf8_lossy(&page),
+				))
+			};
+			let _ = tokio::time::timeout(Duration::from_secs(5), fetch).await;
+		}
+	})
+	.await;
+}
+/// Learns the current web build before a session's REST client is built and its Gateway
+/// identifies, so both report it from their first request; see [`read_build_number`].
+pub async fn ensure_build_number(routes: &tokio::sync::watch::Receiver<Option<proxy::ApiProxy>>) {
+	// Without a route yet the read could only wait; a later session makes it instead.
+	let route = routes.borrow().clone();
+	if let Some(route) = route {
+		read_build_number(&route).await;
+	}
+}
+/// Puts the identity as it is now on `request`. A client's default headers hold it as it was
+/// when the client was built; the web build, focus and heartbeat session change after that.
+/// The transport replaces the default header in place, so the header order is unchanged.
+pub(crate) fn current_identity(request: wreq::RequestBuilder) -> wreq::RequestBuilder {
+	match HeaderValue::from_str(&client_core::fingerprint::super_properties()) {
+		Ok(value) => request.header("x-super-properties", value),
+		Err(_) => request,
 	}
 }
 
@@ -811,7 +906,7 @@ impl DiscordApi {
 			if let Some(prepare) = &mut prepare {
 				request = request.json(&prepare()?);
 			}
-			let response = request.send().await.map_err(|_| {
+			let response = current_identity(request).send().await.map_err(|_| {
 				if write {
 					Failure::Ambiguous
 				} else {

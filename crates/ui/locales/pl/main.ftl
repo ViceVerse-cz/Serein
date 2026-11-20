@@ -4934,3 +4934,7 @@ moderation-delete-week = Ostatnie 7 dni
 moderation-confirm-timeout = Przerwa
 # Context: moderation
 moderation-confirm-ban = Zbanuj
+
+## crates/ui/src/interface_ui.rs
+# Context: interface_tree
+interface-ui-empty = Ta wtyczka nie ma jeszcze nic do pokazania.

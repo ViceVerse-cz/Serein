@@ -1,6 +1,9 @@
 //! Offline Linux tray check. Run with `dbus-run-session -- cargo run --locked -p tray-debug`.
 #[cfg(target_os = "linux")]
 #[path = "../../../crates/platform/src/tray.rs"]
+// The tool compiles the platform tray source directly and exercises only its D-Bus item, so
+// the menu API it also contains is unused here.
+#[allow(dead_code)]
 mod tray;
 
 pub use egui;

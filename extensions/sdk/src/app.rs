@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 
 pub const MAX_APP_SNAPSHOT_BYTES: usize = 64 * 1024;
 pub const MAX_APP_CHANNELS: usize = 100;
+/// Channel directory items allowed for the one focus server, listed before the others.
+pub const MAX_APP_FOCUS_CHANNELS: usize = 250;
 pub const MAX_APP_GUILDS: usize = 100;
 pub const MAX_CHANNEL_RECIPIENTS: usize = 32;
 pub const MAX_APP_MESSAGES: usize = 50;
@@ -18,6 +20,8 @@ pub const MAX_RELATIONSHIPS: usize = 100;
 pub const MAX_APP_MEMBERS: usize = 100;
 pub const MAX_APP_PRESENCES: usize = 100;
 pub const MAX_VOICE_PARTICIPANTS: usize = 64;
+/// Maximum voice roster entries in one snapshot.
+pub const MAX_VOICE_ROSTER: usize = 128;
 pub const MAX_HOST_EFFECTS: usize = 1;
 pub const MAX_HOST_EFFECT_BYTES: usize = 8 * 1024;
 
@@ -207,6 +211,12 @@ pub struct ChannelSnapshot {
 	pub guild_id: Option<String>,
 	pub name: String,
 	pub kind: u8,
+	/// The category (or, for a thread, the parent channel) this channel sits under.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub parent_id: Option<String>,
+	/// The channel's position among its siblings, as the server orders them.
+	#[serde(default)]
+	pub position: i32,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -260,6 +270,28 @@ pub struct VoiceSnapshot {
 	pub camera: bool,
 	pub streaming: bool,
 	pub participants: Vec<String>,
+	/// Tracked voice participants across channels, with display names and voice flags when
+	/// the host has them; at most [`MAX_VOICE_ROSTER`] entries, snowflake ID strings and
+	/// names of at most 256 bytes. Empty on hosts predating the roster; `participants`
+	/// stays the bounded ID-only list of the current call.
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub roster: Vec<VoiceRosterEntry>,
+}
+
+/// One tracked voice participant. `name` is the resolved display name when member data is
+/// loaded; `speaking` reflects the host's current speaking indication, not measured audio.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VoiceRosterEntry {
+	pub guild_id: String,
+	pub channel_id: String,
+	pub user_id: String,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub name: Option<String>,
+	pub muted: bool,
+	pub deafened: bool,
+	pub server_muted: bool,
+	pub server_deafened: bool,
+	pub speaking: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

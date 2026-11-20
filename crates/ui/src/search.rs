@@ -103,6 +103,14 @@ impl SearchUi {
 		self.pending_submit = false;
 		self.viewing = None;
 	}
+	/// Closes the search pane and its filter popup and draft, whatever its current state.
+	pub(super) fn close(&mut self) {
+		self.open = false;
+		self.focus = false;
+		self.filters_open = false;
+		self.filter_draft = None;
+		self.pending_submit = false;
+	}
 
 	pub fn toggle(&mut self, pins: bool) -> bool {
 		self.open = !self.open || self.pins != pins;

@@ -100,6 +100,59 @@ impl TryFrom<ReactionDeltaWire> for ReactionDelta {
 	}
 }
 
+/// Most users one batched emoji row may name; a larger row fails the decode.
+const MAX_BATCH_USERS: usize = 256;
+
+/// Unofficial `MESSAGE_REACTION_ADD_MANY`: normal reactions several users added to one message
+/// within a short time, sent in place of single adds once Identify asks for debounced reactions.
+#[derive(Deserialize)]
+pub struct ReactionBatch {
+	pub channel_id: Id,
+	pub message_id: Id,
+	#[serde(deserialize_with = "batch_rows")]
+	pub reactions: Vec<ReactionBatchRow>,
+}
+
+#[derive(Deserialize)]
+pub struct ReactionBatchRow {
+	#[serde(deserialize_with = "batch_users")]
+	pub users: Vec<Id>,
+	#[serde(deserialize_with = "reaction_emoji")]
+	pub emoji: ReactionEmoji,
+}
+
+fn batch_rows<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<ReactionBatchRow>, D::Error> {
+	bounded(d, model::MAX_REACTIONS)
+}
+
+fn batch_users<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<Id>, D::Error> {
+	bounded(d, MAX_BATCH_USERS)
+}
+
+fn bounded<'de, D: Deserializer<'de>, T: Deserialize<'de>>(
+	d: D,
+	limit: usize,
+) -> Result<Vec<T>, D::Error> {
+	struct List<T>(usize, std::marker::PhantomData<T>);
+	impl<'de, T: Deserialize<'de>> Visitor<'de> for List<T> {
+		type Value = Vec<T>;
+		fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+			f.write_str("a bounded list")
+		}
+		fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+			let mut items = Vec::new();
+			while let Some(item) = seq.next_element()? {
+				if items.len() >= self.0 {
+					return Err(serde::de::Error::custom("List capacity exceeded"));
+				}
+				items.push(item);
+			}
+			Ok(items)
+		}
+	}
+	d.deserialize_seq(List(limit, std::marker::PhantomData))
+}
+
 #[cfg(test)]
 mod tests {
 	use super::{ReactionDelta, ReactionEmojiTarget, ReactionTarget};

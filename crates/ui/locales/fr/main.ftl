@@ -4932,3 +4932,7 @@ moderation-delete-week = 7 derniers jours
 moderation-confirm-timeout = Exclure
 # Context: moderation
 moderation-confirm-ban = Bannir
+
+## crates/ui/src/interface_ui.rs
+# Context: interface_tree
+interface-ui-empty = Ce module n'a encore rien à afficher.

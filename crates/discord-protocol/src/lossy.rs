@@ -36,6 +36,10 @@ pub(crate) fn recipients<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<crate::U
 	Lossy::<crate::UserDto, 64, true>::deserialize(d).map(|rows| rows.items)
 }
 
+pub(crate) fn recipient_ids<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<model::Id>, D::Error> {
+	Lossy::<model::Id, 64, true>::deserialize(d).map(|rows| rows.items)
+}
+
 /// Positions are kept: a malformed element becomes `None`, so index-aligned lists
 /// (`merged_members`) still line up. More than `N` elements is an error unless `TRUNCATE`.
 /// Elements are split as borrowed raw values, so only use it on borrowed JSON input.

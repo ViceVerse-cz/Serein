@@ -720,6 +720,9 @@ pub enum Event {
 		challenge: Box<captcha::Challenge>,
 	},
 	Failure(auth::Failure),
+	/// The service replaced this login's token in READY (unofficial). The application
+	/// continues, and saves the login, with the new one; the state itself keeps no token.
+	TokenRefreshed(std::sync::Arc<auth::SessionSecret>),
 	Disconnected,
 	Resumed,
 	Resync,
@@ -4119,6 +4122,7 @@ impl State {
 				self.failure_detail = Some(detail);
 				Ok(())
 			}
+			Event::TokenRefreshed(_) => Ok(()),
 			Event::Disconnected => {
 				self.release_message_challenge(
 					"Verification ended by disconnect; retry the message",

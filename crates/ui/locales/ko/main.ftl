@@ -5194,3 +5194,7 @@ native-login-about-risk = Serein 같은 비공식 클라이언트는 Discord 계
 native-login-about-storage = 메시지와 임시 저장본은 이 기기에 캐시됩니다. 로그인 정보는 OS 자격 증명 저장소에 보관됩니다.
 native-login-web-detail = Discord 로그인 페이지를 임시 창에서 엽니다. 보안 키와 패스키에 필요합니다.
 native-login-web-open = Discord 로그인 페이지 열기
+
+## crates/ui/src/interface_ui.rs
+# Context: interface_tree
+interface-ui-empty = 이 플러그인은 아직 표시할 항목이 없습니다.

@@ -18,6 +18,7 @@ pub mod pointer;
 pub mod processes;
 pub mod proxy_credentials;
 pub mod save;
+pub mod session;
 pub mod single_instance;
 pub mod startup;
 pub mod system_theme;

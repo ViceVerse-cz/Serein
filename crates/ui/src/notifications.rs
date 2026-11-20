@@ -260,6 +260,42 @@ impl MessagingUi {
 	pub fn viewing_latest(&self, channel: Id) -> bool {
 		self.timeline.viewing_latest(channel)
 	}
+
+	/// The rail's add-a-server tile: a rounded square with a plus that opens the native
+	/// join/create-server flow. The server rail and the plugin interface dock share it, each
+	/// at its own tile size.
+	pub(super) fn add_server_tile(&mut self, ui: &mut egui::Ui, state: &State, size: f32) {
+		let colors = design::palette(ui);
+		let (rect, response) =
+			ui.allocate_exact_size(egui::Vec2::splat(size), egui::Sense::click());
+		let hovered = response.hovered() || response.has_focus();
+		ui.painter().rect_filled(
+			rect,
+			(size * 0.35) as u8,
+			if hovered {
+				colors.accent
+			} else {
+				colors.raised
+			},
+		);
+		crate::icons::paint(
+			ui.painter(),
+			crate::icons::Icon::Plus,
+			rect.shrink(size * 0.25),
+			if hovered {
+				colors.accent_text
+			} else {
+				colors.text
+			},
+		);
+		let name = crate::i18n::translate("notifications-notification-rail-add-a-server");
+		response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, name.clone()));
+		design::rail_name(&response, name);
+		if response.clicked() {
+			self.join_server.open_picker(state.generation);
+		}
+	}
+
 	/// Draws the server rail: the Home button with its request badge, direct conversations with
 	/// unread messages, and servers and folders with their badges.
 	pub(super) fn notification_rail(
@@ -441,46 +477,7 @@ impl MessagingUi {
 							colors.raised,
 						);
 						self.server_folders(ui, state, commands);
-						let (rect, response) = ui.allocate_exact_size(
-							egui::Vec2::splat(RAIL_TILE),
-							egui::Sense::click(),
-						);
-						let hovered = response.hovered() || response.has_focus();
-						ui.painter().rect_filled(
-							rect,
-							14,
-							if hovered {
-								colors.accent
-							} else {
-								colors.raised
-							},
-						);
-						crate::icons::paint(
-							ui.painter(),
-							crate::icons::Icon::Plus,
-							rect.shrink(10.0),
-							if hovered {
-								colors.accent_text
-							} else {
-								colors.text
-							},
-						);
-						response.widget_info(|| {
-							egui::WidgetInfo::labeled(
-								egui::Role::Button,
-								true,
-								crate::i18n::translate(
-									"notifications-notification-rail-add-a-server",
-								),
-							)
-						});
-						design::rail_name(
-							&response,
-							crate::i18n::translate("notifications-notification-rail-add-a-server"),
-						);
-						if response.clicked() {
-							self.join_server.open_picker(state.generation);
-						}
+						self.add_server_tile(ui, state, RAIL_TILE);
 					});
 			});
 		if let Some(id) = selected

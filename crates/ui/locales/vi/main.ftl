@@ -5230,3 +5230,7 @@ native-login-about-risk = Các ứng dụng không chính thức như Serein có
 native-login-about-storage = Tin nhắn và bản nháp được lưu đệm trên thiết bị này. Thông tin đăng nhập của bạn được giữ trong kho thông tin xác thực của hệ điều hành.
 native-login-web-detail = Mở trang đăng nhập của Discord trong một cửa sổ tạm thời. Cần cho khóa bảo mật và passkey.
 native-login-web-open = Mở trang đăng nhập của Discord
+
+## crates/ui/src/interface_ui.rs
+# Context: interface_tree
+interface-ui-empty = Plugin này chưa có gì để hiển thị.

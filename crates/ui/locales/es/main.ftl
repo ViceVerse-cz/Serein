@@ -4935,3 +4935,7 @@ moderation-delete-week = Últimos 7 días
 moderation-confirm-timeout = Aislar
 # Context: moderation
 moderation-confirm-ban = Banear
+
+## crates/ui/src/interface_ui.rs
+# Context: interface_tree
+interface-ui-empty = Este complemento todavía no tiene nada que mostrar.

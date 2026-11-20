@@ -284,6 +284,161 @@ pub fn update_window_minimum(
 	*applied = Some(minimum);
 }
 
+/// The user's own window placement while a plugin sizes the window: a start screen's `window`
+/// while that screen shows, otherwise the shown interface layout's `size`.
+#[derive(Default)]
+pub struct PluginWindowSize {
+	/// The placement from before the first plugin size took over.
+	normal: Option<Placement>,
+	/// The plugin size last applied, in logical pixels.
+	applied: Option<winit::dpi::LogicalSize<u32>>,
+	/// The monitor size and window scale that size was clamped and centred for; a
+	/// different display invalidates `applied` so an unchanged request re-applies.
+	display: (Option<winit::dpi::PhysicalSize<u32>>, f64),
+}
+
+#[derive(Clone, Copy)]
+struct Placement {
+	/// The user's own normal size; absent when none was ever saved, so restore only
+	/// re-maximizes.
+	size: Option<winit::dpi::PhysicalSize<u32>>,
+	position: Option<winit::dpi::PhysicalPosition<i32>>,
+	maximized: bool,
+}
+
+impl PluginWindowSize {
+	/// Whether a plugin sizes the window: its placement is not saved and the usual minimum
+	/// size waits until the user's own placement returns.
+	pub fn active(&self) -> bool {
+		self.normal.is_some()
+	}
+
+	/// Gives the window the logical size a plugin asks for, clamped to its monitor and
+	/// centered there, again whenever the request changes or the monitor size or scale it
+	/// was clamped for does. The user's own size, position and maximized state are kept
+	/// from when the first request takes over and restored once none asks. A minimized
+	/// window defers takeover until it is restored, and a maximized one never records the
+	/// maximized geometry as the user's own: the saved normal placement is restored
+	/// instead, and without one restore just re-maximizes.
+	pub fn sync(
+		&mut self,
+		window: &winit::window::Window,
+		requested: Option<winit::dpi::LogicalSize<u32>>,
+		minimum: &mut Option<winit::dpi::PhysicalSize<u32>>,
+		saved: Option<local_store::WindowGeometry>,
+	) {
+		let Some(requested) = requested else {
+			self.applied = None;
+			self.display = (None, 0.0);
+			let Some(normal) = self.normal.take() else {
+				return;
+			};
+			window.set_min_inner_size(None::<winit::dpi::PhysicalSize<u32>>);
+			// The user may have maximized the plugin-sized window; their own placement decides.
+			if window.is_maximized() && !normal.maximized {
+				window.set_maximized(false);
+			}
+			if let Some(size) = normal.size {
+				let _ = window.request_inner_size(size);
+			}
+			if let Some(position) = normal.position {
+				window.set_outer_position(position);
+			}
+			// Maximize after placing the normal geometry, which moving a maximized window resets.
+			if normal.maximized {
+				window.set_maximized(true);
+			}
+			*minimum = None;
+			if let Some(monitor) = window.current_monitor() {
+				update_window_minimum(window, &monitor, minimum);
+			}
+			return;
+		};
+		let monitor = window.current_monitor().filter(|monitor| {
+			let available = monitor.size();
+			available.width > 0 && available.height > 0
+		});
+		// A monitor size or scale change invalidates the applied size, so the clamp,
+		// minimum and centring below re-run for an unchanged request on the new display.
+		let display = (
+			monitor.as_ref().map(|monitor| monitor.size()),
+			window.scale_factor(),
+		);
+		if self.applied == Some(requested) && self.display != display {
+			self.applied = None;
+		}
+		if self.applied == Some(requested) {
+			return;
+		}
+		if window.is_minimized() == Some(true) {
+			// Geometry measured while minimized is unusable; take over once restored.
+			self.applied = None;
+			return;
+		}
+		self.applied = Some(requested);
+		self.display = display;
+		if self.normal.is_none() {
+			let (size, position) = if window.is_maximized() {
+				// Never capture geometry measured while maximized: the saved placement is
+				// the user's own normal one; without it restore just re-maximizes.
+				let scale = window.scale_factor();
+				let size = saved
+					.filter(|geometry| geometry.is_valid())
+					.map(|geometry| {
+						winit::dpi::LogicalSize::new(geometry.size[0], geometry.size[1])
+							.to_physical::<u32>(scale)
+					});
+				let position = saved
+					.filter(|geometry| geometry.is_valid())
+					.and_then(|geometry| {
+						geometry
+							.position
+							.map(|[x, y]| winit::dpi::PhysicalPosition::new(x, y))
+					});
+				(size, position)
+			} else {
+				(Some(window.inner_size()), window.outer_position().ok())
+			};
+			self.normal = Some(Placement {
+				size,
+				position,
+				maximized: window.is_maximized(),
+			});
+		}
+		if window.is_maximized() {
+			window.set_maximized(false);
+		}
+		let (inner, outer) = (window.inner_size(), window.outer_size());
+		let frame = [
+			outer.width.saturating_sub(inner.width),
+			outer.height.saturating_sub(inner.height),
+		];
+		let mut size = requested.to_physical::<u32>(window.scale_factor());
+		if let Some(monitor) = &monitor {
+			let available = monitor.size();
+			size.width = size
+				.width
+				.min(available.width.saturating_sub(frame[0]).max(1));
+			size.height = size
+				.height
+				.min(available.height.saturating_sub(frame[1]).max(1));
+		}
+		window.set_min_inner_size(Some(size));
+		let _ = window.request_inner_size(size);
+		if let Some(monitor) = monitor
+			&& window.outer_position().is_ok()
+		{
+			let (origin, available) = (monitor.position(), monitor.size());
+			let width = size.width.saturating_add(frame[0]);
+			let height = size.height.saturating_add(frame[1]);
+			window.set_outer_position(winit::dpi::PhysicalPosition::new(
+				origin.x + (available.width.saturating_sub(width) / 2) as i32,
+				origin.y + (available.height.saturating_sub(height) / 2) as i32,
+			));
+		}
+	}
+}
+
 /// A placement must stay put this long before it is saved; a drag samples a new one per frame.
 pub const GEOMETRY_REST_DELAY: std::time::Duration = std::time::Duration::from_millis(500);
 

@@ -5218,3 +5218,7 @@ native-login-about-risk = Unofficial clients like Serein can put your Discord ac
 native-login-about-storage = Messages and drafts are cached on this device. Your login is kept in the OS credential store.
 native-login-web-detail = Opens Discord's login page in a temporary window. Needed for security keys and passkeys.
 native-login-web-open = Open Discord's login page
+
+## crates/ui/src/interface_ui.rs
+# Context: interface_tree
+interface-ui-empty = This plugin has nothing to show yet.

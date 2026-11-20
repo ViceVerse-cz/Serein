@@ -37,8 +37,29 @@ pub struct Envelope<'a> {
 	presences: Option<&'a RawValue>,
 	#[serde(default, borrow)]
 	merged_presences: Option<&'a RawValue>,
+	#[serde(default, deserialize_with = "text_or_nothing")]
+	auth_token: Option<String>,
+}
+/// Anything but text reads as absent: a malformed optional field must not reject the login.
+fn text_or_nothing<'de, D: Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
+	#[derive(Deserialize)]
+	#[serde(untagged)]
+	enum Field {
+		Text(String),
+		Other(serde::de::IgnoredAny),
+	}
+	Ok(match Field::deserialize(d)? {
+		Field::Text(text) => Some(text),
+		Field::Other(_) => None,
+	})
 }
 impl<'a> Envelope<'a> {
+	/// The login token the service issued in place of the one that identified (unofficial
+	/// `auth_token`, sent to clients that identify with the token-refresh capability). Taken
+	/// once, so the text does not outlive the caller's own protected copy.
+	pub fn refreshed_token(&mut self) -> Option<String> {
+		self.auth_token.take()
+	}
 	/// Each guild's initial `presences`. For a normal account these include non-offline users
 	/// with an open DM, the only bootstrap presence for DM recipients who are not friends
 	/// (unofficial). A malformed guild entry is skipped; presence entries are decoded at use.
@@ -118,6 +139,29 @@ impl Envelope<'_> {
 		let presences = checked_presences(self.presences, &mut warnings.presence);
 		let merged_presences =
 			checked_merged_presences(self.merged_presences, &mut warnings.presence);
+		// With deduplicated users (unofficial `DEDUPE_USER_OBJECTS`), a conversation lists
+		// `recipient_ids` and the profiles are in `users`. An ID without a profile is dropped.
+		let mut private_channels = self.private_channels.items;
+		if private_channels
+			.iter()
+			.any(|channel| channel.recipients.is_empty() && !channel.recipient_ids.is_empty())
+		{
+			let users: std::collections::HashMap<_, _> = self
+				.users
+				.items
+				.iter()
+				.map(|user| (user.id, user))
+				.collect();
+			for channel in &mut private_channels {
+				if channel.recipients.is_empty() {
+					channel.recipients = channel
+						.recipient_ids
+						.iter()
+						.filter_map(|id| users.get(id).copied().cloned())
+						.collect();
+				}
+			}
+		}
 		Ok((
 			Ready {
 				relationships: self.relationships,
@@ -128,7 +172,7 @@ impl Envelope<'_> {
 				read_state,
 				user_guild_settings,
 				sessions,
-				private_channels: self.private_channels.items,
+				private_channels,
 				guilds: guilds.items,
 				presences,
 				merged_presences,
@@ -585,6 +629,7 @@ mod tests {
 						parent_id: None,
 						position: 0,
 						recipients: Vec::new(),
+						recipient_ids: Vec::new(),
 						permission_overwrites: None,
 						message_count: None,
 						is_message_request: false,
@@ -634,8 +679,16 @@ mod tests {
 			payload["private_channels"] =
 				json!([{"id":"30","type":1,"recipients":[{"id":"31","username":null}]},{"id":"x"}]);
 			payload["relationships"] = json!([{"id":"31","type":1,"user_ignored":null},{"type":1}]);
+			// The deduplicated form names recipients by ID; one without a profile is dropped.
+			payload["private_channels"]
+				.as_array_mut()
+				.unwrap()
+				.push(json!({"id":"32","type":1,"recipient_ids":["33","34",false]}));
+			payload["users"] = json!([{"id":"33","username":"Synthetic recipient"}]);
+			payload["auth_token"] = json!(7);
 			let bytes = serde_json::to_vec(&payload).unwrap();
-			let envelope = decode(&bytes).unwrap();
+			let mut envelope = decode(&bytes).unwrap();
+			assert!(envelope.refreshed_token().is_none());
 			assert!(envelope.permissions().is_ok());
 			let (mut ready, _) = envelope.navigation().unwrap();
 			assert!(ready.skipped);
@@ -644,6 +697,17 @@ mod tests {
 			assert_eq!(guilds.len(), 1);
 			assert!(channels.iter().any(|c| c.id == model::Id(30)));
 			assert!(!channels.iter().any(|c| c.id == model::Id(20)));
+			let direct = channels.iter().find(|c| c.id == model::Id(32)).unwrap();
+			assert_eq!(
+				direct.recipients.iter().map(|u| u.id).collect::<Vec<_>>(),
+				[model::Id(33)]
+			);
+			payload["auth_token"] = json!("synthetic-replacement");
+			let bytes = serde_json::to_vec(&payload).unwrap();
+			assert_eq!(
+				decode(&bytes).unwrap().refreshed_token().as_deref(),
+				Some("synthetic-replacement")
+			);
 		}
 		{
 			let mut payload = fixture();
