@@ -30,10 +30,13 @@ grid), marks threads; it is rasterized with the Phosphor set and carries no upst
 (MIT, same pinned 2.1.1 package, fetched November 10, 2026) with a 16-unit round-capped X masked
 out of the screen where `monitor-arrow-up` draws its arrow, so it pairs with the share glyph.
 
-- `atlas.png`: 512×896 RGBA, 27,326 bytes after lossless `oxipng -o max --strip all`.
-  SHA-256 `4640a87f8aedbe48af687404ac8f51c63cd7f1d1a782e46bdcf5bd98a07fa929`.
+The stream-viewer glyph is unmodified Phosphor `eye-fill.svg`, fetched from the same pinned 2.1.1
+package on November 15, 2026.
+
+- `atlas.png`: 512×896 RGBA, 27,545 bytes after lossless `oxipng -o max --strip all`.
+  SHA-256 `fe0c87d5c9e7fe4bc3df4c88e6565964b29474d343883dc9d9a4151752f669ba`.
 - `index.tsv`: icon name, tab, zero-based cell; SHA-256
-  `06cabde3334f728e164e18f0057b47a0e6c1db1657ff677fa6bca157f3fb824a`.
+  `931e894fea13252577d79747bfd7f55d5876a2eacf60c6ef4de25152b8943770`.
 
 Every upstream SVG's SHA-256 is pinned in `tools/generate-icons.py`, which refuses to build
 from mismatching files. Regenerate from the repository root:

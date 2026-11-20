@@ -4172,6 +4172,25 @@ voice-call-bar-join-call = Připojte se k hovoru
 voice-call-bar-reconnect-to-refresh-call = Pro obnovení hovoru se znovu připojte
 # Context: call_controls
 voice-call-controls-disconnect = Odpojit
+# Context: viewer_names
+voice-viewer-names-watching = Sledují: { $names }
+# Context: viewer_names
+voice-viewer-names-watching-more =
+    { $count ->
+        [one] Sledují: { $names } a { $count } další
+        [few] Sledují: { $names } a { $count } další
+       *[other] Sledují: { $names } a dalších { $count }
+    }
+# Context: viewer_names
+voice-viewer-names-count =
+    { $count ->
+        [one] { $count } divák
+        [few] { $count } diváci
+        [many] { $count } diváka
+       *[other] { $count } diváků
+    }
+# Context: viewer_names
+voice-viewer-names-unknown-viewer = Neznámý divák
 # Context: call_controls
 voice-call-controls-dismiss-call = Zrušit hovor
 # Context: call_controls

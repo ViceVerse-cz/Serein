@@ -711,6 +711,12 @@ impl Calls {
 				self.emit_watch(screen::Event::Deleted { reason }, emit)?;
 				self.watch = None;
 			}
+			"STREAM_UPDATE" => {
+				// The roster only feeds the viewer list; a malformed refresh is ignored.
+				if let Ok(update) = decode::<stream::Update>(data) {
+					self.emit_watch(viewers(update.viewers), emit)?;
+				}
+			}
 			_ => {}
 		}
 		Ok(())
@@ -842,9 +848,9 @@ impl Calls {
 				)?;
 			}
 			"STREAM_UPDATE" => {
-				// Only the count drives the viewer cue; a malformed refresh is ignored.
+				// The roster drives the viewer cue and list; a malformed refresh is ignored.
 				if let Ok(update) = decode::<stream::Update>(data) {
-					self.emit_stream(screen::Event::Viewers(update.viewers), emit)?;
+					self.emit_stream(viewers(update.viewers), emit)?;
 				}
 			}
 			"STREAM_DELETE" => {
@@ -1181,6 +1187,12 @@ fn participant(state: &VoiceStateDto) -> Participant {
 /// Maps Discord's STREAM_DELETE `reason` to a user-facing message. Unknown values still
 /// tell the user Discord ended it, so a silent stop is never mistaken for a local one. With
 /// `SEREIN_VOICE_DIAGNOSTICS=1` the bounded raw value also reaches stderr for reports.
+fn viewers(viewers: stream::Viewers) -> screen::Event {
+	screen::Event::Viewers(screen::Viewers {
+		count: viewers.count,
+		ids: viewers.ids,
+	})
+}
 fn deletion_reason(raw: Option<&str>) -> Option<&'static str> {
 	let raw = raw?;
 	if raw.len() > 64 {
@@ -2586,7 +2598,18 @@ mod tests {
 				..
 			})
 		));
-		for key in ["guild:10:20:2", "guild:10:20:1"] {
+		calls
+			.stream_packet(
+				Command::WatchStream {
+					channel: Id(20),
+					request: 7,
+					stream_request: 5,
+					streamer: Id(2),
+				},
+				Some(Id(1)),
+			)
+			.unwrap();
+		for key in ["guild:10:20:3", "guild:10:20:2", "guild:10:20:1"] {
 			calls
 				.dispatch(
 					"STREAM_UPDATE",
@@ -2597,13 +2620,23 @@ mod tests {
 				)
 				.unwrap();
 		}
+		// The watched stream and the own stream each get their roster, routed to their attempt.
+		assert!(matches!(
+			events.lock().unwrap().remove(3),
+			Event::Voice(voice::Event::Watch {
+				stream_request: 5,
+				streamer: Id(2),
+				event: screen::Event::Viewers(viewers),
+				..
+			}) if viewers.count == 2 && viewers.ids == [Id(4), Id(5)]
+		));
 		assert!(matches!(
 			events.lock().unwrap().remove(3),
 			Event::Voice(voice::Event::Stream {
 				stream_request: 8,
-				event: screen::Event::Viewers(2),
+				event: screen::Event::Viewers(viewers),
 				..
-			})
+			}) if viewers.count == 2
 		));
 		assert_eq!(
 			events.lock().unwrap().len(),

@@ -42,6 +42,8 @@ pub struct ScreenUi {
 	pub preview: Option<egui::TextureHandle>,
 	/// The share is running and the local picture is intentionally not updating.
 	pub preview_paused: bool,
+	/// Discord's latest viewers of the live share; desktop-owned.
+	pub viewers: Option<client_core::screen::Viewers>,
 	resolution: Resolution,
 	/// Selection the current resolution was chosen for. `None` until sources arrive.
 	quality_for: Option<SourceId>,
@@ -66,6 +68,7 @@ impl Default for ScreenUi {
 			supported: false,
 			preview: None,
 			preview_paused: false,
+			viewers: None,
 			resolution: Resolution::Source,
 			quality_for: None,
 			fps: 30,

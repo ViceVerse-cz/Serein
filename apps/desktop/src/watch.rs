@@ -146,11 +146,14 @@ pub(super) struct Watch {
 	status: &'static str,
 	/// GPU texture behind `ui.voice_stream_view`.
 	texture: crate::gpu_video::VideoTexture,
+	/// Discord's latest viewer roster for this view, published as `ui.voice_stream_viewers`.
+	viewers: Option<(Context, screen::Viewers)>,
 }
 impl Watch {
 	pub fn stop(&mut self) {
 		self.pending = None;
 		self.ended = None;
+		self.viewers = None;
 		if let Some(live) = self.live.take() {
 			live.task.abort();
 		}
@@ -221,7 +224,9 @@ impl Watch {
 			screen::Event::Failed(message) => {
 				self.ended = Some((ui::design::Level::Warning, message));
 			}
-			screen::Event::Viewers(_) => {}
+			screen::Event::Viewers(viewers) => {
+				self.viewers = Some((context, std::mem::take(viewers)));
+			}
 		}
 	}
 	pub fn poll(
@@ -272,6 +277,7 @@ impl Watch {
 			ui.toasts.push(level, message);
 			state.stop_watching();
 			ui.voice_stream_view = None;
+			ui.voice_stream_viewers = None;
 			self.texture = Default::default();
 			ui.voice_stream_status = self.status;
 			return command.or_else(|| {
@@ -378,6 +384,16 @@ impl Watch {
 		} else {
 			ui.voice_stream_view = None;
 			self.texture = Default::default();
+		}
+		// Only the current view's roster is shown; it changes rarely, so copy it only then.
+		let current = self.context();
+		let roster = self
+			.viewers
+			.as_ref()
+			.filter(|(context, _)| Some(*context) == current)
+			.map(|(_, viewers)| viewers);
+		if ui.voice_stream_viewers.as_ref() != roster {
+			ui.voice_stream_viewers = roster.cloned();
 		}
 		ui.voice_stream_status = if wanted.is_some() { self.status } else { "" };
 		command
@@ -499,7 +515,23 @@ mod tests {
 				sequence: 0,
 				status: "",
 				texture: Default::default(),
+				viewers: None,
 			};
+			// Only the live view's roster reaches the stage; another attempt's is ignored.
+			let roster = |stream_request, ids: Vec<Id>| {
+				Event::Voice(voice::Event::Watch {
+					channel: context.channel,
+					request: context.request,
+					stream_request,
+					streamer: context.streamer,
+					event: screen::Event::Viewers(screen::Viewers {
+						count: ids.len() as u16,
+						ids,
+					}),
+				})
+			};
+			watch.observe(&state, &mut roster(2, vec![Id(1), Id(4)]));
+			watch.observe(&state, &mut roster(9, vec![Id(5)]));
 			for phase in [
 				voice::Phase::Connected,
 				voice::Phase::Securing,
@@ -515,6 +547,10 @@ mod tests {
 						.is_none()
 				);
 				assert!(watch.live.is_some());
+				assert_eq!(
+					ui.voice_stream_viewers.as_ref().map(|v| v.ids.as_slice()),
+					Some([Id(1), Id(4)].as_slice())
+				);
 			}
 			if failed {
 				state.voice.active.as_mut().unwrap().phase = voice::Phase::Failed;
@@ -528,6 +564,10 @@ mod tests {
 				})) if channel == context.channel && request == context.request
 			));
 			assert!(watch.live.is_none());
+			assert!(
+				ui.voice_stream_viewers.is_none(),
+				"an ended view keeps no viewers"
+			);
 		}
 	}
 

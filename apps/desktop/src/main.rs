@@ -2131,6 +2131,11 @@ impl Desktop {
 			messaging.voice_stream_view = Some(egui::load::SizedTexture::from_handle(&texture));
 			demo_textures.push(texture);
 			messaging.voice_stream_status = "Watching the stream";
+			// This device is the share's one synthetic viewer.
+			messaging.voice_stream_viewers = Some(client_core::screen::Viewers {
+				count: 1,
+				ids: vec![model::Id(1)],
+			});
 			// `--demo-focus` additionally opens the enlarged stage layout.
 			if std::env::args().any(|arg| arg == "--demo-focus") {
 				messaging.voice_focus = Some(ui::StageFocus::Stream(peer));

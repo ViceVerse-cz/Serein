@@ -88,8 +88,8 @@ pub(super) struct Screen {
 	status: Cow<'static, str>,
 	/// Outcome to state once as a toast on the next poll; the stage keeps no status line.
 	toast: Option<(ui::design::Level, Cow<'static, str>)>,
-	/// Last viewer count Discord reported for the own stream, and a cue waiting for `poll`.
-	viewers: Option<(Context, u16)>,
+	/// Last viewer roster Discord reported for the own stream, and a cue waiting for `poll`.
+	viewers: Option<(Context, screen::Viewers)>,
 	viewer_cue: bool,
 	share_cued: bool,
 }
@@ -230,14 +230,16 @@ impl Screen {
 				}
 			}
 			screen::Event::Failed(message) => self.fail(*message),
-			screen::Event::Viewers(count) => {
+			screen::Event::Viewers(viewers) => {
 				// As in Discord: chime when this stream gains a viewer while it had at most 25.
 				let previous = self
 					.viewers
+					.as_ref()
 					.filter(|(context, _)| *context == incoming)
-					.map_or(0, |(_, count)| count);
-				self.viewer_cue |= self.live.is_some() && *count > previous && previous <= 25;
-				self.viewers = Some((incoming, *count));
+					.map_or(0, |(_, viewers)| viewers.count);
+				let count = viewers.count;
+				self.viewer_cue |= self.live.is_some() && count > previous && previous <= 25;
+				self.viewers = Some((incoming, std::mem::take(viewers)));
 			}
 		}
 	}
@@ -540,6 +542,16 @@ impl Screen {
 			|| self.live.is_some()
 			|| self.closing.is_some()
 			|| self.retiring.is_some();
+		// Only the live share lists viewers; it changes rarely, so copy it only then.
+		let live = self.live.as_ref().map(|live| live.context);
+		let roster = self
+			.viewers
+			.as_ref()
+			.filter(|(context, _)| Some(*context) == live)
+			.map(|(_, viewers)| viewers);
+		if ui.screen.viewers.as_ref() != roster {
+			ui.screen.viewers = roster.cloned();
+		}
 		if let Some((level, message)) = self.toast.take() {
 			ui.toasts.push(level, message);
 		}

@@ -4144,6 +4144,20 @@ voice-call-bar-join-call = Присоединиться к звонку
 voice-call-bar-reconnect-to-refresh-call = Повторно подключитесь, чтобы обновить вызов
 # Context: call_controls
 voice-call-controls-disconnect = Отключить
+# Context: viewer_names
+voice-viewer-names-watching = Смотрят: { $names }
+# Context: viewer_names
+voice-viewer-names-watching-more = Смотрят: { $names } и ещё { $count }
+# Context: viewer_names
+voice-viewer-names-count =
+    { $count ->
+        [one] { $count } зритель
+        [few] { $count } зрителя
+        [many] { $count } зрителей
+       *[other] { $count } зрителя
+    }
+# Context: viewer_names
+voice-viewer-names-unknown-viewer = Неизвестный зритель
 # Context: call_controls
 voice-call-controls-dismiss-call = Отклонить вызов
 # Context: call_controls

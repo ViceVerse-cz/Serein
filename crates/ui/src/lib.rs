@@ -519,6 +519,8 @@ pub struct MessagingUi {
 	/// Latest picture of the screen share this device chose to watch; desktop-owned texture.
 	pub voice_stream_view: Option<egui::load::SizedTexture>,
 	pub voice_stream_status: &'static str,
+	/// Discord's latest viewers of the watched share; desktop-owned.
+	pub voice_stream_viewers: Option<client_core::screen::Viewers>,
 	/// Session-only stream playback level; unset is 100%. Mute preserves the level.
 	voice_stream_volume: Option<u16>,
 	voice_stream_muted: bool,
@@ -2858,6 +2860,39 @@ impl MessagingUi {
 				{
 					self.voice_chat_open = !self.voice_chat_open;
 					self.focus_switched_composer = self.voice_chat_open;
+				}
+				// An enlarged share lists its viewers at the header's right, as Discord does.
+				if let Some(call) = state.voice.active.as_ref().filter(|call| {
+					Some(call.channel) == state.selected
+						&& call.phase != client_core::voice::Phase::Failed
+				}) && let Some(viewers) = self.voice_focus.and_then(|focus| {
+					voice::enlarged_viewers(
+						focus,
+						call,
+						self.voice_stream_viewers.as_ref(),
+						self.screen.viewers.as_ref(),
+					)
+				}) {
+					// Faces are cut out of the surface behind them: the black DM call stage or
+					// the conversation coat.
+					let ring = if self.dm_call_stage(state).is_some() {
+						egui::Color32::BLACK
+					} else {
+						design::window_palette(ui).chat
+					};
+					ui.add_space(8.0);
+					voice::viewer_row(
+						ui,
+						&mut self.avatars,
+						state,
+						call.channel,
+						viewers,
+						24.0,
+						ring,
+						colors.text,
+					)
+					.on_hover_text(voice::viewer_names(state, call.channel, viewers));
+					ui.add_space(4.0);
 				}
 				if let Some(c) = channel
 					.as_ref()

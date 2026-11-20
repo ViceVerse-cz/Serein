@@ -646,6 +646,12 @@ pub fn execute_action(
 	})
 }
 
+/// `--demo-loading` / `--demo-loading=partial`. This file is compiled into the desktop binary
+/// and into the `profile_preview` example, so it cannot call the binary's `demo_loading`.
+fn demo_loading() -> bool {
+	std::env::args().any(|arg| arg == "--demo-loading" || arg == "--demo-loading=partial")
+}
+
 pub fn open(state: &mut State, messaging: &mut ui::MessagingUi) {
 	let guild = state.guilds[0].id;
 	let user = state.user.as_ref().expect("fixture user").id;
@@ -680,7 +686,7 @@ pub fn open(state: &mut State, messaging: &mut ui::MessagingUi) {
 		event: Event::Permissions(client_core::permissions::Event::Snapshot(permissions)),
 	});
 	// `--demo-loading` sends the same loads and leaves them unanswered.
-	let loading = crate::demo_loading();
+	let loading = demo_loading();
 	if let Some(page) =
 		std::env::args().find_map(|arg| arg.strip_prefix("--demo-server-page=").map(str::to_owned))
 	{

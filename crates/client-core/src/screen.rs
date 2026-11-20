@@ -219,8 +219,15 @@ pub enum Event {
 		reason: Option<&'static str>,
 	},
 	Failed(&'static str),
-	/// Discord's latest viewer count for this device's own stream (unofficial `STREAM_UPDATE`).
-	Viewers(u16),
+	/// Discord's latest viewers of this device's own or watched stream (unofficial
+	/// `STREAM_UPDATE`).
+	Viewers(Viewers),
+}
+/// Who is watching a stream: the full count and at most 64 of their IDs, in Discord's order.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Viewers {
+	pub count: u16,
+	pub ids: Vec<Id>,
 }
 impl Event {
 	pub(crate) fn bytes(&self) -> usize {
@@ -229,6 +236,7 @@ impl Event {
 				token.as_ref().map_or(0, voice::Secret::bytes)
 					+ endpoint.as_ref().map_or(0, String::capacity)
 			}
+			Self::Viewers(viewers) => viewers.ids.capacity() * size_of::<Id>(),
 			_ => 0,
 		}
 	}

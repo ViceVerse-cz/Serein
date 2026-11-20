@@ -4134,6 +4134,14 @@ voice-call-bar-join-call = Görüşmeye katıl
 voice-call-bar-reconnect-to-refresh-call = Aramayı yenilemek için yeniden bağlanın
 # Context: call_controls
 voice-call-controls-disconnect = Bağlantıyı kes
+# Context: viewer_names
+voice-viewer-names-watching = İzleyenler: { $names }
+# Context: viewer_names
+voice-viewer-names-watching-more = İzleyenler: { $names } ve { $count } kişi daha
+# Context: viewer_names
+voice-viewer-names-count = { $count } izleyici
+# Context: viewer_names
+voice-viewer-names-unknown-viewer = Bilinmeyen izleyici
 # Context: call_controls
 voice-call-controls-dismiss-call = Aramayı reddet
 # Context: call_controls
