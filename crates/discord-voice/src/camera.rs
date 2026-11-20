@@ -778,11 +778,13 @@ mod macos {
 			}
 			session.addInput(&input);
 			session.addOutput(&output);
-			if !session.canSetSessionPreset(AVCaptureSessionPresetInputPriority) {
-				return Err("Camera does not support native format selection");
-			}
+			// AVCaptureSessionPresetInputPriority is unavailable on macOS; configure()
+			// sets activeFormat directly, so only apply the preset where supported.
+			let input_priority = session.canSetSessionPreset(AVCaptureSessionPresetInputPriority);
 			session.beginConfiguration();
-			session.setSessionPreset(AVCaptureSessionPresetInputPriority);
+			if input_priority {
+				session.setSessionPreset(AVCaptureSessionPresetInputPriority);
+			}
 			let configured = configure(&device, shared.rate);
 			session.commitConfiguration();
 			configured?;
