@@ -2264,6 +2264,12 @@ reading-chat-reading-settings-scrolling = 스크롤
 # Context: chat_reading_settings
 reading-chat-reading-settings-scrolling-speed = 스크롤 속도
 # Context: chat_reading_settings
+reading-chat-reading-settings-show-server-tags = 채팅에 서버 태그 표시
+# Context: chat_reading_settings
+reading-chat-reading-settings-show-server-tags-description = 메시지에서 이름 옆에 사용자가 착용한 서버 태그를 표시합니다.
+# Context: chat_reading_settings
+reading-chat-reading-settings-show-server-tags-hidden-everywhere = 외관 › 서버 태그가 꺼져 있어 사용할 수 없습니다.
+# Context: chat_reading_settings
 reading-chat-reading-settings-smooth-scrolling = 부드러운 스크롤
 # Context: chat_reading_settings
 reading-chat-reading-settings-compact-message-spacing = 간결한 메시지
@@ -5001,7 +5007,7 @@ settings-cosmetics-all-description = 아래 항목을 모두 한 번에 설정�
 settings-cosmetics-gradient-names = 그라데이션 이름
 settings-cosmetics-gradient-names-description = 여러 색상을 혼합한 역할 및 Nitro 이름입니다. 끄면 첫 번째 색상으로 표시합니다.
 settings-cosmetics-clan-tags = 서버 태그
-settings-cosmetics-clan-tags-description = 이름 옆에 표시하는 서버 태그입니다.
+settings-cosmetics-clan-tags-description = 프로필, 멤버 목록, 메시지에서 이름 옆에 사용자가 착용한 서버 태그입니다.
 main-sign-in-rate-limited-detail = Discord가 로그인 요청을 제한하고 있습니다. 잠시 기다린 후 다시 시도하세요. 그 전에 재시도하면 대기 시간이 더 길어질 수 있습니다.
 
 # Avatar badge while someone is typing.

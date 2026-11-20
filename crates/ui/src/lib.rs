@@ -374,6 +374,8 @@ pub struct MessagingUi {
 	/// Local render filters only; neither changes relationships nor service-side read state.
 	pub hide_blocked_messages: bool,
 	pub hide_ignored_messages: bool,
+	/// Server tags stay in profiles and lists; this only leaves them out of message headers.
+	pub hide_chat_server_tags: bool,
 	pub show_hidden_channels: bool,
 	/// Folds the home list's message requests away; the device preference restores it.
 	pub message_requests_collapsed: bool,
@@ -1326,6 +1328,7 @@ impl MessagingUi {
 			// Device-level chat filters belong to the device, not to the account being cleared.
 			hide_blocked_messages: self.hide_blocked_messages,
 			hide_ignored_messages: self.hide_ignored_messages,
+			hide_chat_server_tags: self.hide_chat_server_tags,
 			startup_enabled: self.startup_enabled,
 			startup_minimized: self.startup_minimized,
 			startup_available: self.startup_available,
@@ -5882,6 +5885,8 @@ impl MessagingUi {
 				self.timeline.hide_media_links = self.reading_preferences.hide_media_links;
 				self.timeline.hide_blocked_messages = self.hide_blocked_messages;
 				self.timeline.hide_ignored_messages = self.hide_ignored_messages;
+				self.timeline.hide_server_tags =
+					self.hide_chat_server_tags || self.cosmetics.hide_clan_tags;
 				self.timeline.compact_messages = self.reading_preferences.compact_messages;
 				self.timeline.double_click_reaction = self
 					.reading_preferences

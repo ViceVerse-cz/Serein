@@ -56,6 +56,9 @@ pub struct TimelineView {
 	applied_hide_media_links: bool,
 	pub(super) hide_blocked_messages: bool,
 	pub(super) hide_ignored_messages: bool,
+	/// Compact rows narrow the body beside a tagged name, so toggling re-measures rows.
+	pub(super) hide_server_tags: bool,
+	applied_hide_server_tags: bool,
 	applied_hide_blocked_messages: bool,
 	applied_hide_ignored_messages: bool,
 	pub(super) compact_messages: bool,
@@ -395,6 +398,11 @@ fn layout_key(message: &Message) -> u64 {
 	message.author.name.hash(&mut key);
 	message.author.kind.hash(&mut key);
 	message.author.webhook.hash(&mut key);
+	// A tag widens the compact name column and so the body's wrap width.
+	if let Some(tag) = &message.author.primary_guild {
+		tag.tag.hash(&mut key);
+		tag.badge.is_some().hash(&mut key);
+	}
 	message.edited.hash(&mut key);
 	(message.flags & (1 << 12) != 0).hash(&mut key);
 	message.reply_to.hash(&mut key);
@@ -2560,6 +2568,7 @@ impl TimelineView {
 				hide_media_links: self.hide_media_links,
 				hide_blocked_messages: self.hide_blocked_messages,
 				hide_ignored_messages: self.hide_ignored_messages,
+				hide_server_tags: self.hide_server_tags,
 				instant_scrolling: self.instant_scrolling,
 				suppressed_deleted_highlight: std::mem::take(
 					&mut self.suppressed_deleted_highlight,
@@ -2669,12 +2678,14 @@ impl TimelineView {
 			|| self.hide_media_links != self.applied_hide_media_links
 			|| self.hide_blocked_messages != self.applied_hide_blocked_messages
 			|| self.hide_ignored_messages != self.applied_hide_ignored_messages
-			|| self.compact_messages != self.applied_compact_messages;
+			|| self.compact_messages != self.applied_compact_messages
+			|| self.hide_server_tags != self.applied_hide_server_tags;
 		let dimensions_changed = width_changed || content_dimensions_changed;
 		self.applied_hide_media_links = self.hide_media_links;
 		self.applied_hide_blocked_messages = self.hide_blocked_messages;
 		self.applied_hide_ignored_messages = self.hide_ignored_messages;
 		self.applied_compact_messages = self.compact_messages;
+		self.applied_hide_server_tags = self.hide_server_tags;
 		// The extension tweak and the device preference are alternatives for the same filter; a
 		// plugin can only turn blocked rows off, and only the preference widens it to ignored
 		// authors.
@@ -3648,6 +3659,11 @@ impl TimelineView {
 								});
 							}
 							let system = message.system_message();
+							let server_tag = message
+								.author
+								.primary_guild
+								.as_deref()
+								.filter(|_| !self.hide_server_tags);
 							let author_colors = state.message_author_colors(message);
 							let name_color = author_colors.map_or(colors.text_strong, |role| {
 								crate::design::role_name_color(
@@ -3728,6 +3744,15 @@ impl TimelineView {
 										),
 										|ui| {
 											ui.set_max_width(width);
+											// The narrow name column keeps the tag only while
+											// the name still gets a readable share of it.
+											let tag_width = |tag: &model::ClanTag| {
+												crate::profiles::server_tag_width(ui, Some(tag))
+													+ ui.spacing().item_spacing.x
+											};
+											let server_tag = server_tag
+												.filter(|tag| width - tag_width(tag) >= 48.0);
+											let trailing = server_tag.map_or(0.0, tag_width);
 											let author = crate::name_styles::in_row(
 												name_hover == Some(message.id),
 												|| {
@@ -3742,7 +3767,7 @@ impl TimelineView {
 															colors.chat,
 														),
 														egui::Sense::click(),
-														0.0,
+														trailing,
 													)
 												},
 											)
@@ -3769,6 +3794,26 @@ impl TimelineView {
 												&message.author,
 											);
 											surface.keep(&author);
+											if let Some(tag) = server_tag {
+												// This header is top-aligned; centre the chip on the name.
+												let tag = ui
+													.allocate_ui_with_layout(
+														egui::vec2(
+															ui.available_width(),
+															author.rect.height(),
+														),
+														egui::Layout::left_to_right(
+															egui::Align::Center,
+														),
+														|ui| {
+															crate::profiles::server_tag(
+																ui, tag, avatars, state.demo,
+															)
+														},
+													)
+													.inner;
+												surface.keep(&tag);
+											}
 										},
 									);
 									ui.spacing_mut().item_spacing.x = body_spacing;
@@ -3806,6 +3851,27 @@ impl TimelineView {
 											egui::Layout::left_to_right(egui::Align::Center),
 											|ui| {
 												ui.spacing_mut().item_spacing.x = 8.0;
+												// The name truncates first; the tag goes when even a short
+												// name, the tag and the time cannot share the row.
+												let time_width = ui
+													.painter()
+													.layout_no_wrap(
+														crate::local_time::header(timestamp(id)),
+														egui::FontId::proportional(12.0),
+														colors.muted,
+													)
+													.size()
+													.x;
+												let tag_width = |tag: &model::ClanTag| {
+													crate::profiles::server_tag_width(ui, Some(tag))
+														+ 8.0
+												};
+												let server_tag = server_tag.filter(|tag| {
+													ui.available_width()
+														- tag_width(tag) - time_width - 8.0 >= 48.0
+												});
+												let tag_trailing =
+													server_tag.map_or(0.0, tag_width);
 												let author = crate::name_styles::in_row(
 													name_hover == Some(message.id),
 													|| {
@@ -3820,7 +3886,7 @@ impl TimelineView {
 																colors.chat,
 															),
 															egui::Sense::click(),
-															48.0,
+															48.0 + tag_trailing,
 														)
 													},
 												)
@@ -3848,6 +3914,12 @@ impl TimelineView {
 													&message.author,
 												);
 												surface.keep(&author);
+												if let Some(tag) = server_tag {
+													let tag = crate::profiles::server_tag(
+														ui, tag, avatars, state.demo,
+													);
+													surface.keep(&tag);
+												}
 												let time = timestamp(id);
 												let time = ui
 													.label(
@@ -7656,6 +7728,14 @@ mod tests {
 		assert!(!grouped(Some(&first), &next, None));
 		assert_ne!(original_key, layout_key(&next));
 		next.author.kind = model::AccountKind::Human;
+		// A tag arriving after a cache restore widens compact names, so cached heights go stale.
+		next.author.primary_guild = Some(Box::new(model::ClanTag {
+			guild: Id(10),
+			tag: "SPDY".into(),
+			badge: None,
+		}));
+		assert_ne!(original_key, layout_key(&next));
+		next.author.primary_guild = None;
 		next.edited = true;
 		assert!(grouped(Some(&first), &next, None));
 		next.edited = false;
