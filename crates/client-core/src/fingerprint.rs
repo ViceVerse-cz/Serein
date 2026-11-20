@@ -13,9 +13,35 @@
 const CHROME_MAJOR: &str = "149";
 /// Safari version advertised on macOS and Linux, where verification runs in WebKit.
 const SAFARI_VERSION: &str = "26.4";
-/// Observed in the public `/app` bundle and a recorded desktop 0.0.423 session on
-/// 2026-11-19. The remote web build is separate from the native host version.
-pub const CLIENT_BUILD_NUMBER: u64 = 676_376;
+/// The web build reported until this launch reads the current one from Discord's `/app` page.
+/// Observed there and in a recorded desktop 0.0.423 session on 2026-11-20; it rose by about
+/// 1,300 in the day before. The remote web build is separate from the native host version.
+const FALLBACK_BUILD_NUMBER: u64 = 677_695;
+static BUILD_NUMBER: std::sync::atomic::AtomicU64 =
+	std::sync::atomic::AtomicU64::new(FALLBACK_BUILD_NUMBER);
+
+/// The web build this launch reports as `client_build_number`.
+pub fn client_build_number() -> u64 {
+	BUILD_NUMBER.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Adopts the `BUILD_NUMBER` in the text of Discord's `/app` page, the document the desktop
+/// client loads at every start and takes its web build from (unofficial, observed
+/// 2026-11-20). Builds only count up: an older, missing or implausible number is refused
+/// and the previous one stays.
+pub fn adopt_build_number(page: &str) -> bool {
+	let number = page
+		.split_once("\"BUILD_NUMBER\":\"")
+		.and_then(|(_, rest)| rest.split_once('"'))
+		.map(|(digits, _)| digits)
+		.filter(|digits| digits.len() <= 8 && digits.bytes().all(|b| b.is_ascii_digit()))
+		.and_then(|digits| digits.parse::<u64>().ok())
+		.filter(|number| *number >= FALLBACK_BUILD_NUMBER);
+	if let Some(number) = number {
+		BUILD_NUMBER.fetch_max(number, std::sync::atomic::Ordering::Relaxed);
+	}
+	number.is_some()
+}
 /// The macOS updater's metadata version in the same recording. Discord's update manifests
 /// do not expose it, and no Windows or Linux value was observed, so only macOS sends one.
 const MACOS_NATIVE_BUILD_NUMBER: u64 = 98_981;
@@ -133,33 +159,116 @@ fn json(value: &str) -> String {
 	out
 }
 
+/// A random version-4 UUID keeping only the bits set in `mask`; empty without system randomness.
+fn uuid(mask: [u8; 16]) -> String {
+	let mut bytes = [0_u8; 16];
+	if getrandom::fill(&mut bytes).is_err() {
+		return String::new();
+	}
+	bytes[6] = (bytes[6] & 0x0f) | 0x40;
+	bytes[8] = (bytes[8] & 0x3f) | 0x80;
+	let hex: String = bytes
+		.iter()
+		.zip(mask)
+		.map(|(byte, mask)| format!("{:02x}", byte & mask))
+		.collect();
+	format!(
+		"{}-{}-{}-{}-{}",
+		&hex[..8],
+		&hex[8..12],
+		&hex[12..16],
+		&hex[16..20],
+		&hex[20..]
+	)
+}
+
 /// A random version-4 UUID for this launch, as the desktop client makes one per start.
-fn launch_id() -> &'static str {
-	static ID: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
-		let mut bytes = [0_u8; 16];
-		if getrandom::fill(&mut bytes).is_err() {
-			return String::new();
-		}
-		bytes[6] = (bytes[6] & 0x0f) | 0x40;
-		bytes[8] = (bytes[8] & 0x3f) | 0x80;
-		let hex: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
-		format!(
-			"{}-{}-{}-{}-{}",
-			&hex[..8],
-			&hex[8..12],
-			&hex[12..16],
-			&hex[16..20],
-			&hex[20..]
-		)
-	});
+pub fn launch_id() -> &'static str {
+	static ID: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| uuid([0xff; 16]));
 	&ID
 }
 
-/// Gateway `identify.d.properties` and the decoded `X-Super-Properties` payload: the
-/// desktop client's fields, in its order (observed in a recorded 0.0.423 session). The web
-/// client's device and referrer fields are not part of it. `launch_signature`, the
-/// analytics heartbeat session and the focus state are left out.
-pub fn properties() -> String {
+/// The launch's second UUID. The official client sets some of its bits when it detects a
+/// client mod; these are the ones it leaves clear otherwise (unofficial: the mask is
+/// Acheron's, and the signatures recorded from the desktop client fit it).
+fn launch_signature() -> &'static str {
+	const UNMODIFIED: [u8; 16] = [
+		0xff, 0x7f, 0xef, 0xef, 0xf7, 0xef, 0xf7, 0xff, 0xdf, 0x7e, 0xff, 0xbf, 0xfe, 0xff, 0xf7,
+		0xff,
+	];
+	static SIGNATURE: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| uuid(UNMODIFIED));
+	&SIGNATURE
+}
+
+/// Whether the window has focus and whether a voice connection is live, as last reported.
+static FOCUSED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static RTC_CONNECTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Records what the interface knows about its own use. The identity reports it as
+/// `client_app_state`, and the Gateway beside each heartbeat.
+pub fn set_activity(focused: bool, rtc_connected: bool) {
+	FOCUSED.store(focused, std::sync::atomic::Ordering::Relaxed);
+	RTC_CONNECTED.store(rtc_connected, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// `(focused, rtc_connected)` as last given to [`set_activity`].
+pub fn activity() -> (bool, bool) {
+	(
+		FOCUSED.load(std::sync::atomic::Ordering::Relaxed),
+		RTC_CONNECTED.load(std::sync::atomic::Ordering::Relaxed),
+	)
+}
+
+struct HeartbeatSession {
+	id: String,
+	started_ms: u64,
+	used: std::time::Instant,
+}
+static HEARTBEAT_SESSION: std::sync::Mutex<Option<HeartbeatSession>> = std::sync::Mutex::new(None);
+/// How long a heartbeat session outlives the last moment the app was in use.
+const HEARTBEAT_SESSION_IDLE: std::time::Duration = std::time::Duration::from_secs(30 * 60);
+
+/// The official client's "time spent" session: its ID and start in Unix milliseconds
+/// (unofficial; recorded as `client_heartbeat_session_id` on REST and in Gateway opcode 41).
+/// One starts while the window is focused or a call is connected and ends after 30 idle
+/// minutes, as Acheron models it. It lives in memory only and no analytics event carries it.
+pub fn heartbeat_session() -> Option<(String, u64)> {
+	let (focused, rtc_connected) = activity();
+	let in_use = focused || rtc_connected;
+	let now = std::time::Instant::now();
+	let mut slot = HEARTBEAT_SESSION.lock().ok()?;
+	if slot
+		.as_ref()
+		.is_some_and(|session| now.duration_since(session.used) >= HEARTBEAT_SESSION_IDLE)
+	{
+		*slot = None;
+	}
+	match &mut *slot {
+		Some(session) if in_use => session.used = now,
+		None if in_use => {
+			let id = uuid([0xff; 16]);
+			if id.is_empty() {
+				return None;
+			}
+			*slot = Some(HeartbeatSession {
+				id,
+				started_ms: std::time::SystemTime::now()
+					.duration_since(std::time::UNIX_EPOCH)
+					.map_or(0, |elapsed| {
+						elapsed.as_millis().min(u64::MAX as u128) as u64
+					}),
+				used: now,
+			});
+		}
+		_ => {}
+	}
+	slot.as_ref()
+		.map(|session| (session.id.clone(), session.started_ms))
+}
+
+/// The desktop client's own fields, in its order (observed in recorded 0.0.423 sessions).
+/// The web client's device and referrer fields are not part of it.
+fn fields() -> Vec<(&'static str, String)> {
 	let os = &*os::OS;
 	let mut fields: Vec<(&str, String)> = vec![
 		("os", json(os_name())),
@@ -192,16 +301,53 @@ pub fn properties() -> String {
 	if let Some(revision) = &os.build_revision {
 		fields.push(("os_build_revision", json(revision)));
 	}
-	fields.push(("client_build_number", CLIENT_BUILD_NUMBER.to_string()));
+	fields.push(("client_build_number", client_build_number().to_string()));
 	if cfg!(target_os = "macos") {
 		fields.push(("native_build_number", MACOS_NATIVE_BUILD_NUMBER.to_string()));
 	}
 	fields.push(("client_event_source", "null".into()));
+	fields.push(("launch_signature", json(launch_signature())));
+	fields
+}
+
+fn object(fields: Vec<(&'static str, String)>) -> String {
 	let body: Vec<String> = fields
 		.into_iter()
 		.map(|(key, value)| format!("\"{key}\":{value}"))
 		.collect();
 	format!("{{{}}}", body.join(","))
+}
+
+fn app_state() -> String {
+	json(if activity().0 { "focused" } else { "unfocused" })
+}
+
+/// The decoded `X-Super-Properties` payload of a REST call. The heartbeat session is named
+/// only while there is one.
+pub fn properties() -> String {
+	let mut fields = fields();
+	if let Some((session, _)) = heartbeat_session() {
+		fields.push(("client_heartbeat_session_id", json(&session)));
+	}
+	fields.push(("client_app_state", app_state()));
+	object(fields)
+}
+
+/// Gateway `identify.d.properties` as the desktop client sends them when it connects after
+/// its first screen rather than from its early fast-connect script (unofficial, recorded
+/// 2026-11-19). Both recorded identifies named no heartbeat session, though one existed.
+pub fn identify_properties() -> String {
+	let mut fields = fields();
+	fields.extend([
+		("client_heartbeat_session_id", "null".into()),
+		("client_app_state", app_state()),
+		("is_fast_connect", "false".into()),
+		("gateway_connect_reasons", json("AppSkeleton")),
+	]);
+	if let Some(installation) = installation_id() {
+		fields.push(("installation_id", json(&installation)));
+	}
+	object(fields)
 }
 
 /// The installation ID Discord issued this device, once known.
@@ -284,6 +430,33 @@ mod tests {
 	#[test]
 	fn properties_are_valid_json_with_escaped_text() {
 		assert_eq!(json("a\"b\\c\u{1}"), r#""a\"b\\c\u0001""#);
+	}
+	/// The page is remote text: only a newer, plain build number may change the identity.
+	#[test]
+	fn build_number_is_adopted_only_from_a_plausible_page() {
+		let page = |value: &str| {
+			format!(r#"<script>window.GLOBAL_ENV = {{"BUILD_NUMBER":{value},"X":1}}"#)
+		};
+		let before = client_build_number();
+		for refused in [
+			String::new(),
+			page("677696"),
+			page("\"\""),
+			page("\"12\""),
+			page("\"-677696\""),
+			page("\"677696e9\""),
+			page("\"999999999999999999\""),
+			page("\"677696"),
+		] {
+			assert!(!adopt_build_number(&refused), "{refused}");
+		}
+		assert_eq!(client_build_number(), before);
+		let newer = before + 7;
+		assert!(adopt_build_number(&page(&format!("\"{newer}\""))));
+		assert_eq!(client_build_number(), newer);
+		// An older page answered later does not move the identity back.
+		assert!(adopt_build_number(&page(&format!("\"{}\"", before + 1))));
+		assert_eq!(client_build_number(), newer);
 	}
 	#[test]
 	fn base64_padding() {

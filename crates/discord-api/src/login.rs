@@ -221,12 +221,17 @@ impl LoginApi {
 		if let Some(known) = &*slot {
 			return known.clone();
 		}
+		// The page itself loads first, and names the web build these requests report.
+		let route = self.proxy.lock().await.receiver.borrow().clone();
+		if let Some(route) = route {
+			crate::read_build_number(&route).await;
+		}
 		#[derive(serde::Deserialize)]
 		struct Experiments {
 			fingerprint: String,
 		}
 		let fetch = async {
-			let response = self
+			let request = self
 				.request(
 					client,
 					Method::GET,
@@ -237,10 +242,8 @@ impl LoginApi {
 					"x-context-properties",
 					// base64 of {"location":"/login"}: the page the request came from.
 					HeaderValue::from_static("eyJsb2NhdGlvbiI6Ii9sb2dpbiJ9"),
-				)
-				.send()
-				.await
-				.ok()?;
+				);
+			let response = crate::current_identity(request).send().await.ok()?;
 			if !response.status().is_success() {
 				return None;
 			}
@@ -257,16 +260,13 @@ impl LoginApi {
 			.flatten();
 		// Read and dropped: the page uses it for its consent notices, which Serein has none of.
 		let metadata = async {
-			let response = self
-				.request(
-					client,
-					Method::GET,
-					"/auth/location-metadata",
-					fingerprint.as_ref(),
-				)
-				.send()
-				.await
-				.ok()?;
+			let request = self.request(
+				client,
+				Method::GET,
+				"/auth/location-metadata",
+				fingerprint.as_ref(),
+			);
+			let response = crate::current_identity(request).send().await.ok()?;
 			read(response, MAX_BYTES).await
 		};
 		let _ = tokio::time::timeout(Duration::from_secs(5), metadata).await;
@@ -335,7 +335,10 @@ impl LoginApi {
 				}
 			}
 		}
-		let response = request.send().await.map_err(|_| LoginError::Network)?;
+		let response = crate::current_identity(request)
+			.send()
+			.await
+			.map_err(|_| LoginError::Network)?;
 		let status = response.status();
 		let header = |name: &str| {
 			response

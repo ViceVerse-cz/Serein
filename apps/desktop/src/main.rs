@@ -1174,6 +1174,9 @@ struct Desktop {
 	/// Written under the account's own entry on every READY, including a launch restore, so
 	/// the switcher can always get back to an account it lists.
 	pending_account_save: Option<Arc<SessionSecret>>,
+	/// Whether this launch already restarted a session with a token Discord issued in READY.
+	/// Once is enough: a service that kept replacing tokens must not loop the login.
+	token_refreshed: bool,
 	/// Where the opt-in diagnostic log belongs, resolved once so a Settings change needs no lookup.
 	log_directory: Option<std::path::PathBuf>,
 	/// Whether the first frame has reported the start-up install's result to the settings page.
@@ -2730,6 +2733,7 @@ impl Desktop {
 			variant_changed: false,
 			pending_save: None,
 			pending_account_save: None,
+			token_refreshed: false,
 			log_directory: local_store::data_dir().ok().map(|root| root.join("logs")),
 			log_verified: false,
 			log_open_refused: false,
@@ -5459,8 +5463,16 @@ impl Desktop {
 		let mut persist_timeline = false;
 		let mut full_window = false;
 		let mut changed_messages = std::collections::BTreeSet::new();
+		let mut refreshed_token = None;
 		for mut event in events {
 			if event.generation != self.state.generation {
+				continue;
+			}
+			if let Event::TokenRefreshed(secret) = &event.event {
+				if !self.token_refreshed {
+					refreshed_token =
+						SessionSecret::from_owner_input(secret.expose().to_owned()).ok();
+				}
 				continue;
 			}
 			let user_action_notice = user_action_notice(&event.event);
@@ -5814,6 +5826,12 @@ impl Desktop {
 				));
 			}
 		}
+		// Discord replaced the login token (unofficial). Restart the session with the new one,
+		// as after a sign-in, so every request uses it and it replaces the saved login.
+		if let Some(secret) = refreshed_token {
+			self.token_refreshed = true;
+			self.connect(secret, true, ctx);
+		}
 		if let Some(secret) = self.native.poll(ctx) {
 			self.connect(secret, true, ctx);
 		}
@@ -6071,6 +6089,15 @@ impl eframe::App for Desktop {
 				self.monitor_period = self.refresh_monitor();
 			}
 		}
+		// The client identity says whether the app is in use: focused, or in a connected call.
+		discord_gateway::set_activity(
+			raw_input.focused,
+			self.state
+				.voice
+				.active
+				.as_ref()
+				.is_some_and(|call| matches!(call.phase, client_core::voice::Phase::Connected)),
+		);
 		if let Some(period) = self.frame_period() {
 			raw_input.predicted_dt = period.as_secs_f32();
 		}

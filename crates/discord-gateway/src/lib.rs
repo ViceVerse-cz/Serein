@@ -173,6 +173,7 @@ fn dispatch_label(name: &str) -> &'static str {
 		"MESSAGE_POLL_VOTE_REMOVE",
 		"MESSAGE_UPDATE",
 		"MESSAGE_REACTION_ADD",
+		"MESSAGE_REACTION_ADD_MANY",
 		"MESSAGE_REACTION_REMOVE",
 		"MESSAGE_REACTION_REMOVE_ALL",
 		"MESSAGE_REACTION_REMOVE_EMOJI",
@@ -332,6 +333,39 @@ fn reaction_event(
 	})
 }
 
+/// Unofficial `MESSAGE_REACTION_ADD_MANY`: one added normal reaction per user and emoji. An
+/// unreadable, oversized or unsequenced batch only invalidates the message, like a single
+/// change that cannot be applied.
+fn reaction_batch(
+	bytes: &[u8],
+	sequenced: bool,
+) -> Result<Vec<client_core::reactions::Event>, Failure> {
+	use client_core::reactions::Event as ReactionEvent;
+	if sequenced && let Ok(batch) = decode::<discord_protocol::ReactionBatch>(bytes) {
+		let (channel, message) = (batch.channel_id, batch.message_id);
+		return Ok(batch
+			.reactions
+			.into_iter()
+			.flat_map(|row| {
+				let emoji = row.emoji;
+				row.users.into_iter().map(move |user| ReactionEvent::Delta {
+					channel,
+					message,
+					user,
+					emoji: emoji.clone(),
+					add: true,
+					burst: false,
+				})
+			})
+			.collect());
+	}
+	let target = decode::<ReactionTarget>(bytes).map_err(|_| Failure::Protocol)?;
+	Ok(vec![ReactionEvent::Changed {
+		channel: target.channel_id,
+		message: target.message_id,
+	}])
+}
+
 /// The first message on a new socket.
 enum Handshake {
 	Resume(serde_json::Value),
@@ -399,6 +433,86 @@ impl Heartbeat {
 	}
 	fn ack(&mut self) {
 		self.awaiting_since = None;
+	}
+}
+/// Identify capabilities of the desktop client's connection after its first screen
+/// (unofficial, recorded from 0.0.423 on 2026-11-19): lazy notes, versioned read states and
+/// guild settings, deduplicated users, the split READY, non-channel read states, token
+/// refresh, settings protos, client state v2, automatic call connect, debounced reactions and
+/// passive updates v2, plus three undocumented bits (17, 19, 20). Its early fast-connect
+/// identify also sets channel obfuscation (bit 15); this one does not.
+const CAPABILITIES: u32 = 1_734_653;
+
+/// The window's focus and a live voice connection, as the application last reported them.
+static ACTIVITY: std::sync::LazyLock<watch::Sender<(bool, bool)>> =
+	std::sync::LazyLock::new(|| watch::channel(client_core::fingerprint::activity()).0);
+
+/// Reports whether the window has focus and whether a voice connection is live. The client
+/// identity carries it on REST, and an open Gateway connection beside its heartbeats.
+pub fn set_activity(focused: bool, rtc_connected: bool) {
+	client_core::fingerprint::set_activity(focused, rtc_connected);
+	ACTIVITY.send_if_modified(|current| {
+		std::mem::replace(current, (focused, rtc_connected)) != (focused, rtc_connected)
+	});
+}
+
+/// The use the desktop client reports in place of a bare heartbeat (unofficial opcode 40,
+/// recorded 2026-11-20), and the heartbeat session it announces (opcode 41).
+///
+/// A heartbeat reports every reason seen since the previous one, so a short spell of use is
+/// still reported once, then falls back to the present state.
+#[derive(Default)]
+struct Qos {
+	reported: u8,
+	next: Option<u8>,
+	/// The heartbeat session this Gateway session was last told about.
+	announced: Option<String>,
+}
+impl Qos {
+	const FOREGROUNDED: u8 = 1;
+	const RTC_CONNECTED: u8 = 2;
+
+	fn reasons((focused, rtc_connected): (bool, bool)) -> u8 {
+		u8::from(focused) * Self::FOREGROUNDED + u8::from(rtc_connected) * Self::RTC_CONNECTED
+	}
+	/// Takes in the present state; true when use began and should be reported now.
+	fn observe(&mut self, activity: (bool, bool)) -> bool {
+		let reasons = Self::reasons(activity);
+		let began = self.reported == 0 && reasons != 0;
+		self.reported |= reasons;
+		self.next = Some(reasons);
+		began
+	}
+	fn heartbeat(&mut self, sequence: Option<u64>) -> String {
+		let reported = self.reported;
+		if let Some(next) = self.next.take() {
+			self.reported = next;
+		}
+		let sequence = sequence.map_or("null".into(), |sequence| sequence.to_string());
+		let reasons = match reported {
+			0 => "",
+			Self::FOREGROUNDED => r#""foregrounded""#,
+			Self::RTC_CONNECTED => r#""rtc_connected""#,
+			_ => r#""foregrounded","rtc_connected""#,
+		};
+		format!(
+			r#"{{"op":40,"d":{{"seq":{sequence},"qos":{{"active":{},"ver":31,"reasons":[{reasons}]}}}}}}"#,
+			reported != 0
+		)
+	}
+	/// The announcement of the current heartbeat session, unless this Gateway session
+	/// already has it or there is none.
+	fn session(&mut self) -> Option<String> {
+		let (session, started_ms) = client_core::fingerprint::heartbeat_session()?;
+		if self.announced.as_deref() == Some(session.as_str()) {
+			return None;
+		}
+		let packet = format!(
+			r#"{{"op":41,"d":{{"initialization_timestamp":{started_ms},"session_id":"{session}","client_launch_id":"{}"}}}}"#,
+			client_core::fingerprint::launch_id()
+		);
+		self.announced = Some(session);
+		Some(packet)
 	}
 }
 fn next_attempt(attempt: u32, ready_for: Option<Duration>) -> u32 {
@@ -1579,6 +1693,10 @@ async fn run_session(
 	let mut known_guilds = std::collections::BTreeSet::new();
 	let mut voice_open = true;
 	let mut skip_backoff = false;
+	// Survives RESUME: the Gateway session keeps the heartbeat session it was told about.
+	let mut qos = Qos::default();
+	let mut app_use = ACTIVITY.subscribe();
+	qos.observe(*app_use.borrow_and_update());
 	// Initial login is bounded, but an established session must survive long outages.
 	while was_ready || attempt < 6 {
 		site.set(Site::Local);
@@ -1680,19 +1798,12 @@ async fn run_session(
 				serde_json::json!({"op":6,"d":{"token":secret.expose(),"session_id":session.as_str(),"seq":sequence}}),
 			)
 		} else {
-			// Normal-user Identify with the same client properties as REST, plus what the
-			// desktop client adds when it connects after its first screen (unofficial,
-			// observed 2026-11-19). Composed as text so the fields keep the client's order;
-			// a JSON map would sort them.
-			let mut properties = client_core::fingerprint::properties();
-			properties.pop();
-			properties
-				.push_str(r#","is_fast_connect":false,"gateway_connect_reasons":"AppSkeleton""#);
-			if let Some(installation) = client_core::fingerprint::installation_id() {
-				properties.push_str(r#","installation_id":"#);
-				properties.push_str(&serde_json::Value::from(installation).to_string());
-			}
-			properties.push('}');
+			// Normal-user Identify as the desktop client sends it when it connects after its
+			// first screen (unofficial, recorded 2026-11-19). Composed as text so the fields
+			// keep the client's order; a JSON map would sort them. An empty `guild_versions`
+			// asks for every server in full, and `qos_token` is the value both recorded
+			// identifies carried; what the service derives from it is unverified.
+			let properties = client_core::fingerprint::identify_properties();
 			let token = Zeroizing::new(
 				serde_json::to_string(secret.expose()).map_err(|_| Failure::Protocol)?,
 			);
@@ -1700,11 +1811,13 @@ async fn run_session(
 				Zeroizing::new(String::with_capacity(token.len() + properties.len() + 256));
 			identify.push_str(r#"{"op":2,"d":{"token":"#);
 			identify.push_str(&token);
-			identify.push_str(r#","properties":"#);
+			identify.push_str(&format!(r#","capabilities":{CAPABILITIES},"properties":"#));
 			identify.push_str(&properties);
 			identify.push_str(r#","presence":"#);
 			identify.push_str(&outgoing_activity.identify_presence().to_string());
-			identify.push_str(r#","compress":false}}"#);
+			identify.push_str(
+				r#","compress":false,"client_state":{"guild_versions":{}},"qos_token":"CgIIAQ=="}}"#,
+			);
 			Handshake::Identify(identify)
 		};
 		let encoded = match handshake {
@@ -1871,7 +1984,7 @@ async fn run_session(
 					// A network change can leave a ready socket silently dead until the next two
 					// heartbeats. Confirm it now with a heartbeat; a healthy socket acknowledges it.
 					if probe_deadline.is_none() {
-						let packet = serde_json::json!({"op":1,"d":state.sequence}).to_string();
+						let packet = qos.heartbeat(state.sequence);
 						if !matches!(timeout(Duration::from_secs(5), socket.send(Frame::Text(packet.into()))).await, Ok(Ok(()))) { skip_backoff = true; break; }
 						heartbeat.sent(Instant::now());
 						probe_deadline = Some(Instant::now() + PROBE_TIMEOUT);
@@ -1884,6 +1997,27 @@ async fn run_session(
 				changed = own_presence.changed(), if presence_open => {
 					presence_open = changed.is_ok();
 					outgoing_activity.update_presence(&own_presence.borrow_and_update())?;
+				}
+				// The process-wide sender never closes.
+				_ = app_use.changed() => {
+					let began = qos.observe(*app_use.borrow_and_update());
+					if ready_at.is_some() {
+						// Use that begins is reported at once. A heartbeat session it starts
+						// is announced and followed by another report, as recorded.
+						let session = qos.session();
+						let mut packets = Vec::new();
+						if began { packets.push(qos.heartbeat(state.sequence)); }
+						if let Some(session) = session {
+							packets.push(session);
+							packets.push(qos.heartbeat(state.sequence));
+						}
+						let mut sent = true;
+						for packet in packets {
+							sent &= matches!(timeout(Duration::from_secs(5), socket.send(Frame::Text(packet.into()))).await, Ok(Ok(())));
+							heartbeat.sent(Instant::now());
+						}
+						if !sent { break; }
+					}
 				}
 				changed = afk.changed(), if afk_open => {
 					afk_open = changed.is_ok();
@@ -2034,7 +2168,12 @@ async fn run_session(
 				_ = tokio::time::sleep_until(ready_deadline), if ready_at.is_none() => break,
 				_ = timer.tick() => {
 					if heartbeat.tick(Instant::now(), interval).is_err() { break; }
-					let packet = serde_json::json!({"op":1,"d":state.sequence}).to_string();
+					// A heartbeat session that lapsed and restarted is announced first.
+					if ready_at.is_some()
+						&& let Some(session) = qos.session()
+						&& !matches!(timeout(Duration::from_secs(5), socket.send(Frame::Text(session.into()))).await, Ok(Ok(())))
+					{ break; }
+					let packet = qos.heartbeat(state.sequence);
 					if !matches!(timeout(Duration::from_secs(5), socket.send(Frame::Text(packet.into()))).await, Ok(Ok(()))) { break; }
 				}
 				frame = socket.next() => {
@@ -2059,14 +2198,14 @@ async fn run_session(
 							// Reaction and poll vote counts are additive: do not apply a repeated dispatch or
 							// move the resume cursor backwards when one is replayed.
 							if packet.op == 0
-								&& matches!(packet.t.as_deref(), Some("MESSAGE_POLL_VOTE_ADD" | "MESSAGE_POLL_VOTE_REMOVE" | "MESSAGE_REACTION_ADD" | "MESSAGE_REACTION_REMOVE" | "MESSAGE_REACTION_REMOVE_ALL" | "MESSAGE_REACTION_REMOVE_EMOJI"))
+								&& matches!(packet.t.as_deref(), Some("MESSAGE_POLL_VOTE_ADD" | "MESSAGE_POLL_VOTE_REMOVE" | "MESSAGE_REACTION_ADD" | "MESSAGE_REACTION_ADD_MANY" | "MESSAGE_REACTION_REMOVE" | "MESSAGE_REACTION_REMOVE_ALL" | "MESSAGE_REACTION_REMOVE_EMOJI"))
 								&& packet.s.zip(state.sequence).is_some_and(|(next, last)| next <= last)
 							{ continue; }
 							if let Some(sequence) = packet.s { state.sequence = Some(sequence); }
 							match packet.op {
 								11 => { heartbeat.ack(); probe_deadline = None; }
 								1 => {
-									let packet = serde_json::json!({"op":1,"d":state.sequence}).to_string();
+									let packet = qos.heartbeat(state.sequence);
 									if !matches!(timeout(Duration::from_secs(5), socket.send(Frame::Text(packet.into()))).await, Ok(Ok(()))) { break; }
 									heartbeat.sent(Instant::now());
 								}
@@ -2085,8 +2224,13 @@ async fn run_session(
 										active_members=None;members_deadline=None;sent_members = !subscriptions_open;
 										// A new session holds no channel ranges.
 										ranged = RangedGuilds::default();
-										let envelope = ready::decode(packet.d.get().as_bytes()).map_err(|_| diagnosed(emit, Failure::ProtocolAt("Gateway login: invalid READY identity or relationships"), ready::diagnose(packet.d.get().as_bytes())))?;
+										let mut envelope = ready::decode(packet.d.get().as_bytes()).map_err(|_| diagnosed(emit, Failure::ProtocolAt("Gateway login: invalid READY identity or relationships"), ready::diagnose(packet.d.get().as_bytes())))?;
 										if envelope.user.bot { return Err(Failure::InvalidCredential); }
+										// Identify asks for token refresh, so READY may replace the login token
+										// (unofficial). An unusable or unchanged one is ignored.
+										let refreshed = envelope.refreshed_token()
+											.and_then(|token| SessionSecret::from_owner_input(token).ok())
+											.filter(|token| token.expose() != secret.expose());
 										let permissions = envelope.permissions().map_err(|_| diagnosed(emit, Failure::ProtocolAt("Gateway login: invalid permission metadata"), ready::diagnose(packet.d.get().as_bytes())))?;
 										let gates = envelope.onboarding();
 										let guild_presences = envelope.guild_presences();
@@ -2153,6 +2297,7 @@ async fn run_session(
 											notifications, session_dnd: ready.sessions.as_ref().and_then(|s| s.dnd()), warnings,
 											threads: std::mem::take(&mut ready.thread_changes),
 										}.prepare()?)))?;
+										if let Some(token) = refreshed { emit(Event::TokenRefreshed(Arc::new(token)))?; }
 										// A new session does not replay settings changed while disconnected.
 										if was_ready { emit(Event::AccountSettings { status: true, folders: true })?; }
 										was_ready = true;
@@ -2180,6 +2325,16 @@ async fn run_session(
 										if !participants.is_empty() { emit(Event::Voice(client_core::voice::Event::Snapshot { partial: false, guild: None, participants }))?; }
 										state.failures = 0;
 										ready_at = Some(Instant::now());
+										// As recorded, the client names its heartbeat session to the new
+										// Gateway session and reports its use at once; the timed heartbeats
+										// keep their own schedule.
+										qos.announced = None;
+										let mut sent = true;
+										for packet in qos.session().into_iter().chain([qos.heartbeat(state.sequence)]) {
+											sent &= matches!(timeout(Duration::from_secs(5), socket.send(Frame::Text(packet.into()))).await, Ok(Ok(())));
+										}
+										if !sent { break; }
+										heartbeat.sent(Instant::now());
 									}
 									"GUILD_MEMBERS_CHUNK" => {
 										if let Some(event) = queries.chunk(packet.d.get().as_bytes()) { emit(event)?; }
@@ -2355,6 +2510,9 @@ async fn run_session(
 									"MESSAGE_UPDATE" => emit(Event::Patch(decode::<PatchDto>(packet.d.get().as_bytes()).map_err(|_| Failure::Protocol)?.into_model()))?,
 									"MESSAGE_REACTION_ADD" | "MESSAGE_REACTION_REMOVE" | "MESSAGE_REACTION_REMOVE_ALL" | "MESSAGE_REACTION_REMOVE_EMOJI" => {
 										emit(Event::Reactions(reaction_event(packet.t.as_deref().unwrap_or(""), packet.d.get().as_bytes(), packet.s.is_some())?))?;
+									}
+									"MESSAGE_REACTION_ADD_MANY" => {
+										for event in reaction_batch(packet.d.get().as_bytes(), packet.s.is_some())? { emit(Event::Reactions(event))?; }
 									}
 									"MESSAGE_DELETE" => { let d: Deleted = decode(packet.d.get().as_bytes()).map_err(|_| Failure::Protocol)?; emit(Event::Delete { channel:d.channel_id, id:d.id })?; }
 									"MESSAGE_DELETE_BULK" => { let d: BulkDeleted = decode(packet.d.get().as_bytes()).map_err(|_| Failure::Protocol)?; if d.ids.len() > 100 { return Err(Failure::Capacity); } emit(Event::DeleteBulk { channel:d.channel_id, ids: d.ids })?; }
@@ -2658,9 +2816,9 @@ mod tests {
 		// A timer heartbeat may already be queued before the preceding dispatch is read.
 		for _ in 0..4 {
 			let heartbeat = packet(socket).await;
-			assert_eq!(heartbeat["op"], 1);
+			assert_eq!(heartbeat["op"], 40);
 			send(socket, json!({"op":11,"d":null})).await;
-			if heartbeat["d"] == sequence {
+			if heartbeat["d"]["seq"] == sequence {
 				return;
 			}
 		}
@@ -2848,6 +3006,76 @@ mod tests {
 			),
 			Err(Failure::Protocol)
 		));
+		// A debounced batch is one normal add per user and emoji.
+		let batch = json!({"channel_id":"2","message_id":"3","reactions":[
+			{"users":["4","6"],"emoji":{"id":null,"name":"x"}},
+			{"users":["4"],"emoji":{"id":"5","name":null}},
+		]});
+		let added: Vec<_> = reaction_batch(&serde_json::to_vec(&batch).unwrap(), true)
+			.unwrap()
+			.into_iter()
+			.map(|event| match event {
+				ReactionEvent::Delta {
+					channel: Id(2),
+					message: Id(3),
+					user,
+					emoji,
+					add: true,
+					burst: false,
+				} => (user.0, emoji.id.map(|id| id.0)),
+				_ => panic!("a batch only adds normal reactions"),
+			})
+			.collect();
+		assert_eq!(added, [(4, None), (6, None), (4, Some(5))]);
+		// Anything oversized, malformed or replayable only invalidates the message.
+		let mut crowded = batch.clone();
+		crowded["reactions"][0]["users"] = (1..=257).map(|id| json!(id.to_string())).collect();
+		let mut invalid = batch.clone();
+		invalid["reactions"][1]["emoji"] = json!({"id":null,"name":null});
+		for (wire, sequenced) in [(&crowded, true), (&invalid, true), (&batch, false)] {
+			assert!(matches!(
+				reaction_batch(&serde_json::to_vec(wire).unwrap(), sequenced)
+					.unwrap()
+					.as_slice(),
+				[ReactionEvent::Changed {
+					channel: Id(2),
+					message: Id(3)
+				}]
+			));
+		}
+	}
+
+	/// The order the desktop client was recorded in: use that began is reported at once, a
+	/// spell of use between two heartbeats is still reported by the next one, then dropped.
+	#[test]
+	fn qos_reports_use_once_it_began_and_until_one_heartbeat_has_carried_it() {
+		let report = |packet: String| {
+			let value: Value = serde_json::from_str(&packet).unwrap();
+			assert_eq!(value["op"], 40);
+			(value["d"]["seq"].clone(), value["d"]["qos"].clone())
+		};
+		let mut qos = Qos::default();
+		assert!(!qos.observe((false, false)));
+		assert_eq!(
+			report(qos.heartbeat(None)),
+			(json!(null), json!({"active":false,"ver":31,"reasons":[]}))
+		);
+		assert!(qos.observe((true, false)), "use began: report now");
+		assert!(!qos.observe((true, true)), "already in use");
+		assert!(!qos.observe((false, false)));
+		assert_eq!(
+			report(qos.heartbeat(Some(7))),
+			(
+				json!(7),
+				json!({"active":true,"ver":31,"reasons":["foregrounded","rtc_connected"]})
+			)
+		);
+		assert_eq!(report(qos.heartbeat(Some(8))).1["active"], false);
+		assert!(qos.observe((false, true)));
+		assert_eq!(
+			report(qos.heartbeat(Some(9))).1["reasons"],
+			json!(["rtc_connected"])
+		);
 	}
 
 	#[tokio::test]
@@ -2880,7 +3108,7 @@ mod tests {
 	                    // Before READY/RESUMED only heartbeats are allowed.
 	                    let gate = Instant::now() + Duration::from_millis(100);
 	                    while let Ok(value) = tokio::time::timeout_at(gate, packet(&mut socket)).await {
-	                        assert_eq!(value["op"], 1);
+	                        assert_eq!(value["op"], 40);
 	                        send(&mut socket, json!({"op":11,"d":null})).await;
 	                    }
 	                    send(&mut socket, if connection == 0 {
@@ -2890,7 +3118,7 @@ mod tests {
 	                    for name in expected {
 	                        let value = loop {
 	                            let value = packet(&mut socket).await;
-	                            if value["op"] == 1 {
+	                            if value["op"] == 40 {
 	                                send(&mut socket, json!({"op":11,"d":null})).await;
 	                            } else { break value; }
 	                        };
@@ -2971,7 +3199,6 @@ mod tests {
 	                send(&mut socket, json!({"op":10,"d":{"heartbeat_interval":1000}})).await;
 	                let identify = packet(&mut socket).await;
 	                assert_eq!(identify["op"], 2);
-	                assert!(identify["d"].get("capabilities").is_none());
 	                let mut initial = ready(1, "synthetic-legacy-presence");
 	                initial["d"]["private_channels"] = json!([{"id":"2","type":1,"recipients":[{"id":"3","username":"Synthetic player"}]}]);
 	                initial["d"]["presences"] = json!([{"user":{"id":"3"},"status":"online","activities":[{"type":0,"name":"Genshin Impact"}]}]);
@@ -3513,7 +3740,7 @@ mod tests {
 				send(&mut socket, snapshot).await;
 				loop {
 					let packet = packet(&mut socket).await;
-					if packet["op"] == 1 {
+					if packet["op"] == 40 {
 						send(&mut socket, json!({"op":11,"d":null})).await;
 						continue;
 					}
@@ -3528,7 +3755,7 @@ mod tests {
 					tokio::select! {
 						result = deletion.changed() => { result.unwrap(); break; }
 						packet = packet(&mut socket) => {
-							assert_eq!(packet["op"], 1, "discovery must not join or send other controls");
+							assert_eq!(packet["op"], 40, "discovery must not join or send other controls");
 							send(&mut socket, json!({"op":11,"d":null})).await;
 						}
 					}
@@ -3578,7 +3805,7 @@ mod tests {
                 let mut requested=false;let mut joined=false;
                 loop {
                     let p=packet(&mut socket).await;
-                    if p["op"]==1 {send(&mut socket,json!({"op":11,"d":null})).await;continue;}
+                    if p["op"]==40 {send(&mut socket,json!({"op":11,"d":null})).await;continue;}
                     if p["op"]==13 {assert_eq!(p["d"]["channel_id"],"2");requested=true;continue;}
                     assert_eq!(p["op"],4);assert!(p["d"]["guild_id"].is_null());
                     if !joined {
@@ -4344,7 +4571,7 @@ mod member_tests {
 	                let mut scrolled=false;
 	                while let Some(Ok(Frame::Text(text)))=socket.next().await {
 	                    let packet:serde_json::Value=serde_json::from_str(&text).unwrap();
-	                    if packet["op"]==1 {socket.send(Frame::Text(json!({"op":11,"d":null}).to_string().into())).await.unwrap();continue;}
+	                    if packet["op"]==40 {socket.send(Frame::Text(json!({"op":11,"d":null}).to_string().into())).await.unwrap();continue;}
 	                    assert_eq!(packet["op"],37);
 	                    assert_eq!(packet["d"]["subscriptions"].as_object().unwrap().len(),1);
 	                    let subscription=&packet["d"]["subscriptions"]["1"];
@@ -4466,7 +4693,7 @@ mod member_tests {
 				let mut sequence = 2;
 				while let Some(Ok(Frame::Text(text))) = socket.next().await {
 					let packet: serde_json::Value = serde_json::from_str(&text).unwrap();
-					if packet["op"] == 1 {
+					if packet["op"] == 40 {
 						let _ = socket
 							.send(Frame::Text(json!({"op":11,"d":null}).to_string().into()))
 							.await;
@@ -4575,7 +4802,7 @@ mod member_tests {
 				let mut first = Some(first);
 				while let Some(Ok(Frame::Text(text))) = socket.next().await {
 					let packet: serde_json::Value = serde_json::from_str(&text).unwrap();
-					if packet["op"] == 1 {
+					if packet["op"] == 40 {
 						let _ = socket
 							.send(Frame::Text(json!({"op":11,"d":null}).to_string().into()))
 							.await;

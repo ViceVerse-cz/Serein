@@ -3213,6 +3213,59 @@ not assumed disabled. Contributions depending on that switch remain unknown unti
 count reconciliation. This is conservative local behavior, not a verified service-equivalence claim.
 No new service setting, protocol request or Identify capability is introduced.
 
+### Desktop Gateway identity — November 20
+
+**Unofficial; offline and recorded-payload checks only. Serein has not been run against
+Discord with these changes.** A second recording of the owner's official macOS client
+(0.0.423, web build 677695; same method and redaction as November 19) also decoded the
+Gateway frames it received. This supersedes the November 19 statement that Serein adopts
+neither capabilities nor `launch_signature`, and the earlier notes that Identify requests no
+capability.
+
+- **Identify:** now sends `capabilities: 1734653`, the value of the recorded identify after
+  the first screen, before `properties`, and ends with `client_state: {"guild_versions": {}}`
+  and `qos_token: "CgIIAQ=="` as recorded. The properties add `launch_signature`,
+  `client_heartbeat_session_id: null`, `client_app_state`, then `is_fast_connect` and
+  `gateway_connect_reasons`. Bits 17, 19 and 20 are undocumented and what `qos_token`
+  means is unknown; both are sent only because the official client sends them.
+- **What capabilities change:** the recorded READY (taken under 1767421, which adds only
+  channel obfuscation) had versioned `read_state` and `user_guild_settings`, `users` with
+  `relationships[].user_id`, `private_channels[].recipient_ids`, `merged_members`,
+  `user_settings_proto` and a separate READY_SUPPLEMENTAL. Serein's decoder read that
+  payload and its supplement (converted from ETF to JSON) without a warning, including
+  every DM's recipients, which it now resolves from `users`. Seven read-state entries were
+  keyed by `read_state_type` instead of `type`; Serein now reads that name, so they are no
+  longer taken for channels. The payload stayed on the owner's machine and is not a fixture.
+  `MESSAGE_REACTION_ADD_MANY` (debounced reactions) is applied as one add per user and
+  emoji; its shape is from the [unofficial documentation](https://docs.discord.food/topics/gateway#gateway-capabilities)
+  and Acheron, and none was recorded. READY carried no `auth_token`. If one arrives, the
+  session restarts once with it and the saved login is replaced; that path has only
+  decoder coverage.
+- **Heartbeats:** the official client sent no opcode 1. It sent opcode 41
+  (`initialization_timestamp`, `session_id`, `client_launch_id`) and opcode 40
+  (`seq`, `qos: {active, ver: 31, reasons}`) 70 ms after READY, then opcode 40 on the
+  ordinary jittered heartbeat schedule; the service acknowledged each with opcode 11.
+  Serein does the same, and answers a requested heartbeat with opcode 40. `reasons` is
+  `foregrounded` while the window has focus and `rtc_connected` during a connected call.
+  A heartbeat reports every reason since the previous one, and use that begins is reported
+  at once: that rule and the 30-minute idle end of the heartbeat session follow Acheron's
+  model of the client, not a recording. The opcode 4 the client sends between READY and
+  opcode 41 is not sent.
+- **REST:** `X-Super-Properties` is now set per request, so it carries the same
+  `launch_signature`, the current `client_app_state` and, while one exists,
+  `client_heartbeat_session_id`.
+- **Web build:** `client_build_number` is read once per launch from the `BUILD_NUMBER` in
+  `https://discord.com/app`, the document the desktop client loads; the client's identify
+  and that page agreed on November 20. The request carries a page load's headers and no
+  credential. Those headers are from a recorded reload, so a cold start's are unverified.
+  An older, missing or implausible number keeps the built-in one.
+
+**What this reports to Discord.** Whether the window is focused, whether a call is
+connected, and a random per-use session ID with its start time: the "time spent" signals the
+official client sends. No `/science` analytics event is sent and nothing is stored. This is
+usage reporting to the service all the same, and the project's no-telemetry statement needs
+the owner's decision before this ships.
+
 ### Desktop client recording — November 19
 
 **Observed on the owner's official client; one machine, one account.** The owner's
@@ -3255,8 +3308,9 @@ bundle.
 
 Serein adopted the API version, the super-properties field set and order, the identify
 extras of a non-fast-connect start, the opening login requests and the host versions
-(macOS 0.0.423, Windows 1.0.9269, Linux 1.0.170). It does not adopt `launch_signature`,
-analytics, ETF, zstd, `capabilities` or HTTP/3. Its transport now uses wreq-util's Chromium 152
+(macOS 0.0.423, Windows 1.0.9269, Linux 1.0.170). It did not then adopt `launch_signature`,
+analytics, ETF, zstd, `capabilities` or HTTP/3; see November 20 above for what changed. Its
+transport now uses wreq-util's Chromium 152
 profile from pinned upstream revisions, less `trust_anchors`. The recorded client's TCP
 ClientHellos (taken through a local CONNECT proxy that read only the ClientHello) and Serein's
 matched in ciphers, extension set, groups, ML-DSA-including signature algorithms, ALPN, ALPS,

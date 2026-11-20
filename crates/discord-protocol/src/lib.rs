@@ -47,7 +47,9 @@ pub mod typing;
 use attachments::AttachmentList;
 use embeds::EmbedList;
 use model::{Channel, Guild, Id, Message, MessagePatch, Patch, User};
-pub use reactions::{GuildEmojisUpdate, ReactionDelta, ReactionEmojiTarget, ReactionTarget};
+pub use reactions::{
+	GuildEmojisUpdate, ReactionBatch, ReactionDelta, ReactionEmojiTarget, ReactionTarget,
+};
 use serde::Deserialize;
 use serde_json::value::RawValue;
 
@@ -206,6 +208,9 @@ pub struct ChannelDto {
 	/// An unreadable recipient is dropped without losing the conversation.
 	#[serde(default, deserialize_with = "lossy::recipients")]
 	pub recipients: Vec<UserDto>,
+	/// READY's deduplicated form of `recipients`: IDs into its top-level `users`.
+	#[serde(default, deserialize_with = "lossy::recipient_ids")]
+	pub recipient_ids: Vec<Id>,
 	#[serde(default)]
 	pub permission_overwrites: Option<Vec<Overwrite>>,
 	#[serde(default)]

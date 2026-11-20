@@ -44,7 +44,8 @@ profile from `client_core::fingerprint`. On November 19 the owner's official mac
 (0.0.423, Electron 44.10.2, Chromium 152) was recorded on a burner account; see the
 [compatibility notes](discord-compatibility.md#desktop-client-recording--november-19).
 Serein now matches its super-properties field for field (OS version and SDK version,
-architectures, `has_client_mods`, a per-launch `client_launch_id`, build 676376, the macOS
+architectures, `has_client_mods`, a per-launch `client_launch_id`, the web build read from
+Discord's `/app` page at launch, the macOS
 native build number, and on Linux the desktop, distribution, packaging and session type),
 calls REST and the Gateway at v9, and sends the identify extras of a non-fast-connect start.
 It advertises Electron 44.10.2 and Chromium 152.0.7977.169 with wreq-util's Chromium 152
@@ -52,9 +53,10 @@ handshake, less the `trust_anchors` extension that Electron did not send; the re
 ClientHello matched the recorded client's in every field except the ECH GREASE length, which
 the real client varies per connection. That profile and the BoringSSL it needs exist only on
 upstream branches, so wreq, wreq-util and btls are pinned git revisions (see `Cargo.toml`).
-The real client reaches the API over HTTP/3, which wreq lacks. `launch_signature`, the
-analytics heartbeat session, focus state, `capabilities`, ETF encoding and zstd compression
-are not sent.
+The real client reaches the API over HTTP/3, which wreq lacks; ETF encoding and zstd
+compression are not used either. Since November 20 the identity also carries
+`launch_signature`, the focus state, the heartbeat session and the identify `capabilities`;
+see the [Gateway identity notes](discord-compatibility.md#desktop-gateway-identity--november-20).
 REST also carries the Discord-issued installation ID as `X-Installation-ID`, and the Gateway identify
 carries it as `installation_id`; with Discord's own cookies these keep one device across launches
 (see [storage policy](storage-policy.md#discord-device-state-november-13-2026)). Captchas for
