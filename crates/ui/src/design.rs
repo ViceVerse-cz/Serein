@@ -91,9 +91,11 @@ pub enum Variant {
 	Ember = 4,
 	Verdant = 5,
 	Afterglow = 6,
+	/// GitHub Dark Colorblind on pure black: blue accent, orange danger.
+	Colorblind = 7,
 }
 impl Variant {
-	pub const ALL: [Variant; 7] = [
+	pub const ALL: [Variant; 8] = [
 		Variant::Standard,
 		Variant::Eclipse,
 		Variant::Slate,
@@ -101,6 +103,7 @@ impl Variant {
 		Variant::Ember,
 		Variant::Verdant,
 		Variant::Afterglow,
+		Variant::Colorblind,
 	];
 	pub fn label(self) -> &'static str {
 		match self {
@@ -111,6 +114,7 @@ impl Variant {
 			Variant::Ember => "Ember",
 			Variant::Verdant => "Verdant",
 			Variant::Afterglow => "Afterglow",
+			Variant::Colorblind => "GitHub OLED",
 		}
 	}
 	/// Stable identifier for persistence.
@@ -123,6 +127,7 @@ impl Variant {
 			Variant::Ember => "ember",
 			Variant::Verdant => "verdant",
 			Variant::Afterglow => "afterglow",
+			Variant::Colorblind => "github-oled",
 		}
 	}
 	/// Keys written by builds that shipped the previous theme names.
@@ -135,6 +140,7 @@ impl Variant {
 			Variant::Ember => "crimson-moon",
 			Variant::Verdant => "forest",
 			Variant::Afterglow => "sunset",
+			Variant::Colorblind => "github-oled",
 		}
 	}
 	pub fn from_key(key: &str) -> Option<Variant> {
@@ -251,11 +257,16 @@ impl Palette {
 	pub fn badge_fill(&self) -> Color32 {
 		if self.danger == DARK_DANGER {
 			BADGE_RED
+		} else if self.danger == COLORBLIND_DANGER {
+			COLORBLIND_BADGE
 		} else {
 			self.danger
 		}
 	}
 }
+/// GitHub OLED danger text, and the darker orange that keeps white badge text readable.
+const COLORBLIND_DANGER: Color32 = rgb(0xfdac54);
+const COLORBLIND_BADGE: Color32 = rgb(0xb45f06);
 const fn rgb(value: u32) -> Color32 {
 	Color32::from_rgb((value >> 16) as u8, (value >> 8) as u8, value as u8)
 }
@@ -386,6 +397,29 @@ pub fn builtin_colors(dark: bool, variant: Variant) -> Palette {
 		Variant::Ember => gradient([0x8c2340, 0x140609], 0x41262e),
 		Variant::Verdant => gradient([0x2b6350, 0x081a15], 0x283934),
 		Variant::Afterglow => gradient([0xd9663c, 0x35205e], 0x5b3b40),
+		Variant::Colorblind => {
+			let mut p = dark_common(
+				Color32::BLACK,
+				rgb(0x010409),
+				Color32::BLACK,
+				rgb(0x0d1117),
+				rgb(0x161b22),
+				rgb(0x21262d),
+				rgb(0x30363d),
+			);
+			p.text_strong = rgb(0xf0f6fc);
+			p.text = rgb(0xe6edf3);
+			p.muted = rgb(0x9198a1);
+			p.link = rgb(0x58a6ff);
+			p.accent = rgb(0x58a6ff);
+			p.accent_text = Color32::BLACK;
+			p.positive = rgb(0x58a6ff);
+			p.warning = rgb(0xd29922);
+			p.danger = COLORBLIND_DANGER;
+			p.mention_bg = rgba(0x58a6ff, 76);
+			p.mention_text = rgb(0xa5d6ff);
+			p
+		}
 	};
 	customize(palette, primary_color())
 }
@@ -2060,6 +2094,12 @@ mod tests {
 	fn solid_badges_use_discord_red_unless_the_theme_changed_danger() {
 		for variant in Variant::ALL {
 			let dark = builtin_colors(true, variant);
+			if variant == Variant::Colorblind {
+				// Orange instead of red, with a darker badge fill for white text.
+				assert_eq!(dark.badge_fill(), COLORBLIND_BADGE);
+				assert_eq!(dark.danger, COLORBLIND_DANGER);
+				continue;
+			}
 			assert_eq!(dark.badge_fill(), BADGE_RED, "{variant:?}");
 			// Red text keeps its lighter, readable shade.
 			assert_eq!(dark.danger, DARK_DANGER);

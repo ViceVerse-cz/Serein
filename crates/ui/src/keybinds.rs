@@ -159,11 +159,13 @@ fn capture(ui: &mut egui::Ui, bindings: &mut Keybinds, capturing: &mut Option<Ca
 		match event {
 			Event::Key {
 				key,
+				physical_key,
 				pressed: true,
 				repeat: false,
 				modifiers,
-				..
 			} => {
+				// The logical key of a keypad press is a digit or symbol; keep its position.
+				let key = physical_key.filter(|key| key.is_keypad()).unwrap_or(key);
 				if key == Key::Escape {
 					cancelled = true;
 				} else if let Some(name) = key_name(key) {
@@ -202,7 +204,12 @@ fn capture(ui: &mut egui::Ui, bindings: &mut Keybinds, capturing: &mut Option<Ca
 			CaptureTarget::BuiltIn(action) => (Some(action), None),
 			CaptureTarget::Custom(index) => (None, Some(index)),
 		};
-		if let Some(other) = bindings.conflict(&chord, ignore_builtin, ignore_custom) {
+		// A keypad key and the main-row key it types share one logical key; keep them apart.
+		let alias = KeyChord::new(&keypad_alias(&chord.key), chord.modifiers);
+		if let Some(other) = bindings
+			.conflict(&chord, ignore_builtin, ignore_custom)
+			.or_else(|| bindings.conflict(&alias, ignore_builtin, ignore_custom))
+		{
 			let now = ui.input(|input| input.time);
 			ui.data_mut(|data| {
 				data.insert_temp(
@@ -230,6 +237,32 @@ fn capture(ui: &mut egui::Ui, bindings: &mut Keybinds, capturing: &mut Option<Ca
 		}
 		*capturing = None;
 	}
+}
+
+/// The key whose press a keypad key also produces logically, and the reverse.
+fn keypad_alias(name: &str) -> String {
+	const PAIRS: [(&str, &str); 5] = [
+		("NumpadAdd", "Plus"),
+		("NumpadSubtract", "Minus"),
+		("NumpadDivide", "Slash"),
+		("NumpadDecimal", "Period"),
+		("NumpadEnter", "Enter"),
+	];
+	if let Some(digit) = name.strip_prefix("Numpad").filter(|d| d.len() == 1) {
+		return format!("Num{digit}");
+	}
+	if let Some(digit) = name.strip_prefix("Num").filter(|d| d.len() == 1) {
+		return format!("Numpad{digit}");
+	}
+	PAIRS
+		.iter()
+		.find_map(|(pad, main)| match name {
+			n if n == *pad => Some(*main),
+			n if n == *main => Some(*pad),
+			_ => None,
+		})
+		.unwrap_or(name)
+		.to_owned()
 }
 
 fn section(
@@ -501,8 +534,13 @@ pub(crate) fn pressed(input: &mut InputState, chord: &KeyChord) -> bool {
 			modifiers.matches_logically(wanted)
 		})
 	} else {
-		key_name_to_egui(&chord.key)
-			.is_some_and(|key| input.consume_key(egui_modifiers(chord.modifiers), key))
+		match key_name_to_egui(&chord.key) {
+			Some(key) if key.is_keypad() => consume_keypad(input, key, |modifiers| {
+				modifiers.matches_logically(egui_modifiers(chord.modifiers))
+			}),
+			Some(key) => input.consume_key(egui_modifiers(chord.modifiers), key),
+			None => false,
+		}
 	}
 }
 
@@ -515,11 +553,36 @@ pub(crate) fn pressed_exact(input: &mut InputState, chord: &KeyChord) -> bool {
 	let Some(key) = key_name_to_egui(&chord.key) else {
 		return false;
 	};
+	if key.is_keypad() {
+		return consume_keypad(input, key, |modifiers| {
+			modifier_bits(modifiers) == chord.modifiers
+		});
+	}
 	let matched = input.events.iter().any(|event| {
 		matches!(event, Event::Key { key: event_key, pressed: true, repeat: false, modifiers, .. }
 			if *event_key == key && modifier_bits(*modifiers) == chord.modifiers)
 	});
 	matched && input.consume_key(egui_modifiers(chord.modifiers), key)
+}
+
+/// Removes this frame's presses of the keypad `key`, matched by position since
+/// its logical key is a digit or symbol shared with the main row.
+fn consume_keypad(
+	input: &mut InputState,
+	key: Key,
+	matches: impl Fn(Modifiers) -> bool,
+) -> bool {
+	let position = input.events.iter().position(|event| {
+		matches!(event, Event::Key { physical_key: Some(physical), pressed: true, repeat: false, modifiers, .. }
+			if *physical == key && matches(*modifiers))
+	});
+	match position {
+		Some(index) => {
+			input.events.remove(index);
+			true
+		}
+		None => false,
+	}
 }
 
 /// Removes this frame's presses of `button` when one matches, like `consume_key`.
@@ -720,6 +783,18 @@ fn display_key(name: &str) -> String {
 		"Pipe" => "|".into(),
 		"Questionmark" => "?".into(),
 		"Exclamationmark" => "!".into(),
+		"NumpadEnter" => "Num ↵".into(),
+		"NumpadAdd" => "Num +".into(),
+		"NumpadSubtract" => "Num -".into(),
+		"NumpadMultiply" => "Num *".into(),
+		"NumpadDivide" => "Num /".into(),
+		"NumpadDecimal" => "Num .".into(),
+		name if name
+			.strip_prefix("Numpad")
+			.is_some_and(|digit| digit.len() == 1) =>
+		{
+			format!("Num {}", &name[6..])
+		}
 		name if name
 			.strip_prefix("Num")
 			.is_some_and(|digit| digit.len() == 1) =>
@@ -812,6 +887,22 @@ const KEYS: &[(Key, &str)] = &[
 	(Key::Num7, "Num7"),
 	(Key::Num8, "Num8"),
 	(Key::Num9, "Num9"),
+	(Key::NumpadEnter, "NumpadEnter"),
+	(Key::Numpad0, "Numpad0"),
+	(Key::Numpad1, "Numpad1"),
+	(Key::Numpad2, "Numpad2"),
+	(Key::Numpad3, "Numpad3"),
+	(Key::Numpad4, "Numpad4"),
+	(Key::Numpad5, "Numpad5"),
+	(Key::Numpad6, "Numpad6"),
+	(Key::Numpad7, "Numpad7"),
+	(Key::Numpad8, "Numpad8"),
+	(Key::Numpad9, "Numpad9"),
+	(Key::NumpadAdd, "NumpadAdd"),
+	(Key::NumpadSubtract, "NumpadSubtract"),
+	(Key::NumpadMultiply, "NumpadMultiply"),
+	(Key::NumpadDivide, "NumpadDivide"),
+	(Key::NumpadDecimal, "NumpadDecimal"),
 	(Key::A, "A"),
 	(Key::B, "B"),
 	(Key::C, "C"),
@@ -896,6 +987,98 @@ const KEYS: &[(Key, &str)] = &[
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn keypad_presses_are_new_even_with_held_or_same_valued_keys() {
+		let ctx = egui::Context::default();
+		let press = |key, physical| Event::Key {
+			key,
+			physical_key: Some(physical),
+			pressed: true,
+			repeat: false,
+			modifiers: Modifiers::NONE,
+		};
+		let frames = [
+			vec![press(Key::Num5, Key::Num5)],
+			vec![press(Key::Num5, Key::Numpad5)],
+			vec![press(Key::NumpadMultiply, Key::NumpadMultiply)],
+		];
+		let mut repeats = Vec::new();
+		for events in frames {
+			let mut output = ctx.run_ui(
+				egui::RawInput {
+					events,
+					..Default::default()
+				},
+				|ui| {
+					ui.input(|input| {
+						for event in &input.events {
+							if let Event::Key { repeat, .. } = event {
+								repeats.push(*repeat);
+							}
+						}
+					});
+				},
+			);
+			output.textures_delta.clear();
+		}
+		assert_eq!(repeats, [false, false, false]);
+	}
+
+	#[test]
+	fn keypad_and_main_row_keys_conflict_both_ways() {
+		let mut bindings = Keybinds::default();
+		bindings.toggle_mute = KeyChord::new("Num5", 0);
+		let mut capturing = Some(CaptureTarget::BuiltIn(KeybindAction::ToggleDeafen));
+		let ctx = egui::Context::default();
+		let mut output = ctx.run_ui(
+			egui::RawInput {
+				events: vec![Event::Key {
+					key: Key::Num5,
+					physical_key: Some(Key::Numpad5),
+					pressed: true,
+					repeat: false,
+					modifiers: Modifiers::NONE,
+				}],
+				..Default::default()
+			},
+			|ui| capture(ui, &mut bindings, &mut capturing),
+		);
+		output.textures_delta.clear();
+		assert_ne!(bindings.toggle_deafen.key, "Numpad5");
+		assert_eq!(keypad_alias("NumpadAdd"), "Plus");
+	}
+
+	#[test]
+	fn keypad_chords_match_by_position_not_the_main_row_digit() {
+		let press = |physical_key| Event::Key {
+			key: Key::Num5,
+			physical_key,
+			pressed: true,
+			repeat: false,
+			modifiers: Modifiers::NONE,
+		};
+		let chord = KeyChord::new("Numpad5", 0);
+		let ctx = egui::Context::default();
+		let (mut main_row, mut keypad, mut held) = (true, false, false);
+		let mut output = ctx.run_ui(
+			egui::RawInput {
+				events: vec![press(Some(Key::Num5)), press(Some(Key::Numpad5))],
+				..Default::default()
+			},
+			|ui| {
+				main_row = ui.input_mut(|input| {
+					input.events.truncate(1);
+					pressed(input, &chord)
+				});
+				ui.input_mut(|input| input.events.push(press(Some(Key::Numpad5))));
+				held = ui.input(|input| down(input, &chord));
+				keypad = ui.input_mut(|input| pressed(input, &chord));
+			},
+		);
+		output.textures_delta.clear();
+		assert!(!main_row && keypad && held);
+	}
 
 	#[test]
 	fn default_push_to_talk_does_not_consume_typing() {
