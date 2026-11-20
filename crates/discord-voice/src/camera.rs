@@ -679,7 +679,21 @@ mod macos {
 	/// Largest native mode accepted when a camera offers nothing at or below 1280×720.
 	const FALLBACK: (usize, usize) = (3840, 2160);
 
-	fn configure(device: &AVCaptureDevice, rate: CameraFrameRate) -> Result<(), &'static str> {
+	/// Holds `lockForConfiguration` until dropped. macOS has no input-priority preset,
+	/// so the device stays locked through `startRunning` to keep the selected format.
+	struct ConfigLock<'a>(&'a AVCaptureDevice);
+
+	impl Drop for ConfigLock<'_> {
+		fn drop(&mut self) {
+			// SAFETY: Constructed only after a successful lockForConfiguration on this device.
+			unsafe { self.0.unlockForConfiguration() };
+		}
+	}
+
+	fn configure(
+		device: &AVCaptureDevice,
+		rate: CameraFrameRate,
+	) -> Result<ConfigLock<'_>, &'static str> {
 		// SAFETY: Formats/ranges come from this device. Only this worker changes it,
 		// while locked, before capture starts. Endpoint durations stay exact.
 		unsafe {
@@ -725,12 +739,12 @@ mod macos {
 			device
 				.lockForConfiguration()
 				.map_err(|_| "Camera configuration is unavailable")?;
+			let lock = ConfigLock(device);
 			device.setActiveFormat(&native);
 			device.setActiveVideoMinFrameDuration(duration);
 			device.setActiveVideoMaxFrameDuration(duration);
-			device.unlockForConfiguration();
+			Ok(lock)
 		}
-		Ok(())
 	}
 	impl Drop for CaptureSession {
 		fn drop(&mut self) {
@@ -787,7 +801,8 @@ mod macos {
 			}
 			let configured = configure(&device, shared.rate);
 			session.commitConfiguration();
-			configured?;
+			// Unlocks on every early return below, or explicitly after startRunning.
+			let lock = configured?;
 			let format = NSNumber::new_u32(kCVPixelFormatType_32BGRA);
 			let width = NSNumber::new_usize(WIDTH);
 			let height = NSNumber::new_usize(HEIGHT);
@@ -825,6 +840,7 @@ mod macos {
 			if !shared.stopped.load(Ordering::Acquire) {
 				capture.session.startRunning();
 			}
+			drop(lock);
 			capture
 		};
 		let result = encode_loop(shared, on_frame, wake, &receive, &mut encoder);
