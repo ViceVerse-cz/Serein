@@ -1609,7 +1609,11 @@ fn demo_members(
 			},
 			status: Some("idle".into()),
 			custom_status: None,
-			clients: model::ClientPlatforms::default(),
+			clients: model::ClientPlatforms {
+				desktop: true,
+				vr: true,
+				..Default::default()
+			},
 			activities: vec![],
 		},
 		model::Member {
@@ -1622,7 +1626,11 @@ fn demo_members(
 			},
 			status: Some("online".into()),
 			custom_status: Some("🌙 semifluent in synthetic data".into()),
-			clients: model::ClientPlatforms::default(),
+			clients: model::ClientPlatforms {
+				mobile: true,
+				web: true,
+				..Default::default()
+			},
 			activities: vec![model::RichActivity {
 				kind: 0,
 				name: "Stardew Valley".into(),
@@ -1683,6 +1691,7 @@ fn demo_members(
 			};
 			member.roles.clear();
 			member.status = Some(status.into());
+			member.clients = model::ClientPlatforms::default();
 			members.push(member);
 		}
 	}
