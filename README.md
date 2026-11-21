@@ -337,9 +337,9 @@ python3 scripts/build-ffmpeg.py
 export FFMPEG_DIR="$PWD/target/ffmpeg/prefix"
 ```
 
-Windows uses an MSVC developer environment with MSYS2 build tools; set
-`FFMPEG_DIR` in PowerShell and add its `bin` directory to PATH for source runs.
-See [FFmpeg build and packaging](packaging/ffmpeg/README.md) for details.
+On Windows, follow the [MSVC and MSYS2 build steps](packaging/windows/README.md#build-from-a-clean-windows-checkout)
+for the pinned FFmpeg libraries, development DLL path, and installer. See
+[FFmpeg build and packaging](packaging/ffmpeg/README.md) for the shared recipe.
 
 ### Running Locally
 
