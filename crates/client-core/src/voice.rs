@@ -583,6 +583,12 @@ impl ClientState {
 	/// Whether an already-established local camera remains permitted to capture media.
 	/// New camera activation must still use `can_camera`, which also requires a live Gateway.
 	pub fn has_camera_access(&self, channel: Id) -> bool {
+		self.has_stream_access(channel)
+	}
+	/// Whether an already-started screen share may keep going. A Gateway outage is not a
+	/// revocation: RESUME replays permission changes, and a fresh READY ends the call itself.
+	/// New shares must still use `can_stream`, which also requires a live Gateway.
+	pub fn has_stream_access(&self, channel: Id) -> bool {
 		!self.demo
 			&& self.auth == AuthState::Authenticated
 			&& self.has_voice_access(channel)

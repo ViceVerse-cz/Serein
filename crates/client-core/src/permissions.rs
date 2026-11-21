@@ -779,8 +779,7 @@ impl State {
 		self.permission(channel, p::VIEW_CHANNEL | p::CONNECT | p::SPEAK) == Some(true)
 	}
 	pub fn can_stream(&self, channel: Id) -> bool {
-		self.can_call(channel)
-			&& self.permission(channel, p::VIEW_CHANNEL | p::CONNECT | p::STREAM) == Some(true)
+		self.gateway_connected && self.has_stream_access(channel)
 	}
 	/// Resolve provenance from the bounded catalogs already received for this account.
 	pub fn custom_emoji(&self, id: Id) -> Option<(&model::Guild, &CustomEmoji)> {
