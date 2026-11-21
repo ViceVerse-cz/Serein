@@ -4494,6 +4494,8 @@ impl Desktop {
 							mentions: message.mentions,
 							attachments: message.attachments,
 							embeds: message.embeds,
+							forwarded: message.forwarded,
+							forward_origin: message.forward_origin,
 						}
 					})
 					.collect();
@@ -4599,6 +4601,8 @@ impl Desktop {
 									excerpt: message.content.clone(),
 									attachments: message.attachments,
 									embeds: message.embeds,
+									forwarded: message.forwarded,
+									forward_origin: message.forward_origin,
 								});
 							}
 						}

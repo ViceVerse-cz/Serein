@@ -112,6 +112,7 @@ fn message(id: Id, channel: Id, content: String) -> Message {
 		interaction: None,
 		reply_deleted: false,
 		forwarded: false,
+		forward_origin: None,
 		unsupported: false,
 		extra_content: Default::default(),
 		embeds: vec![],
