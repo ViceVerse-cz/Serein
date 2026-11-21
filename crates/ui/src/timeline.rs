@@ -5220,8 +5220,9 @@ impl TimelineView {
 				.ctx()
 				.read_response(bar)
 				.is_some_and(|response| response.is_pointer_button_down_on());
+		let timeline_scrolled_down = output.state.clamped_offset().y > before_offset + 0.001;
 		let dragged_up = dragged && timeline_scrolled_up;
-		let dragged_down = dragged && output.state.clamped_offset().y > before_offset + 0.001;
+		let dragged_down = dragged && timeline_scrolled_down;
 		// A drag that stops short of the bottom picks a place, whichever way it went.
 		let dragged_away = dragged_up || (dragged_down && !at_bottom);
 		// Layout corrections also move the offset up while a jump settles. Only a wheel
@@ -5251,7 +5252,7 @@ impl TimelineView {
 			// selection scroll, so that does not cancel it.
 			self.present_scroll = None;
 		}
-		if (scrolled_toward_bottom && !dragged_away) || (dragged_down && at_bottom) {
+		if (scrolled_toward_bottom && !dragged_away) || (timeline_scrolled_down && at_bottom) {
 			self.left_live_edge = false;
 		}
 		self.following = !self.target_browsing
@@ -10243,6 +10244,139 @@ mod tests {
 		assert!(
 			offset < live_edge - 8.0,
 			"selection scroll stayed at the live edge: {offset} vs {live_edge}"
+		);
+	}
+
+	#[test]
+	fn kinetic_content_drag_reaching_bottom_resumes_following() {
+		let mut state = State {
+			selected: Some(Id(20)),
+			revision: 1,
+			demo: true,
+			..Default::default()
+		};
+		for id in 1..=80 {
+			state
+				.timeline
+				.insert(text_message(id), false, false)
+				.unwrap();
+		}
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let mut view = TimelineView::default();
+		let mut avatars = crate::avatars::Avatars::default();
+		let mut frame_number = 0;
+		let mut frame = |view: &mut TimelineView, events: Vec<egui::Event>| {
+			frame_number += 1;
+			let output = ctx.run_ui(
+				egui::RawInput {
+					focused: true,
+					time: Some(f64::from(frame_number) / 60.0),
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(900.0, 600.0),
+					)),
+					events,
+					..Default::default()
+				},
+				|ui| {
+					view.show(
+						ui,
+						&mut state,
+						&mut None,
+						&mut None,
+						(
+							&mut avatars,
+							&mut crate::profiles::ProfileSession::default(),
+						),
+						None,
+					)
+				},
+			);
+			output.drop_without_applying_deltas();
+			view.scroll_offset
+		};
+		for _ in 0..8 {
+			frame(&mut view, vec![]);
+		}
+		assert!(view.following);
+		let live_edge = view.scroll_offset;
+		// Park above the bottom so a short downward content flick ends above the live edge
+		// and coasts into it after release.
+		let away = (live_edge - 220.0).max(0.0);
+		let (index, _, top) = visible_range(&view.rows, away, away);
+		view.following = false;
+		view.left_live_edge = true;
+		view.jump = false;
+		view.anchor = Some((view.rows[index].0, away - top));
+		view.revision = u64::MAX;
+		let parked = frame(&mut view, vec![]);
+		assert!(!view.following && parked < live_edge - 100.0);
+		// Touchscreen content drag on the left margin so ScrollArea's background drag owns it.
+		let start = egui::pos2(4.0, 420.0);
+		let touch = |phase, pos| egui::Event::Touch {
+			device_id: egui::TouchDeviceId(1),
+			id: egui::TouchId(1),
+			phase,
+			pos,
+			force: None,
+		};
+		// Register the touchscreen so ScrollArea enables background drag on the next frame.
+		frame(&mut view, vec![touch(egui::TouchPhase::Cancel, start)]);
+		frame(
+			&mut view,
+			vec![
+				touch(egui::TouchPhase::Start, start),
+				egui::Event::PointerMoved(start),
+				egui::Event::PointerButton {
+					pos: start,
+					button: egui::PointerButton::Primary,
+					pressed: true,
+					modifiers: egui::Modifiers::NONE,
+				},
+			],
+		);
+		let mut dragged_offset = parked;
+		let mut last_pos = start;
+		for step in 1..=5 {
+			last_pos = egui::pos2(4.0, 420.0 - 24.0 * step as f32);
+			dragged_offset = frame(
+				&mut view,
+				vec![
+					touch(egui::TouchPhase::Move, last_pos),
+					egui::Event::PointerMoved(last_pos),
+				],
+			);
+		}
+		assert!(
+			dragged_offset > parked + 40.0 && dragged_offset < live_edge - 20.0,
+			"drag should end short of the bottom: parked={parked} dragged={dragged_offset} live_edge={live_edge}"
+		);
+		assert!(!view.following && view.left_live_edge);
+		// Release the drag and let kinetic coasting carry the timeline to the bottom.
+		frame(
+			&mut view,
+			vec![
+				touch(egui::TouchPhase::End, last_pos),
+				egui::Event::PointerButton {
+					pos: last_pos,
+					button: egui::PointerButton::Primary,
+					pressed: false,
+					modifiers: egui::Modifiers::NONE,
+				},
+			],
+		);
+		let mut coasted = view.scroll_offset;
+		for _ in 0..45 {
+			coasted = frame(&mut view, vec![]);
+		}
+		assert!(
+			coasted >= live_edge - 3.0,
+			"kinetic coasting should reach the bottom: coasted={coasted} live_edge={live_edge}"
+		);
+		assert!(
+			view.following && !view.left_live_edge,
+			"kinetic arrival at the bottom should resume following"
 		);
 	}
 	#[test]
