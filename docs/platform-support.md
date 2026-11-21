@@ -36,7 +36,7 @@ Native restart/resize behavior on Niri and other Linux desktops remains unverifi
 
 ## Build and runtime support
 
-Target platforms are Windows, macOS and Linux. **macOS arm64, Windows x64 and Linux x64 have local build evidence.** The release workflow also targets Windows arm64 and Ubuntu 26.04 ARM64 on native GitHub Actions runners; build and runtime validation remain pending. macOS has native visual checks; Windows has offline tests and a process/window startup smoke check only. Minimum OS versions, other architectures, real screen-reader support and native login-method support are not certified.
+Target platforms are Windows, macOS and Linux. **macOS arm64, macOS x64, Windows x64 and Linux x64 have local build evidence.** The release workflow also targets Windows arm64 and Ubuntu 26.04 ARM64 on native GitHub Actions runners, and builds macOS x64 on the `macos-15-intel` runner; build and runtime validation of those release jobs remain pending. macOS has native visual checks; Windows has offline tests and a process/window startup smoke check only. Minimum OS versions, other architectures, real screen-reader support and native login-method support are not certified.
 
 Windows defaults to DirectX 12 to avoid reported startup access violations in Intel's
 Vulkan driver (`igvk64.dll`). The existing `WGPU_BACKEND` environment override remains
@@ -110,7 +110,7 @@ requests are honored; native X11/Wayland verification of this toggle remains pen
 
 | Platform | Build/runtime requirements | Status |
 |---|---|---|
-| macOS | Rust 1.99.1, Xcode command-line tools, CMake; Metal/wgpu, system WKWebView, Keychain | Local arm64 build and native synthetic window tested on macOS 27.0 beta, Apple M1 Pro / 16 GiB |
+| macOS | Rust 1.99.1, Xcode command-line tools, CMake; Metal/wgpu, system WKWebView, Keychain | Local arm64 build and native synthetic window tested on macOS 27.0 beta, Apple M1 Pro / 16 GiB. Local x64 `cargo xtask package` build and app startup on macOS 26.7.3, Intel Core i7-9750H; its hardware H.264 encoder turns every frame into an IDR after the per-frame `CompleteFrames` flush, so Intel screen share and camera send keyframes only |
 | Windows | Rust MSVC toolchain, Visual Studio C++ build tools, CMake, Git, LLVM (libclang), NASM on x64, system graphics drivers, WebView2 Runtime 101+ (current supported runtime recommended), Credential Manager | Local x64 checks and unsigned release packaging on Windows 11 build 26200; synthetic process/window startup passed. Visual interaction, InPrivate behavior, IME and accessibility unverified |
 | Linux | Rust, C/C++ compiler, CMake, Git, libclang, binutils, pkg-config, GTK >=4.10, WebKitGTK 6.0, fontconfig, libxkbcommon, X11/Wayland development packages, Vulkan-compatible GPU/driver, Secret Service session bus/keyring | Ubuntu 26.04 x64 / WSL2 text and voice releases and Debian package smoke passed; X11/Wayland rendering and login window unverified |
 

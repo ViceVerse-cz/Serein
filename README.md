@@ -48,7 +48,7 @@ Pre-compiled releases for macOS, Linux, and Windows are published on GitHub [Rel
 | Platform | Format | Architectures | Details |
 |---|---|---|---|
 | **Windows** | `-Setup.exe`, `.zip` | `x86_64`, `aarch64` | Per-user NSIS installer (recommended) or standalone portable archive |
-| **macOS** | Homebrew Cask, `.zip`, Nix flake | Apple Silicon (`aarch64`) | Signed and notarized `.app` bundle; the Nix build is unsigned |
+| **macOS** | Homebrew Cask, `.zip`, Nix flake | Apple Silicon (`aarch64`), Intel (`x86_64`, `.zip` only) | Signed and notarized `.app` bundle; the Nix build is unsigned |
 | **Linux** | Flatpak (recommended), Repositories (`apt`, `dnf`, `zypper`, `pacman`), Gentoo ebuild, Nix flake, `.AppImage` | `x86_64` | Flatpak with automatic updates; signed package repositories; portable AppImage |
 
 ---
@@ -249,7 +249,7 @@ brew install --cask serein
 The cask lives in the small [`homebrew-serein`](https://github.com/ViceVerse-cz/homebrew-serein) tap, so installing does not clone this repository. If you tapped the old URL, run `brew untap ViceVerse-cz/serein` first and tap again.
 
 #### Standalone Bundle
-Download `serein-<version>-macOS-ARM64.zip` from [Releases](https://github.com/ViceVerse-cz/Serein/releases), unzip, and drag `Serein.app` to your `/Applications` folder.
+Download `serein-<version>-macOS-ARM64.zip` (Apple Silicon) or `serein-<version>-macOS-X64.zip` (Intel) from [Releases](https://github.com/ViceVerse-cz/Serein/releases), unzip, and drag `Serein.app` to your `/Applications` folder. The Homebrew cask installs the Apple Silicon build only.
 
 </details>
 
