@@ -1179,8 +1179,17 @@ impl State {
                 } else if is_paste_command(self.modifiers, active_key) {
                     if let Some(contents) = self.clipboard.get().filter(|text| !text.is_empty()) {
                         let contents = contents.replace("\r\n", "\n");
+                        // Serein: screenshot tools (DMS on niri) offer the saved file's path as
+                        // text beside the image; send the image too so an app can attach it.
+                        // Only for a lone path, so rich copies (spreadsheet cells) stay text.
+                        let file_reference = is_file_reference(&contents);
                         if !contents.is_empty() {
                             self.egui_input.events.push(egui::Event::Paste(contents));
+                        }
+                        if file_reference && let Some(image) = self.clipboard.get_image() {
+                            self.egui_input
+                                .events
+                                .push(egui::Event::PasteImage(std::sync::Arc::new(image)));
                         }
                     } else if let Some(image) = self.clipboard.get_image() {
                         // No usable text on the clipboard (e.g. an image was copied with
@@ -1595,6 +1604,35 @@ fn is_paste_command(modifiers: egui::Modifiers, keycode: egui::Key) -> bool {
     keycode == egui::Key::Paste
         || (modifiers.command_only() && keycode == egui::Key::V)
         || (cfg!(target_os = "windows") && modifiers.shift && keycode == egui::Key::Insert)
+}
+
+/// Serein: whether pasted text is one absolute path or `file://` URI for this OS.
+fn is_file_reference(text: &str) -> bool {
+    let text = text.trim_end();
+    !text.is_empty()
+        && !text.contains('\n')
+        && (text.starts_with("file://") || std::path::Path::new(text).is_absolute())
+}
+
+#[cfg(test)]
+mod paste_tests {
+    use super::is_file_reference;
+
+    /// Regression: a screenshot path pasted beside its image must not stop the image paste,
+    /// while ordinary and multi-line text must not trigger an image read.
+    #[test]
+    fn only_a_lone_file_path_or_uri_counts_as_a_file_reference() {
+        assert!(is_file_reference("file:///tmp/shot.png"));
+        assert!(is_file_reference("file:///tmp/shot.png\n"));
+        #[cfg(unix)]
+        assert!(is_file_reference("/home/a/Pictures/shot 1.png"));
+        #[cfg(windows)]
+        assert!(is_file_reference(r"C:\Users\a\Pictures\shot.png"));
+        assert!(!is_file_reference("look at this"));
+        assert!(!is_file_reference("shot.png"));
+        assert!(!is_file_reference("/tmp/a.png\n/tmp/b.png"));
+        assert!(!is_file_reference(""));
+    }
 }
 
 fn translate_mouse_button(button: winit::event::MouseButton) -> Option<egui::PointerButton> {
