@@ -1065,6 +1065,7 @@ mod tests {
 			notifications_enabled: true,
 			hide_title_bar: true,
 			primary_color: Some([80, 120, 220]),
+			reduce_interface_motion: true,
 			transparency_blur: true,
 			transparency: 30,
 			blur: 60,

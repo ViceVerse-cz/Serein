@@ -4944,9 +4944,10 @@ fn card_action(
 }
 
 /// Discord's call stage is black in every appearance; pills and tiles sit on it in fixed greys.
-const STAGE_FILL: egui::Color32 = egui::Color32::BLACK;
-const TILE_FILL: egui::Color32 = egui::Color32::from_rgb(0x2b, 0x2d, 0x31);
-const PILL_FILL: egui::Color32 = egui::Color32::from_rgb(0x1e, 0x1f, 0x22);
+// Media owns a dark stage even in light mode; only the surrounding chrome is tinted.
+const STAGE_FILL: egui::Color32 = egui::Color32::from_rgb(0x0c, 0x11, 0x1a);
+const TILE_FILL: egui::Color32 = egui::Color32::from_rgb(0x20, 0x2c, 0x3d);
+const PILL_FILL: egui::Color32 = egui::Color32::from_rgb(0x18, 0x23, 0x33);
 const STAGE_TEXT: egui::Color32 = egui::Color32::from_rgb(0xdb, 0xde, 0xe1);
 const STAGE_MUTED: egui::Color32 = egui::Color32::from_rgb(0x9a, 0x9b, 0xa1);
 const STAGE_MARGIN: f32 = 16.0;
@@ -5130,8 +5131,11 @@ fn name_badge(
 /// Call chrome fades in while the pointer is over the stage or one of its menus is open.
 fn chrome_reveal(ui: &egui::Ui, stage: egui::Rect, id: &str) -> f32 {
 	let shown = ui.rect_contains_pointer(stage) || egui::Popup::is_any_open(ui.ctx());
-	ui.ctx()
-		.animate_bool_with_time(egui::Id::unique(id), shown, 0.15)
+	ui.ctx().animate_bool_with_time(
+		egui::Id::unique(id),
+		shown,
+		design::motion_duration(ui, 0.15),
+	)
 }
 
 /// A dark gradient behind the header (`top`) or the call bar over an enlarged video.

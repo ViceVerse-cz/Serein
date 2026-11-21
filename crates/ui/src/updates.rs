@@ -180,7 +180,7 @@ impl MessagingUi {
 		let (mark, _) = ui.allocate_exact_size(egui::vec2(15.0, 15.0), egui::Sense::hover());
 		icons::paint(ui.painter(), icons::Icon::Reload, mark, colors.warning);
 		ui.add(
-			egui::Label::new(design::medium(ui, &label, 12.0).color(colors.warning))
+			egui::Label::new(design::semibold(ui, &label, 12.0).color(colors.text_strong))
 				.truncate()
 				.selectable(false),
 		);

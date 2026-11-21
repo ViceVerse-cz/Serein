@@ -262,6 +262,16 @@ impl MessagingUi {
 			ui,
 			&crate::i18n::translate("accessibility-motion-and-scrolling"),
 			|ui| {
+				if design::switch(
+					ui,
+					"accessibility-reduce-interface-motion",
+					Some("accessibility-reduce-interface-motion-description"),
+					&mut self.reduce_interface_motion,
+				)
+				.changed()
+				{
+					design::set_reduced_motion(ui.ctx(), self.reduce_interface_motion);
+				}
 				design::switch(
 					ui,
 					&crate::i18n::translate("accessibility-animate-artwork"),

@@ -950,6 +950,7 @@ const SEARCH_TARGETS: &[SearchTarget] = &[
 		Page::Accessibility,
 		"reading-chat-reading-settings-compact-message-spacing",
 	),
+	target(Page::Accessibility, "accessibility-reduce-interface-motion"),
 	target(Page::Accessibility, "accessibility-animate-artwork"),
 	target(
 		Page::Accessibility,
@@ -2778,8 +2779,10 @@ fn page_header(
 			|ui| {
 				ui.set_width(text_width);
 				ui.spacing_mut().item_spacing.y = 2.0;
-				let title =
-					egui::Label::new(design::semibold(ui, heading, 20.0).color(colors.text_strong));
+				let title = egui::Label::new(
+					design::semibold(ui, heading, if compact { 20.0 } else { 24.0 })
+						.color(colors.text_strong),
+				);
 				let title = ui.add(if compact {
 					title.truncate()
 				} else {
@@ -2810,41 +2813,12 @@ pub(super) fn nav_item(ui: &mut egui::Ui, label: &str, selected: bool) -> egui::
 		egui::WidgetInfo::selected(egui::Role::Button, ui.is_enabled(), selected, &label)
 	});
 	let hot = response.hovered() || response.has_focus();
-	// Hover and selection ease in instead of snapping; idle rows cost no repaint.
-	let time = ui.style().animation_time;
-	let lit = ui
-		.ctx()
-		.animate_bool_with_time(response.id.with("nav-hover"), hot, time);
-	let chosen =
-		ui.ctx()
-			.animate_bool_with_time(response.id.with("nav-selected"), selected, time * 1.5);
-	if chosen > 0.0 || lit > 0.0 {
-		let fill = colors
-			.hover
-			.gamma_multiply(lit.max(chosen))
-			.lerp_to_gamma(colors.selected, chosen);
-		ui.painter().rect_filled(rect, 8, fill);
+	if selected {
+		design::selection_surface(ui, rect);
+	} else if hot {
+		ui.painter().rect_filled(rect, 8, colors.hover);
 	}
-	if chosen > 0.0 {
-		// Discord marks the open page with an accent rail at the left edge.
-		let height = 16.0 * egui::emath::easing::cubic_out(chosen);
-		ui.painter().rect_filled(
-			egui::Rect::from_min_size(
-				egui::pos2(rect.left(), rect.center().y - height * 0.5),
-				egui::vec2(3.0, height),
-			),
-			2,
-			colors.accent,
-		);
-	}
-	if response.has_focus() {
-		ui.painter().rect_stroke(
-			rect.shrink(1.0),
-			8,
-			egui::Stroke::new(1.0, colors.accent),
-			egui::StrokeKind::Inside,
-		);
-	}
+	design::focus_outline(ui, &response, 8);
 	let color = if selected {
 		colors.text_strong
 	} else if hot {

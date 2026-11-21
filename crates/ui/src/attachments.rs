@@ -829,7 +829,11 @@ fn quality_pill(ui: &egui::Ui, stage: Rect, quality: Quality) {
 			Some(("attachments-viewer-full-quality-unavailable", false))
 		}
 	};
-	let opacity = ui.ctx().animate_bool_with_time(id, state.is_some(), 0.15);
+	let opacity = ui.ctx().animate_bool_with_time(
+		id,
+		state.is_some(),
+		crate::design::motion_duration(ui, 0.15),
+	);
 	match state {
 		Some(state) => ui.data_mut(|data| {
 			data.insert_temp(id, state);

@@ -2592,9 +2592,11 @@ pub(crate) fn favorite_star(
 	let focused = ui.memory(|memory| memory.has_focus(id));
 	let over = ui.rect_contains_pointer(response.rect.expand(2.0));
 	// Drops in from above while the GIF is hovered; it only takes clicks once mostly shown.
-	let shown = ui
-		.ctx()
-		.animate_bool_with_time(id.with("shown"), over || focused, 0.14);
+	let shown = ui.ctx().animate_bool_with_time(
+		id.with("shown"),
+		over || focused,
+		crate::design::motion_duration(ui, 0.14),
+	);
 	let star = ui.interact(
 		star_rect,
 		id,

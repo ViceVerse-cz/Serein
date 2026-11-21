@@ -23,6 +23,8 @@ pub struct AppPreferences {
 	pub hide_title_bar: bool,
 	pub hide_window_decorations: bool,
 	pub primary_color: Option<[u8; 3]>,
+	/// Disable app chrome transitions independently of artwork and scrolling.
+	pub reduce_interface_motion: bool,
 	pub transparency_blur: bool,
 	pub transparency: u8,
 	pub blur: u8,
@@ -79,6 +81,7 @@ impl Default for AppPreferences {
 			hide_title_bar: false,
 			hide_window_decorations: false,
 			primary_color: None,
+			reduce_interface_motion: false,
 			transparency_blur: false,
 			transparency: 15,
 			blur: 50,

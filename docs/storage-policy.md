@@ -2,6 +2,12 @@
 
 NuSerein retains Serein’s existing data directories, account storage and operating-system identifiers so existing installations continue to find their data. Historical entries below retain their original revision and product names.
 
+## Interface motion preference
+
+Reduce interface motion stores one device-local boolean in the existing app preferences. It
+survives account switches, defaults off when absent in older records, and does not change artwork
+playback, scrolling, or any account preference. Offline previews do not persist it.
+
 ## Force Sync and the shared disk ceiling (October 30, 2026)
 
 Force Sync freezes a 21-day message interval when the owner starts a server or account

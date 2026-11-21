@@ -69,6 +69,20 @@ accent, softer corner radii and its own server-rail selection language. The pale
 and spacing live in `crates/ui/src/design.rs`; every view resolves colours through
 `design::palette(ui)`.
 
+## Signal Desk
+
+The desktop uses cool, stepped surfaces to separate navigation, the current workspace, and its
+controls. The existing Signal N and azure identify the app, the current destination, and primary
+actions. Selected rows use a full outline and tint; keyboard focus has a separate, stronger
+outline. Unread, mention, warning, and call states keep their own labels, icons, or badges.
+Sign-in, Friends, conversations, settings, dialogs, and the dark call stage share this hierarchy.
+
+Switching conversations briefly extends the accent line under the destination header, then settles
+it at the same width every time. Only paint changes: focus, text, media, and the timeline stay put.
+There is no entry animation on first paint, and the transition stops on focus loss. Accessibility →
+Motion and scrolling → Reduce interface motion uses the settled treatment and skips chrome fades.
+This is a device setting, independent of artwork playback and scrolling.
+
 ## Theme tokens and presets
 
 The `Palette` carries surface roles: `base` (title strip and server rail), `sidebar`
@@ -82,7 +96,7 @@ A process-wide `Variant` recolours the whole application on top of egui's light/
 
 | Preset | Surfaces |
 |---|---|
-| Serein | House neutral greys: dark (`#0e0e10` / `#141416` / `#18181b` / `#202023`) or light (`#e4e4e7` / `#f2f2f4` / white), following System/Light/Dark |
+| Serein | Signal Desk surfaces: dark (`#0c111a` / `#121a27` / `#171f2c` / `#202c3d`) or light (`#e4ebf6` / `#f0f4fa` / white), following System/Light/Dark |
 | Eclipse | Deep black surfaces for OLED displays |
 | Slate | Lighter blue-grey surfaces (`#1b1f2a` / `#262b38` / `#2c3140`) |
 | Nightfall, Ember, Verdant, Afterglow | Gradient backdrop painted under translucent dark surfaces |

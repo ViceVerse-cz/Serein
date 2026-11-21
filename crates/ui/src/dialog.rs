@@ -453,7 +453,7 @@ pub fn page_fade(ui: &mut egui::Ui, page: egui::Id) {
 	}
 	let t = ((now - start) / duration).clamp(0.0, 1.0) as f32;
 	// Opacity only: the layout never moves, so click targets stay put while it settles.
-	ui.multiply_opacity(egui::lerp(0.35..=1.0, egui::emath::easing::cubic_out(t)));
+	ui.multiply_opacity(egui::lerp(0.9..=1.0, egui::emath::easing::cubic_out(t)));
 	ctx.request_repaint();
 }
 
@@ -552,7 +552,7 @@ fn toolbar_header(
 					header_icon(ui, tone, icon, &colors);
 					ui.add(
 						egui::Label::new(
-							design::semibold(ui, title, 19.0).color(colors.text_strong),
+							design::semibold(ui, title, 21.0).color(colors.text_strong),
 						)
 						.wrap_mode(egui::TextWrapMode::Extend),
 					);
@@ -633,7 +633,7 @@ fn header(
 						ui.spacing_mut().item_spacing.y = 3.0;
 						ui.add(
 							egui::Label::new(
-								design::semibold(ui, title, 19.0).color(colors.text_strong),
+								design::semibold(ui, title, 21.0).color(colors.text_strong),
 							)
 							.wrap(),
 						);

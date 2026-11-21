@@ -312,6 +312,7 @@ impl Desktop {
 		}
 		messaging.minimize_to_tray = tray_setting.enabled;
 		app_settings.apply(&mut messaging);
+		ui::design::set_reduced_motion(&cc.egui_ctx, messaging.reduce_interface_motion);
 		#[cfg(feature = "demo")]
 		if demo {
 			messaging.transparency_blur = transparency_available;

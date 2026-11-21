@@ -526,6 +526,7 @@ fn button_with_tooltip(
 	} else {
 		colors.muted
 	};
+	design::focus_outline(ui, &response, 6);
 	paint(ui.painter(), icon, rect.shrink(size * 0.2), color);
 	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), &label));
 	if immediate {
@@ -548,6 +549,7 @@ pub fn toggle(ui: &mut egui::Ui, icon: Icon, size: f32, active: bool, label: &st
 	} else {
 		colors.muted
 	};
+	design::focus_outline(ui, &response, 6);
 	paint(ui.painter(), icon, rect.shrink(size * 0.2), color);
 	response.widget_info(|| {
 		egui::WidgetInfo::selected(egui::Role::Button, ui.is_enabled(), active, &label)

@@ -608,6 +608,7 @@ pub struct MessagingUi {
 	/// Set when the user picks a theme preset; the host persists it.
 	pub theme_variant_changed: Option<design::Variant>,
 	pub primary_color: Option<[u8; 3]>,
+	pub reduce_interface_motion: bool,
 	pub transparency_blur: bool,
 	pub transparency: u8,
 	pub blur: u8,
@@ -621,7 +622,7 @@ fn composer_cap(
 ) -> egui::Rect {
 	design::glass_frame(
 		ui,
-		design::mix(colors.raised, colors.base, 0.45),
+		design::mix(colors.raised, colors.accent, 0.16),
 		egui::Margin {
 			left: 16,
 			right: 8,

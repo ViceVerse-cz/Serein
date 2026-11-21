@@ -176,6 +176,7 @@ impl Desktop {
 		ui::fonts::reset_session_memory(ctx);
 		let _ = ui::emoji::install(ctx);
 		ui::design::apply(ctx);
+		ui::design::set_reduced_motion(ctx, self.messaging.reduce_interface_motion);
 		ctx.set_theme(self.appearance);
 		self.sync_system_theme(ctx);
 		self.messaging
@@ -762,11 +763,16 @@ impl Desktop {
 	fn sign_in_header(&self, ui: &mut egui::Ui, returning: bool) {
 		let p = ui::design::palette(ui);
 		ui.vertical_centered(|ui| {
-			let (mark, _) = ui.allocate_exact_size(egui::vec2(44.0, 44.0), egui::Sense::hover());
-			ui.painter()
-				.rect_filled(mark.expand(6.0), 17, p.accent.gamma_multiply(0.16));
-			ui::icons::paint_brand(ui.painter(), mark);
-			ui.add_space(12.0);
+			let (plate, _) = ui.allocate_exact_size(egui::vec2(64.0, 64.0), egui::Sense::hover());
+			ui.painter().rect(
+				plate,
+				16,
+				ui::design::mix(p.raised, p.accent, 0.16),
+				egui::Stroke::new(1.0, ui::design::mix(p.border, p.accent, 0.65)),
+				egui::StrokeKind::Inside,
+			);
+			ui::icons::paint_brand(ui.painter(), plate.shrink(10.0));
+			ui.add_space(8.0);
 			ui.label(
 				ui::design::semibold(
 					ui,

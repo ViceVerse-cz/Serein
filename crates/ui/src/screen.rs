@@ -424,22 +424,17 @@ impl ScreenUi {
 			let selected = self.selected == Some(source.id);
 			let (rect, response) = ui
 				.allocate_exact_size(egui::vec2(ui.available_width(), 48.0), egui::Sense::click());
-			let fill = if selected {
-				colors.accent.gamma_multiply(0.18)
-			} else if response.hovered() || response.has_focus() {
-				colors.hover
-			} else {
-				colors.base
-			};
-			ui.painter().rect_filled(rect, 8, fill);
 			if selected {
-				ui.painter().rect_stroke(
-					rect,
-					8,
-					egui::Stroke::new(1.0, colors.accent),
-					egui::StrokeKind::Inside,
-				);
+				crate::design::selection_surface(ui, rect);
+			} else {
+				let fill = if response.hovered() || response.has_focus() {
+					colors.hover
+				} else {
+					colors.base
+				};
+				ui.painter().rect_filled(rect, 8, fill);
 			}
+			crate::design::focus_outline(ui, &response, 8);
 			let display = matches!(source.id, SourceId::Display(_) | SourceId::X11Desktop);
 			crate::icons::paint(
 				ui.painter(),

@@ -1062,6 +1062,12 @@ impl MessagingUi {
 					rect.bottom(),
 					egui::Stroke::new(1.0, colors.border),
 				);
+				design::destination_signal(
+					ui,
+					egui::Id::unique("channel-header"),
+					egui::Id::unique(state.selected),
+					rect.translate(egui::vec2(0.0, -1.0)),
+				);
 				self.channel_header_row(
 					ui,
 					state,

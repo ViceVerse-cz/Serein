@@ -4261,7 +4261,7 @@ fn paint_collectibles(
 		let fade = ui.ctx().animate_bool_with_time(
 			egui::Id::unique(("profile-effect-hover", full)),
 			hovered,
-			0.2,
+			design::motion_duration(ui, 0.2),
 		);
 		avatars.paint_effect(ui, effect, card, elapsed, 1.0 - 0.75 * fade, demo);
 	}

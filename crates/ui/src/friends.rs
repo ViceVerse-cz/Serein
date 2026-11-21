@@ -957,7 +957,11 @@ fn header_tab(
 		(Color32::TRANSPARENT, colors.muted)
 	};
 	let painter = ui.painter();
-	painter.rect_filled(rect, 6, fill);
+	if selected && !accent {
+		design::selection_surface(ui, rect);
+	} else {
+		painter.rect_filled(rect, 6, fill);
+	}
 	if response.has_focus() {
 		painter.rect_stroke(
 			rect.expand(1.0),

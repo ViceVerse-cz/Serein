@@ -951,7 +951,7 @@ impl MessagingUi {
 							}
 							let hovered = enabled && (response.hovered() || response.has_focus());
 							if active {
-								ui.painter().rect_filled(row, 8, colors.selected);
+								design::selection_surface(ui, row);
 							} else if hovered {
 								ui.painter().rect_filled(
 									row,

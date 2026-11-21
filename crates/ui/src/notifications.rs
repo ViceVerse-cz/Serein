@@ -192,8 +192,16 @@ pub(super) fn rail_indicator(
 		egui::pos2(rect.left() - f32::from(RAIL_MARGIN) + 1.0, rect.center().y),
 		egui::vec2(8.0, height),
 	);
-	ui.painter()
-		.rect_filled(pill, 4, design::palette(ui).text_strong);
+	let colors = design::palette(ui);
+	ui.painter().rect_filled(
+		pill,
+		4,
+		if selected {
+			colors.link
+		} else {
+			colors.text_strong
+		},
+	);
 }
 /// Mention badge that pops in when `count` first becomes non-zero.
 pub(super) fn rail_badge(ui: &egui::Ui, id: egui::Id, rect: egui::Rect, count: u32, ring: Color32) {

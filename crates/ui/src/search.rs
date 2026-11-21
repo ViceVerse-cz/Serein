@@ -242,8 +242,8 @@ impl SearchUi {
 			|name| crate::i18n::translate_args("search-header-input-search-in", &[("name", &name)]),
 		);
 		let frame = egui::Frame::new()
-			.fill(colors.base)
-			.corner_radius(6)
+			.fill(colors.raised)
+			.corner_radius(8)
 			.stroke(egui::Stroke::new(1.0, colors.border))
 			.inner_margin(egui::Margin::symmetric(8, 0))
 			.show(ui, |ui| {
