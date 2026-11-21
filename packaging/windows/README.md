@@ -1,4 +1,41 @@
-Build `cargo xtask package` using Rust 1.98.1 MSVC and Visual Studio C++ build tools. The executable is `dist/serein.exe`; distribute it with the adjacent docs and licenses. The login flow requires WebView2. Source builds require CMake for the built-in voice engine.
+## Build from a clean Windows checkout
+
+Install Rust 1.98.1 for MSVC, Visual Studio C++ Build Tools with the Windows SDK and CMake,
+Windows Python 3.12+, and [MSYS2](https://www.msys2.org/). Install NSIS if you also want
+`dist-installer/serein-<version>-setup.exe`. The client requires WebView2 for login.
+
+In the MSYS2 shell, install the build helpers:
+
+```sh
+pacman -S --needed make pkgconf nasm diffutils
+```
+
+Return to Developer PowerShell for Visual Studio, initialized for the same architecture as
+Rust (x64 or ARM64). From the repository root, use native Windows Python and launch MSYS2
+from that shell so it inherits the compiler, linker, and Windows SDK:
+
+```powershell
+python -m pip install meson==1.9.2 ninja==1.13.0
+$env:MSYS2_PATH_TYPE = 'inherit'
+$env:MSYSTEM = 'MSYS'
+$env:CHERE_INVOKING = '1'
+& 'C:\msys64\usr\bin\bash.exe' -lc 'python scripts/build-ffmpeg.py'
+if ($LASTEXITCODE -ne 0) { throw 'Pinned FFmpeg build failed' }
+$env:FFMPEG_DIR = (Resolve-Path .\target\ffmpeg\prefix).Path
+$env:Path = "$env:FFMPEG_DIR\bin;$env:Path"
+cargo xtask check
+cargo xtask package
+```
+
+Adjust `C:\msys64` to the MSYS2 installation path. Leave MSYS2 path conversion enabled:
+`MSYS2_ARG_CONV_EXCL=*` can leave POSIX include paths unreadable by MSVC, causing the
+FFmpeg configure step to report that `libvpl` is missing even after it was built. A regular
+FFmpeg executable does not contain the private headers and import libraries needed by the build. If bundled Opus chooses a newer
+Visual Studio generator than the one installed, set `CMAKE_GENERATOR` to the installed version
+(for example, `Visual Studio 17 2022`) and use a fresh `CARGO_TARGET_DIR`. Choose short local
+paths for the FFmpeg build and Cargo output if MSVC reports file-tracking or include-path
+errors. See [FFmpeg build and packaging](../ffmpeg/README.md) for the pinned recipe and reuse
+rules. Distribute `dist/serein.exe` with its adjacent DLLs, docs, and licenses.
 
 Run `dist/serein.exe --demo` for an offline synthetic preview with no saved-login lookup or account storage. Run without `--demo` only when the owner is ready to operate their account. See [platform support](../../docs/platform-support.md) for the live-test boundary and limitations.
 

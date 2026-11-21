@@ -2373,7 +2373,12 @@ async fn run_observed_inner(
 								9 => {
 									record(ConnectionReason::InvalidSession,None,attempt,writer.occupancy());
 									let resumable: bool = decode(packet.d.get().as_bytes()).map_err(|_| Failure::Protocol)?;
-									if !resumable { state = ResumeState::default(); }
+									if !resumable {
+										state = ResumeState::default();
+									} else if ready_at.is_none() {
+										// The required delay replaces backoff, not the failed RESUME budget.
+										state.failed();
+									}
 									emit(Event::Disconnected)?;
 									sleep(Duration::from_millis(1000 + jitter_ms(4000))).await; skip_backoff=true;
 									break;
@@ -2667,7 +2672,7 @@ async fn run_observed_inner(
 									}
 									"PASSIVE_UPDATE_V2" => {
 										let envelope = ready::passive(packet.d.get().as_bytes()).map_err(|_|Failure::Protocol)?;
-										if let Some(owner)=owner_id && let Some((guild,roles,timeout_until))=envelope.permissions(owner).map_err(|_|Failure::Protocol)? {
+										if let Some(owner)=owner_id && let Some((guild,roles,timeout_until))=envelope.permissions(owner).map_err(|_|Failure::ProtocolAt(PERMISSION_REFRESH))? {
 											emit(Event::Permissions(client_core::permissions::Event::Member {guild,roles,timeout_until}))?;
 										}
 										for update in envelope.member_identities() {

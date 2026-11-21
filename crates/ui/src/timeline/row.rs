@@ -1203,12 +1203,7 @@ impl TimelineView {
 				}
 				self.toolbar = Some((id, toolbar_rect));
 			} else {
-				let react = state.can_react(id, None, true)
-					|| message.reactions.as_ref().is_some_and(|items| {
-						items
-							.iter()
-							.any(|r| state.can_react(id, Some(&r.emoji), true))
-					});
+				let react = state.can_open_reaction_picker(id);
 				// Holding Shift exposes direct actions alongside the menu.
 				let shift = ui.input(|input| input.modifiers.shift);
 				let can_pin = state.can_pin(message.channel, id);
@@ -1299,7 +1294,11 @@ impl TimelineView {
 				{
 					self.reaction_picker = Some((id, anchor, trigger));
 				}
-				let can_reply = state.can_send(message.channel) && !message.ephemeral;
+				// Reply would be hidden behind the edit composer and Enter would still edit.
+				let can_reply = editing
+					.as_ref()
+					.is_none_or(|(channel, _, _)| *channel != message.channel)
+					&& state.can_reply_to(id);
 				let can_edit = !message.unsupported && state.can_edit(message.channel, id);
 				if toolbar
 					.add_enabled_ui(can_reply, |ui| {

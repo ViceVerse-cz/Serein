@@ -721,6 +721,8 @@ impl State {
 		self.restore_scroll = false;
 		self.history_navigation.start(channel, self.request, target);
 		self.history_navigation.previous = Some(previous);
+		// Desktop cancels its reaction read when it starts either kind of history request.
+		self.reactions.cancel_read();
 		self.reply_previews.cancel_pending();
 		self.revision += 1;
 		Some(Command::HistoryAround {
@@ -2028,6 +2030,83 @@ mod tests {
 		assert_eq!(state.search_target, Some(Id(100)));
 		assert_eq!(state.reading(Id(1)).unwrap().inset, 23.0);
 		assert!(state.restore_scroll);
+	}
+
+	#[test]
+	fn reply_jump_requeues_the_reaction_read_cancelled_by_history() {
+		use crate::reactions::{Command as R, Event as E};
+		let mut state = state();
+		let (channel, message_id) = (Id(1), Id(100));
+		let emoji = model::ReactionEmoji {
+			id: None,
+			name: Some("👍".into()),
+		};
+		let Some(Command::Reactions(R::Set { request, .. })) =
+			state.prepare_reaction(message_id, emoji.clone())
+		else {
+			panic!("reaction write")
+		};
+		apply(
+			&mut state,
+			Event::Reactions(E::Written {
+				channel,
+				message: message_id,
+				request,
+				result: Ok(()),
+			}),
+		);
+		let Some(Command::Reactions(R::Read {
+			request: cancelled, ..
+		})) = state.next_reaction_read()
+		else {
+			panic!("first readback")
+		};
+		let Some(Command::HistoryAround { request, .. }) = state.open_reply_target(Id(50)) else {
+			panic!("around request")
+		};
+		apply(
+			&mut state,
+			Event::History {
+				channel,
+				request,
+				older: false,
+				messages: vec![message(50), message(100)],
+			},
+		);
+		let Some(Command::Reactions(R::Read {
+			message, request, ..
+		})) = state.next_reaction_read()
+		else {
+			panic!("reply navigation must not strand the readback")
+		};
+		assert_eq!(message, message_id);
+		assert_ne!(request, cancelled);
+		assert!(state.reactions.busy());
+		apply(
+			&mut state,
+			Event::Reactions(E::Read {
+				channel,
+				message,
+				request: cancelled,
+				result: Ok(vec![]),
+			}),
+		);
+		assert!(state.reactions.busy());
+		apply(
+			&mut state,
+			Event::Reactions(E::Read {
+				channel,
+				message,
+				request,
+				result: Ok(vec![model::Reaction {
+					emoji,
+					count: 1,
+					me: true,
+					me_burst: false,
+				}]),
+			}),
+		);
+		assert!(!state.reactions.busy());
 	}
 
 	#[test]

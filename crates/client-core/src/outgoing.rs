@@ -47,9 +47,7 @@ impl State {
 		content: &str,
 		mention: bool,
 	) -> Option<Command> {
-		let channel = self.selected?;
-		let message = self.timeline.get(target)?;
-		if message.channel != channel || message.ephemeral || !self.accepts_reply_source(message) {
+		if !self.can_reply_to(target) {
 			self.status = "This message is unavailable for replies";
 			return None;
 		}
@@ -95,6 +93,18 @@ impl State {
 		let channel = self.selected?;
 		if !self.can_send(channel) || (!filenames.is_empty() && !self.can_attach(channel)) {
 			self.status = "Sending is unavailable with the current connection or permissions";
+			return None;
+		}
+		let use_composer_reply = explicit_reply.is_none() && explicit_content.is_none();
+		let reply = if use_composer_reply {
+			self.reply
+		} else {
+			explicit_reply
+		};
+		if reply.is_some_and(|reply| {
+			!self.can_read_history(channel) || self.timeline.is_deleted(reply.target())
+		}) {
+			self.status = "This message is unavailable for replies";
 			return None;
 		}
 		if filenames.len() > MAX_ATTACHMENTS {
@@ -144,11 +154,9 @@ impl State {
 			.unwrap_or_default()
 			.as_millis();
 		let nonce = fingerprint::nonce(epoch, self.send_sequence);
-		let reply = match (explicit_reply, explicit_content) {
-			(Some(reply), _) => Some(reply),
-			(None, None) => self.reply.take(),
-			(None, Some(_)) => None,
-		};
+		if use_composer_reply {
+			self.reply = None;
+		}
 		self.pending.push(Pending {
 			sticker: sticker.cloned(),
 			channel,

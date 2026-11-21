@@ -4,6 +4,22 @@ Recent synthetic/offline measurements are workload-specific. They do not establi
 performance, universal device results or application-wide memory bounds. The older upstream PR screenshot,
 log and per-run evidence archive has been removed; the summaries below retain the useful results.
 
+## Chat actions and Gateway recovery
+
+Compared `c64eca25` with the chat-action and Gateway recovery fixes on Windows 11 x64
+(Core Ultra 7 258V, 31 GiB RAM), using locked Rust 1.98.1 default release builds. Built
+`replay-bench` once per revision, warmed up once each, then ran five alternating samples.
+
+| Synthetic reducer metric | Baseline | Patched | Delta |
+| --- | ---: | ---: | ---: |
+| Median time, 100,000 events | 195.45 ms | 191.31 ms | −4.14 ms (−2.1%, within run variation) |
+| Estimated retained timeline, 500 records | 417,492–417,977 B | 417,492–417,977 B | Unchanged |
+
+This benchmark does not measure UI latency, process RSS, Gateway outage duration or live
+Discord behavior. Native Windows packaging could not complete without the pinned FFmpeg
+build, so desktop executable, installed package and compressed distribution sizes are
+unmeasured.
+
 ## Member cache follow-up
 
 The follow-up compares `65e69baf` with the member-cache and resident-history changes in
