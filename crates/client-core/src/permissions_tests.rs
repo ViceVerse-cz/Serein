@@ -1832,6 +1832,8 @@ fn new_custom_reactions_require_eligibility_but_existing_and_removal_stay_separa
 		.unwrap();
 	assert!(state.can_react(Id(100), Some(&emoji), true));
 	assert!(state.can_react(Id(100), Some(&emoji), false));
+	assert!(!state.can_react(Id(100), None, true));
+	assert!(state.can_open_reaction_picker(Id(100)));
 	permission(
 		&mut state,
 		PermissionEvent::Member {
@@ -2248,10 +2250,19 @@ fn revoked_view_cannot_return_through_stale_gateway_content_or_old_history() {
 			"Unchanged read denial must not erase the live stream"
 		);
 		state.drafts.insert(Id(20), "New outgoing message".into());
+		assert!(!state.can_reply_to(Id(201)));
+		assert!(state.prepare_reply_send(Id(201), "Reply", false).is_none());
+		state.reply = Some(crate::Reply::to(Id(201)));
+		assert!(state.prepare_send().is_none());
+		assert_eq!(state.reply_target(), Some(Id(201)));
+		assert_eq!(state.drafts[&Id(20)], "New outgoing message");
+		assert!(state.pending.is_empty());
+		state.reply = None;
 		assert!(matches!(
 			state.prepare_send(),
 			Some(Command::Send {
 				channel: Id(20),
+				reply: None,
 				..
 			})
 		));

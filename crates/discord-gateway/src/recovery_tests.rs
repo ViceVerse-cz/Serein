@@ -30,7 +30,15 @@ impl Gateway {
 	}
 
 	async fn run(&self, server: impl std::future::Future<Output = ()>) {
-		timeout(Duration::from_secs(10), async {
+		self.run_with_timeout(Duration::from_secs(10), server).await;
+	}
+
+	async fn run_with_timeout(
+		&self,
+		limit: Duration,
+		server: impl std::future::Future<Output = ()>,
+	) {
+		timeout(limit, async {
 			let initial = format!("ws://{}/", self.initial.local_addr().unwrap());
 			let resume = format!("ws://{}/", self.resume.local_addr().unwrap());
 			let client = async {
@@ -356,6 +364,46 @@ async fn resumed_session_resets_consecutive_failure_budget() {
 				drop(gateway.socket(true, Some(6)).await);
 			}
 			gateway.stop(gateway.socket(false, Some(2)).await).await;
+		})
+		.await;
+}
+
+#[tokio::test]
+async fn repeated_resumable_invalid_sessions_fall_back_to_identify() {
+	let gateway = Gateway::new().await;
+	gateway
+		.run_with_timeout(Duration::from_secs(20), async {
+			gateway.establish().await;
+			for _ in 0..3 {
+				let mut socket = gateway.socket(true, Some(6)).await;
+				send(&mut socket, json!({"op":9,"d":true})).await;
+				// Keep TCP open through the invalid-session grace period. Closing it
+				// ourselves could lose the opcode in a race with an unread heartbeat.
+				while let Some(Ok(_)) = socket.next().await {}
+			}
+			gateway.stop(gateway.socket(false, Some(2)).await).await;
+		})
+		.await;
+}
+
+#[tokio::test]
+async fn invalid_passive_permissions_force_a_fresh_snapshot() {
+	let gateway = Gateway::new().await;
+	gateway
+		.run(async {
+			let mut socket = gateway.socket(false, Some(2)).await;
+			let mut ready = ready(41, "synthetic-recovery-session");
+			ready["d"]["resume_gateway_url"] = json!("wss://gateway-resume.discord.gg/");
+			send(&mut socket, ready.clone()).await;
+			acknowledge(&mut socket, 41).await;
+			send(&mut socket, json!({"op":0,"t":"PASSIVE_UPDATE_V2","s":42,"d":{
+				"guild_id":"2","updated_members":[{"user":{"id":"1","username":"Synthetic"},"roles":["11","11"]}]
+			}})).await;
+			let mut fresh = gateway.socket(false, Some(2)).await;
+			ready["s"] = json!(1);
+			send(&mut fresh, ready).await;
+			acknowledge(&mut fresh, 1).await;
+			gateway.stop(fresh).await;
 		})
 		.await;
 }

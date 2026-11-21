@@ -1450,7 +1450,7 @@ fn message_actions(
 					ui,
 					"menu-add-reaction",
 					Icon::Smile,
-					state.can_react(message.id, None, true) && !state.reactions.busy(),
+					state.can_open_reaction_picker(message.id) && !state.reactions.busy(),
 					false,
 				)
 				.clicked()
@@ -7206,9 +7206,12 @@ mod tests {
 			state.timeline.insert(second, false, false).unwrap();
 			let mut view = TimelineView::default();
 			let mut avatars = crate::avatars::Avatars::default();
-			let mut editing = None;
+			let editing_active = std::cell::Cell::new(false);
 			let mut render =
 				|view: &mut TimelineView, state: &mut State, events: Vec<egui::Event>| {
+					let mut editing = editing_active
+						.get()
+						.then(|| (state.selected.unwrap(), Id(1), "Unsaved edit".to_owned()));
 					let output = ctx.run_ui(
 						egui::RawInput {
 							screen_rect: Some(egui::Rect::from_min_size(
@@ -7271,25 +7274,30 @@ mod tests {
 			assert_eq!(view.toolbar.unwrap().1.width(), 240.0);
 			assert_eq!(view.heights, heights);
 			let point = view.toolbar.unwrap().1.left_top() + egui::vec2(134.0, 14.0);
-			for pressed in [true, false] {
+			for editing in [true, false] {
+				editing_active.set(editing);
 				render(
 					&mut view,
 					&mut state,
-					vec![
-						egui::Event::PointerMoved(point),
-						egui::Event::PointerButton {
+					vec![egui::Event::PointerMoved(point)],
+				);
+				for pressed in [true, false] {
+					render(
+						&mut view,
+						&mut state,
+						vec![egui::Event::PointerButton {
 							pos: point,
 							button: egui::PointerButton::Primary,
 							pressed,
 							modifiers: egui::Modifiers::NONE,
-						},
-					],
+						}],
+					);
+				}
+				assert_eq!(
+					state.reply.take(),
+					(!editing).then_some(client_core::Reply::to(Id(60_000 << 22)))
 				);
 			}
-			assert_eq!(
-				state.reply.take(),
-				Some(client_core::Reply::to(Id(60_000 << 22)))
-			);
 			// Shared actions keep their order on selectable text, row whitespace and
 			// Shift+right-click. Extra Serein actions belong only to toolbar overflow.
 			let menu_labels = [

@@ -755,6 +755,19 @@ impl State {
 			&& self.freshness != Freshness::Unavailable
 			&& self.can_compose(channel)
 	}
+	pub fn can_reply_to(&self, target: Id) -> bool {
+		let Some(channel) = self.selected else {
+			return false;
+		};
+		self.can_send(channel)
+			&& self.can_read_history(channel)
+			&& !self.timeline.is_deleted(target)
+			&& self.timeline.get(target).is_some_and(|message| {
+				message.channel == channel
+					&& !message.ephemeral
+					&& self.accepts_reply_source(message)
+			})
+	}
 	/// Permission-only composer availability, including while drafting offline.
 	pub fn can_compose(&self, channel: Id) -> bool {
 		self.channel(channel)
@@ -879,6 +892,19 @@ impl State {
 			}
 		}
 		None
+	}
+	pub fn can_open_reaction_picker(&self, message: Id) -> bool {
+		!self.timeline.is_deleted(message)
+			&& self.timeline.get(message).is_some_and(|row| {
+				!row.ephemeral
+					&& (self.can_react(message, None, true)
+						|| row.reactions.as_ref().is_some_and(|items| {
+							items.iter().any(|r| {
+								r.emoji.name.is_some()
+									&& self.can_react(message, Some(&r.emoji), true)
+							})
+						}))
+			})
 	}
 	pub fn can_react(&self, message: Id, emoji: Option<&ReactionEmoji>, add: bool) -> bool {
 		let Some(channel) = self.selected else {

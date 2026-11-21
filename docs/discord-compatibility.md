@@ -91,9 +91,9 @@ pressure notification prevents old queued updates from restoring access. A fresh
 must follow an explicit synchronization barrier before normal delivery and queued writes
 resume. Media is retired when permissions become uncertain; this exceptional recovery may
 interrupt an active call/share. Ordinary socket RESUME keeps its existing voice behavior.
-Malformed optional catalogs are invalidated; uncertain live permission metadata instead
-requires authoritative synchronization. Identity, framing and unsafe session-wide bounds
-remain strict.
+Malformed optional catalogs are invalidated; uncertain live permission metadata, including
+self-member permissions in a passive update, requires authoritative synchronization.
+Identity, framing and unsafe session-wide bounds remain strict.
 
 Copy Issue Diagnostics retains fixed failure-stage labels and queue occupancy in the existing
 32-entry / 8-KiB session ring, without payloads, credentials or account identifiers.
@@ -706,9 +706,11 @@ Normal-account acceptance and live moderation have not been verified.
 An established connection first attempts to resume using the service-supplied
 resume address. After three consecutive failed resume attempts, it discards the
 old session, sequence and address, then identifies through the original validated
-gateway URL. Successful READY/RESUMED resets that counter; explicit recovery
-cancellation does not consume it. Existing connection deadlines, capped backoff
-and the six-attempt initial-login limit remain unchanged.
+gateway URL. A resumable Invalid Session received before RESUMED counts as a
+failed attempt even though it uses its own retry delay. Successful READY/RESUMED
+resets the counter; explicit recovery cancellation does not consume it. Existing
+connection deadlines, capped backoff and the six-attempt initial-login limit remain
+unchanged.
 
 Close codes received before HELLO follow the same policy as established sockets:
 expired credentials stop, invalid or expired sessions require a fresh Identify,
@@ -1726,8 +1728,12 @@ The existing bounded, coalesced message readback remains in the background to re
 HTTP/Gateway ordering; known counts stay visible while it runs. Unknown snapshots are
 not treated as zero, and unsupported event details retain the conservative readback
 path. Repeated/stale sequenced reaction dispatches are ignored. Late history responses
-preserve newer reaction values without discarding newer message content. These are
-synthetic parser/Gateway/reducer/egui checks, not live normal-account validation.
+preserve newer reaction values without discarding newer message content. Jumping to a
+reply or another message target requeues a readback cancelled by the history request.
+Both message action menus allow joining an existing reaction without Add Reactions.
+Replying requires Read Message History in addition to the ordinary send permissions;
+users without it can still send plain messages if allowed. These are synthetic checks,
+not live normal-account validation.
 Wire types follow the official [Gateway reaction events](https://docs.discord.com/developers/events/gateway-events#message-reaction-add).
 
 Reaction readback now uses a history request with limit=1 and around=the exact message ID, matching the current normal-user [discord.py-self get_message implementation](https://github.com/dolfies/discord.py-self/blob/master/discord/http.py). The prior single-message GET can reject normal-user sessions; its Forbidden result caused the existing channel-invalidation policy to clear the conversation. Exactly one matching channel/message record is accepted. Missing targets, neighboring messages and malformed/oversized-count replies leave reaction state unavailable without substituting content. Genuine Forbidden history responses still revoke the channel and its cached history. No write is automatically retried.
