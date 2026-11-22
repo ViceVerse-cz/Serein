@@ -480,7 +480,7 @@ pub struct MessagingUi {
 	pub attachment_keys: Vec<u64>,
 	/// Spoiler state in selection order, projected from the native upload sources.
 	pub attachment_spoilers: Vec<bool>,
-	pub attachment_spoiler_requested: Option<(u64, bool)>,
+	pub attachment_spoiler_requests: std::collections::BTreeMap<u64, bool>,
 	attachment_view_file: Option<(String, u64, Option<u64>)>,
 	pub attachment_view_image: Option<(usize, Option<std::sync::Arc<egui::ColorImage>>)>,
 	/// Conversation the open viewer belongs to, so switching leaves it behind.
@@ -1013,7 +1013,7 @@ impl MessagingUi {
 		let spoiler = &mut self.attachment_spoilers[index];
 		*spoiler = !*spoiler;
 		if let Some(key) = self.attachment_keys.get(index) {
-			self.attachment_spoiler_requested = Some((*key, *spoiler));
+			self.attachment_spoiler_requests.insert(*key, *spoiler);
 		}
 	}
 	/// Textures for `attachment_previews`, uploaded once per pixel buffer and reused per frame.
@@ -10604,6 +10604,21 @@ mod composer_tests {
 		assert!(
 			ctx.memory(|memory| memory.focused().is_none()),
 			"the retained profile keeps focus instead of the destination composer"
+		);
+	}
+
+	#[test]
+	fn attachment_spoiler_requests_keep_the_latest_choice_for_each_file() {
+		let mut view = MessagingUi {
+			attachment_keys: vec![10, 11],
+			..Default::default()
+		};
+		view.toggle_attachment_spoiler(0, 2);
+		view.toggle_attachment_spoiler(1, 2);
+		view.toggle_attachment_spoiler(0, 2);
+		assert_eq!(
+			view.attachment_spoiler_requests,
+			std::collections::BTreeMap::from([(10, false), (11, true)])
 		);
 	}
 

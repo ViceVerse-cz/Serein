@@ -7161,7 +7161,7 @@ impl eframe::App for Desktop {
 					self.messaging.external_upload.complete(Err(error));
 				}
 			}
-			if let Some((key, spoiler)) = self.messaging.attachment_spoiler_requested.take() {
+			for (key, spoiler) in std::mem::take(&mut self.messaging.attachment_spoiler_requests) {
 				self.uploads.set_spoiler(key, spoiler);
 			}
 			if let Some(index) = self.messaging.remove_attachment_index.take() {
