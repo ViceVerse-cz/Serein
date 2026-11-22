@@ -1,6 +1,6 @@
 # Serein's egui fork
 
-Source: GitHub `emilk/egui`, commit `cd5caec79c9e6683dd793e25b4e7b287ccdd7061` (egui 0.37.0
+Source: GitHub `emilk/egui`, commit `c61b45f6570465f6445d6fc4251d1395db440223` (egui 0.37.0
 plus unreleased `main`), MIT OR Apache-2.0. Each crate directory is the output of
 `cargo package --no-verify` for that crate after applying `patches/` on top of that commit:
 it keeps upstream sources, the original manifest (`Cargo.toml.orig`) and both license files.
@@ -41,8 +41,10 @@ requests are squashed from the PR head that was reviewed; all of them are unmerg
 | 0021 | [#8814](https://github.com/emilk/egui/pull/8814) | `egui` | Requesting focus for the widget that already has it no longer interrupts IME composition. |
 | 0022 | Serein | `egui` | Fixes 0019 for a right-click whose press and release arrive in one pass: it checked the button's state after the pass, so the cursor still moved. Adds `tests/text_edit_right_click.rs`; suggest upstream on #5180. |
 | 0023 | Serein | `epaint`, `egui_system_font_provider` | Emoji-presentation clusters (🆕, or ♾ with U+FE0F) use a face that draws them in color instead of an earlier text font's plain glyph, and the system font provider asks for the emoji font first. Text presentation is unchanged. Fixes #913. |
-| 0024 | [#8698](https://github.com/emilk/egui/pull/8698) | `epaint`, `egui` | Right-to-left runs get one glyph per char instead of `2n - 1`, so editor cursors stay inside the text (End then Ctrl+ArrowLeft in Arabic text no longer overflows). Merged with 0009's direction override. |
+| 0024 | [#8698](https://github.com/emilk/egui/pull/8698) | `epaint`, `egui` | Right-to-left runs get one glyph per char instead of `2n - 1`, so editor cursors stay inside the text (End then Ctrl+ArrowLeft in Arabic text no longer overflows). Merged with 0009's direction override, and ported to harfrust 0.15's in-place `Buffer`, which the PR head predates. |
 | 0025 | Serein | `epaint` | Laying out a multi-paragraph job one paragraph at a time keeps an empty first section, which carries `Label`'s wrap indentation, so text continuing a line after an inline widget (a heading after a channel chip) is no longer painted over that line. |
+| 0026 | Serein | `epaint` | The glyph atlas starts over once it outgrows 16 MiB, described below. |
+| 0027 | Serein | `egui` | Opt-in `SelectionOrder` keeps a label selection whose ends scroll out of a virtualized list, described below. |
 
 ## Serein patch: RTL shaping metadata
 
@@ -54,9 +56,54 @@ testing and logical selection/copy. The single-line path skips upstream's ascend
 continuation-glyph bookkeeping, which misplaces RTL clusters. `FontsView::layout_generation`
 is a process-wide counter that changes whenever fonts are rebuilt or native galleys are
 invalidated (including atlas resets), so Serein's bounded layout cache never reuses meshes with
-stale atlas UVs. Default `LayoutJob` layout is unchanged. Remove this patch when upstream exposes
+stale atlas UVs. Default `LayoutJob` layout is unchanged. The direction override is set on
+harfrust 0.15's in-place `Buffer` (upstream #8874). Remove this patch when upstream exposes
 equivalent direction and cluster-mapping APIs with correct wrapped bidi layout. It does not
 provide bidirectional `TextEdit`, IME or screen-reader parity.
+
+## Serein patch: glyph atlas byte budget
+
+Upstream starts the shared glyph atlas over only when 80% of its rows are used. Its width is
+`max_texture_side` (8192 with egui-wgpu's limits), so it could hold 256 MiB in RAM plus the same
+texture on the GPU before that, mostly glyphs from text no longer shown. An installed Serein had
+grown it to 8192×512 (16 MiB each side) after 23 hours. `Fonts::begin_pass` now also starts it
+over past 16 MiB, at most once per 600 passes since the previous clear. Text that outgrows the
+budget again within that wait doubles the next wait (up to 4,800 passes) instead of being
+rasterized again every few passes; a clear that holds for a whole wait restores 600. The wait
+counts passes, not time: an app that stops painting keeps its atlas until it paints again,
+and a session painting once a second may keep an oversized atlas for up to 80 minutes. Clears bump
+`layout_generation` and empty the galley caches like the existing reset, so caches outside egui
+that keep galleys must key on `layout_generation` (Serein's composer and RTL caches do).
+
+Limit: a clear runs at any viewport's `begin_pass`. An immediate viewport opened in the middle of
+its parent's pass could clear the atlas under the parent's already-queued text, as the upstream
+reset could. Serein opens no immediate viewports.
+
+## Serein patch: ordered label selection
+
+Upstream pairs the two ends of a label selection by the order labels are shown in a pass and
+drops the selection when either end is not shown, so scrolling an end out of Serein's
+virtualized timeline lost it. `LabelSelectionState::ordered_label_text_selection` takes a
+`SelectionOrder { item, index }` (Serein: message snowflake, or the nonce above 2^63 for a
+pending row, then the label's place in its row). When both ends are in ordered labels, labels
+are ranked by that order instead of by pass order or stale screen positions, unordered labels
+are left out, and the selection is kept while an end is not laid out. It is cleared when an end
+is missing between labels that are shown (the row was removed).
+
+Copy with an end out of view assembles each ordered label's retained selected text (an
+`Arc<LayoutJob>` and byte range, at most 4 MiB charged with its allocations and 4,096 labels).
+It copies only when every label of the selection was shown with the characters the selection's
+final ends give it since the selection last changed around it, so rows skipped by a jump or a
+shift-click, or a label that did not fit, are never silently left out: Copy then copies nothing
+until they are shown. `forget_items` marks edited or removed rows out of date the same way. A
+widget that already copied in the pass (a focused text edit with a selection) keeps the
+clipboard. `is_dragging` and `selection_rect` let Serein scroll the timeline while a selection
+is dragged past its edge and keep right-clicks outside the shown selection for their own menus.
+
+Unordered labels keep upstream behavior. Serein's bidi selection engine (`crates/ui/src/select`)
+is separate and unchanged. Limit: Copy pressed in the same pass a drag moves an end past a
+label that the drag rules skip (a centered rule outside the selection's column) uses that
+pass's shown text, as upstream does.
 
 ## Serein patch: Windows window-drag repaints
 

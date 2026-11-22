@@ -1,0 +1,983 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: x <x@x>
+Date: Fri, 20 Nov 2026 16:56:08 +0100
+Subject: [PATCH] Serein: keep an ordered label selection whose ends scroll out
+ of a virtualized list
+
+Upstream pairs the two ends of a label selection by the order labels are shown in a pass and drops the selection when either end is not shown. Labels shown with LabelSelectionState::ordered_label_text_selection carry a SelectionOrder { item, index }: a selection whose ends are both ordered is ranked by that order, kept while an end is not laid out, and cleared when an end is missing between shown labels. Copy with an end out of view assembles bounded retained text (4 MiB charged with allocations, 4,096 labels) and only when every label of the selection was shown with the characters its final ends give it; forget_items marks edited or removed items out of date. A widget that already copied in the pass keeps the clipboard. Adds is_dragging, selection_rect and ordered_ends.
+---
+ crates/egui/src/text_selection/label_text_selection.rs | 667 ++++++++++++++++++++-
+ crates/egui/src/text_selection/mod.rs              |   2 +-
+ 2 files changed, 635 insertions(+), 34 deletions(-)
+
+diff --git a/crates/egui/src/text_selection/label_text_selection.rs b/crates/egui/src/text_selection/label_text_selection.rs
+index 2934b159..131324c0 100644
+--- a/crates/egui/src/text_selection/label_text_selection.rs
++++ b/crates/egui/src/text_selection/label_text_selection.rs
+@@ -1,10 +1,11 @@
+-use alloc::sync::Arc;
++use alloc::{collections::BTreeMap, sync::Arc};
+ 
+ use emath::TSTransform;
+ 
+ use crate::{
+     Context, CursorIcon, Event, Galley, Id, LayerId, Plugin, Pos2, Rect, Response, Ui,
+-    ViewportIdMap, layers::ShapeIdx, text::CCursor, text_selection::CCursorRange,
++    ViewportIdMap, layers::ShapeIdx, text::CCursor, text::LayoutJob, text::LayoutSection,
++    text_selection::CCursorRange,
+ };
+ 
+ use super::{
+@@ -18,6 +19,69 @@ use super::{
+ /// Turn on to help debug this
+ const DEBUG: bool = false; // Don't merge `true`!
+ 
++/// Most text kept for ordered labels scrolled out of view, in bytes and labels.
++const RETAINED_BYTES: usize = 4 * 1024 * 1024;
++const RETAINED_LABELS: usize = 4096;
++
++/// Most separate stretches of an ordered selection seen with their current text.
++const COVERED_SPANS: usize = 64;
++
++/// Where a label sits in a list that only lays out its visible items, such as a chat history.
++///
++/// egui pairs the two ends of a selection by the order labels are shown in a pass, and drops the
++/// selection when either end is not shown. A selection whose ends are both in labels shown with
++/// [`LabelSelectionState::ordered_label_text_selection`] is ranked by this order instead, so it
++/// survives its ends scrolling out of view and copies the text it kept for them. It covers only
++/// ordered labels: the labels in between are found by order, not by being shown.
++#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
++pub struct SelectionOrder {
++    /// The list item, in display order (such as a message id).
++    pub item: u64,
++
++    /// The label's place within its item.
++    pub index: u32,
++}
++
++impl SelectionOrder {
++    fn next(self) -> Option<Self> {
++        match self.index.checked_add(1) {
++            Some(index) => Some(Self { index, ..self }),
++            None => Some(Self {
++                item: self.item.checked_add(1)?,
++                index: 0,
++            }),
++        }
++    }
++
++    fn previous(self) -> Option<Self> {
++        match self.index.checked_sub(1) {
++            Some(index) => Some(Self { index, ..self }),
++            None => Some(Self {
++                item: self.item.checked_sub(1)?,
++                index: u32::MAX,
++            }),
++        }
++    }
++}
++
++/// The selected text of an ordered label, kept while it is out of view.
++#[derive(Clone, Debug)]
++struct Retained {
++    job: Arc<LayoutJob>,
++    bytes: core::ops::Range<usize>,
++    rect: Rect,
++    pass: u64,
++
++    /// What keeping `job` costs, counted against [`RETAINED_BYTES`].
++    charge: usize,
++}
++
++fn job_bytes(job: &LayoutJob) -> usize {
++    size_of::<LayoutJob>()
++        + job.text.capacity()
++        + job.sections.capacity() * size_of::<LayoutSection>()
++}
++
+ /// One end of a text selection, inside any widget.
+ #[derive(Clone, Copy)]
+ struct WidgetTextCursor {
+@@ -26,14 +90,23 @@ struct WidgetTextCursor {
+ 
+     /// Last known screen position
+     pos: Pos2,
++
++    order: Option<SelectionOrder>,
+ }
+ 
+ impl WidgetTextCursor {
++    fn same_place(&self, other: &Self) -> bool {
++        self.widget_id == other.widget_id
++            && self.ccursor == other.ccursor
++            && self.order == other.order
++    }
++
+     fn new(
+         widget_id: Id,
+         cursor: impl Into<CCursor>,
+         global_from_galley: TSTransform,
+         galley: &Galley,
++        order: Option<SelectionOrder>,
+     ) -> Self {
+         let ccursor = cursor.into();
+         let pos = global_from_galley * pos_in_galley(galley, ccursor);
+@@ -41,6 +114,7 @@ impl WidgetTextCursor {
+             widget_id,
+             ccursor,
+             pos,
++            order,
+         }
+     }
+ }
+@@ -55,6 +129,7 @@ impl core::fmt::Debug for WidgetTextCursor {
+             widget_id,
+             ccursor,
+             pos: _,
++            order: _,
+         } = self;
+         f.debug_struct("WidgetTextCursor")
+             .field("widget_id", &widget_id.short_debug_format())
+@@ -98,6 +173,13 @@ struct CurrentSelection {
+     pub secondary: WidgetTextCursor,
+ }
+ 
++impl CurrentSelection {
++    /// The orders of the primary and secondary ends, when both are in ordered labels.
++    fn ordered(&self) -> Option<(SelectionOrder, SelectionOrder)> {
++        Some((self.primary.order?, self.secondary.order?))
++    }
++}
++
+ /// Handles text selection in labels (NOT in [`crate::TextEdit`])s.
+ ///
+ /// Each viewport has its own state, because viewports are rendered in separate passes.
+@@ -145,6 +227,36 @@ struct ViewportLabelSelectionState {
+     ///
+     /// Kept so we can undo a bad selection visualization if we don't see both ends of the selection this frame.
+     painted_selections: Vec<(ShapeIdx, Vec<RowVertexIndices>)>,
++
++    /// Selected text of ordered labels, kept while they are out of view.
++    retained: BTreeMap<SelectionOrder, Retained>,
++    retained_bytes: usize,
++
++    /// The span `retained` was last pruned to.
++    retained_span: Option<(SelectionOrder, SelectionOrder)>,
++
++    /// Ordered labels whose selected text did not fit `retained` this pass.
++    unretained: Vec<SelectionOrder>,
++
++    /// Where selected labels were shown this pass, within their clip rects.
++    shown_rect: Rect,
++
++    /// Sorted, disjoint stretches of the ordered selection whose labels were all shown since
++    /// the selection last changed around them, so `retained` holds their current text.
++    /// Copying from `retained` needs one stretch covering the whole selection.
++    covered: Vec<(SelectionOrder, SelectionOrder)>,
++
++    /// The lower and upper ends `covered` was last updated for.
++    covered_ends: Option<(WidgetTextCursor, WidgetTextCursor)>,
++
++    /// The first and last ordered labels shown this pass.
++    seen: Option<(SelectionOrder, SelectionOrder)>,
++
++    /// Ordered labels shown this pass, in order, with the characters each selected and its
++    /// length: checked against the selection's final ends before counting as covered.
++    visits: Vec<(SelectionOrder, [usize; 2], usize)>,
++
++    pass: u64,
+ }
+ 
+ impl Default for ViewportLabelSelectionState {
+@@ -163,6 +275,16 @@ impl Default for ViewportLabelSelectionState {
+             selection_is_dirty: Default::default(),
+             report_selection: Default::default(),
+             painted_selections: Default::default(),
++            retained: Default::default(),
++            retained_bytes: 0,
++            retained_span: None,
++            unretained: Vec::new(),
++            shown_rect: Rect::NOTHING,
++            covered: Vec::new(),
++            covered_ends: None,
++            seen: None,
++            visits: Vec::new(),
++            pass: 0,
+         }
+     }
+ }
+@@ -202,20 +324,77 @@ impl LabelSelectionState {
+         self.states.clear();
+     }
+ 
++    /// Is a drag that started on a label selecting text?
++    pub fn is_dragging(&self) -> bool {
++        self.states.values().any(|state| state.is_dragging)
++    }
++
++    /// Where the selection was visible in the latest pass, in any viewport.
++    pub fn selection_rect(&self) -> Rect {
++        self.states
++            .values()
++            .filter(|state| state.selection.is_some())
++            .fold(Rect::NOTHING, |rect, state| rect.union(state.shown_rect))
++    }
++
++    /// The orders of the two ends of an ordered selection, in any viewport.
++    pub fn ordered_ends(&self) -> Option<(SelectionOrder, SelectionOrder)> {
++        self.states
++            .values()
++            .find_map(|state| state.selection?.ordered())
++    }
++
++    /// The text of these items changed or they were removed, so what an ordered selection kept
++    /// for them is out of date: copying it again needs them shown again.
++    ///
++    /// Returns whether any of them was inside an ordered selection.
++    pub fn forget_items(&mut self, items: &[u64]) -> bool {
++        let mut items = items.to_vec();
++        items.sort_unstable();
++        items.dedup();
++        let mut touched = false;
++        for state in self.states.values_mut() {
++            touched |= state.forget_items(&items);
++        }
++        touched
++    }
++
+     /// Handle text selection state for a label or similar widget.
+     /// This also takes care of painting the galley.
+     pub fn label_text_selection(
++        ui: &Ui,
++        response: &Response,
++        galley_pos: Pos2,
++        galley: Arc<Galley>,
++        fallback_color: epaint::Color32,
++        underline: epaint::Stroke,
++    ) {
++        Self::ordered_label_text_selection(
++            ui,
++            response,
++            galley_pos,
++            galley,
++            fallback_color,
++            underline,
++            None,
++        );
++    }
++
++    /// Like [`Self::label_text_selection`], for a label at `order` in a list that lays out only
++    /// its visible items. See [`SelectionOrder`].
++    pub fn ordered_label_text_selection(
+         ui: &Ui,
+         response: &Response,
+         galley_pos: Pos2,
+         mut galley: Arc<Galley>,
+         fallback_color: epaint::Color32,
+         underline: epaint::Stroke,
++        order: Option<SelectionOrder>,
+     ) {
+         let plugin = ui.ctx().plugin::<Self>();
+         let mut plugin = plugin.lock();
+         let state = plugin.states.entry(ui.ctx().viewport_id()).or_default();
+-        let new_vertex_indices = state.on_label(ui, response, galley_pos, &mut galley);
++        let new_vertex_indices = state.on_label(ui, response, galley_pos, &mut galley, order);
+ 
+         let shape_idx = ui.painter().add(
+             epaint::TextShape::new(galley_pos, galley, fallback_color).with_underline(underline),
+@@ -248,9 +427,16 @@ impl ViewportLabelSelectionState {
+                 // If this press is a double- or triple-click on a label,
+                 // `on_label` will set this again later this pass:
+                 self.granular_drag = None;
++                self.clear_retained();
+             }
+         }
+ 
++        self.pass = self.pass.wrapping_add(1);
++        self.seen = None;
++        self.visits.clear();
++        self.unretained.clear();
++        self.shown_rect = Rect::NOTHING;
++
+         self.selection_bbox_last_frame = self.selection_bbox_this_frame;
+         self.selection_bbox_this_frame = Rect::NOTHING;
+ 
+@@ -268,7 +454,27 @@ impl ViewportLabelSelectionState {
+             ui.set_cursor_icon(CursorIcon::Text);
+         }
+ 
+-        if !self.has_reached_primary || !self.has_reached_secondary {
++        let ordered = self
++            .selection
++            .and_then(|selection| selection.ordered())
++            .is_some();
++        let reached_both = self.has_reached_primary && self.has_reached_secondary;
++        // An end that is not shown although labels on both sides of it are has been removed.
++        let vanished = self.selection.is_some_and(|selection| {
++            [
++                (selection.primary, self.has_reached_primary),
++                (selection.secondary, self.has_reached_secondary),
++            ]
++            .into_iter()
++            .any(|(end, reached)| {
++                !reached
++                    && end
++                        .order
++                        .zip(self.seen)
++                        .is_some_and(|(order, (first, last))| first <= order && order <= last)
++            })
++        });
++        if !reached_both && (!ordered || vanished) {
+             // We didn't see both cursors this frame,
+             // maybe because they are outside the visible area (scrolling),
+             // or one disappeared. In either case we will have horrible glitches, so let's just deselect.
+@@ -320,7 +526,20 @@ impl ViewportLabelSelectionState {
+             self.is_dragging = false;
+         }
+ 
+-        let text_to_copy = core::mem::take(&mut self.text_to_copy);
++        let ordered = self
++            .selection
++            .filter(|selection| selection.ordered().is_some());
++        match ordered {
++            Some(selection) => self.update_coverage(selection),
++            None => self.clear_retained(),
++        }
++
++        let mut text_to_copy = core::mem::take(&mut self.text_to_copy);
++        if ordered.is_some() && !reached_both && (self.report_selection || got_copy_event(ui.ctx()))
++        {
++            // An end is out of view, so this pass did not show all of the selected text.
++            text_to_copy = self.retained_text();
++        }
+         if self.report_selection {
+             self.selection_is_dirty = false;
+             if !text_to_copy.is_empty() {
+@@ -330,11 +549,267 @@ impl ViewportLabelSelectionState {
+                     ));
+             }
+         }
+-        if !text_to_copy.is_empty() && got_copy_event(ui.ctx()) {
++        // A widget that already copied this pass, such as a focused text edit with a selection,
++        // keeps the clipboard.
++        let copied = ui.ctx().output(|output| {
++            output
++                .commands
++                .iter()
++                .any(|command| matches!(command, crate::OutputCommand::CopyText(_)))
++        });
++        if !text_to_copy.is_empty() && got_copy_event(ui.ctx()) && !copied {
+             ui.copy_text(text_to_copy);
+         }
+     }
+ 
++    fn clear_retained(&mut self) {
++        self.retained.clear();
++        self.retained_bytes = 0;
++        self.retained_span = None;
++        self.covered.clear();
++        self.covered_ends = None;
++    }
++
++    /// Track which stretches of an ordered selection `retained` holds current text for.
++    fn update_coverage(&mut self, selection: CurrentSelection) {
++        let (Some(primary), Some(secondary)) = (selection.primary.order, selection.secondary.order)
++        else {
++            return;
++        };
++        let (lower, upper) = if primary <= secondary {
++            (selection.primary, selection.secondary)
++        } else {
++            (selection.secondary, selection.primary)
++        };
++        let span = (primary.min(secondary), primary.max(secondary));
++        if self.retained_span != Some(span) {
++            self.retained
++                .retain(|order, _| span.0 <= *order && *order <= span.1);
++            self.retained_bytes = self.retained.values().map(|retained| retained.charge).sum();
++            self.retained_span = Some(span);
++        }
++
++        match self.covered_ends {
++            Some((old_lower, old_upper))
++                if !old_lower.same_place(&lower) || !old_upper.same_place(&upper) =>
++            {
++                // Only labels whose part of the selection is unchanged keep current text:
++                // those inside both the old and new selection, and an end that did not move.
++                let (Some(old_first), Some(old_last), Some(first), Some(last)) =
++                    (old_lower.order, old_upper.order, lower.order, upper.order)
++                else {
++                    self.covered.clear();
++                    return;
++                };
++                let from = if old_lower.same_place(&lower) {
++                    Some(first)
++                } else {
++                    old_first.max(first).next()
++                };
++                let to = if old_upper.same_place(&upper) {
++                    Some(last)
++                } else {
++                    old_last.min(last).previous()
++                };
++                match from.zip(to) {
++                    Some((from, to)) if from <= to => self.clip_coverage(from, to),
++                    _ => self.covered.clear(),
++                }
++            }
++            Some(_) => self.clip_coverage(span.0, span.1),
++            None => self.covered.clear(),
++        }
++        self.covered_ends = Some((lower, upper));
++
++        // A label shown before an end moved later this pass holds text for the old ends, so
++        // only runs of labels whose selected characters match the final ends count.
++        let mut runs: Vec<(SelectionOrder, SelectionOrder)> = Vec::new();
++        let mut open = false;
++        for &(order, selected, len) in &self.visits {
++            let valid = expected_chars(order, &lower, &upper, len) == selected;
++            match runs.last_mut() {
++                Some(run) if open && valid && run.1 < order => run.1 = order,
++                _ if valid => runs.push((order, order)),
++                _ => {}
++            }
++            open = valid;
++        }
++        for (first, last) in runs {
++            let (first, last) = (first.max(span.0), last.min(span.1));
++            if first <= last {
++                self.covered.push((first, last));
++            }
++        }
++        self.covered.sort_unstable();
++        let mut merged: Vec<(SelectionOrder, SelectionOrder)> = Vec::new();
++        for (first, last) in self.covered.drain(..) {
++            match merged.last_mut() {
++                // Stretches that touch in order have no label between them.
++                Some(previous) if previous.1.next().is_none_or(|after| first <= after) => {
++                    previous.1 = previous.1.max(last);
++                }
++                _ => merged.push((first, last)),
++            }
++        }
++        merged.truncate(COVERED_SPANS);
++        self.covered = merged;
++        for order in core::mem::take(&mut self.unretained) {
++            self.uncover(order, order);
++        }
++    }
++
++    /// Mark `from..=to` as not holding current text.
++    fn uncover(&mut self, from: SelectionOrder, to: SelectionOrder) {
++        if !self
++            .covered
++            .iter()
++            .any(|(first, last)| *first <= to && from <= *last)
++        {
++            return;
++        }
++        let mut covered = Vec::with_capacity(self.covered.len() + 1);
++        for (first, last) in self.covered.drain(..) {
++            if last < from || to < first {
++                covered.push((first, last));
++                continue;
++            }
++            if let Some(before) = from.previous().filter(|before| first <= *before) {
++                covered.push((first, before));
++            }
++            if let Some(after) = to.next().filter(|after| *after <= last) {
++                covered.push((after, last));
++            }
++        }
++        covered.truncate(COVERED_SPANS);
++        self.covered = covered;
++    }
++
++    fn clip_coverage(&mut self, from: SelectionOrder, to: SelectionOrder) {
++        self.covered.retain_mut(|(first, last)| {
++            *first = (*first).max(from);
++            *last = (*last).min(to);
++            first <= last
++        });
++    }
++
++    /// `items` is sorted and deduplicated.
++    fn forget_items(&mut self, items: &[u64]) -> bool {
++        let touched = self.retained_span.is_some_and(|(first, last)| {
++            items
++                .iter()
++                .any(|item| first.item <= *item && *item <= last.item)
++        });
++        if self.retained.is_empty() && self.covered.is_empty() {
++            return touched;
++        }
++        self.retained
++            .retain(|order, _| items.binary_search(&order.item).is_err());
++        self.retained_bytes = self.retained.values().map(|retained| retained.charge).sum();
++        for &item in items {
++            self.uncover(
++                SelectionOrder { item, index: 0 },
++                SelectionOrder {
++                    item,
++                    index: u32::MAX,
++                },
++            );
++        }
++        touched
++    }
++
++    /// Keep what an ordered label has selected, for when it is out of view.
++    fn retain(
++        &mut self,
++        order: SelectionOrder,
++        galley: &Galley,
++        range: Option<CCursorRange>,
++        rect: Rect,
++    ) {
++        let selected = range
++            .filter(|range| !range.is_empty())
++            .map(|range| selected_text_str(galley, &range));
++        let Some(selected) = selected.filter(|selected| !selected.is_empty()) else {
++            if let Some(old) = self.retained.remove(&order) {
++                self.retained_bytes -= old.charge;
++            }
++            return;
++        };
++        let start = selected.as_ptr() as usize - galley.job.text.as_ptr() as usize;
++        let bytes = start..start + selected.len();
++        let pass = self.pass;
++        if let Some(old) = self.retained.get_mut(&order)
++            && Arc::ptr_eq(&old.job, &galley.job)
++            && old.bytes == bytes
++        {
++            old.rect = rect;
++            old.pass = pass;
++            return;
++        }
++        let old = self.retained.get(&order).map(|old| old.charge);
++        let charge = job_bytes(&galley.job);
++        let bytes_after = self.retained_bytes - old.unwrap_or(0) + charge;
++        if RETAINED_BYTES < bytes_after || (old.is_none() && RETAINED_LABELS <= self.retained.len())
++        {
++            // Not kept, so its stretch of the selection cannot be copied out of view.
++            if let Some(old) = self.retained.remove(&order) {
++                self.retained_bytes -= old.charge;
++            }
++            if self.unretained.len() < RETAINED_LABELS {
++                self.unretained.push(order);
++            } else {
++                self.covered.clear();
++            }
++            return;
++        }
++        self.retained_bytes = bytes_after;
++        self.retained.insert(
++            order,
++            Retained {
++                job: galley.job.clone(),
++                bytes,
++                rect,
++                pass,
++                charge,
++            },
++        );
++    }
++
++    /// The retained text in order, or nothing if some of it did not fit or was not seen
++    /// since the selection changed around it.
++    fn retained_text(&self) -> String {
++        let mut text = String::new();
++        let complete = self.retained_span.is_some_and(|(first, last)| {
++            self.covered
++                .iter()
++                .any(|covered| covered.0 <= first && last <= covered.1)
++        });
++        if !complete {
++            return text;
++        }
++        let mut previous: Option<(&SelectionOrder, &Retained)> = None;
++        for (order, retained) in &self.retained {
++            let Some(piece) = retained.job.text.get(retained.bytes.clone()) else {
++                return String::new();
++            };
++            if let Some((previous_order, previous)) = previous {
++                // Placement only compares labels shown in the same pass.
++                if previous_order.item != order.item
++                    || previous.pass != retained.pass
++                    || previous.rect.bottom() <= retained.rect.top()
++                {
++                    text.push('\n');
++                } else if !text.ends_with(char::is_whitespace)
++                    && !piece.starts_with(|c: char| c.is_whitespace() || c.is_ascii_punctuation())
++                {
++                    text.push(' ');
++                }
++            }
++            text.push_str(piece);
++            previous = Some((order, retained));
++        }
++        text
++    }
++
+     fn is_active(&self) -> bool {
+         self.selection.is_some() || self.is_dragging
+     }
+@@ -395,6 +870,7 @@ impl ViewportLabelSelectionState {
+         response: &Response,
+         global_from_galley: TSTransform,
+         galley: &Galley,
++        order: Option<SelectionOrder>,
+     ) -> TextCursorState {
+         let Some(selection) = &mut self.selection else {
+             // Nothing selected.
+@@ -406,6 +882,12 @@ impl ViewportLabelSelectionState {
+             return TextCursorState::default();
+         }
+ 
++        let ordered = selection.ordered();
++        if ordered.is_some() && order.is_none() {
++            // An ordered selection covers only ordered labels.
++            return TextCursorState::default();
++        }
++
+         let galley_from_global = global_from_galley.inverse();
+ 
+         let multi_widget_text_select = ui.style().interaction.multi_widget_text_select;
+@@ -429,6 +911,25 @@ impl ViewportLabelSelectionState {
+             let has_reached_secondary =
+                 self.has_reached_secondary || response.id == selection.secondary.widget_id;
+ 
++            // An end out of view keeps a stale screen position, so rank ordered labels by order.
++            let (upwards, downwards) =
++                if let (Some((primary, secondary)), Some(order)) = (ordered, order) {
++                    (
++                        order <= primary && primary <= secondary,
++                        secondary <= primary && primary <= order,
++                    )
++                } else {
++                    (
++                        !self.has_reached_primary
++                            && selection.primary.pos.y <= selection.secondary.pos.y
++                            && galley_rect.top() <= selection.secondary.pos.y,
++                        has_reached_secondary
++                            && has_reached_primary
++                            && selection.secondary.pos.y <= selection.primary.pos.y
++                            && selection.secondary.pos.y <= galley_rect.bottom(),
++                    )
++                };
++
+             let new_primary = if response.contains_pointer() {
+                 // Dragging into this widget - easy case:
+                 let cursor_at_pointer =
+@@ -454,14 +955,21 @@ impl ViewportLabelSelectionState {
+                             range.secondary,
+                             global_from_galley,
+                             galley,
++                            order,
+                         );
+                         Some(range.primary)
+                     } else {
+                         // The drag has left the anchor's widget.
+                         // Are we before or after the anchor? Decide by screen position:
+-                        let after_anchor = granular.anchor_max.pos.y < pointer_pos.y
+-                            || (granular.anchor_min.pos.y <= pointer_pos.y
+-                                && granular.anchor_max.pos.x <= pointer_pos.x);
++                        let after_anchor = if let (Some(anchor), Some(order)) =
++                            (granular.anchor_max.order, order)
++                        {
++                            anchor < order
++                        } else {
++                            granular.anchor_max.pos.y < pointer_pos.y
++                                || (granular.anchor_min.pos.y <= pointer_pos.y
++                                    && granular.anchor_max.pos.x <= pointer_pos.x)
++                        };
+ 
+                         let unit =
+                             select_unit_at(granular.granularity, galley.text(), cursor_at_pointer);
+@@ -478,25 +986,14 @@ impl ViewportLabelSelectionState {
+                 } else {
+                     Some(cursor_at_pointer)
+                 }
+-            } else if is_in_same_column
+-                && !self.has_reached_primary
+-                && selection.primary.pos.y <= selection.secondary.pos.y
+-                && pointer_pos.y <= galley_rect.top()
+-                && galley_rect.top() <= selection.secondary.pos.y
+-            {
++            } else if is_in_same_column && upwards && pointer_pos.y <= galley_rect.top() {
+                 // The user is dragging the text selection upwards, above the first selected widget (this one):
+                 if DEBUG {
+                     ui.ctx()
+                         .debug_text(format!("Upwards drag; include {:?}", response.id));
+                 }
+                 Some(galley.begin())
+-            } else if is_in_same_column
+-                && has_reached_secondary
+-                && has_reached_primary
+-                && selection.secondary.pos.y <= selection.primary.pos.y
+-                && selection.secondary.pos.y <= galley_rect.bottom()
+-                && galley_rect.bottom() <= pointer_pos.y
+-            {
++            } else if is_in_same_column && downwards && galley_rect.bottom() <= pointer_pos.y {
+                 // The user is dragging the text selection downwards, below this widget.
+                 // We move the cursor to the end of this widget,
+                 // (and we may do the same for the next widget too).
+@@ -510,8 +1007,13 @@ impl ViewportLabelSelectionState {
+             };
+ 
+             if let Some(new_primary) = new_primary {
+-                selection.primary =
+-                    WidgetTextCursor::new(response.id, new_primary, global_from_galley, galley);
++                selection.primary = WidgetTextCursor::new(
++                    response.id,
++                    new_primary,
++                    global_from_galley,
++                    galley,
++                    order,
++                );
+ 
+                 // We don't want the latency of `drag_started`.
+                 let drag_started = ui.input(|i| i.pointer.any_pressed());
+@@ -567,7 +1069,11 @@ impl ViewportLabelSelectionState {
+ 
+             (Some(primary), None) => {
+                 // This labels contains only the primary cursor.
+-                let secondary = if self.has_reached_secondary {
++                let secondary_before = match (selection.secondary.order, order) {
++                    (Some(secondary), Some(order)) if ordered.is_some() => secondary < order,
++                    _ => self.has_reached_secondary,
++                };
++                let secondary = if secondary_before {
+                     // Secondary was before primary.
+                     // Select everything up to the cursor.
+                     // We assume normal left-to-right and top-down layout order here.
+@@ -585,7 +1091,11 @@ impl ViewportLabelSelectionState {
+ 
+             (None, Some(secondary)) => {
+                 // This labels contains only the secondary cursor
+-                let primary = if self.has_reached_primary {
++                let primary_before = match (selection.primary.order, order) {
++                    (Some(primary), Some(order)) if ordered.is_some() => primary < order,
++                    _ => self.has_reached_primary,
++                };
++                let primary = if primary_before {
+                     // Primary was before secondary.
+                     // Select everything up to the cursor.
+                     // We assume normal left-to-right and top-down layout order here.
+@@ -603,7 +1113,12 @@ impl ViewportLabelSelectionState {
+ 
+             (None, None) => {
+                 // This widget has neither the primary or secondary cursor.
+-                let is_in_middle = self.has_reached_primary != self.has_reached_secondary;
++                let is_in_middle =
++                    if let (Some((primary, secondary)), Some(order)) = (ordered, order) {
++                        primary.min(secondary) < order && order < primary.max(secondary)
++                    } else {
++                        self.has_reached_primary != self.has_reached_secondary
++                    };
+                 if is_in_middle {
+                     if DEBUG {
+                         response.ctx.debug_text(format!(
+@@ -628,6 +1143,7 @@ impl ViewportLabelSelectionState {
+         response: &Response,
+         galley_pos_in_layer: Pos2,
+         galley: &mut Arc<Galley>,
++        order: Option<SelectionOrder>,
+     ) -> Vec<RowVertexIndices> {
+         let widget_id = response.id;
+ 
+@@ -650,7 +1166,7 @@ impl ViewportLabelSelectionState {
+ 
+         let old_selection = self.selection;
+ 
+-        let mut cursor_state = self.cursor_for(ui, response, global_from_galley, galley);
++        let mut cursor_state = self.cursor_for(ui, response, global_from_galley, galley, order);
+ 
+         let old_range = cursor_state.range(galley);
+ 
+@@ -699,7 +1215,13 @@ impl ViewportLabelSelectionState {
+                     [selection.secondary; 2]
+                 } else {
+                     granular.anchor.sorted_cursors().map(|ccursor| {
+-                        WidgetTextCursor::new(response.id, ccursor, global_from_galley, galley)
++                        WidgetTextCursor::new(
++                            response.id,
++                            ccursor,
++                            global_from_galley,
++                            galley,
++                            order,
++                        )
+                     })
+                 };
+                 self.granular_drag = Some(GranularDrag {
+@@ -713,6 +1235,18 @@ impl ViewportLabelSelectionState {
+         if let Some(mut cursor_range) = cursor_state.range(galley) {
+             let galley_rect = global_from_galley * Rect::from_min_size(Pos2::ZERO, galley.size());
+             self.selection_bbox_this_frame |= galley_rect;
++            if !cursor_range.is_empty() {
++                // The selected text: its own width on one row, the rows it spans otherwise.
++                let [min, max] = cursor_range.sorted_cursors();
++                let (start, end) = (galley.pos_from_cursor(min), galley.pos_from_cursor(max));
++                let x = if start.top() == end.top() {
++                    start.left()..=end.right()
++                } else {
++                    0.0..=galley.size().x
++                };
++                let rows = Rect::from_x_y_ranges(x, start.top()..=end.bottom());
++                self.shown_rect |= (global_from_galley * rows).intersect(ui.clip_rect());
++            }
+ 
+             if let Some(selection) = &self.selection
+                 && selection.primary.widget_id == response.id
+@@ -745,8 +1279,13 @@ impl ViewportLabelSelectionState {
+                 selection.layer_id = response.layer_id;
+ 
+                 if primary_changed || !ui.style().interaction.multi_widget_text_select {
+-                    selection.primary =
+-                        WidgetTextCursor::new(widget_id, range.primary, global_from_galley, galley);
++                    selection.primary = WidgetTextCursor::new(
++                        widget_id,
++                        range.primary,
++                        global_from_galley,
++                        galley,
++                        order,
++                    );
+                     self.has_reached_primary = true;
+                 }
+                 if secondary_changed || !ui.style().interaction.multi_widget_text_select {
+@@ -755,6 +1294,7 @@ impl ViewportLabelSelectionState {
+                         range.secondary,
+                         global_from_galley,
+                         galley,
++                        order,
+                     );
+                     self.has_reached_secondary = true;
+                 }
+@@ -767,12 +1307,14 @@ impl ViewportLabelSelectionState {
+                         range.primary,
+                         global_from_galley,
+                         galley,
++                        order,
+                     ),
+                     secondary: WidgetTextCursor::new(
+                         widget_id,
+                         range.secondary,
+                         global_from_galley,
+                         galley,
++                        order,
+                     ),
+                 });
+                 self.has_reached_primary = true;
+@@ -803,6 +1345,27 @@ impl ViewportLabelSelectionState {
+ 
+         let cursor_range = cursor_state.range(galley);
+ 
++        if let Some(order) = order {
++            self.seen = Some(self.seen.map_or((order, order), |(first, last)| {
++                (first.min(order), last.max(order))
++            }));
++        }
++        if let Some(order) = order
++            && self
++                .selection
++                .is_some_and(|selection| selection.ordered().is_some())
++        {
++            let galley_rect = global_from_galley * Rect::from_min_size(Pos2::ZERO, galley.size());
++            self.retain(order, galley, cursor_range, galley_rect);
++            if self.visits.len() < RETAINED_LABELS {
++                let selected = cursor_range.map_or([0, 0], |range| {
++                    let [min, max] = range.sorted_cursors();
++                    normalized([min.index.0, max.index.0])
++                });
++                self.visits.push((order, selected, galley.end().index.0));
++            }
++        }
++
+         let mut new_vertex_indices = vec![];
+ 
+         if let Some(cursor_range) = cursor_range {
+@@ -826,6 +1389,39 @@ impl ViewportLabelSelectionState {
+     }
+ }
+ 
++/// An empty range, wherever it sits, selects nothing.
++fn normalized([min, max]: [usize; 2]) -> [usize; 2] {
++    if min < max { [min, max] } else { [0, 0] }
++}
++
++/// The characters the ordered selection from `lower` to `upper` selects in a label at `order`
++/// that is `len` characters long.
++fn expected_chars(
++    order: SelectionOrder,
++    lower: &WidgetTextCursor,
++    upper: &WidgetTextCursor,
++    len: usize,
++) -> [usize; 2] {
++    let (Some(first), Some(last)) = (lower.order, upper.order) else {
++        return [0, 0];
++    };
++    let (from, to) = (
++        lower.ccursor.index.0.min(len),
++        upper.ccursor.index.0.min(len),
++    );
++    normalized(if order == first && order == last {
++        [from.min(to), from.max(to)]
++    } else if order == first {
++        [from, len]
++    } else if order == last {
++        [0, to]
++    } else if first < order && order < last {
++        [0, len]
++    } else {
++        [0, 0]
++    })
++}
++
+ fn got_copy_event(ctx: &Context) -> bool {
+     ctx.input(|i| {
+         i.events
+@@ -857,6 +1453,10 @@ fn process_selection_key_events(
+ }
+ 
+ fn selected_text(galley: &Galley, cursor_range: &CCursorRange) -> String {
++    selected_text_str(galley, cursor_range).to_owned()
++}
++
++fn selected_text_str<'g>(galley: &'g Galley, cursor_range: &CCursorRange) -> &'g str {
+     // This logic means we can select everything in an elided label (including the `…`)
+     // and still copy the entire un-elided text!
+     let everything_is_selected = cursor_range.contains(CCursorRange::select_all(galley));
+@@ -864,9 +1464,9 @@ fn selected_text(galley: &Galley, cursor_range: &CCursorRange) -> String {
+     let copy_everything = cursor_range.is_empty() || everything_is_selected;
+ 
+     if copy_everything {
+-        galley.text().to_owned()
++        galley.text()
+     } else {
+-        cursor_range.slice_str(galley).to_owned()
++        cursor_range.slice_str(galley.text())
+     }
+ }
+ 
+@@ -903,6 +1503,7 @@ mod tests {
+             widget_id: Id::unique("selected_label"),
+             ccursor: CCursor::default(),
+             pos: Pos2::ZERO,
++            order: None,
+         };
+         CurrentSelection {
+             layer_id: LayerId::background(),
+diff --git a/crates/egui/src/text_selection/mod.rs b/crates/egui/src/text_selection/mod.rs
+index cbd51c31..1316b81a 100644
+--- a/crates/egui/src/text_selection/mod.rs
++++ b/crates/egui/src/text_selection/mod.rs
+@@ -8,5 +8,5 @@ pub mod text_cursor_state;
+ pub mod visuals;
+ 
+ pub use cursor_range::CCursorRange;
+-pub use label_text_selection::LabelSelectionState;
++pub use label_text_selection::{LabelSelectionState, SelectionOrder};
+ pub use text_cursor_state::TextCursorState;
+-- 
+2.50.1
+

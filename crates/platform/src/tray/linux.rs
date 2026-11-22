@@ -1,11 +1,14 @@
-use super::Event;
-use ksni::{TrayMethods, menu::StandardItem};
+use super::{Event, MenuState, Row};
+use ksni::{
+	TrayMethods,
+	menu::{CheckmarkItem, StandardItem},
+};
 use std::sync::{
 	Arc,
 	atomic::{AtomicU8, Ordering},
 };
 use std::time::Duration;
-use tokio::sync::oneshot;
+use tokio::sync::{oneshot, watch};
 
 struct Events {
 	bits: AtomicU8,
@@ -21,7 +24,7 @@ impl Events {
 			self.availability.store(2, Ordering::Release);
 		}
 		// A hidden window may receive no frames, so the UI would never see this event.
-		if event != Event::Minimize {
+		if event.restores() {
 			(self.restore)();
 		}
 		if self.bits.fetch_or(event as u8, Ordering::Relaxed) & event as u8 == 0 {
@@ -33,6 +36,7 @@ impl Events {
 /// One cancellable registration on the application's runtime, never a UI-thread D-Bus call.
 pub struct Tray {
 	events: Arc<Events>,
+	menu: watch::Sender<MenuState>,
 	_stop: oneshot::Sender<()>,
 }
 
@@ -51,6 +55,7 @@ impl Tray {
 			restore: Box::new(restore),
 		});
 		let (stop, mut stopped) = oneshot::channel();
+		let (menu, mut menus) = watch::channel(MenuState::default());
 		let worker_events = events.clone();
 		runtime.spawn(async move {
 			let Ok(icon) = image::load_from_memory_with_format(
@@ -86,6 +91,7 @@ impl Tray {
 				.unwrap_or_default();
 			let item = Item {
 				events: worker_events.clone(),
+				menu: menus.borrow_and_update().clone(),
 				pixels,
 				size: [width, height],
 				icon_name: icon_name.unwrap_or_default(),
@@ -122,11 +128,24 @@ impl Tray {
 			{
 				(worker_events.wake)();
 			}
-			let _ = stopped.await;
+			loop {
+				tokio::select! {
+					_ = &mut stopped => break,
+					changed = menus.changed() => {
+						if changed.is_err() {
+							break;
+						}
+						let next = menus.borrow_and_update().clone();
+						// A closed service keeps waiting for the stop above.
+						let _ = handle.update(|item: &mut Item| item.menu = next).await;
+					}
+				}
+			}
 			let _ = tokio::time::timeout(Duration::from_secs(2), handle.shutdown()).await;
 		});
 		Ok(Self {
 			events,
+			menu,
 			_stop: stop,
 		})
 	}
@@ -136,12 +155,25 @@ impl Tray {
 
 	pub fn set_voice_state(&self, _state: super::VoiceState) {}
 
+	pub fn set_menu(&self, menu: &super::Menu<'_>) {
+		self.menu.send_if_modified(|shown| {
+			let changed = !shown.matches(menu);
+			if changed {
+				*shown = MenuState::new(menu);
+			}
+			changed
+		});
+	}
+
 	pub fn take_event(&self) -> Option<Event> {
 		[
 			Event::Quit,
 			Event::Minimize,
 			Event::Unavailable,
 			Event::Show,
+			Event::ToggleMute,
+			Event::ToggleDeafen,
+			Event::Disconnect,
 		]
 		.into_iter()
 		.find(|event| {
@@ -240,15 +272,29 @@ fn write_symbolic_icon(icon_name: &str) -> Option<String> {
 		.mode(0o700)
 		.create(&directory)
 		.ok()?;
-	// Symbolic icons are recolored from this placeholder foreground.
-	let svg = include_str!("../../../../assets/brand/serein-mark.svg")
-		.replace("fill=\"#fff\"", "fill=\"#bebebe\"");
+	let svg = recolorable_svg(include_str!("../../../../assets/brand/serein-mark.svg"));
 	std::fs::write(directory.join(format!("{icon_name}.svg")), svg).ok()?;
 	directory.to_str().map(str::to_owned)
 }
 
+/// GTK hosts recolor any `-symbolic` icon. Plasma only rewrites this stylesheet, and paints
+/// the fill as authored otherwise, which left a dark mark on a dark panel. The grey is what
+/// hosts that recolor nothing show.
+fn recolorable_svg(mark: &str) -> String {
+	mark.replace(
+		"fill=\"#fff\"",
+		"fill=\"currentColor\" class=\"ColorScheme-Text\"",
+	)
+	.replacen(
+		"<path",
+		"<style id=\"current-color-scheme\" type=\"text/css\">.ColorScheme-Text { color: #bebebe; }</style>\n<path",
+		1,
+	)
+}
+
 struct Item {
 	events: Arc<Events>,
+	menu: MenuState,
 	pixels: Vec<u8>,
 	size: [i32; 2],
 	icon_name: String,
@@ -280,26 +326,45 @@ impl ksni::Tray for Item {
 		self.events.push(Event::Show);
 	}
 	fn menu(&self) -> Vec<ksni::MenuItem<Self>> {
-		vec![
-			StandardItem {
-				label: "Show Serein".into(),
-				activate: Box::new(|item: &mut Self| item.events.push(Event::Show)),
-				..Default::default()
-			}
-			.into(),
-			StandardItem {
-				label: "Minimize Serein".into(),
-				activate: Box::new(|item: &mut Self| item.events.push(Event::Minimize)),
-				..Default::default()
-			}
-			.into(),
-			StandardItem {
-				label: "Quit".into(),
-				activate: Box::new(|item: &mut Self| item.events.push(Event::Quit)),
-				..Default::default()
-			}
-			.into(),
-		]
+		self.menu
+			.rows()
+			.into_iter()
+			.map(|row| match row {
+				Row::Separator => ksni::MenuItem::Separator,
+				Row::Info(text) => StandardItem {
+					// A lone underscore would otherwise mark an access key.
+					label: text.replace('_', "__"),
+					enabled: false,
+					..Default::default()
+				}
+				.into(),
+				Row::Action {
+					label,
+					event,
+					checked: Some(checked),
+					enabled,
+				} => CheckmarkItem {
+					label: label.into(),
+					enabled,
+					checked,
+					activate: Box::new(move |item: &mut Self| item.events.push(event)),
+					..Default::default()
+				}
+				.into(),
+				Row::Action {
+					label,
+					event,
+					checked: None,
+					enabled,
+				} => StandardItem {
+					label: label.into(),
+					enabled,
+					activate: Box::new(move |item: &mut Self| item.events.push(event)),
+					..Default::default()
+				}
+				.into(),
+			})
+			.collect()
 	}
 	fn watcher_offline(&self, _reason: ksni::OfflineReason) -> bool {
 		self.events.push(Event::Unavailable);

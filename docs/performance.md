@@ -30,6 +30,52 @@ Recent synthetic/offline measurements are workload-specific. They do not establi
 performance, universal device results or application-wide memory bounds. The raw PR screenshot,
 log and per-run evidence archive has been removed; the summaries below retain the useful results.
 
+## DeepFilterNet in plain Rust — November 20, 2026
+
+`crates/deepfilternet` runs the DeepFilterNet3 weights without an inference runtime. It
+replaces the libDF/tract 0.22.5 runtime that PR #1085 vendored, and was compared with that
+runtime in one test binary before the runtime was removed. Apple M5 Pro, 24 GB, macOS
+27.2.1, Homebrew Rust 1.100 instead of the pinned 1.99.1, dev profile with both runtimes
+at `opt-level = 3` as development builds run them. No release package was built.
+
+A throwaway harness, not committed, timed each suppressor alone (no echo cancellation or
+gain) over 1,000 10 ms hops of synthetic noise, harmonic "speech" and silence, three
+rounds each. The worker runs two hops per 20 ms frame.
+
+| Metric, median of 3 rounds | libDF on tract 0.22.5 | `crates/deepfilternet` |
+| --- | ---: | ---: |
+| Per-hop median | 0.965 ms | 0.179 ms |
+| Per-hop p99 | 1.095 ms | 0.211 ms |
+| Start (decode and optimize networks / build state) | 289 ms | 0.14 ms |
+
+The port's slowest hop was 4.2 ms in the first round and 0.22 ms in later rounds: the first
+hops page the embedded weights in. Two hops per frame are about 1.8% of real time.
+
+Output parity over 9,000 hops (90 s) of synthetic noise, speech-like tones, clipping and
+digital silence, largest per-sample difference from the tract runtime:
+
+| Setting | Largest difference | Error energy / output energy |
+| --- | ---: | ---: |
+| High (no cap) | 3.6e-6 | 8.2e-14 |
+| Low (12 dB cap) | 2.4e-6 | 4.5e-14 |
+| Very high (post-filter) | 3.6e-5 | 7.1e-11 |
+
+The post-filter row differs more because the port also filters the 24 kHz bin, which
+libDF's four-bin loop skips. The network alone matched ONNX Runtime on the original model
+files within 1.5e-6 over 60 frames of unit-scale random features. Sparse features 300 and
+3,000 times larger, which force the filter decoder's direct path active, matched within
+6.2e-6 and 1.2e-4 on coefficients as large as 6.7 and 86.
+
+In `rust:1.99.1` Linux containers the crate's tests passed on arm64 and on x86_64 (emulated
+by Rosetta, so its timing is not representative). Per-hop medians there were 0.18–0.20 ms
+on arm64, and two minutes of digital silence ran at the same median as noise.
+
+The weights add 8,535,484 bytes to every executable; the tract runtime had added
+25,964,032 bytes to the Windows x64 release executable in PR #1085. The lockfile gains no
+third-party package. Release executable and package sizes, process memory, whole-app CPU,
+real x86 hardware, Windows, physical microphones, perceived quality and live calls are
+unmeasured. PR #903's SI-SDR table was measured on the tract runtime and not re-run.
+
 ## G-SYNC steady refresh offer — November 10, 2026
 
 Baseline `09bee5a` and this branch were built with the pinned Rust 1.99.1 toolchain and locked
@@ -1989,3 +2035,53 @@ measurements. Same-bucket requests are serialized; exhausted successful response
 hold only their route/bucket, while 429 responses retain the existing conservative
 shared cooldown. Synthetic regressions cover independent-channel progress,
 queued verification expiry, aliases, major resources, eviction and terminal wakeup.
+
+## `interface_ui` extension layout — November 17, 2026
+
+Baseline `789d8300`, task branch `feat/ventrilo-extension` (after commit recorded in the PR).
+Windows 11 build 26200, AMD Ryzen 5 7600X (12 threads), 32 GiB RAM, 3840×2160 at 100% scale,
+wgpu default backend, pinned toolchain and lockfile. Measured with an external plugin that uses
+the generic `interface_ui` capability to replace the main panes with a declarative tree of text
+and voice channels and voice participants; no window shows beside the tree until a channel is
+double-clicked.
+
+Idle process samples of the native `--demo --demo-voice` fixture: 25 s warmup, then 30 samples
+at 1 s intervals; CPU is process processor-time delta over wall time, memory is working set and
+private bytes. Matching debug demo builds are used because release packages exclude the `demo`
+feature; the after build loads the seeded plugin (layout on), the baseline has no plugin.
+
+| Metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Release `dist/serein.exe` (bytes) | 99,460,096 | 99,506,688 | +46,592 (+0.047%) |
+| Idle CPU (%) | 0.42 | 0.26 | −0.16 pp |
+| Peak working set (MiB) | 217.5 | 220.9 | +3.4 |
+| Settled working set (MiB) | 217.5 | 220.9 | +3.4 |
+| Peak private bytes (MiB) | 274.4 | 257.8 | −16.6 |
+
+Single-run samples on a shared desktop: deltas of this size are noise, not improvements or
+regressions. Contended samples were discarded and re-measured on an idle desktop: one baseline
+(11.51% idle CPU) and two after runs (18.91%, and 5.47% while a screenshot capture ran
+concurrently). Frame latency and startup time were not instrumented and are not claimed.
+
+## `start_screen` player — November 17, 2026
+
+The host no longer rasterizes anything for a plugin start screen and runs no render thread for
+it: the plugin ships pre-rendered 2-bit frames and the host only plays them back. When a screen is
+loaded or accepted, its frames are decoded once into one palette-index byte per cell (at most
+655,360 cells for the 160 KiB packed limit). While the connecting screen shows, a displayed
+frame change maps at most 160×160 indices per image through its palette into one reused
+nearest-filtered texture (one 100 KiB RGBA upload per changed image, at most four images), and
+each animation asks for a repaint only at its next frame boundary, at most 30 per second. A
+still image uploads once; nothing runs once the screen is gone.
+
+Throwaway timing harness, Windows 11 build 26200, AMD Ryzen 5 7600X (12 threads), 32 GiB RAM,
+copying the player's decode and palette loops (rustc 1.99.1), 25 frames of 160×160 cells
+(160,000 packed bytes):
+
+| Build | Decode once (640,000 cells) | Map one 160×160 frame | Four images at 30 fps, one core |
+| --- | ---: | ---: | ---: |
+| Release | 0.96 ms | 0.030 ms | 0.36% |
+| Debug | 14.5 ms | 0.24 ms | 2.9% |
+
+Single runs on a shared desktop. Texture upload, GPU time, frame latency and whole-process CPU
+were not instrumented and are not claimed; other screens pay nothing for the feature.

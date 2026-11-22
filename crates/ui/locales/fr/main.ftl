@@ -312,6 +312,10 @@ attachments-media-menu-unavailable-for-synthetic-attachments = Indisponible pour
 attachments-open-original-open-original = Ouvrir l'original…
 # Context: pending_card
 attachments-pending-card-remove-attachment = Supprimer la pièce jointe
+# Context: pending_viewer
+attachments-pending-viewer-full-size-unavailable = Aperçu en taille réelle indisponible
+attachments-pending-viewer-loading = Chargement de l’image en taille réelle…
+attachments-pending-viewer-close = Fermer (Esc)
 attachments-loading-card-preparing = Préparation…
 # Context: show_status
 attachments-show-status-cancel-download = Annuler le téléchargement
@@ -1655,20 +1659,14 @@ main-restoring-screen-use-a-different-account = Utiliser un autre compte
 main-restoring-screen-welcome-back = Content de te revoir
 # Context: sign_in_accounts
 main-sign-in-accounts-saved-accounts = Comptes enregistrés
-# Context: sign_in_consent
-main-sign-in-consent-passwords-and-2fa-stay-on-discord-s-own-login-page = Les mots de passe et 2FA restent sur la propre page de connexion de Discord ; seul le jeton de session est conservé dans le magasin d'informations d'identification de votre système d'exploitation.
 # Context: sign_in_disclosures
 main-sign-in-disclosures-about-serein = À propos de Serein
 # Context: sign_in_disclosures
 main-sign-in-disclosures-connect-with-this-token = Connectez-vous avec ce jeton
 # Context: sign_in_disclosures
-main-sign-in-disclosures-for-owners-who-already-hold-a-valid-discord-session-token = Pour les propriétaires qui détiennent déjà un jeton de session Discord valide, par exemple provenant d'une autre installation Serein connectée. Les mots de passe et 2FA ne sont jamais utilisés ici ; cela contourne entièrement la page de connexion hébergée par Discord.
-# Context: sign_in_disclosures
 main-sign-in-disclosures-forget-saved-login = Oublier la connexion enregistrée
 # Context: sign_in_disclosures
 main-sign-in-disclosures-session-token = Jeton de session
-# Context: sign_in_disclosures
-main-sign-in-disclosures-sign-in-with-a-session-token = Connectez-vous avec un jeton de session
 # Context: sign_in_header
 main-sign-in-header-continue-with-a-saved-account-or-sign-in-with-another = Continuez avec un compte enregistré ou connectez-vous avec un autre.
 # Context: sign_in_header
@@ -3478,12 +3476,6 @@ settings-activity-reading-programs = Lecture des programmes en cours…
 settings-activity-no-matching-programs = Aucun programme correspondant n'est en cours d'exécution.
 # Context: activity_settings
 settings-activity-add-game = Ajouter le jeu
-# Context: appearance_menu
-settings-appearance-menu-display = Afficher
-# Context: appearance_menu
-settings-appearance-menu-mode = Mode
-# Context: appearance_menu
-settings-appearance-menu-theme = Thème
 # Context: appearance_settings
 settings-appearance-settings-accent = Accent
 # Context: appearance_settings
@@ -4895,6 +4887,7 @@ profiles-status-clear = Effacer le statut
 send-throttled-title = Holà, beaucoup trop épicé
 send-throttled-body = Vous envoyez des messages trop rapidement !
 send-throttled-dismiss = Entrer dans la zone zen
+slowmode-enabled = Le mode lent est activé
 profiles-private-profile = Profil privé
 profiles-private-notice = Le profil de { $name } est privé, certaines infos sont donc masquées. Ajoutez cette personne en ami pour en voir plus.
 settings-cosmetics-name-styles = Styles de nom
@@ -4943,3 +4936,7 @@ moderation-delete-week = 7 derniers jours
 moderation-confirm-timeout = Exclure
 # Context: moderation
 moderation-confirm-ban = Bannir
+
+## crates/ui/src/interface_ui.rs
+# Context: interface_tree
+interface-ui-empty = Ce module n'a encore rien à afficher.

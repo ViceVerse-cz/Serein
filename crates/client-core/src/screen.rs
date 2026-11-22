@@ -109,40 +109,36 @@ pub fn picture(
 		Resolution::Preset { width, height } => (width, height),
 	};
 	if width > 0 && height > 0 {
-		return match resolution {
-			Resolution::Source => fitted_source(width, height),
-			Resolution::Preset { .. } => Some(fit_within(bound, width, height)),
-		};
+		return fit_within(bound, width, height);
 	}
 	(sized_after_pick || matches!(resolution, Resolution::Preset { height, .. } if height <= 1080))
 		.then_some(bound)
 }
 
-/// A source that fits inside `bound` keeps its native (even) size; a larger one is scaled
-/// into `bound`, keeping its aspect ratio with borders.
-fn fit_within(bound: (u32, u32), width: u32, height: u32) -> (u32, u32) {
-	if width <= bound.0 && height <= bound.1 {
-		fitted_source(width, height).unwrap_or(bound)
-	} else {
-		bound
-	}
-}
+/// The shortest edge scaling may produce: OpenH264, the software fallback, rejects less.
+const MIN_SCALED_EDGE: u32 = 16;
 
-fn fitted_source(width: u32, height: u32) -> Option<(u32, u32)> {
-	if width < 2 || height < 2 {
-		return None;
-	}
-	if width <= MAX_SHARE_WIDTH && height <= MAX_SHARE_HEIGHT {
-		let width = width & !1;
-		let height = height & !1;
-		return (width >= 2 && height >= 2).then_some((width, height));
-	}
-	let width = u64::from(width);
-	let height = u64::from(height);
-	let scale = ((u64::from(MAX_SHARE_WIDTH) << 16) / width)
-		.min((u64::from(MAX_SHARE_HEIGHT) << 16) / height);
-	let fitted_width = u32::try_from((width * scale) >> 16).unwrap_or(0) & !1;
-	let fitted_height = u32::try_from((height * scale) >> 16).unwrap_or(0) & !1;
+/// A source that fits inside the (even) `bound` keeps its native even size; a larger one
+/// is scaled down onto one edge of `bound` at its own aspect ratio, so an ultrawide share
+/// is not letterboxed into a 16:9 picture. A sliver keeps an encodable minimum edge.
+fn fit_within(bound: (u32, u32), width: u32, height: u32) -> Option<(u32, u32)> {
+	let (fitted_width, fitted_height) = if width <= bound.0 && height <= bound.1 {
+		(width, height)
+	} else {
+		// The scaled edge rounds to the nearest even pixel.
+		let scaled = |edge: u32, to: u32, from: u32| {
+			let (edge, to, from) = (u128::from(edge), u128::from(to), u128::from(from));
+			u32::try_from((edge * to + from) / (2 * from) * 2)
+				.unwrap_or(0)
+				.max(MIN_SCALED_EDGE)
+		};
+		if u64::from(width) * u64::from(bound.1) >= u64::from(height) * u64::from(bound.0) {
+			(bound.0, scaled(height, bound.0, width))
+		} else {
+			(scaled(width, bound.1, height), bound.1)
+		}
+	};
+	let (fitted_width, fitted_height) = (fitted_width & !1, fitted_height & !1);
 	(fitted_width >= 2 && fitted_height >= 2).then_some((fitted_width, fitted_height))
 }
 
@@ -162,7 +158,9 @@ impl Settings {
 		if width == 0 || height == 0 {
 			return self;
 		}
-		let (width, height) = fit_within((self.width, self.height), width, height);
+		let Some((width, height)) = fit_within((self.width, self.height), width, height) else {
+			return self;
+		};
 		let fitted = Self {
 			width,
 			height,

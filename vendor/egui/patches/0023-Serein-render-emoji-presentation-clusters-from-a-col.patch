@@ -20,7 +20,7 @@ Fallback picked a face per base char and ignored emoji presentation, so a text f
  create mode 100644 crates/epaint/src/text/test_fonts/mono.ttf
 
 diff --git a/crates/egui_system_font_provider/src/lib.rs b/crates/egui_system_font_provider/src/lib.rs
-index bc3321a80..4a2230fda 100644
+index bc3321a8..4a2230fd 100644
 --- a/crates/egui_system_font_provider/src/lib.rs
 +++ b/crates/egui_system_font_provider/src/lib.rs
 @@ -115,7 +115,22 @@ impl FontProvider for SystemFontProvider {
@@ -48,7 +48,7 @@ index bc3321a80..4a2230fda 100644
                  collection,
                  source_cache,
 diff --git a/crates/epaint/src/text/family.rs b/crates/epaint/src/text/family.rs
-index 3f7d07103..aa8dfa64c 100644
+index 3f7d0710..aa8dfa64 100644
 --- a/crates/epaint/src/text/family.rs
 +++ b/crates/epaint/src/text/family.rs
 @@ -32,6 +32,10 @@ pub(crate) struct Family {
@@ -133,10 +133,10 @@ index 3f7d07103..aa8dfa64c 100644
      #[inline]
      fn notdef_face(&self) -> FontFaceKey {
 diff --git a/crates/epaint/src/text/font_face.rs b/crates/epaint/src/text/font_face.rs
-index 3f0374287..994120273 100644
+index 158a189b..819330e5 100644
 --- a/crates/epaint/src/text/font_face.rs
 +++ b/crates/epaint/src/text/font_face.rs
-@@ -646,6 +646,23 @@ impl FontFace {
+@@ -656,6 +656,23 @@ impl FontFace {
          self.subpixel_binning
      }
  
@@ -161,10 +161,10 @@ index 3f0374287..994120273 100644
      pub(crate) fn is_color_glyph(&self, metrics: &StyledMetrics, glyph_id: GlyphId) -> bool {
          core::cfg_select! {
 diff --git a/crates/epaint/src/text/font_provider.rs b/crates/epaint/src/text/font_provider.rs
-index f7dbab5c7..c9221760f 100644
+index b8639a14..d6ee69e4 100644
 --- a/crates/epaint/src/text/font_provider.rs
 +++ b/crates/epaint/src/text/font_provider.rs
-@@ -284,11 +284,21 @@ mod tests {
+@@ -283,11 +283,21 @@ mod tests {
          assert!(!fonts.has_glyph(&FontId::proportional(14.0), HANGUL));
          assert!(!fonts.has_glyph(&FontId::proportional(14.0), HANGUL));
          assert!(!fonts.has_glyph(&FontId::monospace(14.0), HANGUL));
@@ -187,7 +187,7 @@ index f7dbab5c7..c9221760f 100644
          );
          assert!(fonts.discovered_fonts().is_empty());
 diff --git a/crates/epaint/src/text/fonts.rs b/crates/epaint/src/text/fonts.rs
-index 6142c4c6e..d10392fa8 100644
+index 687138d7..67e5a593 100644
 --- a/crates/epaint/src/text/fonts.rs
 +++ b/crates/epaint/src/text/fonts.rs
 @@ -1017,6 +1017,42 @@ mod tests {

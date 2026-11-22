@@ -188,6 +188,7 @@ fn large_startup() -> crate::Startup {
 		permission_guild.roles.as_mut().unwrap()[0].id = Id(guild);
 		startup.permissions.guilds.push(permission_guild);
 		startup.guilds.push(Guild {
+			banner: None,
 			default_message_notifications: None,
 			stickers: None,
 			id: Id(guild),
@@ -407,6 +408,7 @@ fn user() -> User {
 fn channel(id: u64, kind: u8, parent: Option<Id>) -> Channel {
 	Channel {
 		user_limit: None,
+		slowmode: 0,
 		id: Id(id),
 		guild: Some(Id(10)),
 		parent_id: parent,
@@ -439,6 +441,7 @@ fn message(id: u64, channel: Id) -> Message {
 		reply_deleted: false,
 		interaction: None,
 		forwarded: false,
+		forward_origin: None,
 		unsupported: false,
 		components: vec![],
 		application_id: None,
@@ -561,6 +564,7 @@ fn state() -> State {
 		Event::Ready {
 			user: user(),
 			guilds: vec![Guild {
+				banner: None,
 				default_message_notifications: None,
 				stickers: None,
 				id: Id(10),
@@ -597,6 +601,7 @@ fn cross_server_emoji_checks_destination_and_known_source_roles() {
 		roles: Some(vec![]),
 	};
 	state.guilds.push(Guild {
+		banner: None,
 		default_message_notifications: None,
 		stickers: None,
 		id: Id(40),
@@ -761,6 +766,7 @@ fn new_custom_reactions_require_eligibility_but_existing_and_removal_stay_separa
 	assert!(!state.can_react(Id(100), Some(&emoji), true));
 	assert!(state.prepare_reaction(Id(100), emoji.clone()).is_none());
 	state.guilds.push(Guild {
+		banner: None,
 		default_message_notifications: None,
 		stickers: None,
 		id: Id(40),
@@ -1342,6 +1348,7 @@ fn deleting_an_unassigned_role_prunes_its_overwrites_and_invalidates_cached_deci
 						guild: Id(10),
 						patch: ChannelPatch {
 							user_limit: Patch::Absent,
+							slowmode: Patch::Absent,
 							icon: model::Patch::Absent,
 							id: Id(30),
 							parent_id: Patch::Value(parent),

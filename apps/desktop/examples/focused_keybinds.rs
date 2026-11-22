@@ -16,13 +16,13 @@ fn main() {
 		.build()
 		.unwrap();
 	let mut hotkeys = platform::hotkeys::Hotkeys::new(|| {});
-	// Plain letters cannot register globally, so enabling this synthetic configuration
-	// exercises switching back to focused input without capturing OS shortcuts.
+	// Plain letters are watched rather than registered, so enabling this synthetic
+	// configuration exercises switching back to focused input without capturing OS shortcuts.
 	let mut plain = model::Keybinds::default();
 	plain.toggle_mute.modifiers = 0;
 	plain.toggle_deafen.modifiers = 0;
-	hotkeys.sync(&plain, &runtime);
-	hotkeys.sync(&view.keybinds, &runtime);
+	hotkeys.sync(&plain, false, &runtime);
+	hotkeys.sync(&view.keybinds, false, &runtime);
 	assert_eq!(hotkeys.global_toggle_mask(), 0);
 	assert_eq!(hotkeys.take_toggle_pending(), 0);
 	assert!(!hotkeys.push_to_talk_down());

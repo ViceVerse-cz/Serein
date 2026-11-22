@@ -1,10 +1,10 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: x <x@x>
-Date: Mon, 9 Nov 2026 12:43:54 +0100
+Date: Thu, 22 Oct 2026 19:14:16 -0700
 Subject: [PATCH] egui#8768: Let apps skip repaints for pointer motion they
  don't need
 
-Squashed from https://github.com/emilk/egui/pull/8768 at 48c1cebea9f6.
+Squashed from https://github.com/emilk/egui/pull/8768 at f48908d029d4.
 ---
  crates/eframe/src/epi.rs                      | 28 ++++++++
  crates/eframe/src/native/glow_integration.rs  | 19 ++++--
@@ -16,13 +16,13 @@ Squashed from https://github.com/emilk/egui/pull/8768 at 48c1cebea9f6.
  7 files changed, 186 insertions(+), 10 deletions(-)
 
 diff --git a/crates/eframe/src/epi.rs b/crates/eframe/src/epi.rs
-index 3b618be66..2b477d814 100644
+index 87b52a15..5c262530 100644
 --- a/crates/eframe/src/epi.rs
 +++ b/crates/eframe/src/epi.rs
-@@ -280,6 +280,34 @@ pub trait App {
-     ///
-     /// This function does not return a value. Any changes to the input should be made directly to `_raw_input`.
-     fn raw_input_hook(&mut self, _ctx: &egui::Context, _raw_input: &mut egui::RawInput) {}
+@@ -306,6 +306,34 @@ pub trait App {
+     /// for with [`egui::EmbeddedView`]: the code that shows a view moves it there, or hides it
+     /// when its view is missing from the output.
+     fn output_hook(&mut self, _ctx: &egui::Context, _output: &mut egui::FullOutput) {}
 +
 +    /// Decide whether a window event that egui would answer with a repaint should paint a frame.
 +    ///
@@ -55,10 +55,10 @@ index 3b618be66..2b477d814 100644
  
  /// Options controlling the behavior of a native window.
 diff --git a/crates/eframe/src/native/glow_integration.rs b/crates/eframe/src/native/glow_integration.rs
-index 0db54a27e..098536f55 100644
+index 749498c1..08c2049f 100644
 --- a/crates/eframe/src/native/glow_integration.rs
 +++ b/crates/eframe/src/native/glow_integration.rs
-@@ -563,7 +563,7 @@ impl WinitApp for GlowWinitApp<'_> {
+@@ -564,7 +564,7 @@ impl WinitApp for GlowWinitApp<'_> {
          _: winit::event::DeviceId,
          event: winit::event::DeviceEvent,
      ) -> crate::Result<EventResult> {
@@ -67,7 +67,7 @@ index 0db54a27e..098536f55 100644
              && let Some(running) = &mut self.running
          {
              // `MouseMotion` is not associated with any window, so we deliver it to
-@@ -575,12 +575,17 @@ impl WinitApp for GlowWinitApp<'_> {
+@@ -576,12 +576,17 @@ impl WinitApp for GlowWinitApp<'_> {
              let viewports = &mut glutin.viewports;
              if let Some(window_id) = focused_viewport
                  .and_then(|id| viewports.get_mut(&id))
@@ -87,7 +87,7 @@ index 0db54a27e..098536f55 100644
              {
                  return Ok(EventResult::RepaintNext(window_id));
              }
-@@ -1108,7 +1113,13 @@ impl GlowWinitRunning<'_> {
+@@ -1109,7 +1114,13 @@ impl GlowWinitRunning<'_> {
              log::trace!("Ignoring event: no viewport_id");
          }
  
@@ -103,10 +103,10 @@ index 0db54a27e..098536f55 100644
                  EventResult::RepaintNow(window_id)
              } else {
 diff --git a/crates/eframe/src/native/wgpu_integration.rs b/crates/eframe/src/native/wgpu_integration.rs
-index 80fefd271..952f337ed 100644
+index a62b746f..34c04270 100644
 --- a/crates/eframe/src/native/wgpu_integration.rs
 +++ b/crates/eframe/src/native/wgpu_integration.rs
-@@ -508,7 +508,7 @@ impl WinitApp for WgpuWinitApp<'_> {
+@@ -509,7 +509,7 @@ impl WinitApp for WgpuWinitApp<'_> {
          _: winit::event::DeviceId,
          event: winit::event::DeviceEvent,
      ) -> crate::Result<EventResult> {
@@ -115,7 +115,7 @@ index 80fefd271..952f337ed 100644
              && let Some(running) = &mut self.running
          {
              // `MouseMotion` is not associated with any window, so we deliver it to
-@@ -520,12 +520,13 @@ impl WinitApp for WgpuWinitApp<'_> {
+@@ -521,12 +521,13 @@ impl WinitApp for WgpuWinitApp<'_> {
              let viewports = &mut shared.viewports;
              if let Some(window_id) = focused_viewport
                  .and_then(|id| viewports.get_mut(&id))
@@ -131,7 +131,7 @@ index 80fefd271..952f337ed 100644
              {
                  return Ok(EventResult::RepaintNext(window_id));
              }
-@@ -924,6 +925,7 @@ impl WgpuWinitRunning<'_> {
+@@ -925,6 +926,7 @@ impl WgpuWinitRunning<'_> {
          let Self {
              integration,
              shared,
@@ -139,7 +139,7 @@ index 80fefd271..952f337ed 100644
              ..
          } = self;
          let mut shared = shared.borrow_mut();
-@@ -1068,9 +1070,12 @@ impl WgpuWinitRunning<'_> {
+@@ -1069,9 +1071,12 @@ impl WgpuWinitRunning<'_> {
              })
              .unwrap_or_default();
  
@@ -154,7 +154,7 @@ index 80fefd271..952f337ed 100644
                  EventResult::RepaintNow(window_id)
              } else {
 diff --git a/crates/eframe/src/native/winit_integration.rs b/crates/eframe/src/native/winit_integration.rs
-index 2774b2a8e..7beb54702 100644
+index 2774b2a8..7beb5470 100644
 --- a/crates/eframe/src/native/winit_integration.rs
 +++ b/crates/eframe/src/native/winit_integration.rs
 @@ -17,6 +17,72 @@ pub fn is_invisible_or_minimized(window: &Window) -> bool {
@@ -231,10 +231,10 @@ index 2774b2a8e..7beb54702 100644
  /// <https://github.com/emilk/egui/issues/325>
  ///
 diff --git a/crates/egui/src/context.rs b/crates/egui/src/context.rs
-index 081bc9b53..997a128b2 100644
+index 249dc503..dcf5a81d 100644
 --- a/crates/egui/src/context.rs
 +++ b/crates/egui/src/context.rs
-@@ -5264,6 +5264,44 @@ mod test {
+@@ -5281,6 +5281,44 @@ mod test {
          );
      }
  
@@ -280,7 +280,7 @@ index 081bc9b53..997a128b2 100644
      fn test_single_pass() {
          let ctx = Context::default();
 diff --git a/crates/egui/src/data/input/raw_input.rs b/crates/egui/src/data/input/raw_input.rs
-index e1272dcd3..d6a95f177 100644
+index e1272dcd..d6a95f17 100644
 --- a/crates/egui/src/data/input/raw_input.rs
 +++ b/crates/egui/src/data/input/raw_input.rs
 @@ -60,6 +60,14 @@ pub struct RawInput {
@@ -349,7 +349,7 @@ index e1272dcd3..d6a95f177 100644
              .iter()
              .map(|(id, value)| (*id, value))
 diff --git a/crates/egui/src/input_state/mod.rs b/crates/egui/src/input_state/mod.rs
-index 1aeecc764..197318981 100644
+index 1aeecc76..19731898 100644
 --- a/crates/egui/src/input_state/mod.rs
 +++ b/crates/egui/src/input_state/mod.rs
 @@ -674,9 +674,21 @@ impl InputState {

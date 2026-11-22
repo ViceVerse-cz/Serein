@@ -29,6 +29,7 @@ pub use {
         Fonts, FontsView, MAX_GLYPH_SIZE, MissingGlyphPolicy, ShapedCluster, ShapedLine,
         ViewportKey,
     },
+    glyph_atlas::UvRect,
     glyph_rasterizer::{
         GlyphBitmap, GlyphRasterizer, GlyphRasterizerRequest, RasterizedGlyph,
         has_emoji_presentation,

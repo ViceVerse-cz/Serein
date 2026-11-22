@@ -103,7 +103,7 @@ echo 'net-im/serein ~amd64' | sudo tee /etc/portage/package.accept_keywords/sere
 sudo emerge --ask net-im/serein
 ```
 
-Use `net-im/serein-bin` in the keyword file and emerge command to install the prebuilt binary instead. The source ebuild requires Rust 1.99 or newer or newer. The binary ebuild targets amd64 systems with glibc 2.43 or newer. The two ebuilds install the same files, so choose one.
+Use `net-im/serein-bin` in the keyword file and emerge command to install the prebuilt binary instead. The source ebuild requires Rust 1.99 or newer. The binary ebuild targets amd64 systems with glibc 2.43 or newer. The two ebuilds install the same files, so choose one.
 
 #### 4. Nix (flake)
 
@@ -257,7 +257,7 @@ Download `serein-<version>-macOS-ARM64.zip` from [Releases](https://github.com/V
 
 ## Highlights
 
-- ⚡ **Pure Native Performance:** Built with pure Rust, `egui`, and `wgpu`. Immediate-mode rendering with minimal idle CPU, low memory footprint, and instantaneous launch times—zero Electron, Node.js, or web runtime overhead.
+- ⚡ **Pure Native Performance:** Built with pure Rust, `egui`, and `wgpu`. Immediate-mode rendering with minimal idle CPU, low memory footprint, and instantaneous launch times — zero Electron, Node.js, or web runtime overhead.
 - 🌐 **Direct Gateway & REST Transports:** Direct connection to Discord's official endpoints with active rate-limiting cooldowns, heartbeat handling, reconnect/resume loops, and partial payload patching.
 - 🔒 **Secure OS Credential Storage:** Session tokens use your operating system's secure vault by default (macOS Keychain, Windows Credential Manager, or Linux Secret Service). Settings › Storage offers an explicit, unencrypted plaintext fallback when the keyring does not work.
 - 🛡️ **Ephemeral Authentication Webview:** Sign-in uses Discord's official hosted login page inside a temporary native webview (WKWebView, WebView2, or WebKitGTK) supporting email/password, QR login, and MFA. An origin-checked handoff secures the session credential and immediately terminates the webview.
@@ -359,7 +359,7 @@ cargo xtask package
 | **User Mentions & Autocomplete** | Implemented | Clickable user mentions with interactive composer autocompletion and visual highlight styling |
 | **Media Previews & Video Player** | Implemented | Inline MOV, MP4, and WebM playback where platform codecs are available; media copy/save context menus, inline image cards, embed cards, related embed image galleries, and full-resolution image viewer modals |
 | **File & Attachment Uploads** | Implemented | Multi-attachment batch staging with file-type badges (PDF, ZIP, STL, images), thumbnail previews, individual file removal, upload progress bar, and drag-and-drop |
-| **Voice Engine & Calls** | Implemented | 1-to-1/group DM calls & server channels, Opus codec, DAVE v1 E2EE, Sonora AEC3 acoustic echo cancellation, RNNoise suppression, push-to-talk (`V`), audio device selector |
+| **Voice Engine & Calls** | Implemented | 1-to-1/group DM calls & server channels, Opus codec, DAVE v1 E2EE, Sonora AEC3 acoustic echo cancellation, RNNoise or DeepFilterNet suppression, push-to-talk (`V`), audio device selector |
 | **Voice Messages** | Implemented | Inline voice message playback with interactive waveforms and bounded streaming audio buffering |
 | **Screen Sharing & Video** | Implemented | Native screen capture (macOS ScreenCaptureKit, Windows Graphics Capture, Linux portal/PipeWire with VA-API/NVENC hardware encoding and software fallback; Linux native capture remains unverified), quality presets (480p/720p/1080p/1440p/2160p, up to 60fps), and local camera/screen previews |
 | **Camera Video & Stream Viewing** | Implemented | Hardware-accelerated decoding (macOS VideoToolbox, Linux VA-API, Windows DXVA/D3D11) for incoming screen streams and camera video feeds |
@@ -393,7 +393,8 @@ serein/
 │   ├── discord-protocol/ # Wire protocol serialization and partial payload patches
 │   ├── discord-api/      # HTTP/2 REST client with rate limiting and backoff
 │   ├── discord-gateway/  # WebSocket gateway client with heartbeat and resume
-│   ├── discord-voice/    # Opus codecs, RTP/UDP transport, DAVE v1, Sonora AEC, RNNoise, video decoding
+│   ├── discord-voice/    # Opus codecs, RTP/UDP transport, DAVE v1, Sonora AEC, RNNoise, DeepFilterNet, video decoding
+│   ├── deepfilternet/    # DeepFilterNet3 noise suppression in plain Rust with embedded weights
 │   ├── local-store/      # Bounded SQLite database for history, drafts, settings
 │   ├── platform/         # OS credential store (Keychain/CredManager/SecretService)
 │   └── test-support/     # Deterministic synthetic fixtures and mocks

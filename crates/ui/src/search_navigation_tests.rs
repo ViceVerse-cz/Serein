@@ -11,6 +11,7 @@ fn state() -> State {
 		selected: Some(Id(10)),
 		channels: vec![model::Channel {
 			user_limit: None,
+			slowmode: 0,
 			id: Id(10),
 			guild: None,
 			parent_id: None,
@@ -84,7 +85,7 @@ fn frame_with_width(
 				});
 			}
 			if pane {
-				view.search.sync(ctx, state, &mut commands);
+				view.search.sync(ctx, state, &mut commands, true);
 				view.search.pane(
 					ui,
 					state,
@@ -141,6 +142,8 @@ fn page_with(state: &mut State, total: u64, excerpt: &str) {
 				excerpt: excerpt.into(),
 				attachments: vec![],
 				embeds: vec![],
+				forwarded: false,
+				forward_origin: None,
 			}],
 			total,
 			partial: false,
@@ -463,7 +466,7 @@ fn pane_frame(
 			..Default::default()
 		},
 		|ui| {
-			view.search.sync(ctx, state, &mut commands);
+			view.search.sync(ctx, state, &mut commands, true);
 			view.search.pane(
 				ui,
 				state,

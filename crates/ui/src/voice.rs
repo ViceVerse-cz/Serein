@@ -29,6 +29,16 @@ pub(super) struct CallSwitch {
 	open: Option<Id>,
 }
 
+/// One roster entry as the client shows it; see [`MessagingUi::voice_roster`].
+pub struct VoiceRosterRow<'a> {
+	pub entry: &'a RosterEntry,
+	/// Display name when the member is loaded.
+	pub name: Option<&'a str>,
+	/// Mute and deafen flags as shown, including the own call's live state.
+	pub shown: Participant,
+	pub speaking: bool,
+}
+
 impl MessagingUi {
 	pub(super) fn exit_voice_fullscreen(&mut self) {
 		if let Some((_, ctx, previous, focus)) = self.voice_fullscreen.take() {
@@ -390,7 +400,12 @@ impl MessagingUi {
 			});
 	}
 
-	fn is_speaking(&self, state: &State, channel: Id, participant: &Participant) -> bool {
+	pub(super) fn is_speaking(
+		&self,
+		state: &State,
+		channel: Id,
+		participant: &Participant,
+	) -> bool {
 		!inactive_recipient(state, channel, participant.user)
 			&& !self.voice_user_locally_muted(participant.user)
 			&& !participant.muted
@@ -403,6 +418,39 @@ impl MessagingUi {
 					&& !call.deafened
 					&& !call.server_deafened
 			}) && self.voice_speaking.contains(&participant.user)
+	}
+
+	/// Everyone in a voice channel the account can view, as the client shows them: the
+	/// resolved display name when the member is loaded, the shown mute and deafen flags,
+	/// and whether the speaking indicator is lit. Channels without a positive view grant
+	/// are left out, like the directory. For plugin snapshots; no audio data leaves this
+	/// summary.
+	pub fn voice_roster<'a>(
+		&'a self,
+		state: &'a State,
+	) -> impl Iterator<Item = VoiceRosterRow<'a>> + 'a {
+		// Snapshots and the change key walk every row each frame, so rows needing the
+		// member fallback share one index of the loaded list. It is built on first use:
+		// rows filtered out or already carrying their member never pay for it.
+		let mut index = None;
+		state.voice.roster.iter().filter_map(move |entry| {
+			if !state.can_view(entry.channel) {
+				return None;
+			}
+			let shown = shown_participant(state, entry);
+			let member = entry.member.as_ref().or_else(|| {
+				index
+					.get_or_insert_with(|| MemberIndex::build(state))
+					.get(entry.guild, entry.participant.user)
+			});
+			let (user, name) = resolve_member_with(state, member, entry);
+			Some(VoiceRosterRow {
+				entry,
+				name: user.map(|_| name),
+				speaking: self.is_speaking(state, entry.channel, &shown),
+				shown,
+			})
+		})
 	}
 
 	pub(super) fn voice_channel_button(
@@ -476,14 +524,19 @@ impl MessagingUi {
 			row.left_center() + egui::vec2(18.0, 0.0),
 			egui::Vec2::splat(20.0),
 		);
-		channel_marks::paint_glyph(
-			ui.painter(),
-			access,
-			crate::icons::Icon::Speaker,
-			glyph,
-			text_color,
-		);
-		channel_marks::paint(ui.painter(), access, row, glyph, text_color);
+		let locked = voice_channel_locked(state, channel);
+		let icon = if locked {
+			crate::icons::Icon::Lock
+		} else {
+			crate::icons::Icon::Speaker
+		};
+		if locked {
+			// A full lock replaces the speaker, so no cutout or small corner badge is needed.
+			crate::icons::paint(ui.painter(), icon, glyph, text_color);
+		} else {
+			channel_marks::paint_glyph(ui.painter(), access, icon, glyph, text_color);
+		}
+		channel_marks::paint(ui.painter(), access, row, glyph, text_color, !locked);
 		let marks = channel_marks::trailing(access);
 		let occupancy = channel.user_limit.map(|limit| {
 			let people = state
@@ -556,12 +609,20 @@ impl MessagingUi {
 				viewable,
 				selected,
 				format!(
-					"{} {}{}{}{}{}; {} {}",
+					"{} {}{}{}{}{}{}; {} {}",
 					channel.name,
 					crate::i18n::translate("voice-voice-channel-button-voice-channel"),
 					occupancy.map_or(String::new(), |(people, limit)| format!(
 						", {people}/{limit}"
 					)),
+					if locked {
+						format!(
+							", {}",
+							crate::i18n::translate("profiles-in-voice-unavailable")
+						)
+					} else {
+						String::new()
+					},
 					channel_marks::label(access),
 					if connected {
 						crate::i18n::translate("voice-voice-channel-button-connected")
@@ -580,11 +641,19 @@ impl MessagingUi {
 		});
 		response.on_hover_text_with(|| {
 			format!(
-				"{} · View voice channel{}{}{}",
+				"{} · View voice channel{}{}{}{}",
 				channel.name,
 				occupancy.map_or(String::new(), |(people, limit)| format!(
 					" · {people} of {limit} people"
 				)),
+				if locked {
+					format!(
+						" · {}",
+						crate::i18n::translate("profiles-in-voice-unavailable")
+					)
+				} else {
+					String::new()
+				},
 				channel_marks::label(access),
 				if connected { " · Connected" } else { "" }
 			)
@@ -3065,7 +3134,7 @@ impl MessagingUi {
 			(
 				InputProfile::VoiceIsolation,
 				"Voice Isolation",
-				"RNNoise suppression, echo cancellation and automatic gain for speech.",
+				"Automatic noise suppression, echo cancellation and automatic gain for speech.",
 			),
 			(
 				InputProfile::Studio,
@@ -3088,6 +3157,12 @@ impl MessagingUi {
 			{
 				self.voice_processing.profile = profile;
 			}
+		}
+		let fell_back = "RNNoise is active: this device is too busy for DeepFilterNet.";
+		if self.voice_processing.profile == InputProfile::VoiceIsolation
+			&& self.voice_suppression_fell_back
+		{
+			design::hint(ui, fell_back);
 		}
 		if self.voice_processing.profile == InputProfile::Custom {
 			design::card_divider(ui);
@@ -3136,9 +3211,11 @@ impl MessagingUi {
 			}
 			design::card_divider(ui);
 			let choices = [
+				(NoiseSuppression::Auto, "Automatic"),
 				(NoiseSuppression::Off, "Off"),
 				(NoiseSuppression::RnNoise, "RNNoise"),
 				(NoiseSuppression::WebRtc, "WebRTC"),
+				(NoiseSuppression::DeepFilterNet, "DeepFilterNet"),
 			];
 			design::row(
 				ui,
@@ -3166,7 +3243,22 @@ impl MessagingUi {
 						});
 				},
 			);
-			if processing.suppression == NoiseSuppression::WebRtc {
+			if processing.suppression == NoiseSuppression::Auto {
+				design::hint(
+					ui,
+					if self.voice_suppression_fell_back {
+						fell_back
+					} else {
+						"Uses DeepFilterNet, and RNNoise when this device is too busy for it."
+					},
+				);
+			}
+			// RNNoise has no strength, so the control waits while it stands in.
+			if match processing.suppression {
+				NoiseSuppression::WebRtc | NoiseSuppression::DeepFilterNet => true,
+				NoiseSuppression::Auto => !self.voice_suppression_fell_back,
+				NoiseSuppression::Off | NoiseSuppression::RnNoise => false,
+			} {
 				ui.add_space(6.0);
 				let strength = ["Low", "Moderate", "High", "Very high"];
 				design::row(
@@ -4972,7 +5064,7 @@ fn stage_participants(state: &State, channel: Id) -> Vec<RosterEntry> {
 
 /// The local participant follows this device's toggles at once instead of waiting for the
 /// gateway echo, so a deafen shows the deafened glyph immediately (and in the offline preview).
-fn shown_participant(state: &State, entry: &RosterEntry) -> Participant {
+pub(super) fn shown_participant(state: &State, entry: &RosterEntry) -> Participant {
 	let mut participant = entry.participant;
 	if let Some(call) = state
 		.voice
@@ -5024,6 +5116,16 @@ pub(crate) fn resolve_member<'a>(
 					.find(|m| m.user.id == entry.participant.user)
 			})
 	});
+	resolve_member_with(state, member, entry)
+}
+
+/// [`resolve_member`] with the member already resolved, so a roster walker can share one
+/// [`MemberIndex`] instead of rescanning the member list per row.
+fn resolve_member_with<'a>(
+	state: &'a State,
+	member: Option<&'a model::Member>,
+	entry: &'a RosterEntry,
+) -> (Option<&'a model::User>, &'a str) {
 	let user = member
 		.map(|m| &m.user)
 		.or_else(|| participant_user(state, entry.channel, entry.participant.user));
@@ -5032,6 +5134,44 @@ pub(crate) fn resolve_member<'a>(
 		.or_else(|| user.map(|u| u.name.as_str()))
 		.unwrap_or("Participant");
 	(user, name)
+}
+
+/// The loaded member list indexed by user, so a whole roster resolves names without
+/// rescanning the slots per row. Only the guild the list was loaded for resolves, like
+/// the per-row scan it replaces.
+struct MemberIndex<'a> {
+	guild: Option<Id>,
+	members: std::collections::HashMap<Id, &'a model::Member>,
+}
+
+impl<'a> MemberIndex<'a> {
+	fn build(state: &'a State) -> Self {
+		let Some(list) = state.members.as_ref() else {
+			return Self {
+				guild: None,
+				members: std::collections::HashMap::new(),
+			};
+		};
+		// The first matching slot wins, as the per-row scan did.
+		let mut members = std::collections::HashMap::with_capacity(list.slots.len());
+		for member in list.slots.iter().flatten().filter_map(|slot| match slot {
+			model::MemberSlot::Person(member) => Some(member),
+			_ => None,
+		}) {
+			members.entry(member.user.id).or_insert(member);
+		}
+		Self {
+			guild: list.guild,
+			members,
+		}
+	}
+
+	fn get(&self, guild: Id, user: Id) -> Option<&'a model::Member> {
+		if self.guild != Some(guild) {
+			return None;
+		}
+		self.members.get(&user).copied()
+	}
 }
 
 /// Find a call participant's user from self, DM recipients or the roster.
@@ -5189,6 +5329,13 @@ fn device_combo(
 		})
 		.response
 		.on_hover_text(&label)
+}
+
+/// Discord replaces a voice channel's speaker with a full lock when this account cannot connect.
+/// Unknown permissions leave the normal icon alone; only a proven denial locks it.
+fn voice_channel_locked(state: &State, channel: &model::Channel) -> bool {
+	channel.guild.is_some()
+		&& state.permission(channel.id, model::permissions::CONNECT) == Some(false)
 }
 
 /// Discord's two-part occupancy pill, people then limit, right-aligned to `right`.
@@ -5419,7 +5566,7 @@ mod tests {
 			.find(|role| role.id == guild)
 			.unwrap()
 			.bits = p::VIEW_CHANNEL | p::CONNECT | p::MUTE_MEMBERS | p::MOVE_MEMBERS;
-		for id in [Id(25), Id(26)] {
+		for id in [Id(25), Id(37)] {
 			state.permissions.channels.insert(
 				id,
 				p::Channel {
@@ -5430,14 +5577,14 @@ mod tests {
 			);
 		}
 		state.permissions.clear_cache();
-		assert!(state.can_moderate_voice(guild, Id(25), Id(2), VoiceChange::Move(Some(Id(26)))));
+		assert!(state.can_moderate_voice(guild, Id(25), Id(2), VoiceChange::Move(Some(Id(37)))));
 		assert!(!state.can_moderate_voice(guild, Id(25), Id(1), VoiceChange::Mute(true)));
 		assert!(!state.can_moderate_voice(guild, Id(25), Id(2), VoiceChange::Move(Some(Id(25)))));
 		assert!(!state.can_moderate_voice(guild, Id(25), Id(2), VoiceChange::Move(Some(Id(20)))));
 		state
 			.permissions
 			.channels
-			.get_mut(&Id(26))
+			.get_mut(&Id(37))
 			.unwrap()
 			.overwrites = Some(vec![p::Overwrite {
 			id: guild,
@@ -5446,18 +5593,18 @@ mod tests {
 			deny: p::CONNECT,
 		}]);
 		state.permissions.clear_cache();
-		assert!(!state.can_moderate_voice(guild, Id(25), Id(2), VoiceChange::Move(Some(Id(26)))));
+		assert!(!state.can_moderate_voice(guild, Id(25), Id(2), VoiceChange::Move(Some(Id(37)))));
 		state
 			.permissions
 			.channels
-			.get_mut(&Id(26))
+			.get_mut(&Id(37))
 			.unwrap()
 			.overwrites = Some(vec![]);
 		state.permissions.clear_cache();
 		for change in [
 			VoiceChange::Mute(true),
 			VoiceChange::Mute(false),
-			VoiceChange::Move(Some(Id(26))),
+			VoiceChange::Move(Some(Id(37))),
 			VoiceChange::Move(None),
 		] {
 			let channel = state
@@ -5515,7 +5662,7 @@ mod tests {
 			}
 		}
 		assert!(
-			!state.can_moderate_voice(guild, Id(26), Id(2), VoiceChange::Mute(true)),
+			!state.can_moderate_voice(guild, Id(37), Id(2), VoiceChange::Mute(true)),
 			"departed source cannot be moderated"
 		);
 	}
@@ -5612,7 +5759,7 @@ mod tests {
 					.find(|role| role.id == guild)
 					.unwrap()
 					.bits = p::VIEW_CHANNEL | p::CONNECT | p::MOVE_MEMBERS;
-				for id in [Id(25), Id(26)] {
+				for id in [Id(25), Id(37)] {
 					state.permissions.channels.insert(
 						id,
 						p::Channel {
@@ -5626,7 +5773,7 @@ mod tests {
 					state
 						.permissions
 						.channels
-						.get_mut(&Id(26))
+						.get_mut(&Id(37))
 						.unwrap()
 						.overwrites = Some(vec![p::Overwrite {
 						id: guild,
@@ -5772,7 +5919,7 @@ mod tests {
 					}
 				}
 				let expected =
-					(!denied).then_some((guild, Id(25), Id(2), VoiceChange::Move(Some(Id(26)))));
+					(!denied).then_some((guild, Id(25), Id(2), VoiceChange::Move(Some(Id(37)))));
 				assert_eq!(
 					view.voice_moderation, expected,
 					"dragging={dragging}, denied={denied}"
@@ -5808,7 +5955,7 @@ mod tests {
 					if denied {
 						vec![]
 					} else {
-						vec![(Id(2), Id(25), VoiceChange::Move(Some(Id(26))))]
+						vec![(Id(2), Id(25), VoiceChange::Move(Some(Id(37))))]
 					}
 				);
 			}
@@ -6680,6 +6827,7 @@ mod tests {
 			gateway_connected: true,
 			channels: vec![model::Channel {
 				user_limit: None,
+				slowmode: 0,
 				last_message: None,
 				id: Id(1),
 				guild: None,
@@ -6771,5 +6919,192 @@ mod tests {
 		output.drop_without_applying_deltas();
 		assert_eq!(badge_width, expected_width);
 		crate::i18n::set_current(prev_lang);
+	}
+
+	#[test]
+	fn inaccessible_voice_channels_use_a_lock_instead_of_the_speaker() {
+		use model::permissions as p;
+		let mut state = test_support::voice_demo_state();
+		let channel = state.channel(Id(26)).unwrap().clone();
+		// An unknown permission is not a denial: the speaker stays.
+		let known = std::mem::take(&mut state.permissions);
+		assert_eq!(state.permission(channel.id, p::CONNECT), None);
+		assert!(!voice_channel_locked(&state, &channel));
+		state.permissions = known;
+		let guild = Id(10);
+		let metadata = state.permissions.guilds.get_mut(&guild).unwrap();
+		metadata.owner = Some(Id(99));
+		metadata
+			.roles
+			.as_mut()
+			.unwrap()
+			.iter_mut()
+			.find(|role| role.id == guild)
+			.unwrap()
+			.bits = p::VIEW_CHANNEL | p::CONNECT;
+		state.permissions.channels.insert(
+			channel.id,
+			p::Channel {
+				id: channel.id,
+				guild,
+				overwrites: Some(vec![]),
+			},
+		);
+		state.permissions.clear_cache();
+		assert!(!voice_channel_locked(&state, &channel));
+		state
+			.permissions
+			.channels
+			.get_mut(&channel.id)
+			.unwrap()
+			.overwrites = Some(vec![p::Overwrite {
+			id: guild,
+			kind: 0,
+			allow: 0,
+			deny: p::CONNECT,
+		}]);
+		state.permissions.clear_cache();
+		assert!(voice_channel_locked(&state, &channel));
+	}
+
+	#[test]
+	fn locked_voice_row_paints_the_lock_without_the_corner_badge() {
+		use model::permissions as p;
+		let mut state = test_support::voice_demo_state();
+		let channel = state.channel(Id(26)).unwrap().clone();
+		let guild = Id(10);
+		let member = state.user.as_ref().unwrap().id;
+		let metadata = state.permissions.guilds.get_mut(&guild).unwrap();
+		metadata.owner = Some(Id(99));
+		metadata
+			.roles
+			.as_mut()
+			.unwrap()
+			.iter_mut()
+			.find(|role| role.id == guild)
+			.unwrap()
+			.bits = p::VIEW_CHANNEL | p::CONNECT;
+		state.permissions.channels.insert(
+			channel.id,
+			p::Channel {
+				id: channel.id,
+				guild,
+				overwrites: Some(vec![]),
+			},
+		);
+		state.permissions.clear_cache();
+
+		// Capture the atlas UV of each glyph by painting it on its own.
+		let icon_uv = |icon: crate::icons::Icon| {
+			let ctx = egui::Context::default();
+			let output = ctx.run_ui(Default::default(), |ui| {
+				crate::icons::paint(
+					ui.painter(),
+					icon,
+					egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(20.0, 20.0)),
+					egui::Color32::WHITE,
+				);
+			});
+			let uv = output
+				.shapes
+				.iter()
+				.find_map(|shape| match &shape.shape {
+					egui::Shape::Mesh(mesh) => Some(mesh.vertices[0].uv),
+					_ => None,
+				})
+				.expect("reference icon mesh");
+			output.drop_without_applying_deltas();
+			uv
+		};
+		let lock_uv = icon_uv(crate::icons::Icon::Lock);
+		let speaker_uv = icon_uv(crate::icons::Icon::Speaker);
+		// Both lock sizes share one atlas UV, so keep each mesh's bounds with it.
+		let row_meshes = |state: &State| {
+			let ctx = egui::Context::default();
+			let mut view = MessagingUi::default();
+			let output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(280.0, 40.0),
+					)),
+					..Default::default()
+				},
+				|ui| {
+					view.voice_channel_button(ui, state, &channel, false, false);
+				},
+			);
+			let meshes: Vec<_> = output
+				.shapes
+				.iter()
+				.filter_map(|shape| match &shape.shape {
+					egui::Shape::Mesh(mesh) => Some((mesh.vertices[0].uv, mesh.calc_bounds())),
+					_ => None,
+				})
+				.collect();
+			output.drop_without_applying_deltas();
+			meshes
+		};
+
+		let allowed = row_meshes(&state);
+		let speaker = allowed
+			.iter()
+			.find(|(uv, _)| *uv == speaker_uv)
+			.expect("allowed row keeps the speaker");
+		assert!(
+			!allowed.iter().any(|(uv, _)| *uv == lock_uv),
+			"allowed row has no lock"
+		);
+
+		// Deny both to @everyone so the row qualifies for the corner badge, then give
+		// this member VIEW_CHANNEL back so the row stays viewable but CONNECT stays denied.
+		state
+			.permissions
+			.channels
+			.get_mut(&channel.id)
+			.unwrap()
+			.overwrites = Some(vec![
+			p::Overwrite {
+				id: guild,
+				kind: 0,
+				allow: 0,
+				deny: p::VIEW_CHANNEL | p::CONNECT,
+			},
+			p::Overwrite {
+				id: member,
+				kind: 1,
+				allow: p::VIEW_CHANNEL,
+				deny: 0,
+			},
+		]);
+		state.permissions.clear_cache();
+		let access = state.channel_access(channel.id);
+		assert!(
+			access.limited() && !access.hidden() && voice_channel_locked(&state, &channel),
+			"the denied fixture must be limited, viewable and locked"
+		);
+		let denied = row_meshes(&state);
+		let locks: Vec<_> = denied.iter().filter(|(uv, _)| *uv == lock_uv).collect();
+		assert_eq!(
+			locks.len(),
+			1,
+			"the corner lock is suppressed under the full lock"
+		);
+		assert!(
+			!denied.iter().any(|(uv, _)| *uv == speaker_uv),
+			"denied row drops the speaker"
+		);
+		let lock = locks[0].1;
+		let size_gap = (lock.width() - speaker.1.width())
+			.abs()
+			.max((lock.height() - speaker.1.height()).abs());
+		let center_gap = (lock.center().x - speaker.1.center().x)
+			.abs()
+			.max((lock.center().y - speaker.1.center().y).abs());
+		assert!(
+			size_gap < 1.0 && center_gap < 1.0,
+			"the lock must fill the speaker slot: {lock:?} vs {:?}",
+			speaker.1
+		);
 	}
 }

@@ -140,6 +140,7 @@ pub fn message(id: u64, channel: Id) -> Message {
 		reply_deleted: false,
 		interaction: None,
 		forwarded: false,
+		forward_origin: None,
 		unsupported: false,
 		components: vec![],
 		sticker_items: vec![],
@@ -326,6 +327,7 @@ pub fn demo_state() -> State {
 				name: "You (synthetic)".into(),
 			},
 			guilds: vec![Guild {
+				banner: None,
 				default_message_notifications: None,
 				stickers: None,
 				emojis: Some(vec![
@@ -353,6 +355,7 @@ pub fn demo_state() -> State {
 			channels: vec![
 				Channel {
 					user_limit: None,
+					slowmode: 0,
 					last_message: None,
 					id: Id(20),
 					guild: Some(Id(10)),
@@ -368,6 +371,7 @@ pub fn demo_state() -> State {
 				},
 				Channel {
 					user_limit: None,
+					slowmode: 0,
 					last_message: None,
 					id: Id(21),
 					guild: Some(Id(10)),
@@ -383,6 +387,7 @@ pub fn demo_state() -> State {
 				},
 				Channel {
 					user_limit: None,
+					slowmode: 0,
 					last_message: None,
 					id: Id(22),
 					guild: None,
@@ -398,6 +403,7 @@ pub fn demo_state() -> State {
 				},
 				Channel {
 					user_limit: None,
+					slowmode: 0,
 					last_message: None,
 					id: Id(23),
 					guild: Some(Id(10)),
@@ -413,6 +419,7 @@ pub fn demo_state() -> State {
 				},
 				Channel {
 					user_limit: None,
+					slowmode: 0,
 					id: Id(40),
 					guild: None,
 					parent_id: None,
@@ -437,6 +444,7 @@ pub fn demo_state() -> State {
 				},
 				Channel {
 					user_limit: None,
+					slowmode: 0,
 					id: Id(43),
 					guild: None,
 					parent_id: None,
@@ -461,6 +469,7 @@ pub fn demo_state() -> State {
 				},
 				Channel {
 					user_limit: None,
+					slowmode: 0,
 					id: Id(29),
 					guild: None,
 					parent_id: None,
@@ -488,6 +497,7 @@ pub fn demo_state() -> State {
 				},
 				Channel {
 					user_limit: None,
+					slowmode: 0,
 					last_message: None,
 					id: Id(24),
 					guild: Some(Id(10)),
@@ -503,6 +513,7 @@ pub fn demo_state() -> State {
 				},
 				Channel {
 					user_limit: None,
+					slowmode: 0,
 					last_message: None,
 					id: Id(25),
 					guild: Some(Id(10)),
@@ -518,6 +529,7 @@ pub fn demo_state() -> State {
 				},
 				Channel {
 					user_limit: None,
+					slowmode: 0,
 					id: Id(26),
 					guild: Some(Id(10)),
 					parent_id: Some(Id(24)),
@@ -533,6 +545,7 @@ pub fn demo_state() -> State {
 				},
 				Channel {
 					user_limit: None,
+					slowmode: 0,
 					id: Id(27),
 					guild: Some(Id(10)),
 					parent_id: Some(Id(26)),
@@ -551,6 +564,7 @@ pub fn demo_state() -> State {
 				},
 				Channel {
 					user_limit: None,
+					slowmode: 0,
 					id: Id(41),
 					guild: Some(Id(10)),
 					parent_id: Some(Id(26)),
@@ -569,6 +583,7 @@ pub fn demo_state() -> State {
 				},
 				Channel {
 					user_limit: None,
+					slowmode: 0,
 					id: Id(42),
 					guild: Some(Id(10)),
 					parent_id: Some(Id(26)),
@@ -587,6 +602,7 @@ pub fn demo_state() -> State {
 				},
 				Channel {
 					user_limit: None,
+					slowmode: 0,
 					id: Id(28),
 					guild: Some(Id(10)),
 					parent_id: Some(Id(20)),
@@ -776,7 +792,8 @@ pub fn voice_demo_state() -> State {
 	// A full two-person room shows the user-limit pill and refuses joins.
 	state.channels.push(Channel {
 		user_limit: Some(2),
-		id: Id(26),
+		slowmode: 0,
+		id: Id(37),
 		guild: Some(Id(10)),
 		parent_id: Some(Id(24)),
 		position: 2,
@@ -789,12 +806,17 @@ pub fn voice_demo_state() -> State {
 		message_count: None,
 		last_message: None,
 	});
+	// The new room carries the server's synthetic permissions like the fixture's other rooms.
+	state
+		.permissions
+		.replace(permission_snapshot(&state))
+		.unwrap();
 	state.voice.roster = [
 		(1, "You (synthetic)", false, false, 25),
 		(2, "Robin with a rather long display name", true, true, 25),
 		(3, "Fern and the midnight orchestra", true, false, 25),
-		(4, "Ash", false, false, 26),
-		(5, "Wren", true, false, 26),
+		(4, "Ash", false, false, 37),
+		(5, "Wren", true, false, 37),
 	]
 	.into_iter()
 	.map(|(id, name, muted, deafened, channel)| RosterEntry {
@@ -1001,6 +1023,7 @@ pub fn seed_access_marks(state: &mut State) {
 	const ACCESS: Id = Id(60);
 	let channel = |id, kind, parent, position, name: &str| Channel {
 		user_limit: None,
+		slowmode: 0,
 		last_message: None,
 		id: Id(id),
 		guild: Some(GUILD),
@@ -1099,6 +1122,7 @@ pub fn seed_demo_folder_mosaic(state: &mut State) {
 	];
 	for (id, name, hash) in EXTRA {
 		state.guilds.push(Guild {
+			banner: None,
 			default_message_notifications: None,
 			stickers: None,
 			emojis: None,
@@ -1208,9 +1232,16 @@ pub fn chat_demo_state() -> State {
 pub fn forwarded_demo_state() -> State {
 	let mut state = audio_demo_state();
 	let messages: Vec<_> = state.timeline.iter().cloned().collect();
+	let guild = state.guilds.first().map(|guild| guild.id);
 	state.timeline.clear();
 	for mut message in messages {
 		message.forwarded = true;
+		// A source in a joined server with a real snowflake time, as Discord sends it.
+		message.forward_origin = Some(model::ForwardOrigin {
+			guild,
+			channel: message.channel,
+			message: Id(1_300_000_000_000_000_000 + message.id.0),
+		});
 		message.content.clear();
 		state.timeline.insert(message, false, false).unwrap();
 	}
@@ -2064,6 +2095,8 @@ mod tests {
 					excerpt: "pin".into(),
 					attachments: vec![],
 					embeds: vec![],
+					forwarded: false,
+					forward_origin: None,
 				})
 				.collect(),
 			total: 0,
@@ -2197,6 +2230,8 @@ mod tests {
 					excerpt: "synthetic match".into(),
 					attachments: vec![],
 					embeds: vec![],
+					forwarded: false,
+					forward_origin: None,
 				}],
 				total,
 				partial: false,
@@ -2312,6 +2347,8 @@ mod tests {
 					excerpt: "index text".into(),
 					attachments: vec![],
 					embeds: vec![],
+					forwarded: false,
+					forward_origin: None,
 				}],
 				total: 50,
 				partial: false,

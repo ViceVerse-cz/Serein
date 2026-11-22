@@ -51,13 +51,13 @@ path = "src/lib.rs"
 
 [dependencies.epaint]
 git = "https://github.com/emilk/egui"
-rev = "cd5caec79c9e6683dd793e25b4e7b287ccdd7061"
+rev = "c61b45f6570465f6445d6fc4251d1395db440223"
 version = "0.37.0"
 features = ["color_fonts"]
 default-features = false
 
 [dependencies.fontique]
-version = "0.12.0"
+version = "0.13.0"
 features = [
     "system",
     "fontconfig-dlopen",
@@ -65,7 +65,7 @@ features = [
 default-features = false
 
 [dependencies.log]
-version = "0.4.34"
+version = "0.4.35"
 features = ["std"]
 
 [dependencies.poll-promise]
@@ -73,7 +73,7 @@ version = "0.3.0"
 default-features = false
 
 [dependencies.skrifa]
-version = "0.44.0"
+version = "0.49.0"
 features = [
     "std",
     "autohint_shaping",
@@ -84,11 +84,11 @@ default-features = false
 version = "0.3.2"
 
 [dependencies.unicode-script]
-version = "0.5.8"
+version = "0.5.9"
 
 [dev-dependencies.egui]
 git = "https://github.com/emilk/egui"
-rev = "cd5caec79c9e6683dd793e25b4e7b287ccdd7061"
+rev = "c61b45f6570465f6445d6fc4251d1395db440223"
 version = "0.37.0"
 default-features = false
 
@@ -214,11 +214,21 @@ level = "warn"
 priority = -1
 
 [lints.rust]
+ambiguous_negative_literals = "warn"
+deprecated_in_future = "warn"
+impl_trait_redundant_captures = "warn"
+macro_use_extern_crate = "warn"
+meta_variable_misuse = "warn"
+redundant_imports = "warn"
+redundant_lifetimes = "warn"
 trivial_casts = "allow"
 trivial_numeric_casts = "warn"
+unit_bindings = "warn"
+unnameable_types = "warn"
 unsafe_code = "deny"
 unused_import_braces = "warn"
 unused_lifetimes = "warn"
+unused_macro_rules = "warn"
 unused_qualifications = "allow"
 
 [lints.rust.future_incompatible]

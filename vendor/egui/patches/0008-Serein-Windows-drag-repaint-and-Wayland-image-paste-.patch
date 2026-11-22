@@ -11,7 +11,7 @@ Subject: [PATCH] Serein: Windows drag repaint and Wayland image paste
  3 files changed, 86 insertions(+), 3 deletions(-)
 
 diff --git a/crates/egui-winit/Cargo.toml b/crates/egui-winit/Cargo.toml
-index 150551a41..f2e1f5307 100644
+index 150551a4..f2e1f530 100644
 --- a/crates/egui-winit/Cargo.toml
 +++ b/crates/egui-winit/Cargo.toml
 @@ -43,7 +43,7 @@ bytemuck = ["egui/bytemuck", "dep:bytemuck"]
@@ -33,7 +33,7 @@ index 150551a41..f2e1f5307 100644
  # The wayland-cursor normally selected doesn't properly enable all the features it uses
  # and thus doesn't compile as it is used in egui-winit. This is fixed upstream, so force
 diff --git a/crates/egui-winit/src/clipboard.rs b/crates/egui-winit/src/clipboard.rs
-index cddfc4e8d..dcafb45cf 100644
+index cddfc4e8..dcafb45c 100644
 --- a/crates/egui-winit/src/clipboard.rs
 +++ b/crates/egui-winit/src/clipboard.rs
 @@ -150,6 +150,29 @@ impl Clipboard {
@@ -121,7 +121,7 @@ index cddfc4e8d..dcafb45cf 100644
  ///
  /// The display handle in `raw_display_handle` must remain valid for the
 diff --git a/crates/egui-winit/src/lib.rs b/crates/egui-winit/src/lib.rs
-index 7d4594055..159942407 100644
+index 9562a225..6b4b9738 100644
 --- a/crates/egui-winit/src/lib.rs
 +++ b/crates/egui-winit/src/lib.rs
 @@ -592,6 +592,20 @@ impl State {

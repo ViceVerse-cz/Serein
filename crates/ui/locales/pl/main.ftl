@@ -312,6 +312,10 @@ attachments-media-menu-unavailable-for-synthetic-attachments = Niedostępne dla 
 attachments-open-original-open-original = Otwórz oryginał…
 # Context: pending_card
 attachments-pending-card-remove-attachment = Usuń załącznik
+# Context: pending_viewer
+attachments-pending-viewer-full-size-unavailable = Podgląd w pełnym rozmiarze jest niedostępny
+attachments-pending-viewer-loading = Wczytywanie obrazu w pełnym rozmiarze…
+attachments-pending-viewer-close = Zamknij (Esc)
 attachments-loading-card-preparing = Przygotowywanie…
 # Context: show_status
 attachments-show-status-cancel-download = Anuluj pobieranie
@@ -1655,20 +1659,14 @@ main-restoring-screen-use-a-different-account = Użyj innego konta
 main-restoring-screen-welcome-back = Witamy z powrotem
 # Context: sign_in_accounts
 main-sign-in-accounts-saved-accounts = Zapisane konta
-# Context: sign_in_consent
-main-sign-in-consent-passwords-and-2fa-stay-on-discord-s-own-login-page = Hasła i 2FA pozostają na własnej stronie logowania Discord; w magazynie danych uwierzytelniających systemu operacyjnego przechowywany jest tylko token sesji.
 # Context: sign_in_disclosures
 main-sign-in-disclosures-about-serein = O Sereinie
 # Context: sign_in_disclosures
 main-sign-in-disclosures-connect-with-this-token = Połącz się z tym tokenem
 # Context: sign_in_disclosures
-main-sign-in-disclosures-for-owners-who-already-hold-a-valid-discord-session-token = Dla właścicieli, którzy posiadają już ważny token sesji Discord, na przykład z innej zalogowanej instalacji Serein. Hasła i 2FA nigdy nie są tutaj używane; całkowicie pomija to hostowaną stronę logowania Discord.
-# Context: sign_in_disclosures
 main-sign-in-disclosures-forget-saved-login = Zapomnij zapisane logowanie
 # Context: sign_in_disclosures
 main-sign-in-disclosures-session-token = Token sesji
-# Context: sign_in_disclosures
-main-sign-in-disclosures-sign-in-with-a-session-token = Zaloguj się za pomocą tokena sesji
 # Context: sign_in_header
 main-sign-in-header-continue-with-a-saved-account-or-sign-in-with-another = Kontynuuj, korzystając z zapisanego konta, lub zaloguj się na inne.
 # Context: sign_in_header
@@ -3478,12 +3476,6 @@ settings-activity-reading-programs = Odczytywanie uruchomionych programów…
 settings-activity-no-matching-programs = Nie działają żadne pasujące programy.
 # Context: activity_settings
 settings-activity-add-game = Dodaj grę
-# Context: appearance_menu
-settings-appearance-menu-display = Wyświetlacz
-# Context: appearance_menu
-settings-appearance-menu-mode = Tryb
-# Context: appearance_menu
-settings-appearance-menu-theme = Temat
 # Context: appearance_settings
 settings-appearance-settings-accent = Akcent
 # Context: appearance_settings
@@ -4897,6 +4889,7 @@ profiles-status-clear = Wyczyść status
 send-throttled-title = Hola, za ostro
 send-throttled-body = Wysyłasz wiadomości zbyt szybko!
 send-throttled-dismiss = Wejdź do strefy spokoju
+slowmode-enabled = Tryb zwolniony jest włączony
 profiles-private-profile = Profil prywatny
 profiles-private-notice = Profil użytkownika { $name } jest prywatny, więc część informacji jest ukryta. Wyślij zaproszenie do znajomych, aby zobaczyć więcej.
 settings-cosmetics-name-styles = Style nazw
@@ -4945,3 +4938,7 @@ moderation-delete-week = Ostatnie 7 dni
 moderation-confirm-timeout = Przerwa
 # Context: moderation
 moderation-confirm-ban = Zbanuj
+
+## crates/ui/src/interface_ui.rs
+# Context: interface_tree
+interface-ui-empty = Ta wtyczka nie ma jeszcze nic do pokazania.

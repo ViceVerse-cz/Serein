@@ -7,8 +7,8 @@ use epaint::{Color32, Direction, Margin, Shape};
 
 use crate::{
     AsIdSalt, Context, CursorIcon, Id, IdSalt, MouseWheelSource, NumExt as _, Pos2, Rangef, Rect,
-    Response, Role, Sense, Ui, UiBuilder, UiKind, UiStackInfo, Vec2, Vec2b, WidgetInfo, emath,
-    epaint, lerp, pass_state, pos2, remap, remap_clamp, style::KineticScrollStyle,
+    Response, Role, Sense, Ui, UiBuilder, UiKind, UiStackInfo, Vec2, Vec2b, WidgetInfo, lerp,
+    pass_state, pos2, remap, remap_clamp, style::KineticScrollStyle,
 };
 
 use super::scroll_physics::{AxisPhysics, WheelScroll, scroll_bounds};
@@ -1285,7 +1285,7 @@ impl Prepared {
             for d in 0..2 {
                 if let Some(scroll_target) = passed_up_scroll_target[d]
                     .take()
-                    .or_else(|| saved_scroll_target[d].clone())
+                    .or(saved_scroll_target[d])
                 {
                     state.scroll_target[d] = Some(scroll_target);
                 }

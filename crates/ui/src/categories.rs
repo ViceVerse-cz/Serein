@@ -8,7 +8,7 @@ use model::{Channel, Id, Shortcut};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Voice and stage channels keep a separate position list, drawn below other channels.
-fn voice_lane(kind: u8) -> bool {
+pub(super) fn voice_lane(kind: u8) -> bool {
 	matches!(kind, 2 | 13)
 }
 
@@ -208,10 +208,33 @@ fn drop_move(
 pub(super) struct Cache {
 	key: Option<CacheKey>,
 	rows: Vec<CachedRow>,
+	/// Listed text conversations in sidebar order, for previous/next channel shortcuts.
+	order: Vec<Id>,
 }
 impl Cache {
 	pub(super) fn invalidate(&mut self) {
 		self.key = None;
+	}
+
+	/// The listed conversation before or after `from` that passes `wanted`, wrapping around.
+	/// From outside the list, the first or last one.
+	pub(super) fn step(
+		&self,
+		from: Option<Id>,
+		forward: bool,
+		wanted: impl Fn(Id) -> bool,
+	) -> Option<Id> {
+		let len = self.order.len();
+		let start = from.and_then(|id| self.order.iter().position(|current| *current == id));
+		(1..=len)
+			.map(|offset| match (start, forward) {
+				(Some(start), true) => (start + offset) % len,
+				(Some(start), false) => (start + len - offset) % len,
+				(None, true) => offset - 1,
+				(None, false) => len - offset,
+			})
+			.map(|index| self.order[index])
+			.find(|id| Some(*id) != from && wanted(*id))
 	}
 }
 
@@ -520,6 +543,8 @@ fn shelf_row(rows: &[CachedRow], index: usize) -> bool {
 
 /// Thread rows start after the spine's elbow, aligned under their parent's name.
 const THREAD_INDENT: f32 = 26.0;
+/// Height of a server channel row; a server banner holds whole rows of it.
+pub(super) const CHANNEL_ROW: f32 = 34.0;
 
 /// The tree line from the parent's icon: a rounded elbow into this thread, continuing
 /// down when another thread follows.
@@ -694,6 +719,14 @@ impl MessagingUi {
 					rows.extend(entries.into_iter().map(Row::Participant));
 				}
 			}
+			// Rosters lift their channels out of the tree, so each id appears once.
+			self.channel_cache.order.clear();
+			self.channel_cache
+				.order
+				.extend(rows.iter().filter_map(|row| match row {
+					Row::Channel(channel, ..) if !voice_lane(channel.kind) => Some(channel.id),
+					_ => None,
+				}));
 			let participants: BTreeMap<_, _> = state
 				.voice
 				.roster
@@ -724,53 +757,26 @@ impl MessagingUi {
 		}
 		let colors = design::palette(ui);
 		let mut selected = None;
-		if let Some(guild) = self.guild
-			&& state.channel_list_opt_in(guild) == Some(true)
-		{
-			let response = ui
-				.scope(|ui| {
-					ui.spacing_mut().button_padding = egui::vec2(36.0, 8.0);
-					ui.add(
-						egui::Button::new(())
-							.left_text(
-								design::medium(
-									ui,
-									crate::i18n::translate("channel-browser-title"),
-									15.0,
-								)
-								.color(colors.muted),
-							)
-							.min_size(egui::vec2(ui.available_width(), 34.0))
-							.frame_when_inactive(false)
-							.corner_radius(4),
-					)
-				})
-				.inner;
-			crate::icons::paint(
-				ui.painter(),
-				crate::icons::Icon::Search,
-				egui::Rect::from_center_size(
-					egui::pos2(response.rect.left() + 18.0, response.rect.center().y),
-					egui::Vec2::splat(18.0),
-				),
-				colors.muted,
-			);
-			if response.clicked() {
-				self.channel_browser.open(state, guild);
-			}
-		}
 		if self.guild.is_some() && self.channel_cache.rows.is_empty() {
 			ui.label(RichText::new(language.text("no-conversations")).color(colors.muted));
 		}
 		let dm_list = self.guild.is_none();
-		let row_height = if dm_list { 44.0 } else { 34.0 };
+		let row_height = if dm_list { 44.0 } else { CHANNEL_ROW };
 		// An empty DM remainder still gets its "no conversations" line under the heading.
 		let empty_dms = dm_list
 			&& matches!(
 				self.channel_cache.rows.last(),
 				None | Some(CachedRow::Heading(Heading::DirectMessages))
 			);
-		let row_count = self.channel_cache.rows.len() + usize::from(empty_dms);
+		// A server banner's rows and Browse Channels lead the list and scroll with it.
+		let banner_rows = self.banner_rows;
+		let browse = self
+			.guild
+			.filter(|guild| state.channel_list_opt_in(*guild) == Some(true));
+		let row_count = self.channel_cache.rows.len()
+			+ usize::from(empty_dms)
+			+ banner_rows
+			+ usize::from(browse.is_some());
 		let previous_spacing = ui.spacing().item_spacing.y;
 		ui.spacing_mut().item_spacing.y = 0.0;
 		let mut drop_rows = Vec::new();
@@ -783,6 +789,53 @@ impl MessagingUi {
 			)
 			.show_rows(ui, row_height, row_count, |ui, range| {
 				for index in range {
+					let Some(mut index) = index.checked_sub(banner_rows) else {
+						ui.allocate_exact_size(
+							egui::vec2(ui.available_width(), row_height),
+							egui::Sense::hover(),
+						);
+						continue;
+					};
+					if let Some(guild) = browse {
+						if index == 0 {
+							let response = ui
+								.scope(|ui| {
+									ui.spacing_mut().button_padding = egui::vec2(36.0, 8.0);
+									ui.add(
+										egui::Button::new(())
+											.left_text(
+												design::medium(
+													ui,
+													crate::i18n::translate("channel-browser-title"),
+													15.0,
+												)
+												.color(colors.muted),
+											)
+											.min_size(egui::vec2(ui.available_width(), 34.0))
+											.frame_when_inactive(false)
+											.corner_radius(4),
+									)
+								})
+								.inner;
+							crate::icons::paint(
+								ui.painter(),
+								crate::icons::Icon::Search,
+								egui::Rect::from_center_size(
+									egui::pos2(
+										response.rect.left() + 18.0,
+										response.rect.center().y,
+									),
+									egui::Vec2::splat(18.0),
+								),
+								colors.muted,
+							);
+							if response.clicked() {
+								self.channel_browser.open(state, guild);
+							}
+							continue;
+						}
+						index -= 1;
+					}
 					let Some(row) = self.channel_cache.rows.get(index).copied() else {
 						ui.label(
 							RichText::new(language.text("no-conversations")).color(colors.muted),
@@ -1405,7 +1458,14 @@ impl MessagingUi {
 								);
 							}
 							if let Some(glyph) = glyph {
-								channel_marks::paint(ui.painter(), access, row, glyph, name_color);
+								channel_marks::paint(
+									ui.painter(),
+									access,
+									row,
+									glyph,
+									name_color,
+									true,
+								);
 							}
 							let response = response.on_hover_text_with(|| {
 								format!(
@@ -1484,6 +1544,7 @@ impl MessagingUi {
 					}
 				}
 			});
+		self.channel_list_view = Some((output.inner_rect, output.state.unclamped_offset().y));
 		if let Some(source) = egui::DragAndDrop::payload::<ChannelDrag>(ui.ctx())
 			&& let Some(pointer) = ui.ctx().pointer_hover_pos()
 			&& output.inner_rect.contains(pointer)
@@ -1881,6 +1942,7 @@ mod tests {
 	fn channel(id: u64, kind: u8, position: i32, parent_id: Option<Id>) -> Channel {
 		Channel {
 			user_limit: None,
+			slowmode: 0,
 			last_message: None,
 			id: Id(id),
 			guild: Some(Id(100)),
@@ -2181,6 +2243,7 @@ mod tests {
 				cosmetics: None,
 			}),
 			guilds: vec![model::Guild {
+				banner: None,
 				default_message_notifications: None,
 				stickers: None,
 				id: Id(100),
@@ -2350,6 +2413,7 @@ mod tests {
 				cosmetics: None,
 			}),
 			guilds: vec![model::Guild {
+				banner: None,
 				default_message_notifications: None,
 				stickers: None,
 				id: Id(100),
@@ -2855,11 +2919,9 @@ mod tests {
 		let mut state = test_support::voice_demo_state();
 		state.demo = false;
 		state.gateway_connected = true;
-		// The fixture reuses id 26 for its quiet room, so every row with that id is set.
 		let limit = |state: &mut State, limit| {
-			for channel in state.channels.iter_mut().filter(|c| c.id == Id(26)) {
-				channel.user_limit = limit;
-			}
+			let room = state.channels.iter_mut().find(|c| c.id == Id(37)).unwrap();
+			room.user_limit = limit;
 		};
 		limit(&mut state, None);
 		let mut view = MessagingUi {
@@ -2923,12 +2985,12 @@ mod tests {
 
 		// A single click opens the channel without touching the call.
 		let (picked, commands) = click(&mut view, &mut state, "Quiet room", 1);
-		assert_eq!(picked, Some(Id(26)));
+		assert_eq!(picked, Some(Id(37)));
 		assert!(commands.is_empty() && view.voice_switch.is_none());
 
 		// From another call, a double-click still waits for the switch confirmation.
 		let (picked, commands) = click(&mut view, &mut state, "Quiet room", 2);
-		assert_eq!(picked, Some(Id(26)));
+		assert_eq!(picked, Some(Id(37)));
 		assert!(commands.is_empty() && view.voice_switch.is_some());
 		view.voice_switch = None;
 
@@ -2954,7 +3016,7 @@ mod tests {
 			commands.as_slice(),
 			[client_core::Command::Voice(
 				client_core::voice::Command::Join {
-					channel: Id(26),
+					channel: Id(37),
 					ring: false,
 					..
 				}

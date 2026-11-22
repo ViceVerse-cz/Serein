@@ -85,9 +85,13 @@ impl Harness {
 				..Default::default()
 			},
 			|ui| {
-				self.view
-					.server_menu
-					.header(ui, &mut self.state, Id(10), "Synthetic server");
+				self.view.server_menu.header(
+					ui,
+					&mut self.state,
+					Id(10),
+					"Synthetic server",
+					false,
+				);
 				self.view.server_menu.show(
 					ui.ctx(),
 					&mut self.state,

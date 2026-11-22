@@ -307,6 +307,13 @@ pub enum Event {
 		channel: Id,
 		request: u64,
 	},
+	/// Discord moved this device's own session to another voice channel of the same server.
+	/// The call follows it; no join is sent.
+	Moved {
+		from: Id,
+		channel: Id,
+		request: u64,
+	},
 	Snapshot {
 		partial: bool,
 		guild: Option<Id>,
@@ -848,6 +855,33 @@ impl ClientState {
 			}
 			Event::Departed { channel, request } => {
 				self.voice.departed = Some((channel, request));
+			}
+			Event::Moved {
+				from,
+				channel,
+				request,
+			} => {
+				let participants = self
+					.voice
+					.roster
+					.iter()
+					.filter(|entry| entry.channel == channel)
+					.map(|entry| entry.participant)
+					.take(MAX_PARTICIPANTS)
+					.collect();
+				if let Some(call) = &mut self.voice.active
+					&& call.channel == from
+					&& call.request == request
+					&& call.guild.is_some()
+					&& call.phase != Phase::Failed
+				{
+					call.channel = channel;
+					call.channel_started_at = None;
+					// Video belongs to the channel left behind; the microphone choice stays.
+					call.camera = false;
+					call.watching = None;
+					call.participants = participants;
+				}
 			}
 			Event::Snapshot {
 				partial,
@@ -1399,6 +1433,7 @@ mod tests {
 				cosmetics: None,
 			}),
 			guilds: vec![model::Guild {
+				banner: None,
 				default_message_notifications: None,
 				id: Id(10),
 				name: "Synthetic".into(),
@@ -1408,6 +1443,7 @@ mod tests {
 			}],
 			channels: vec![Channel {
 				user_limit: None,
+				slowmode: 0,
 				id: Id(20),
 				guild: Some(Id(10)),
 				kind: 2,
@@ -1635,6 +1671,7 @@ mod tests {
 					discriminator: 0,
 				}),
 				guilds: vec![model::Guild {
+					banner: None,
 					default_message_notifications: None,
 					stickers: None,
 					id: Id(10),
@@ -1646,6 +1683,7 @@ mod tests {
 					.into_iter()
 					.map(|id| Channel {
 						user_limit: None,
+						slowmode: 0,
 						id: Id(id),
 						guild: Some(Id(10)),
 						kind: 2,
@@ -1915,6 +1953,7 @@ mod tests {
 					discriminator: 0,
 				}),
 				guilds: vec![model::Guild {
+					banner: None,
 					default_message_notifications: None,
 					stickers: None,
 					id: Id(10),
@@ -1926,6 +1965,7 @@ mod tests {
 					.into_iter()
 					.map(|id| Channel {
 						user_limit: None,
+						slowmode: 0,
 						id: Id(id),
 						guild: Some(Id(10)),
 						kind: 2,
@@ -2062,6 +2102,7 @@ mod tests {
 			}),
 			channels: vec![Channel {
 				user_limit: None,
+				slowmode: 0,
 				last_message: None,
 				id: Id(2),
 				name: "DM".into(),
@@ -2354,6 +2395,7 @@ mod tests {
 				}),
 				channels: vec![Channel {
 					user_limit: None,
+					slowmode: 0,
 					last_message: None,
 					id: Id(2),
 					name: "DM".into(),

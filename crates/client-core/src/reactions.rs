@@ -662,6 +662,7 @@ mod tests {
 			user: Some(message.author.clone()),
 			channels: vec![Channel {
 				user_limit: None,
+				slowmode: 0,
 				id: channel,
 				guild: None,
 				parent_id: None,
@@ -750,6 +751,7 @@ mod tests {
 				user: Some(message.author.clone()),
 				channels: vec![Channel {
 					user_limit: None,
+					slowmode: 0,
 					id: channel,
 					guild: None,
 					parent_id: None,
@@ -1016,6 +1018,7 @@ mod tests {
 				user: Some(message.author.clone()),
 				channels: vec![Channel {
 					user_limit: None,
+					slowmode: 0,
 					id: channel,
 					guild: None,
 					parent_id: None,
@@ -1297,6 +1300,7 @@ mod tests {
 			selected: Some(Id(10)),
 			user: Some(user.clone()),
 			guilds: vec![model::Guild {
+				banner: None,
 				default_message_notifications: None,
 				stickers: None,
 				id: Id(1),
@@ -1306,6 +1310,7 @@ mod tests {
 			}],
 			channels: vec![Channel {
 				user_limit: None,
+				slowmode: 0,
 				id: Id(10),
 				guild: Some(Id(1)),
 				kind: 0,
@@ -1380,6 +1385,7 @@ mod tests {
 					reply_deleted: false,
 					interaction: None,
 					forwarded: false,
+					forward_origin: None,
 					unsupported: false,
 					components: vec![],
 					application_id: None,

@@ -313,6 +313,10 @@ attachments-media-menu-unavailable-for-synthetic-attachments = 合成アタッ�
 attachments-open-original-open-original = オリジナルを開く…
 # Context: pending_card
 attachments-pending-card-remove-attachment = 添付ファイルを削除する
+# Context: pending_viewer
+attachments-pending-viewer-full-size-unavailable = フルサイズのプレビューを表示できません
+attachments-pending-viewer-loading = フルサイズの画像を読み込み中…
+attachments-pending-viewer-close = 閉じる (Esc)
 attachments-loading-card-preparing = 準備中…
 # Context: show_status
 attachments-show-status-cancel-download = ダウンロードをキャンセルする
@@ -1656,20 +1660,14 @@ main-restoring-screen-use-a-different-account = 別のアカウントを使用�
 main-restoring-screen-welcome-back = おかえり
 # Context: sign_in_accounts
 main-sign-in-accounts-saved-accounts = 保存されたアカウント
-# Context: sign_in_consent
-main-sign-in-consent-passwords-and-2fa-stay-on-discord-s-own-login-page = パスワードと 2FA は Discord 自体のログイン ページに残ります。セッション トークンのみが OS 資格情報ストアに保持されます。
 # Context: sign_in_disclosures
 main-sign-in-disclosures-about-serein = セレインについて
 # Context: sign_in_disclosures
 main-sign-in-disclosures-connect-with-this-token = このトークンで接続します
 # Context: sign_in_disclosures
-main-sign-in-disclosures-for-owners-who-already-hold-a-valid-discord-session-token = サインインした別の Serein インストールなどから、すでに有効な Discord セッション トークンを保持しているオーナーの場合。ここではパスワードと 2FA は決して使用されません。これにより、Discord がホストするログイン ページが完全にバイパスされます。
-# Context: sign_in_disclosures
 main-sign-in-disclosures-forget-saved-login = 保存したログイン情報を忘れる
 # Context: sign_in_disclosures
 main-sign-in-disclosures-session-token = セッショントークン
-# Context: sign_in_disclosures
-main-sign-in-disclosures-sign-in-with-a-session-token = セッショントークンを使用してサインインする
 # Context: sign_in_header
 main-sign-in-header-continue-with-a-saved-account-or-sign-in-with-another = 保存したアカウントで続行するか、別のアカウントでサインインします。
 # Context: sign_in_header
@@ -3479,12 +3477,6 @@ settings-activity-reading-programs = 実行中のプログラムを読み込ん�
 settings-activity-no-matching-programs = 一致するプログラムは実行されていません。
 # Context: activity_settings
 settings-activity-add-game = ゲームを追加
-# Context: appearance_menu
-settings-appearance-menu-display = 画面
-# Context: appearance_menu
-settings-appearance-menu-mode = モード
-# Context: appearance_menu
-settings-appearance-menu-theme = テーマ
 # Context: appearance_settings
 settings-appearance-settings-accent = アクセント
 # Context: appearance_settings
@@ -4878,6 +4870,7 @@ profiles-status-clear = ステータスを消去
 send-throttled-title = ちょっと待って、刺激が強すぎ
 send-throttled-body = メッセージの送信が速すぎます！
 send-throttled-dismiss = チルゾーンへ
+slowmode-enabled = スローモードが有効です
 profiles-private-profile = 非公開プロフィール
 profiles-private-notice = { $name } さんのプロフィールは非公開のため、一部の情報が表示されません。フレンドに追加すると詳しく見られます。
 settings-cosmetics-name-styles = 名前のスタイル
@@ -4926,3 +4919,7 @@ moderation-delete-week = 過去7日間
 moderation-confirm-timeout = タイムアウト
 # Context: moderation
 moderation-confirm-ban = BAN
+
+## crates/ui/src/interface_ui.rs
+# Context: interface_tree
+interface-ui-empty = このプラグインにはまだ表示するものがありません。

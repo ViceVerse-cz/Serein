@@ -4,7 +4,7 @@ use client_core::State;
 use egui::RichText;
 use model::{Id, Message};
 use std::{
-	collections::{BTreeMap, BTreeSet},
+	collections::{BTreeMap, BTreeSet, HashMap},
 	hash::{DefaultHasher, Hash, Hasher},
 };
 
@@ -128,6 +128,11 @@ pub struct TimelineView {
 	name_hover: Option<Id>,
 	copy_feedback: Option<(egui::Id, f64)>,
 	heights: BTreeMap<Id, (u64, f32)>,
+	/// Each row's layout key at the last rebuild. Unlike `heights`, a zoom keeps it, so a
+	/// selection kept out of view always learns which rows changed.
+	row_keys: HashMap<Id, u64>,
+	/// Selection orders of the pending rows last shown.
+	pending_orders: Vec<u64>,
 	// Heights can remain resize estimates; only these bounded active-row IDs were
 	// measured with the current dimensions and state revision.
 	measured_rows: BTreeSet<Id>,
@@ -406,6 +411,7 @@ fn layout_key(message: &Message) -> u64 {
 		interaction.command.hash(&mut key);
 	}
 	message.forwarded.hash(&mut key);
+	message.forward_origin.hash(&mut key);
 	message.reply_deleted.hash(&mut key);
 	message.unsupported.hash(&mut key);
 	message.extra_content.hash(&mut key);
@@ -1448,6 +1454,14 @@ pub(crate) fn mentions_viewer(message: &Message, state: &State) -> bool {
 						.any(|role| member.roles.contains(role))
 				}))
 }
+/// Selection order for a pending row: after every snowflake (which stay below 2^63), in the
+/// order its snowflake-shaped nonce was made.
+fn pending_order(nonce: &str) -> u64 {
+	nonce
+		.parse::<u64>()
+		.map_or(u64::MAX, |nonce| nonce | 1 << 63)
+}
+
 fn row_key(
 	message: &Message,
 	previous: Option<&Message>,
@@ -1473,7 +1487,13 @@ fn row_height_key(
 ) -> u64 {
 	row_key(message, previous, boundary, state) ^ u64::from(deleted)
 }
-fn divider(ui: &mut egui::Ui, label: String, unread: bool, compact: bool) {
+fn divider(
+	ui: &mut egui::Ui,
+	label: String,
+	unread: bool,
+	compact: bool,
+	order: Option<egui::text_selection::SelectionOrder>,
+) {
 	let colors = crate::design::palette(ui);
 	let color = if unread { colors.danger } else { colors.muted };
 	ui.add_space(if compact { 8.0 } else { 16.0 });
@@ -1509,14 +1529,21 @@ fn divider(ui: &mut egui::Ui, label: String, unread: bool, compact: bool) {
 					egui::Stroke::new(1.0, if unread { color } else { colors.border }),
 				);
 			}
-			egui::text_selection::LabelSelectionState::label_text_selection(
-				ui,
-				&response,
-				pos,
-				text,
-				color,
-				egui::Stroke::NONE,
-			);
+			// Like chat text, a rule joins the selection only when shown and no menu owns the
+			// pointer: a selection treats an end missing between shown labels as removed.
+			if egui::Popup::is_any_open(ui.ctx()) || !ui.is_rect_visible(response.rect) {
+				ui.painter().galley(pos, text, color);
+			} else {
+				egui::text_selection::LabelSelectionState::ordered_label_text_selection(
+					ui,
+					&response,
+					pos,
+					text,
+					color,
+					egui::Stroke::NONE,
+					order,
+				);
+			}
 			if response.hovered() {
 				ui.ctx().set_cursor_icon(egui::CursorIcon::Default);
 			}
@@ -2783,6 +2810,7 @@ impl TimelineView {
 			let mut previous = None;
 			let mut lead_basis = 0.0;
 			let mut stale_heights = Vec::new();
+			let mut row_keys = HashMap::with_capacity(self.row_keys.len());
 			self.rows = starter
 				.into_iter()
 				.chain(display_rows(state, hide_blocked, hide_ignored))
@@ -2790,6 +2818,7 @@ impl TimelineView {
 					let prior = previous;
 					let deleted = state.timeline.is_deleted(m.id);
 					let key = row_height_key(m, prior, self.unread_boundary, state, deleted);
+					row_keys.insert(m.id, key);
 					previous = Some(m);
 					let lines = m
 						.content
@@ -2829,6 +2858,23 @@ impl TimelineView {
 					(m.id, height)
 				})
 				.collect();
+			let old_keys = std::mem::replace(&mut self.row_keys, row_keys);
+			if crate::select::has_selection(ui.ctx()) {
+				// A kept selection must not copy rows edited, inserted or removed out of view.
+				let removed: Vec<u64> = old_keys
+					.keys()
+					.filter(|id| !self.row_keys.contains_key(id))
+					.map(|id| id.0)
+					.collect();
+				let changed: Vec<u64> = self
+					.row_keys
+					.iter()
+					.filter(|(id, key)| old_keys.get(id) != Some(key))
+					.map(|(id, _)| id.0)
+					.collect();
+				crate::select::forget_items(ui.ctx(), &removed, true);
+				crate::select::forget_items(ui.ctx(), &changed, false);
+			}
 			for id in stale_heights {
 				self.heights.remove(&id);
 			}
@@ -2922,8 +2968,10 @@ impl TimelineView {
 			}));
 		}
 		let area = ui.available_rect_before_wrap().intersect(ui.clip_rect());
+		let selection_scroll = crate::select::edge_scroll(ui, area);
 		let autoscroll_delta =
-			session.bind(ui, ui.scope_id().with(("timeline", state.selected)), area);
+			session.bind(ui, ui.scope_id().with(("timeline", state.selected)), area)
+				+ selection_scroll;
 		if autoscroll_delta > 0.0 {
 			self.following = false;
 		}
@@ -2937,6 +2985,24 @@ impl TimelineView {
 				.iter()
 				.any(|p| &p.nonce == nonce && Some(p.channel) == state.selected)
 		});
+		// Kept apart from `pending_heights`, which a zoom clears: a sent or dropped pending
+		// row must not stay in a selection.
+		let pending_orders: Vec<u64> = state
+			.pending
+			.iter()
+			.filter(|p| Some(p.channel) == state.selected)
+			.map(|p| pending_order(&p.nonce))
+			.collect();
+		if pending_orders != self.pending_orders {
+			let sent: Vec<u64> = self
+				.pending_orders
+				.iter()
+				.filter(|order| !pending_orders.contains(order))
+				.copied()
+				.collect();
+			crate::select::forget_items(ui.ctx(), &sent, true);
+			self.pending_orders = pending_orders;
+		}
 		let pending_rows: Vec<_> = state
 			.pending
 			.iter()
@@ -3327,6 +3393,8 @@ impl TimelineView {
 					self.compact_messages || grouped(previous, message, self.unread_boundary);
 				let new_day = previous
 					.is_none_or(|previous| timestamp(previous.id).date() != timestamp(id).date());
+				// Snowflakes rank rows as shown, so a selection outlives its rows' layout.
+				let order = |index| egui::text_selection::SelectionOrder { item: id.0, index };
 				let response = ui.scope_builder(egui::UiBuilder::new().scope_id(row_id), |ui| {
 					if new_day {
 						let date = timestamp(id);
@@ -3335,11 +3403,18 @@ impl TimelineView {
 							format!("{} {}, {}", date.month(), date.day(), date.year()),
 							false,
 							self.compact_messages,
+							Some(order(0)),
 						);
 					}
 					let unread_boundary = self.unread_boundary == Some(id);
 					if unread_boundary {
-						divider(ui, "New messages".into(), true, self.compact_messages);
+						divider(
+							ui,
+							"New messages".into(),
+							true,
+							self.compact_messages,
+							Some(order(1)),
+						);
 					}
 					// Like Discord, the gap above a group sits outside the row highlight;
 					// a divider already separates the group.
@@ -3370,7 +3445,8 @@ impl TimelineView {
 							bottom: 1,
 						})
 						.show(ui, |ui| {
-							let mut surface = crate::select::Surface::new(ui, "row");
+							let mut surface =
+								crate::select::Surface::new(ui, "row").ordered(id.0, 2);
 							ui.spacing_mut().item_spacing =
 								egui::vec2(16.0, if self.compact_messages { 2.0 } else { 4.0 });
 							if let Some(interaction) = message
@@ -4313,6 +4389,22 @@ impl TimelineView {
 													self.browser_opening = target;
 												}
 											}
+											if message.forwarded
+												&& let Some(origin) = &message.forward_origin
+											{
+												ui.add_space(4.0);
+												if let Some(link) = crate::forwarding::origin(
+													ui,
+													state,
+													id,
+													origin,
+													avatars,
+													state.demo,
+													&mut surface,
+												) {
+													self.opening = Some(link);
+												}
+											}
 										});
 									body_bottom = body.response.rect.bottom();
 									if message.forwarded {
@@ -5090,6 +5182,7 @@ impl TimelineView {
 							compact,
 							group_gap(self.compact_messages),
 							self.compact_messages,
+							pending_order(&pending.nonce),
 						),
 						state,
 						(
@@ -5171,6 +5264,7 @@ impl TimelineView {
 		let scrolled_toward_bottom = ui.input(|input| {
 			(scroll_delta < 0.0
 				&& (session.holding()
+					|| selection_scroll != 0.0
 					|| input
 						.pointer
 						.hover_pos()
@@ -5343,6 +5437,7 @@ impl TimelineView {
 			&& ui.input(|i| {
 				scroll_delta > 0.0
 					&& (session.holding()
+						|| selection_scroll != 0.0
 						|| i.pointer
 							.hover_pos()
 							.is_some_and(|pos| output.inner_rect.contains(pos)))
@@ -5373,9 +5468,12 @@ impl TimelineView {
 			crate::design::ImageSection::MessageList,
 		);
 		let see_through = surface.a() < 255;
+		let slowmode = state
+			.selected
+			.filter(|channel| state.slowmode(*channel).is_some() && state.can_compose(*channel));
 		let fade_height = if see_through && self.following {
 			0.0
-		} else if typing.is_some() {
+		} else if typing.is_some() || slowmode.is_some() {
 			crate::typing::OVERLAY_HEIGHT + 8.0
 		} else {
 			20.0
@@ -5410,20 +5508,20 @@ impl TimelineView {
 		ui.painter()
 			.with_clip_rect(area)
 			.add(egui::Shape::mesh(fade));
+		let mut strip = egui::Rect::from_min_max(
+			egui::pos2(
+				area.left() + 16.0,
+				(area.bottom() - crate::typing::OVERLAY_HEIGHT).max(area.top()),
+			),
+			egui::pos2(area.right() - 16.0, area.bottom()),
+		);
+		if let Some(channel) = slowmode {
+			// The typing line stops short of the slowmode notice at the strip's end.
+			let taken = crate::slowmode::overlay(ui, strip, state, channel, now);
+			strip.max.x = (strip.max.x - taken - 12.0).max(strip.min.x);
+		}
 		if let Some(channel) = typing {
-			crate::typing::overlay(
-				ui,
-				egui::Rect::from_min_max(
-					egui::pos2(
-						area.left() + 16.0,
-						(area.bottom() - crate::typing::OVERLAY_HEIGHT).max(area.top()),
-					),
-					egui::pos2(area.right() - 16.0, area.bottom()),
-				),
-				state,
-				channel,
-				now,
-			);
+			crate::typing::overlay(ui, strip, state, channel, now);
 		}
 		let browsing_history = state.history_targeted
 			|| state.history_before.is_some()
@@ -6232,6 +6330,7 @@ mod tests {
 			selected: Some(Id(20)),
 			channels: vec![model::Channel {
 				user_limit: None,
+				slowmode: 0,
 				id: Id(20),
 				guild: None,
 				parent_id: None,
@@ -6502,6 +6601,7 @@ mod tests {
 			state.older_exhausted = true;
 			state.channels = vec![model::Channel {
 				user_limit: None,
+				slowmode: 0,
 				id: Id(20),
 				guild: None,
 				parent_id: None,
@@ -6812,6 +6912,7 @@ mod tests {
 			reply_deleted: false,
 			interaction: None,
 			forwarded: false,
+			forward_origin: None,
 			unsupported: false,
 			extra_content: Default::default(),
 			components: vec![],
@@ -7562,6 +7663,7 @@ mod tests {
 				result: Ok(client_core::thread_previews::Loaded {
 					channel: Some(model::Channel {
 						user_limit: None,
+						slowmode: 0,
 						id: thread,
 						guild: Some(Id(10)),
 						parent_id: Some(parent),
@@ -8303,6 +8405,7 @@ mod tests {
 				search_target: Some(Id(19)),
 				channels: vec![model::Channel {
 					user_limit: None,
+					slowmode: 0,
 					id: Id(20),
 					guild: None,
 					parent_id: None,
@@ -8437,6 +8540,7 @@ mod tests {
 			.into_iter()
 			.map(|(id, guild)| model::Channel {
 				user_limit: None,
+				slowmode: 0,
 				id: Id(id),
 				guild: Some(Id(guild)),
 				parent_id: None,
@@ -8477,6 +8581,7 @@ mod tests {
 			guilds: [1, 2]
 				.into_iter()
 				.map(|id| model::Guild {
+					banner: None,
 					default_message_notifications: None,
 					stickers: None,
 					emojis: None,
@@ -8715,6 +8820,7 @@ mod tests {
 				selected: Some(Id(20)),
 				channels: vec![model::Channel {
 					user_limit: None,
+					slowmode: 0,
 					id: Id(20),
 					guild: None,
 					parent_id: None,
@@ -8816,6 +8922,7 @@ mod tests {
 			selected: Some(Id(20)),
 			channels: vec![model::Channel {
 				user_limit: None,
+				slowmode: 0,
 				id: Id(20),
 				guild: None,
 				parent_id: None,
@@ -8921,6 +9028,7 @@ mod tests {
 			selected: Some(Id(20)),
 			channels: vec![model::Channel {
 				user_limit: None,
+				slowmode: 0,
 				id: Id(20),
 				guild: None,
 				parent_id: None,
@@ -9162,6 +9270,7 @@ mod tests {
 			selected: Some(Id(20)),
 			channels: vec![model::Channel {
 				user_limit: None,
+				slowmode: 0,
 				id: Id(20),
 				guild: None,
 				parent_id: None,
@@ -11285,6 +11394,7 @@ mod tests {
 			reply_deleted: false,
 			interaction: None,
 			forwarded: false,
+			forward_origin: None,
 			unsupported: false,
 			extra_content: Default::default(),
 			components: vec![],
@@ -11307,6 +11417,7 @@ mod tests {
 		};
 		state.channels.push(model::Channel {
 			user_limit: None,
+			slowmode: 0,
 			id: Id(4),
 			guild: Some(Id(5)),
 			name: "a".into(),
@@ -11332,6 +11443,7 @@ mod tests {
 			cosmetics: None,
 		});
 		state.guilds.push(model::Guild {
+			banner: None,
 			id: Id(5),
 			name: "Synthetic".into(),
 			icon: None,
@@ -11398,6 +11510,7 @@ mod tests {
 			generation: state.generation,
 			event: client_core::Event::ChannelChanged(model::ChannelPatch {
 				user_limit: model::Patch::Absent,
+				slowmode: model::Patch::Absent,
 				id: Id(4),
 				name: model::Patch::Value("a-much-longer-channel-reference".into()),
 				last_message: model::Patch::Absent,
@@ -11456,6 +11569,7 @@ mod tests {
 			reply_deleted: false,
 			interaction: None,
 			forwarded: false,
+			forward_origin: None,
 			unsupported: false,
 			extra_content: Default::default(),
 			components: vec![],
@@ -11558,6 +11672,7 @@ mod tests {
 			reply_deleted: false,
 			interaction: None,
 			forwarded: false,
+			forward_origin: None,
 			unsupported: false,
 			extra_content: Default::default(),
 			components: vec![],
@@ -12008,6 +12123,7 @@ mod tests {
 			freshness: model::Freshness::Fresh,
 			channels: vec![model::Channel {
 				user_limit: None,
+				slowmode: 0,
 				id: Id(channel),
 				guild: None,
 				parent_id: None,

@@ -396,6 +396,7 @@ pub fn highlight(ui: &egui::Ui, text: &str, wrap_width: f32) -> egui::text::Layo
 			Some((key, value)) if FILTER_KEYS.contains(&key) => {
 				let chip = |color| egui::TextFormat {
 					background: colors.mention_bg,
+					background_corner_radius: crate::markdown::INLINE_PLATE_RADIUS,
 					..egui::TextFormat::simple(font.clone(), color)
 				};
 				job.append(&token[..=key.len()], 0.0, chip(colors.muted));

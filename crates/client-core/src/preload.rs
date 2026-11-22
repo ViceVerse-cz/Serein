@@ -362,6 +362,7 @@ mod tests {
 			reply_deleted: false,
 			interaction: None,
 			forwarded: false,
+			forward_origin: None,
 			unsupported: false,
 			components: vec![],
 			application_id: None,
@@ -381,6 +382,7 @@ mod tests {
 			channels: (1..=20)
 				.map(|id| Channel {
 					user_limit: None,
+					slowmode: 0,
 					id: Id(id),
 					guild: None,
 					parent_id: None,

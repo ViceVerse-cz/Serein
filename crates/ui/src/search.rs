@@ -103,6 +103,14 @@ impl SearchUi {
 		self.pending_submit = false;
 		self.viewing = None;
 	}
+	/// Closes the search pane and its filter popup and draft, whatever its current state.
+	pub(super) fn close(&mut self) {
+		self.open = false;
+		self.focus = false;
+		self.filters_open = false;
+		self.filter_draft = None;
+		self.pending_submit = false;
+	}
 
 	pub fn toggle(&mut self, pins: bool) -> bool {
 		self.open = !self.open || self.pins != pins;
@@ -134,8 +142,16 @@ impl SearchUi {
 		self.pins
 	}
 	/// Per-frame bookkeeping: Escape closes, navigation resets and closed views cancel requests.
-	pub fn sync(&mut self, ctx: &egui::Context, state: &mut State, commands: &mut Vec<Command>) {
-		if self.open
+	/// `escape_available` is false while a modal above search owns Escape for this frame.
+	pub fn sync(
+		&mut self,
+		ctx: &egui::Context,
+		state: &mut State,
+		commands: &mut Vec<Command>,
+		escape_available: bool,
+	) {
+		if escape_available
+			&& self.open
 			&& self.filter_draft.is_none()
 			&& self.viewing.is_none()
 			&& ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
@@ -1575,6 +1591,7 @@ impl SearchUi {
 				reply_deleted: false,
 				interaction: None,
 				forwarded: false,
+				forward_origin: None,
 				unsupported: false,
 				extra_content: Default::default(),
 				embeds: hit.embeds.clone(),
@@ -1584,6 +1601,13 @@ impl SearchUi {
 		// Source-link detection shares the displayed excerpt's markdown cache entry.
 		if preview.content != hit.excerpt {
 			preview.content.clone_from(&hit.excerpt);
+		}
+		// A refreshed page can reuse an ID with different media, such as a now-suppressed embed.
+		if preview.attachments != hit.attachments {
+			preview.attachments.clone_from(&hit.attachments);
+		}
+		if preview.embeds != hit.embeds {
+			preview.embeds.clone_from(&hit.embeds);
 		}
 	}
 	/// Context menu of a result card, opened when `open`: copy its text, link or ID, and run
@@ -1805,80 +1829,127 @@ impl SearchUi {
 						let id = ui.scope_id().with(("search-spoilers", &hit.excerpt));
 						let mut revealed = ui.data(|data| data.get_temp::<u32>(id).unwrap_or(0));
 						let mut surface = crate::select::Surface::new(ui, "search-result");
-						let source = crate::mentions::MentionSource {
-							state,
-							channel: hit.channel,
-						};
-						let formatted = self.formats.get(hit.id, &hit.excerpt);
-						if self.channel_reference_load.is_none() {
-							self.channel_reference_load =
-								formatted.missing_channel_reference(state, revealed);
-						}
-						formatted.show_search(
-							ui,
-							&mut self.opening,
-							&hit.mentions,
-							Some(&source),
-							profile,
-							(
-								&state.channels,
-								&mut self.channel_reference,
-								&state.guilds,
-								crate::mentions::known_roles(state, hit.channel),
-							),
-							(avatars, state.demo, &mut revealed),
-							&mut surface,
-							query,
-							crate::design::MessageCardSurface::Opaque,
-						);
-						if revealed != 0 {
-							ui.data_mut(|data| data.insert_temp(id, revealed));
-						}
-						if !hit.attachments.is_empty() || !hit.embeds.is_empty() {
-							ui.add_space(4.0);
-							self.shell(hit);
-							let preview = &self.previews[&hit.id];
-							if crate::embeds::has_media_spoilers(preview) {
-								ui.label(
-									RichText::new(crate::i18n::translate(
-										"search-result-card-spoiler-media-open-the-message-to-reveal-it",
-									))
-									.small()
-									.italics()
-									.color(colors.muted),
+						// A forward shows its snapshot behind a rail, as in the conversation.
+						let body = egui::Frame::NONE
+							.inner_margin(egui::Margin {
+								left: if hit.forwarded { 16 } else { 0 },
+								..Default::default()
+							})
+							.show(ui, |ui| {
+								if hit.forwarded {
+									ui.label(
+										RichText::new(crate::i18n::translate(
+											"timeline-show-with-scroll-forwarded",
+										))
+										.size(13.0)
+										.italics()
+										.color(colors.muted),
+									);
+									ui.add_space(4.0);
+								}
+								let source = crate::mentions::MentionSource {
+									state,
+									channel: hit.channel,
+								};
+								let formatted = self.formats.get(hit.id, &hit.excerpt);
+								if self.channel_reference_load.is_none() {
+									self.channel_reference_load =
+										formatted.missing_channel_reference(state, revealed);
+								}
+								formatted.show_search(
+									ui,
+									&mut self.opening,
+									&hit.mentions,
+									Some(&source),
+									profile,
+									(
+										&state.channels,
+										&mut self.channel_reference,
+										&state.guilds,
+										crate::mentions::known_roles(state, hit.channel),
+									),
+									(avatars, state.demo, &mut revealed),
+									&mut surface,
+									query,
+									crate::design::MessageCardSurface::Opaque,
 								);
-							} else {
-								if !preview.attachments.is_empty() {
-									crate::attachments::show(
+								if revealed != 0 {
+									ui.data_mut(|data| data.insert_temp(id, revealed));
+								}
+								// A shell from an earlier page must not keep feeding the viewer media this hit lost.
+								if hit.attachments.is_empty() && hit.embeds.is_empty() {
+									self.previews.remove(&hit.id);
+								}
+								if !hit.attachments.is_empty() || !hit.embeds.is_empty() {
+									ui.add_space(4.0);
+									self.shell(hit);
+									let preview = &self.previews[&hit.id];
+									if crate::embeds::has_media_spoilers(preview) {
+										ui.label(
+											RichText::new(crate::i18n::translate(
+												"search-result-card-spoiler-media-open-the-message-to-reveal-it",
+											))
+											.small()
+											.italics()
+											.color(colors.muted),
+										);
+									} else {
+										if !preview.attachments.is_empty() {
+											crate::attachments::show(
+												ui,
+												preview,
+												avatars,
+												&mut self.viewing,
+												&mut self.opening,
+												media.download,
+												media.audio,
+												media.video,
+												state.demo,
+												&mut surface,
+												crate::design::MessageCardSurface::Opaque,
+											);
+										}
+										if !preview.embeds.is_empty()
+											&& let Some(gif) = crate::embeds::show(
+												ui,
+												preview,
+												&mut self.formats,
+												avatars,
+												&mut self.opening,
+												media.download,
+												profile,
+												state,
+												crate::design::MessageCardSurface::Opaque,
+												false,
+											) {
+											media.download.gif_favorite_request = Some(gif);
+										}
+									}
+								}
+								if hit.forwarded
+									&& let Some(origin) = &hit.forward_origin
+								{
+									ui.add_space(4.0);
+									if let Some(link) = crate::forwarding::origin(
 										ui,
-										preview,
+										state,
+										hit.id,
+										origin,
 										avatars,
-										&mut self.viewing,
-										&mut self.opening,
-										media.download,
-										media.audio,
-										media.video,
 										state.demo,
 										&mut surface,
-										crate::design::MessageCardSurface::Opaque,
-									);
-								}
-								if !preview.embeds.is_empty()
-									&& let Some(gif) = crate::embeds::show(
-										ui,
-										preview,
-										&mut self.formats,
-										avatars,
-										&mut self.opening,
-										media.download,
-										profile,
-										state,
-										crate::design::MessageCardSurface::Opaque,
-										false,
 									) {
-									media.download.gif_favorite_request = Some(gif);
+										self.opening = Some(link);
+									}
 								}
-							}
+							});
+						if hit.forwarded {
+							let rect = body.response.rect;
+							let rail = egui::Rect::from_min_max(
+								rect.min,
+								egui::pos2(rect.left() + 3.0, rect.bottom()),
+							);
+							ui.painter().rect_filled(rail, 2.0, colors.selected);
 						}
 						surface.finish(ui);
 					});
@@ -2232,7 +2303,7 @@ mod tests {
 					..Default::default()
 				},
 				|ui| {
-					view.sync(&ctx, &mut state, &mut commands);
+					view.sync(&ctx, &mut state, &mut commands, true);
 					view.header_input(ui, &mut state, &mut commands);
 				},
 			)
@@ -2412,7 +2483,7 @@ mod tests {
 		assert!(!view.focus);
 	}
 	fn run(ui: &mut egui::Ui, view: &mut SearchUi, state: &mut State, commands: &mut Vec<Command>) {
-		view.sync(ui.ctx(), state, commands);
+		view.sync(ui.ctx(), state, commands, true);
 		if view.open {
 			if !view.pins {
 				view.header_input(ui, state, commands);
@@ -2440,6 +2511,7 @@ mod tests {
 				selected: Some(Id(1)),
 				channels: vec![model::Channel {
 					user_limit: None,
+					slowmode: 0,
 					id: Id(1),
 					guild: None,
 					parent_id: None,
@@ -2553,6 +2625,8 @@ mod tests {
 						excerpt: "Synthetic pinned message".into(),
 						attachments: vec![],
 						embeds: vec![],
+						forwarded: false,
+						forward_origin: None,
 					}],
 					total: 1,
 					partial: continuation.is_some(),
@@ -2746,6 +2820,7 @@ mod tests {
 			};
 			state.channels.push(model::Channel {
 				user_limit: None,
+				slowmode: 0,
 				id: Id(1),
 				guild: None,
 				parent_id: None,
@@ -2818,6 +2893,7 @@ mod tests {
 	fn search_results_resolve_payload_mentions_and_queue_unknown_channels() {
 		let channel = model::Channel {
 			user_limit: None,
+			slowmode: 0,
 			id: Id(1),
 			guild: Some(Id(10)),
 			parent_id: None,
@@ -2857,6 +2933,8 @@ mod tests {
 				url: Some("https://example.com/source".into()),
 				..model::Embed::default()
 			}],
+			forwarded: false,
+			forward_origin: None,
 		};
 		let ctx = egui::Context::default();
 		let mut view = SearchUi {

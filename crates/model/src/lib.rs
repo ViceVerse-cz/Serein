@@ -324,12 +324,15 @@ pub struct Guild {
 	pub id: Id,
 	pub name: String,
 	pub icon: Option<String>,
+	/// Banner hash; absent for servers without one.
+	pub banner: Option<String>,
 }
 impl Guild {
 	pub fn bytes(&self) -> usize {
 		std::mem::size_of::<Self>()
 			+ self.name.capacity()
 			+ self.icon.as_ref().map_or(0, String::capacity)
+			+ self.banner.as_ref().map_or(0, String::capacity)
 			+ self.emojis.as_ref().map_or(0, custom_emoji_bytes)
 			+ self.stickers.as_ref().map_or(0, sticker_bytes)
 	}
@@ -339,6 +342,13 @@ impl Guild {
 			.filter(|hash| valid_avatar_hash(hash))
 			.map(|hash| format!("guild-{}-{hash}", self.id))
 	}
+	/// Shares the `banner-` media key: guild and user banners use one documented CDN path.
+	pub fn banner_key(&self) -> Option<String> {
+		self.banner
+			.as_deref()
+			.filter(|hash| valid_avatar_hash(hash))
+			.map(|hash| format!("banner-{}-{hash}", self.id))
+	}
 }
 #[derive(Clone)]
 pub struct GuildPatch {
@@ -346,6 +356,7 @@ pub struct GuildPatch {
 	pub id: Id,
 	pub name: Patch<String>,
 	pub icon: Patch<String>,
+	pub banner: Patch<String>,
 }
 #[derive(Clone, PartialEq, Eq)]
 pub struct Channel {
@@ -365,6 +376,8 @@ pub struct Channel {
 	pub message_count: Option<u32>,
 	/// Voice or stage channel user limit; None when unlimited or unknown.
 	pub user_limit: Option<u16>,
+	/// Seconds a member waits between messages here; zero when slowmode is off.
+	pub slowmode: u16,
 	/// Forum tags offered by a forum or media channel, or applied to one of its posts.
 	pub tags: Option<Box<forum::Tags>>,
 }
@@ -394,6 +407,8 @@ pub struct ChannelPatch {
 	pub message_count: Patch<u32>,
 	/// Null clears a limit; zero arrives as Null.
 	pub user_limit: Patch<u16>,
+	/// Null arrives as a zero value.
+	pub slowmode: Patch<u16>,
 	/// Channel updates carry whole objects, so present tags replace the known ones.
 	pub tags: Patch<Box<forum::Tags>>,
 }
@@ -408,6 +423,19 @@ pub struct Interaction {
 impl Interaction {
 	pub fn heap_bytes(&self) -> usize {
 		size_of::<Self>() + self.user.heap_bytes() + self.command.capacity()
+	}
+}
+/// The original message a forward copied, from its type-1 `message_reference`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct ForwardOrigin {
+	/// Absent for a forward from a direct message.
+	pub guild: Option<Id>,
+	pub channel: Id,
+	pub message: Id,
+}
+impl ForwardOrigin {
+	pub fn valid(&self) -> bool {
+		self.guild.is_none_or(|id| id.0 != 0) && self.channel.0 != 0 && self.message.0 != 0
 	}
 }
 /// Message flag: this message started a thread, whose thread channel shares its ID.
@@ -449,6 +477,8 @@ pub struct Message {
 	pub reply_deleted: bool,
 	/// Body is the immutable snapshot attached to a forwarded message.
 	pub forwarded: bool,
+	/// Where a forwarded snapshot was first sent; absent for older cached rows.
+	pub forward_origin: Option<ForwardOrigin>,
 	/// The application command invocation this message answers.
 	pub interaction: Option<Box<Interaction>>,
 	pub unsupported: bool,

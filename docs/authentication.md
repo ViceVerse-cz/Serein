@@ -38,15 +38,25 @@ The Linux login webview retains a WebKit/Safari identity. Earlier claims that an
 engine/user-agent mismatch necessarily causes challenge rejection or restrictions
 were unverified.
 
-**Transport identity (unofficial, live-unverified).** Native REST, uploads,
-Gateway and voice WebSockets, and Discord CDN downloads use a shared desktop-style
-profile from `client_core::fingerprint`: `Discord Client`, Electron 42.7.1 and
-Chromium 148, with the Chromium 148 wreq/BoringSSL transport profile. The paired
-engine/profile versions remain SakuraCord reference constants. Host
-versions are platform-specific manifest observations (Linux 1.0.169, Windows
-1.0.9268, macOS 0.0.422), and web build 670026 comes from the public `/app` bundle
-on November 12. These do not establish a complete current Electron identity.
-Super-properties retain some web fields.
+**Transport identity (unofficial; compared with a recorded desktop session).** Native REST,
+uploads, Gateway and voice WebSockets, and Discord CDN downloads use a shared desktop-style
+profile from `client_core::fingerprint`. On November 19 the owner's official macOS client
+(0.0.423, Electron 44.10.2, Chromium 152) was recorded on a burner account; see the
+[compatibility notes](discord-compatibility.md#desktop-client-recording--november-19).
+Serein now matches its super-properties field for field (OS version and SDK version,
+architectures, `has_client_mods`, a per-launch `client_launch_id`, the web build read from
+Discord's `/app` page at launch, the macOS
+native build number, and on Linux the desktop, distribution, packaging and session type),
+calls REST and the Gateway at v9, and sends the identify extras of a non-fast-connect start.
+It advertises Electron 44.10.2 and Chromium 152.0.7977.169 with wreq-util's Chromium 152
+handshake, less the `trust_anchors` extension that Electron did not send; the resulting TCP
+ClientHello matched the recorded client's in every field except the ECH GREASE length, which
+the real client varies per connection. That profile and the BoringSSL it needs exist only on
+upstream branches, so wreq, wreq-util and btls are pinned git revisions (see `Cargo.toml`).
+The real client reaches the API over HTTP/3, which wreq lacks; ETF encoding and zstd
+compression are not used either. Since November 20 the identity also carries
+`launch_signature`, the focus state, the heartbeat session and the identify `capabilities`;
+see the [Gateway identity notes](discord-compatibility.md#desktop-gateway-identity--november-20).
 REST also carries the Discord-issued installation ID as `X-Installation-ID`, and the Gateway identify
 carries it as `installation_id`; with Discord's own cookies these keep one device across launches
 (see [storage policy](storage-policy.md#discord-device-state-november-13-2026)). Captchas for
@@ -68,8 +78,8 @@ Locale/timezone come from the OS with en-US/UTC fallbacks. Startup sends no
 Settings writers wait for that accepted identity, so saved-login account checks
 complete before any presence, idle-timeout or activity-sharing settings write.
 Hosts other than Discord (updater, extension downloads, external uploads, third-party
-media) get no emulation; the updater and external uploads send a `Serein/x.y` user agent. Certificates are verified against the Mozilla
-roots bundled with wreq, not the operating system trust store, so a TLS-inspecting proxy
+media) get no emulation; the updater and external uploads send a `Serein/x.y` user agent. Certificates are verified against the Chromium
+Root Store bundled with wreq, not the operating system trust store, so a TLS-inspecting proxy
 whose root is installed only in the OS is rejected.
 
 Close/drop invalidates pending results, clears the secret/scripts/handler, cancels evaluation,
@@ -85,7 +95,51 @@ Live Discord login remains unverified. The same flushing is applied to invite ve
 its reported X11 freeze and timeout still require testing on the affected Linux device.
 These are implemented limits, not measured teardown/storage or live login compatibility.
 
-Serein uses Discord’s official login page in a temporary platform webview, not OAuth. The credential handoff is unofficial and live-unverified; see the compatibility matrix. Complete authentication yourself, in the application. Never send passwords, tokens, MFA codes, QR screenshots, or private message contents to the coding agent, issues, logs, or CI.
+**Native sign-in (unofficial, live-unverified; November 19, 2026).** The sign-in screen is
+Serein's own form: email or phone number and password, the MFA step (authenticator app, SMS
+or backup code) and a QR code for the Discord mobile app. It sends the unauthenticated
+requests Discord's login page sends (`POST /auth/login`, `/auth/mfa/{totp,sms,backup}`,
+`/auth/mfa/sms/send`, `/users/@me/remote-auth/login`, and the remote-auth v2 socket at
+`remote-auth-gateway.discord.gg`) with the transport identity above, so the session is issued
+to the client that then uses it. The earlier flow obtained it in a webview with a different
+engine identity; whether that difference caused the session rejections in issue #1003 is
+unverified. Wire shapes follow SakuraCord's sign-in (commit `aa8a3da8`) and
+discord-userdoccers; no code was copied.
+
+- When the form opens Serein makes the login page's opening requests, as the recorded
+  client does: `GET /experiments` (whose answer carries the fingerprint, sent as
+  `X-Fingerprint` from then on) and `GET /auth/location-metadata`. The fingerprint is issued
+  by Discord, never made up, and sign-in proceeds without it; it is kept in memory for one
+  sign-in screen only. The login page asks for no installation ID.
+- Every request is one attempt. Nothing is retried on its own. A rate limit holds back
+  both the form and the QR code until Discord's wait has passed.
+- One attempt runs at a time. Submitting the form stops the QR code until that attempt
+  ends, and a scanned code disables the form, so neither can answer the other's challenge
+  or sign in a different account behind it.
+- A 2xx answer that lists `required_actions` (for example `update_password`) is not used;
+  the user is sent to the hosted page to finish that step.
+- hCaptcha appears only when a sign-in answer asks for it, in the existing verification
+  view, and is solved by the user. The request is replayed once with the answer; a second
+  challenge stops the attempt.
+- The password and codes live in zeroized memory and are never written anywhere. The
+  password is wiped when its attempt ends (refusal, cancelled challenge, MFA step reached)
+  and the fields keep no undo history. Copies inside the HTTP and TLS stack are outside
+  this guarantee. Failures are fixed labels; Discord's response text is not shown or logged.
+- The QR session uses a one-use 2048-bit RSA key generated by the linked BoringSSL. The
+  socket never carries the token: an approved login yields a ticket, and REST returns the
+  token encrypted to that key (RSA-OAEP, SHA-256). The code's fingerprint must be the
+  SHA-256 of that key, the handshake steps are taken once and in order, and a missed
+  heartbeat acknowledgement ends the session. A code that expires unscanned (close 4003 or
+  Discord's `timeout_ms`) or is declined on the phone is replaced at most four times, then
+  waits for the user, so an unattended sign-in screen stops opening sockets. Any other
+  close is a failure and is not renewed. The socket is not routed through a configured
+  proxy, like the Gateway.
+- A security key or passkey cannot be used in the native form. "Web login" under the
+  card opens the hosted login webview described below, which is otherwise unchanged.
+- "New login location" (`ACCOUNT_LOGIN_VERIFICATION_EMAIL`) asks the user to open Discord's
+  email link and log in again. Password reset opens discord.com in the browser.
+
+The hosted login page in a temporary platform webview, not OAuth, remains as that fallback. The credential handoff is unofficial and live-unverified; see the compatibility matrix. Complete authentication yourself, in the application. Never send passwords, tokens, MFA codes, QR screenshots, or private message contents to the coding agent, issues, logs, or CI.
 
 1. Build `cargo run --locked` on a supported platform. Use a private conversation controlled by the account owner. The owner enables the private-test acknowledgment and presses **Sign in with Discord**.
 2. Complete one of the real login methods available in Discord’s page. Do not bypass a challenge, and do not change the webview's engine identity or the identity described above to get past a rejection. Cancel if the page or handoff is unsupported. The webview expires after ten minutes and closes when it supplies a candidate token.

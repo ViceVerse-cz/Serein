@@ -41,6 +41,7 @@ The examples in this table use `i: &Invocation`. For a wrapper, set
 | `composer` | `Option<String>` / string or null | The current draft for a `composer` action with the `composer` grant. An empty draft is `Some("")`, not `None`. | `i.composer.as_deref()` |
 | `storage` | `Option<String>` / string or null | The plugin's last saved opaque UTF-8 value for this account (device-wide for the narrow `api_proxy` plugin). Requires `storage`; absent when nothing has been saved. The worker reloads it before execution. | `i.storage_json::<u64>()` if your plugin stores a JSON number |
 | `values` | `BTreeMap<String, String>` / object of string values | Current form values when a panel button invokes an action. Keys are input element IDs. Initial tool/panel opens normally have an empty map; reactive events always do. | `i.value("name")` or `i.parse_value::<bool>("enabled")` |
+| `double_clicked` | `bool` / boolean, default `false` | True when the host routed a double click on an interface row or dock item, or Enter on the focused row or dock item; single clicks and Space leave it false. Panel button activations leave it false. | `i.double_clicked` |
 
 `values` holds strings even for typed controls: a checkbox supplies `"true"` or
 `"false"`, a slider supplies a decimal integer string, and a select supplies the
@@ -115,7 +116,7 @@ can be inspected without decoding a newer capability/event enum.
 | --- | --- | --- | --- |
 | `api_version` | `u32` / integer | Current buffer/JSON ABI version, `1`. | `host.api_version` |
 | `sdk_revision` | `u32` / integer | Current discovery schema revision, `1`; not a release or protocol compatibility claim. | `host.sdk_revision` |
-| `capabilities` | `Vec<String>` / array of strings | Host-supported capability names (56 currently), not this plugin's granted capabilities. | `host.supports("rich_presence")` |
+| `capabilities` | `Vec<String>` / array of strings | Host-supported capability names (58 currently), not this plugin's granted capabilities. | `host.supports("rich_presence")` |
 | `app_events` | `Vec<String>` / array of strings | Host-supported app-event names (21 currently), not an event subscription or delivery guarantee. | `host.supports_event("typing")` |
 | `interface_tweaks` | `Vec<String>` / array of strings, empty on older hosts | Interface tweak names this host honors: `static_typing_indicator`, `plain_profiles`, `expanded_roles`, `hidden_request_counts`, `one_ping_per_direct_message`, `hidden_blocked_messages`, `hidden_profile_notes`, `large_stream_preview`, `double_click_reply_edit`. | `host.supports_tweak("expanded_roles")` |
 
@@ -189,7 +190,10 @@ account snapshot or grant-dependent data:
       "message_details",
       "relationships",
       "external_navigation",
-      "context_menus"
+      "context_menus",
+      "interface_tweaks",
+      "interface_ui",
+      "start_screen"
     ],
     "app_events": [
       "ready",
@@ -427,9 +431,12 @@ Most new optional fields are omitted by the host. `ReadSnapshot.unread` is the
 exception: unknown unread state is serialized as `null`.
 
 The complete app snapshot is at most 64 KiB serialized. The collector also has
-budgets including item overhead: 10 KiB for channels, 20 KiB for timeline,
-6 KiB each for members, presence and channel-detail recipients, and 8 KiB for
-guilds. Message details and relationships have 8-KiB and 4-KiB group limits
+budgets including item overhead: 10 KiB for channels (plus 48 KiB for the focus
+server's channels, see [ChannelDirectorySnapshot](#channeldirectorysnapshot-loaded-channel-list)),
+20 KiB for timeline, 6 KiB each for members, presence and channel-detail
+recipients, and 8 KiB for guilds. If these groups together would pass the 64-KiB
+cap, channel directory items are dropped from the end until the snapshot fits.
+Message details and relationships have 8-KiB and 4-KiB group limits
 and also consume the remaining shared 64-KiB snapshot budget. They can truncate
 earlier when other groups are present. Channel metadata and member details each
 have a 6-KiB group ceiling and share that remaining global budget too. Member
@@ -507,6 +514,8 @@ removes control characters, keeps at most 128 UTF-8 bytes, and substitutes
 | `guild_id` | `Option<String>` / string or absent | Server ID when this is a guild channel. Normally absent for direct conversations. | `channel.guild_id.as_deref()` |
 | `name` | `String` / string | Required host-supplied channel label. | `channel.name.as_str()` |
 | `kind` | `u8` / integer | Service channel-type number carried by the host. Its presence does not mean every operation is supported for that type. | `channel.kind == 1` |
+| `parent_id` | `Option<String>` / string or absent | The category this channel sits under or, for a thread, its parent channel; absent when there is none or it is not viewable. | `channel.parent_id.as_deref()` |
+| `position` | `i32` / integer | The channel's position among its siblings as the server orders them; `0` when unknown. Not an index into the directory. | `channel.position` |
 
 The host recognizes these channel kinds. Keep a fallback for other `u8` values;
 the snapshot contract does not reject an otherwise valid unknown kind.
@@ -764,8 +773,8 @@ Discord. In the examples, `directory` is the borrowed group.
 
 | Wire field | SDK Rust / JSON type | Meaning | Reading it |
 | --- | --- | --- | --- |
-| `items` | `Vec<ChannelSnapshot>` / array | Up to 100 distinct loaded, visible channel records, further limited by the byte budget. No stable sorting contract is promised. | `directory.items.iter().find(\|channel\| channel.id == "100")` |
-| `truncated` | `bool` / boolean | The collector stopped because a list or byte limit was reached. | `directory.truncated` |
+| `items` | `Vec<ChannelSnapshot>` / array | Distinct loaded, visible channel records. Every channel of the focus server comes first, up to 250 records within its own 48-KiB budget; up to 100 records from other servers and direct conversations then fill the shared 10-KiB budget. The focus server is the server of the dock item an `interface_click` names (its `guild_id`), otherwise the `guild_id` of the selected dock item in the plugin's last restated interface, otherwise the server of the natively selected channel. No ordering is promised beyond the focus server coming first; each item carries `parent_id` and `position` so plugins sort it themselves. | `directory.items.iter().find(\|channel\| channel.id == "100")` |
+| `truncated` | `bool` / boolean | The collector stopped because a list or byte limit was reached, for the focus server or the rest. | `directory.truncated` |
 
 ### TimelineSnapshot and MessageSnapshot: loaded messages
 
@@ -1098,9 +1107,10 @@ A user with no entry has unknown/unsupplied presence, not necessarily offline.
 
 ### VoiceSnapshot: the current call
 
-Requires `voice_state`. This is the current active call, not a directory of calls
-or everyone in the selected server. An inaccessible or absent call produces an
-idle summary: no `channel_id`, phase `idle`, false flags and no participants.
+Requires `voice_state`. The call summary describes the current active call, not a directory
+of calls. An inaccessible or absent call produces an idle summary: no `channel_id`, phase
+`idle`, false flags and no participants. The additive `roster` lists tracked voice
+participants across channels with display names and voice flags when the host has them.
 
 | Wire field | SDK Rust / JSON type | Meaning | Reading from `voice: &VoiceSnapshot` |
 | --- | --- | --- | --- |
@@ -1110,7 +1120,8 @@ idle summary: no `channel_id`, phase `idle`, false flags and no participants.
 | `deafened` | `bool` / boolean | Current account's call deafen state. | `voice.deafened` |
 | `camera` | `bool` / boolean | Current account's call camera flag. No frames or device details are provided. | `voice.camera` |
 | `streaming` | `bool` / boolean | Local screen sharing is busy: starting, active, stopping or retiring. It is not proof that frames are currently being transmitted. | `voice.streaming` |
-| `participants` | `Vec<String>` / array of ID strings | At most 64 tracked participant IDs. No per-user voice flags or media are supplied. There is no `truncated` flag, so treat this as a bounded roster. | `voice.participants.len()` |
+| `participants` | `Vec<String>` / array of ID strings | At most 64 tracked participant IDs of the current call. Per-user names, voice flags and speaking arrive in `roster`; no media are supplied. There is no `truncated` flag, so treat this as a bounded roster. | `voice.participants.len()` |
+| `roster` | `Vec<VoiceRosterEntry>` / array of objects, absent when empty | Tracked participants across channels: at most 128 entries, only voice channels the account can view; names bounded and sanitized; no truncated flag. Each row carries `guild_id`, `channel_id`, `user_id`, optional resolved `name`, `muted`, `deafened`, `server_muted`, `server_deafened`, `speaking`. `speaking` is the host's current speaking indication, not measured microphone activity; `name` is absent until member data loads. Empty on hosts predating the roster. | `voice.roster.iter()` |
 
 | `phase` | Meaning in the host |
 | --- | --- |
@@ -1169,8 +1180,8 @@ editing a processing field switches to Custom through the native settings path.
 | `input_percent`, `output_percent` | `u16` / integer | Input/output gain, 0 through 200. |
 | `push_to_talk` | `bool` / boolean | Whether push to talk is enabled. |
 | `input_profile` | `String` / string | `voice_isolation`, `studio`, or `custom`. |
-| `suppression` | `String` / string | `off`, `rnnoise`, or `webrtc`. |
-| `suppression_level` | `u8` / integer | Suppression strength, 0 through 3. |
+| `suppression` | `String` / string | `off`, `rnnoise`, `webrtc`, `deepfilternet`, or `auto` (DeepFilterNet, or RNNoise when the device is too busy for it). Voice Isolation reports `auto`. |
+| `suppression_level` | `u8` / integer | Suppression strength, 0 through 3 (low through very high). Used by `webrtc`, `deepfilternet` and, while it runs DeepFilterNet, `auto`; kept but unused with `off`, `rnnoise` or an `auto` session that moved to RNNoise. |
 | `echo_cancellation`, `automatic_gain` | `bool` / boolean | Effective processing options. |
 | `sensitivity_db` | `Option<i16>` / integer or null | Threshold from -80 through 0 dBFS; null means open microphone. |
 
@@ -1205,7 +1216,7 @@ This complete synthetic input shows both groups:
   "app": {
     "audio_settings": {
       "input_percent": 100, "output_percent": 100, "push_to_talk": false,
-      "input_profile": "voice_isolation", "suppression": "rnnoise",
+      "input_profile": "voice_isolation", "suppression": "auto",
       "suppression_level": 2, "echo_cancellation": true,
       "automatic_gain": true, "sensitivity_db": -55
     },
@@ -1305,3 +1316,19 @@ The wrapper flattens its `output: Output` field into the same response document
 and keeps existing `Output` struct literals and compiled ABI v1 plugins compatible.
 Use `export!(handle)` for this handler.
 It does not grant proxy capability or account access implicitly.
+
+## Start screen output (preview)
+
+| Wire field | SDK Rust / JSON type | Meaning |
+| --- | --- | --- |
+| `start_screen` | `StartScreenOutput.start_screen: Option<Option<StartScreen>>` / object or `null` | Set (`Some(Some)`), clear (`Some(None)`, JSON `null`) or keep (`None`, omitted) this plugin's device-level start screen from a granted `activation` or `panel` action. |
+| `start_screen.images` | `Vec<StartImage>` / array | At most 4 pre-rendered cell images, stacked top to bottom in place of the client logo. |
+| `start_screen.title`, `start_screen.subtitle` | `Option<String>` / string | Plain text in the client's normal font, 1-64 and 1-128 bytes, in place of the default copy. |
+| `start_screen.window` | `Option<StartWindow>` / object with `width` and `height` numbers | Window size in logical pixels while the screen shows, 240-1,600 by 240-1,200; clamped to the monitor and centered, never saved. |
+| Image `width`, `height`, `palette`, `frames`, `fps`, `cell` | `u16`, `u16`, `Vec<String>`, `Vec<String>`, `u8`, `u8` | 1-160 cells per side; 1-3 colors for cell values 1-3 (0 is transparent), each `#RRGGBB[AA]` or `accent` / `accent:AA` for the client's current accent; 1-120 base64 frames of 2-bit cells packed four per byte, first cell in the high bits; 1-30 fps when animated (default 12); 1-8 logical pixels per cell (default 3). |
+
+All frames of a screen hold at most 160 KiB of packed bytes. The host draws nothing
+of its own design and only plays these frames back; see
+[Start screen](extension-sdk-actions.md#start-screen-preview) for the exact packing,
+scaling and window behavior with a complete example. Use `export!(handle)` for this
+handler; the wrapper flattens its `output: Output` field like the other wrappers.

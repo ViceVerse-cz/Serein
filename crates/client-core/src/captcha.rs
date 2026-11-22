@@ -88,6 +88,34 @@ impl fmt::Debug for Solution {
 		f.write_str("Solution([REDACTED])")
 	}
 }
+/// A sign-in challenge the user solved. No session exists yet, so it names no write target;
+/// the sign-in flow that asked for it replays its one request.
+pub struct Solved {
+	challenge: Challenge,
+	solution: Solution,
+	expires: Instant,
+}
+impl Solved {
+	pub fn new(challenge: Challenge, solution: Solution) -> Self {
+		Self {
+			challenge,
+			solution,
+			expires: Instant::now() + LIFETIME,
+		}
+	}
+	pub fn expired(&self) -> bool {
+		Instant::now() >= self.expires
+	}
+	pub fn passcode(&self) -> &str {
+		&self.solution.0
+	}
+	pub fn rqtoken(&self) -> Option<&str> {
+		self.challenge.rqtoken.as_deref()
+	}
+	pub fn session_id(&self) -> Option<&str> {
+		self.challenge.session_id.as_deref()
+	}
+}
 /// Constructed only after matching the outstanding state request; consumed once.
 pub struct Retry {
 	pub(crate) target: Target,

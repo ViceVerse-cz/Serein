@@ -914,11 +914,38 @@ impl Calls {
 		if !allowed && !own {
 			return Ok(());
 		}
-		let matches_active = allowed
+		let mut matches_active = allowed
 			&& self
 				.active
 				.is_some_and(|(channel, _)| state.channel_id == Some(channel))
 			&& self.active_guild == state.guild_id;
+		// Someone moved this device's own confirmed session to another voice channel of the
+		// server (unverified: the moved voice state keeps its session ID). The call follows it;
+		// a different session there is still another client taking the call over.
+		if own
+			&& allowed
+			&& !matches_active
+			&& self.session_confirmed
+			&& self.active_guild.is_some()
+			&& self.active_guild == state.guild_id
+			&& let Some(channel) = state.channel_id
+			&& let Some((from, request)) = self.active
+			&& session.as_ref().is_some_and(|session| {
+				self.active_session
+					.as_ref()
+					.is_some_and(|active| active.expose() == session.as_str())
+			}) {
+			self.active = Some((channel, request));
+			self.stream = None;
+			self.watch = None;
+			self.camera = false;
+			matches_active = true;
+			emit(Event::Voice(voice::Event::Moved {
+				from,
+				channel,
+				request,
+			}))?;
+		}
 		if own && matches_active {
 			// Discord has applied the join, so any earlier hangup was processed before it.
 			self.superseded = None;

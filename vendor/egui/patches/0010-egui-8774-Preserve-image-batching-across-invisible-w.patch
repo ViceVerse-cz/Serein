@@ -10,7 +10,7 @@ Squashed from https://github.com/emilk/egui/pull/8774 at 265afc37f374.
  1 file changed, 40 insertions(+)
 
 diff --git a/crates/epaint/src/tessellator.rs b/crates/epaint/src/tessellator.rs
-index 22ba5c814..b66858efc 100644
+index fcb60068..e17f90e3 100644
 --- a/crates/epaint/src/tessellator.rs
 +++ b/crates/epaint/src/tessellator.rs
 @@ -1492,6 +1492,15 @@ impl Tessellator {
@@ -29,7 +29,7 @@ index 22ba5c814..b66858efc 100644
          if let Shape::Vec(shapes) = shape {
              for shape in shapes {
                  self.tessellate_clipped_shape(
-@@ -2948,3 +2957,34 @@ fn tessellate_band_stroke_kind() {
+@@ -2962,3 +2971,34 @@ fn tessellate_band_stroke_kind() {
          -2.0..=12.0
      );
  }

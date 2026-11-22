@@ -60,83 +60,130 @@ fn main() {
 		assert!(pacer.next(&receive, true, false).is_none());
 		assert!(pacer.next(&receive, true, false).is_none());
 	}
-	// Exercise the real AEC -> RNNoise chain with synthetic hiss and short click bursts.
-	let mut filtered = echo::Echo::new();
-	let mut unfiltered = echo::Echo::new();
-	filtered
-		.configure(model::voice_settings::VoiceProcessing::from_legacy(true).effective())
-		.unwrap();
-	let mut seed = 17_u32;
-	let mut before = 0.0;
-	let mut after = 0.0;
-	for tick in 0..120 {
-		let mut raw = std::array::from_fn(|i| {
-			seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-			let amplitude = if tick % 15 == 0 && i < 240 {
-				0.25
-			} else {
-				0.06
-			};
-			(seed as i32 as f32 / i32::MAX as f32) * amplitude
-		});
-		let mut clean = raw;
+	// Exercise the real AEC -> RNNoise/DeepFilterNet chains with synthetic hiss and click bursts.
+	for suppression in [
+		model::voice_settings::NoiseSuppression::RnNoise,
+		model::voice_settings::NoiseSuppression::DeepFilterNet,
+	] {
+		let mut filtered = echo::Echo::new();
+		let mut unfiltered = echo::Echo::new();
+		let processing = model::voice_settings::Processing {
+			suppression,
+			..model::voice_settings::VoiceProcessing::from_legacy(true).effective()
+		};
+		filtered.configure(processing).unwrap();
+		let mut seed = 17_u32;
+		let mut before = 0.0;
+		let mut after = 0.0;
+		for tick in 0..120 {
+			let mut raw = std::array::from_fn(|i| {
+				seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+				let amplitude = if tick % 15 == 0 && i < 240 {
+					0.25
+				} else {
+					0.06
+				};
+				(seed as i32 as f32 / i32::MAX as f32) * amplitude
+			});
+			let mut clean = raw;
+			filtered.render(&[0.0; 960]).unwrap();
+			unfiltered.render(&[0.0; 960]).unwrap();
+			filtered.capture(&mut clean, false).unwrap();
+			unfiltered.capture(&mut raw, false).unwrap();
+			assert!(clean.iter().all(|s| s.is_finite() && s.abs() <= 1.0));
+			if tick >= 60 {
+				before += raw.iter().map(|s| s * s).sum::<f32>();
+				after += clean.iter().map(|s| s * s).sum::<f32>();
+			}
+		}
+		assert!(
+			after < before * 0.75,
+			"noise suppression should reduce synthetic hiss/click energy: {before} -> {after}"
+		);
+		// A synthetic voiced vowel must survive; noise-only attenuation is insufficient.
+		let mut voiced_before = 0.0;
+		let mut voiced_after = 0.0;
+		for tick in 0..100 {
+			let mut vowel = std::array::from_fn(|i| {
+				let t = (tick * 960 + i) as f32 / 48_000.0;
+				(1..=24)
+					.map(|h| {
+						let frequency = h as f32 * 140.0;
+						let weight = ((frequency - 700.0) / 180.0).powi(2);
+						let weight2 = ((frequency - 1200.0) / 250.0).powi(2);
+						(0.035 * (-weight).exp() + 0.02 * (-weight2).exp())
+							* (t * frequency * std::f32::consts::TAU).sin()
+					})
+					.sum::<f32>()
+			});
+			let mut raw = vowel;
+			filtered.render(&[0.0; 960]).unwrap();
+			unfiltered.render(&[0.0; 960]).unwrap();
+			filtered.capture(&mut vowel, false).unwrap();
+			unfiltered.capture(&mut raw, false).unwrap();
+			if tick >= 50 {
+				voiced_before += raw.iter().map(|s| s * s).sum::<f32>();
+				voiced_after += vowel.iter().map(|s| s * s).sum::<f32>();
+			}
+		}
+		// DeepFilterNet correctly rejects this stationary harmonic tone as non-speech.
+		assert!(
+			suppression == model::voice_settings::NoiseSuppression::DeepFilterNet
+				|| voiced_after > voiced_before * 0.1,
+			"voiced signal must survive suppression: {voiced_before} -> {voiced_after}"
+		);
+		// A syllable-rate amplitude-modulated vowel carries speech-like temporal dynamics
+		// that every suppressor, including DeepFilterNet, must let through.
+		let mut speech_seed = 101_u32;
+		let mut speech = |tick: usize| -> Frame {
+			std::array::from_fn(|i| {
+				speech_seed = speech_seed
+					.wrapping_mul(1_664_525)
+					.wrapping_add(1_013_904_223);
+				let t = (tick * 960 + i) as f32 / 48_000.0;
+				let syllable = 0.5 - 0.5 * (t * 4.0 * std::f32::consts::TAU).cos();
+				let mut vowel = 0.0;
+				for harmonic in 1..=24_u32 {
+					let frequency = harmonic as f32 * 110.0;
+					let first = ((frequency - 500.0) / 160.0).powi(2);
+					let second = ((frequency - 1900.0) / 300.0).powi(2);
+					vowel += (0.05 * (-first).exp() + 0.03 * (-second).exp())
+						* (t * frequency * std::f32::consts::TAU).sin();
+				}
+				syllable * vowel + (speech_seed as i32 as f32 / i32::MAX as f32) * 0.002
+			})
+		};
+		let (mut speech_before, mut speech_after) = (0.0, 0.0);
+		for tick in 0..100 {
+			let mut voiced = speech(tick);
+			let mut raw = voiced;
+			filtered.render(&[0.0; 960]).unwrap();
+			unfiltered.render(&[0.0; 960]).unwrap();
+			filtered.capture(&mut voiced, false).unwrap();
+			unfiltered.capture(&mut raw, false).unwrap();
+			if tick >= 50 {
+				speech_before += raw.iter().map(|s| s * s).sum::<f32>();
+				speech_after += voiced.iter().map(|s| s * s).sum::<f32>();
+			}
+		}
+		assert!(
+			speech_after > speech_before * 0.1,
+			"amplitude-modulated speech must survive suppression: {speech_before} -> {speech_after}"
+		);
+		filtered
+			.configure(model::voice_settings::VoiceProcessing::from_legacy(false).effective())
+			.unwrap();
+		let mut bypass = [0.2; 960];
+		let mut reference = bypass;
 		filtered.render(&[0.0; 960]).unwrap();
 		unfiltered.render(&[0.0; 960]).unwrap();
-		filtered.capture(&mut clean, false).unwrap();
-		unfiltered.capture(&mut raw, false).unwrap();
-		assert!(clean.iter().all(|s| s.is_finite() && s.abs() <= 1.0));
-		if tick >= 60 {
-			before += raw.iter().map(|s| s * s).sum::<f32>();
-			after += clean.iter().map(|s| s * s).sum::<f32>();
-		}
+		filtered.capture(&mut bypass, false).unwrap();
+		unfiltered.capture(&mut reference, false).unwrap();
+		assert_eq!(
+			bypass, reference,
+			"disabling suppression must retain the original AEC state"
+		);
 	}
-	assert!(
-		after < before * 0.75,
-		"noise suppression should reduce synthetic hiss/click energy: {before} -> {after}"
-	);
-	// A synthetic voiced vowel must survive; noise-only attenuation is insufficient.
-	let mut voiced_before = 0.0;
-	let mut voiced_after = 0.0;
-	for tick in 0..100 {
-		let mut vowel = std::array::from_fn(|i| {
-			let t = (tick * 960 + i) as f32 / 48_000.0;
-			(1..=24)
-				.map(|h| {
-					let frequency = h as f32 * 140.0;
-					let weight = ((frequency - 700.0) / 180.0).powi(2);
-					let weight2 = ((frequency - 1200.0) / 250.0).powi(2);
-					(0.035 * (-weight).exp() + 0.02 * (-weight2).exp())
-						* (t * frequency * std::f32::consts::TAU).sin()
-				})
-				.sum::<f32>()
-		});
-		let mut raw = vowel;
-		filtered.render(&[0.0; 960]).unwrap();
-		unfiltered.render(&[0.0; 960]).unwrap();
-		filtered.capture(&mut vowel, false).unwrap();
-		unfiltered.capture(&mut raw, false).unwrap();
-		if tick >= 50 {
-			voiced_before += raw.iter().map(|s| s * s).sum::<f32>();
-			voiced_after += vowel.iter().map(|s| s * s).sum::<f32>();
-		}
-	}
-	assert!(
-		voiced_after > voiced_before * 0.1,
-		"voiced signal must survive suppression: {voiced_before} -> {voiced_after}"
-	);
-	filtered
-		.configure(model::voice_settings::VoiceProcessing::from_legacy(false).effective())
-		.unwrap();
-	let mut bypass = [0.2; 960];
-	let mut reference = bypass;
-	filtered.render(&[0.0; 960]).unwrap();
-	unfiltered.render(&[0.0; 960]).unwrap();
-	filtered.capture(&mut bypass, false).unwrap();
-	unfiltered.capture(&mut reference, false).unwrap();
-	assert_eq!(
-		bypass, reference,
-		"disabling suppression must retain the original AEC state"
-	);
 
 	let mut echo = echo::Echo::new();
 	let mut history = [[0.0_f32; 960]; 4];

@@ -77,9 +77,9 @@ async fn login_metadata(
 			// A reflected dispatch sequence proves startup continued past metadata processing.
 			loop {
 				let heartbeat = packet(&mut socket).await;
-				assert_eq!(heartbeat["op"], 1);
+				assert_eq!(heartbeat["op"], 40);
 				send(&mut socket, json!({"op":11,"d":null})).await;
-				if heartbeat["d"] == sequence {
+				if heartbeat["d"]["seq"] == sequence {
 					break;
 				}
 			}

@@ -176,6 +176,70 @@ fn main() {
 	for _ in 0..12 {
 		frame(vec![]);
 	}
+	let (start_row, start) = labels
+		.borrow()
+		.iter()
+		.filter_map(|(text, pos)| {
+			let id = text.strip_prefix("Autoscroll row ")?.parse::<u64>().ok()?;
+			(pos.y < 600.0).then_some((id, *pos))
+		})
+		.max_by(|a, b| a.1.y.total_cmp(&b.1.y))
+		.expect("a chat row is visible");
+	let press = |pos, pressed| egui::Event::PointerButton {
+		pos,
+		button: egui::PointerButton::Primary,
+		pressed,
+		modifiers: egui::Modifiers::NONE,
+	};
+	let anchor = start + egui::vec2(1.0, 8.0);
+	frame(vec![egui::Event::PointerMoved(anchor)]);
+	let before_drag = frame(vec![press(anchor, true)]);
+	let above = egui::pos2(anchor.x + 40.0, -20.0);
+	frame(vec![egui::Event::PointerMoved(above)]);
+	let mut held = before_drag;
+	for _ in 0..90 {
+		held = frame(vec![]);
+	}
+	assert!(
+		held + 20 < before_drag,
+		"a selection held above the chat must scroll it up: {before_drag} -> {held}"
+	);
+	frame(vec![egui::Event::Copy]);
+	let text = copied.borrow().clone();
+	let selected: Vec<u64> = text
+		.lines()
+		.filter_map(|line| line.strip_prefix("Autoscroll row ")?.parse().ok())
+		.collect();
+	frame(vec![press(above, false)]);
+	// The press was at the start of its row, so the selection ends just before it.
+	assert!(
+		selected.last() == Some(&(start_row - 1))
+			&& selected.first().is_some_and(|first| first + 20 < start_row)
+			&& selected.windows(2).all(|pair| pair[1] == pair[0] + 1),
+		"Copy covers every row scrolled past, up to row {start_row}: {text:?}"
+	);
+	assert!(
+		has_selection.get(),
+		"releasing after the scroll keeps the selection"
+	);
+	println!(
+		"selection drag scrolled from row {before_drag} to {held}; copied rows {:?}..{start_row}",
+		selected.first()
+	);
+	clear_selection(&mut frame);
+	// Back to the live edge for the checks below.
+	frame(vec![egui::Event::PointerMoved(anchor)]);
+	frame(vec![egui::Event::MouseWheel {
+		unit: egui::MouseWheelUnit::Point,
+		delta: egui::vec2(0.0, -4000.0),
+		modifiers: egui::Modifiers::NONE,
+		phase: egui::TouchPhase::Move,
+		source: egui::MouseWheelSource::Unknown,
+	}]);
+	// Let the smooth scroll finish: any wheel motion stops a mouse3 drive.
+	for _ in 0..120 {
+		frame(vec![]);
+	}
 	let origin = egui::pos2(600.0, 350.0);
 	frame(vec![egui::Event::PointerMoved(origin)]);
 	middle.set(ui::scroll::Middle {

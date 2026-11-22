@@ -44,6 +44,7 @@ pub mod server_audit_log;
 pub mod server_integrations;
 pub mod server_roles;
 pub mod server_settings;
+pub mod slowmode;
 pub mod thread_previews;
 mod thread_starter;
 mod threads;
@@ -719,6 +720,9 @@ pub enum Event {
 		challenge: Box<captcha::Challenge>,
 	},
 	Failure(auth::Failure),
+	/// The service replaced this login's token in READY (unofficial). The application
+	/// continues, and saves the login, with the new one; the state itself keeps no token.
+	TokenRefreshed(std::sync::Arc<auth::SessionSecret>),
 	Disconnected,
 	Resumed,
 	Resync,
@@ -887,6 +891,8 @@ pub struct State {
 	/// The notice was dismissed for this burst; it returns only after the queue drains.
 	#[doc(hidden)]
 	pub send_throttle_seen: bool,
+	#[doc(hidden)]
+	pub slowmode_cooldowns: slowmode::Cooldowns,
 	/// Search results run oldest first, sorted by Discord rather than per page.
 	pub search_oldest: bool,
 	pub send_verification: verification::SendVerification,
@@ -1108,6 +1114,7 @@ impl Default for State {
 			pending: vec![],
 			send_throttled: false,
 			send_throttle_seen: false,
+			slowmode_cooldowns: Default::default(),
 			search_oldest: false,
 			send_verification: Default::default(),
 			reply: None,
@@ -1128,7 +1135,7 @@ impl Default for State {
 	}
 }
 /// Channels the conversation pane can present: text, voice, and forum containers.
-fn navigable(channel: &Channel) -> bool {
+pub fn navigable(channel: &Channel) -> bool {
 	channel.supports_text()
 		|| channel.kind == 2
 		|| (channel.guild.is_some() && matches!(channel.kind, 15 | 16))
@@ -1978,6 +1985,13 @@ impl State {
 		let channel = self.selected?;
 		if !self.can_send(channel) || (!filenames.is_empty() && !self.can_attach(channel)) {
 			self.status = "Sending is unavailable with the current connection or permissions";
+			return None;
+		}
+		if self
+			.slowmode_remaining(channel, std::time::Instant::now())
+			.is_some()
+		{
+			self.status = "Slowmode is on; wait before sending again";
 			return None;
 		}
 		if filenames.len() > MAX_ATTACHMENTS {
@@ -3257,6 +3271,13 @@ impl State {
 						Patch::Null => guild.icon = None,
 						Patch::Absent => {}
 					}
+					match patch.banner {
+						Patch::Value(banner) => {
+							guild.banner = valid_avatar_hash(&banner).then_some(banner)
+						}
+						Patch::Null => guild.banner = None,
+						Patch::Absent => {}
+					}
 					if self.navigation_bytes() + self.permissions.bytes()
 						> model::account::MAX_BYTES
 					{
@@ -3395,6 +3416,9 @@ impl State {
 						Patch::Value(limit) => channel.user_limit = Some(limit),
 						Patch::Null => channel.user_limit = None,
 						Patch::Absent => {}
+					}
+					if let Patch::Value(seconds) = patch.slowmode {
+						channel.slowmode = seconds;
 					}
 					match patch.tags {
 						Patch::Value(tags) => channel.tags = Some(tags),
@@ -4016,6 +4040,7 @@ impl State {
 							}
 							self.observe_notification(&m);
 							self.observe_last_message(m.channel, m.id);
+							self.start_slowmode(m.channel);
 						}
 						let accepted_reference = correlated && self.accepts_reply_source(&m);
 						if accepted_reference {
@@ -4097,6 +4122,7 @@ impl State {
 				self.failure_detail = Some(detail);
 				Ok(())
 			}
+			Event::TokenRefreshed(_) => Ok(()),
 			Event::Disconnected => {
 				self.release_message_challenge(
 					"Verification ended by disconnect; retry the message",
@@ -4670,7 +4696,7 @@ impl Event {
 				Self::GuildStickers { stickers, .. } => sticker_bytes(stickers),
 				Self::StickerPacks(result) => result.as_ref().map_or(0, stickers::pack_bytes),
 				Self::Sticker { result, .. } => result.as_ref().map_or(0, Sticker::heap_bytes),
-				Self::GuildChanged(patch) => [&patch.name, &patch.icon]
+				Self::GuildChanged(patch) => [&patch.name, &patch.icon, &patch.banner]
 					.into_iter()
 					.map(|value| match value {
 						Patch::Value(value) => value.capacity(),
@@ -4829,6 +4855,7 @@ mod tests {
 		let mut state = State {
 			channels: vec![Channel {
 				user_limit: None,
+				slowmode: 0,
 				id: Id(1),
 				guild: None,
 				parent_id: None,
@@ -4913,6 +4940,7 @@ mod tests {
 		let mut state = State {
 			channels: vec![Channel {
 				user_limit: None,
+				slowmode: 0,
 				id: Id(1),
 				guild: None,
 				parent_id: None,
@@ -4968,6 +4996,7 @@ mod tests {
 		let mut state = State {
 			channels: vec![Channel {
 				user_limit: None,
+				slowmode: 0,
 				id: Id(1),
 				guild: None,
 				parent_id: None,
@@ -5097,6 +5126,7 @@ mod tests {
 		let mut state = State {
 			channels: vec![Channel {
 				user_limit: None,
+				slowmode: 0,
 				id: Id(1),
 				guild: None,
 				parent_id: None,
@@ -5221,6 +5251,7 @@ mod tests {
 				user: Some(message(1).author),
 				guilds: (1..=2)
 					.map(|id| Guild {
+						banner: None,
 						default_message_notifications: None,
 						stickers: None,
 						id: Id(id),
@@ -5233,6 +5264,7 @@ mod tests {
 					.into_iter()
 					.map(|(id, guild, kind)| Channel {
 						user_limit: None,
+						slowmode: 0,
 						id: Id(id),
 						guild: (guild != 0).then_some(Id(guild)),
 						kind,
@@ -5412,6 +5444,7 @@ mod tests {
 		}
 		{
 			let guild = |id| Guild {
+				banner: None,
 				default_message_notifications: None,
 				stickers: None,
 				id: Id(id),
@@ -5448,6 +5481,7 @@ mod tests {
 		{
 			let channel = Channel {
 				user_limit: None,
+				slowmode: 0,
 				id: Id(1),
 				guild: Some(Id(10)),
 				parent_id: None,
@@ -5465,6 +5499,7 @@ mod tests {
 				user: Some(message(1).author),
 				channels: vec![channel.clone()],
 				guilds: vec![Guild {
+					banner: None,
 					default_message_notifications: None,
 					stickers: None,
 					id: Id(10),
@@ -5498,6 +5533,7 @@ mod tests {
 				&mut state,
 				Event::ChannelChanged(ChannelPatch {
 					user_limit: Patch::Absent,
+					slowmode: Patch::Absent,
 					icon: model::Patch::Absent,
 					id: Id(1),
 					name: Patch::Value("Renamed".into()),
@@ -5610,6 +5646,7 @@ mod tests {
 			selected: Some(channel),
 			channels: vec![Channel {
 				user_limit: None,
+				slowmode: 0,
 				id: channel,
 				guild: None,
 				parent_id: None,
@@ -5843,6 +5880,7 @@ mod tests {
 			};
 			let mut state = State {
 				guilds: vec![Guild {
+					banner: None,
 					default_message_notifications: None,
 					stickers: None,
 					id: Id(2),
@@ -5912,6 +5950,7 @@ mod tests {
 			let mut state = State::default();
 			let mut guilds: Vec<_> = (1..=700)
 				.map(|id| Guild {
+					banner: None,
 					default_message_notifications: None,
 					stickers: None,
 					id: Id(id),
@@ -5956,6 +5995,7 @@ mod tests {
 	fn guild_identity_patches_preserve_omitted_fields_and_change_icon_keys() {
 		let mut state = State {
 			guilds: vec![Guild {
+				banner: None,
 				default_message_notifications: None,
 				stickers: None,
 				emojis: None,
@@ -5969,6 +6009,7 @@ mod tests {
 		apply(
 			&mut state,
 			Event::GuildChanged(GuildPatch {
+				banner: model::Patch::Absent,
 				default_message_notifications: model::Patch::Absent,
 				id: Id(2),
 				name: Patch::Value("Renamed".into()),
@@ -5980,6 +6021,7 @@ mod tests {
 		apply(
 			&mut state,
 			Event::GuildChanged(GuildPatch {
+				banner: model::Patch::Absent,
 				default_message_notifications: model::Patch::Absent,
 				id: Id(2),
 				name: Patch::Absent,
@@ -5991,6 +6033,7 @@ mod tests {
 		apply(
 			&mut state,
 			Event::GuildChanged(GuildPatch {
+				banner: model::Patch::Absent,
 				default_message_notifications: model::Patch::Absent,
 				id: Id(2),
 				name: Patch::Absent,
@@ -6001,6 +6044,7 @@ mod tests {
 		apply(
 			&mut state,
 			Event::GuildChanged(GuildPatch {
+				banner: model::Patch::Absent,
 				default_message_notifications: model::Patch::Absent,
 				id: Id(2),
 				name: Patch::Value("x".repeat(1024)),
@@ -6012,6 +6056,7 @@ mod tests {
 		apply(
 			&mut state,
 			Event::GuildChanged(GuildPatch {
+				banner: model::Patch::Absent,
 				default_message_notifications: model::Patch::Absent,
 				id: Id(3),
 				name: Patch::Value("Unknown".into()),
@@ -6022,6 +6067,7 @@ mod tests {
 		state.apply(Envelope {
 			generation: state.generation + 1,
 			event: Event::GuildChanged(GuildPatch {
+				banner: model::Patch::Absent,
 				default_message_notifications: model::Patch::Absent,
 				id: Id(2),
 				name: Patch::Value("Late event".into()),
@@ -6037,6 +6083,7 @@ mod tests {
 			let mut state = State {
 				user: Some(message(1).author),
 				guilds: vec![Guild {
+					banner: None,
 					default_message_notifications: None,
 					stickers: None,
 					id: Id(1),
@@ -6048,6 +6095,7 @@ mod tests {
 			};
 			let channel = Channel {
 				user_limit: None,
+				slowmode: 0,
 				last_message: None,
 				id: Id(2),
 				guild: Some(Id(1)),
@@ -6068,6 +6116,7 @@ mod tests {
 				&mut state,
 				Event::ChannelChanged(ChannelPatch {
 					user_limit: Patch::Absent,
+					slowmode: Patch::Absent,
 					icon: model::Patch::Absent,
 					last_message: model::Patch::Absent,
 					id: Id(2),
@@ -6089,6 +6138,7 @@ mod tests {
 				&mut state,
 				Event::ChannelChanged(ChannelPatch {
 					user_limit: Patch::Absent,
+					slowmode: Patch::Absent,
 					icon: model::Patch::Absent,
 					last_message: model::Patch::Absent,
 					id: Id(2),
@@ -6110,6 +6160,7 @@ mod tests {
 					&mut state,
 					Event::ChannelCreated(Channel {
 						user_limit: None,
+						slowmode: 0,
 						last_message: None,
 						id: Id(id as u64),
 						guild: None,
@@ -6136,6 +6187,7 @@ mod tests {
 				selected: Some(Id(1)),
 				channels: vec![Channel {
 					user_limit: None,
+					slowmode: 0,
 					id: Id(1),
 					guild: None,
 					parent_id: None,
@@ -6302,6 +6354,7 @@ mod tests {
 			reply_deleted: false,
 			interaction: None,
 			forwarded: false,
+			forward_origin: None,
 			unsupported: false,
 			components: vec![],
 			application_id: None,
@@ -6328,6 +6381,7 @@ mod tests {
 			auth: auth::AuthState::Authenticated,
 			channels: vec![Channel {
 				user_limit: None,
+				slowmode: 0,
 				last_message: None,
 				id: Id(1),
 				guild: None,
@@ -6469,6 +6523,7 @@ mod tests {
 	fn voice_navigation_survives_ready_but_revocation_ends_the_call_before_restoration() {
 		let channel = Channel {
 			user_limit: None,
+			slowmode: 0,
 			id: Id(1),
 			guild: Some(Id(10)),
 			parent_id: None,
@@ -6483,6 +6538,7 @@ mod tests {
 			message_count: None,
 		};
 		let guild = Guild {
+			banner: None,
 			default_message_notifications: None,
 			stickers: None,
 			id: Id(10),
@@ -6563,6 +6619,7 @@ mod tests {
 		{
 			let channel = |kind| Channel {
 				user_limit: None,
+				slowmode: 0,
 				id: Id(1),
 				guild: None,
 				parent_id: None,
@@ -6720,6 +6777,7 @@ mod tests {
 					guilds: vec![],
 					channels: vec![Channel {
 						user_limit: None,
+						slowmode: 0,
 						last_message: None,
 						id: Id(1),
 						guild: None,

@@ -312,6 +312,7 @@ mod tests {
 	fn channel(id: Id, kind: u8, parent: Option<Id>) -> Channel {
 		Channel {
 			user_limit: None,
+			slowmode: 0,
 			id,
 			guild: Some(Id(1)),
 			parent_id: parent,
@@ -362,6 +363,7 @@ mod tests {
 			kind: 0,
 			reply_deleted: false,
 			forwarded: false,
+			forward_origin: None,
 			interaction: None,
 			unsupported: false,
 			extra_content: Default::default(),

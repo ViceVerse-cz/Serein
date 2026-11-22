@@ -443,6 +443,7 @@ mod tests {
 	fn channel(id: u64, kind: u8, parent: Option<u64>) -> Channel {
 		Channel {
 			user_limit: None,
+			slowmode: 0,
 			id: Id(id),
 			guild: Some(Id(100)),
 			name: format!("c{id}"),
@@ -472,6 +473,7 @@ mod tests {
 				discriminator: 0,
 			}),
 			guilds: vec![model::Guild {
+				banner: None,
 				default_message_notifications: None,
 				stickers: None,
 				emojis: None,

@@ -12,7 +12,7 @@ Squashed from https://github.com/emilk/egui/pull/8732 at 64be752c4f9d.
  3 files changed, 70 insertions(+), 13 deletions(-)
 
 diff --git a/crates/eframe/src/native/glow_integration.rs b/crates/eframe/src/native/glow_integration.rs
-index 098536f55..59567badd 100644
+index 08c2049f..a876cde4 100644
 --- a/crates/eframe/src/native/glow_integration.rs
 +++ b/crates/eframe/src/native/glow_integration.rs
 @@ -225,6 +225,7 @@ fn create_window_for_viewport(
@@ -38,7 +38,7 @@ index 098536f55..59567badd 100644
              let cc = CreationContext {
                  egui_ctx: integration.egui_ctx.clone(),
                  integration_info: integration.frame.info().clone(),
-@@ -431,6 +432,22 @@ impl<'app> GlowWinitApp<'app> {
+@@ -432,6 +433,22 @@ impl<'app> GlowWinitApp<'app> {
              app_creator(&cc).map_err(crate::Error::AppCreation)?
          };
  
@@ -62,10 +62,10 @@ index 098536f55..59567badd 100644
  
          {
 diff --git a/crates/eframe/src/native/wgpu_integration.rs b/crates/eframe/src/native/wgpu_integration.rs
-index 952f337ed..f58f30755 100644
+index 34c04270..deb2496e 100644
 --- a/crates/eframe/src/native/wgpu_integration.rs
 +++ b/crates/eframe/src/native/wgpu_integration.rs
-@@ -345,6 +345,17 @@ impl<'app> WgpuWinitApp<'app> {
+@@ -346,6 +346,17 @@ impl<'app> WgpuWinitApp<'app> {
              app_creator(&cc).map_err(crate::Error::AppCreation)?
          };
  
@@ -84,10 +84,10 @@ index 952f337ed..f58f30755 100644
          viewport_from_window.insert(window.id(), ViewportId::ROOT);
  
 diff --git a/crates/egui-winit/src/lib.rs b/crates/egui-winit/src/lib.rs
-index 159942407..92e8375be 100644
+index 6b4b9738..4649e112 100644
 --- a/crates/egui-winit/src/lib.rs
 +++ b/crates/egui-winit/src/lib.rs
-@@ -2162,18 +2162,7 @@ fn process_viewport_command(
+@@ -2163,18 +2163,7 @@ fn process_viewport_command(
                  }
              });
          }
@@ -107,7 +107,7 @@ index 159942407..92e8375be 100644
          ViewportCommand::ContentProtected(v) => window.set_content_protected(v),
          ViewportCommand::CursorPosition(pos) => {
              if let Err(err) = window.set_cursor_position(PhysicalPosition::new(
-@@ -2244,6 +2233,7 @@ pub fn create_window(
+@@ -2245,6 +2234,7 @@ pub fn create_window(
      );
  
      let window = event_loop.create_window(window_attributes)?;
@@ -115,7 +115,7 @@ index 159942407..92e8375be 100644
      apply_viewport_builder_to_window(egui_ctx, &window, viewport_builder);
      Ok(window)
  }
-@@ -2365,6 +2355,14 @@ pub fn create_winit_window_attributes(
+@@ -2366,6 +2356,14 @@ pub fn create_winit_window_attributes(
          })
          .with_active(active.unwrap_or(true));
  
@@ -130,7 +130,7 @@ index 159942407..92e8375be 100644
      // Here and below: we create `LogicalSize` / `LogicalPosition` taking
      // zoom factor into account. We don't have a good way to get physical size here,
      // and trying to do it anyway leads to weird bugs on Wayland, see:
-@@ -2630,6 +2628,37 @@ fn set_maximized_while_hidden(window: &winit::window::Window) {
+@@ -2631,6 +2629,37 @@ fn set_maximized_while_hidden(window: &winit::window::Window) {
      }
  }
  

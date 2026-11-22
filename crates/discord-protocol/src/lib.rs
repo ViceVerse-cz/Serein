@@ -47,7 +47,9 @@ pub mod typing;
 use attachments::AttachmentList;
 use embeds::EmbedList;
 use model::{Channel, Guild, Id, Message, MessagePatch, Patch, User};
-pub use reactions::{GuildEmojisUpdate, ReactionDelta, ReactionEmojiTarget, ReactionTarget};
+pub use reactions::{
+	GuildEmojisUpdate, ReactionBatch, ReactionDelta, ReactionEmojiTarget, ReactionTarget,
+};
 use serde::Deserialize;
 use serde_json::value::RawValue;
 
@@ -206,6 +208,9 @@ pub struct ChannelDto {
 	/// An unreadable recipient is dropped without losing the conversation.
 	#[serde(default, deserialize_with = "lossy::recipients")]
 	pub recipients: Vec<UserDto>,
+	/// READY's deduplicated form of `recipients`: IDs into its top-level `users`.
+	#[serde(default, deserialize_with = "lossy::recipient_ids")]
+	pub recipient_ids: Vec<Id>,
 	#[serde(default)]
 	pub permission_overwrites: Option<Vec<Overwrite>>,
 	#[serde(default)]
@@ -213,6 +218,9 @@ pub struct ChannelDto {
 	/// Zero means unlimited.
 	#[serde(default, deserialize_with = "lossy::null_default")]
 	pub user_limit: u32,
+	/// Slowmode seconds; zero means off.
+	#[serde(default, deserialize_with = "lossy::null_default")]
+	pub rate_limit_per_user: u32,
 	#[serde(default, deserialize_with = "lossy::null_default")]
 	pub is_message_request: bool,
 	#[serde(default, deserialize_with = "lossy::null_default")]
@@ -308,6 +316,7 @@ impl ChannelDto {
 			member_list_id: None,
 			message_count: self.message_count,
 			user_limit: user_limit(self.user_limit),
+			slowmode: slowmode(self.rate_limit_per_user),
 		}
 	}
 }
@@ -315,6 +324,11 @@ impl ChannelDto {
 /// limits stay within 0..=10000; zero and anything unrepresentable mean unlimited.
 fn user_limit(limit: u32) -> Option<u16> {
 	u16::try_from(limit).ok().filter(|limit| *limit > 0)
+}
+/// [Documented](https://docs.discord.com/developers/resources/channel#channel-object) slowmode
+/// stays within 0..=21600 seconds; anything beyond is held to that ceiling.
+fn slowmode(seconds: u32) -> u16 {
+	seconds.min(21600) as u16
 }
 #[derive(Deserialize)]
 pub struct ChannelPatchDto {
@@ -339,6 +353,8 @@ pub struct ChannelPatchDto {
 	pub message_count: Patch<u32>,
 	#[serde(default)]
 	pub user_limit: Patch<u32>,
+	#[serde(default)]
+	pub rate_limit_per_user: Patch<u32>,
 	#[serde(default)]
 	pub is_message_request: Patch<bool>,
 	#[serde(default)]
@@ -444,6 +460,11 @@ impl ChannelPatchDto {
 			user_limit: match self.user_limit {
 				Patch::Value(limit) => user_limit(limit).map_or(Patch::Null, Patch::Value),
 				Patch::Null => Patch::Null,
+				Patch::Absent => Patch::Absent,
+			},
+			slowmode: match self.rate_limit_per_user {
+				Patch::Value(seconds) => Patch::Value(slowmode(seconds)),
+				Patch::Null => Patch::Value(0),
 				Patch::Absent => Patch::Absent,
 			},
 		}
@@ -566,6 +587,8 @@ pub struct GuildDto {
 	#[serde(default)]
 	pub icon: Option<String>,
 	#[serde(default)]
+	pub banner: Option<String>,
+	#[serde(default)]
 	pub name: String,
 	#[serde(default)]
 	pub channels: Vec<ChannelDto>,
@@ -609,6 +632,8 @@ pub struct GuildProperties {
 	pub name: Patch<String>,
 	#[serde(default)]
 	pub icon: Patch<String>,
+	#[serde(default)]
+	pub banner: Patch<String>,
 }
 #[derive(Deserialize)]
 pub struct GuildPatchDto {
@@ -623,6 +648,7 @@ impl GuildPatchDto {
 			id: self.id,
 			name: self.properties.name,
 			icon: self.properties.icon,
+			banner: self.properties.banner,
 		}
 	}
 }
@@ -725,6 +751,11 @@ impl Ready {
 						Patch::Null => g.icon = None,
 						Patch::Absent => {}
 					}
+					match properties.banner {
+						Patch::Value(banner) => g.banner = Some(banner),
+						Patch::Null => g.banner = None,
+						Patch::Absent => {}
+					}
 				}
 				let everyone = g
 					.roles
@@ -786,6 +817,7 @@ impl Ready {
 					id: g.id,
 					name: g.name.chars().take(128).collect(),
 					icon: g.icon.filter(|hash| model::valid_avatar_hash(hash)),
+					banner: g.banner.filter(|hash| model::valid_avatar_hash(hash)),
 				}
 			})
 			.collect::<Vec<_>>();
@@ -922,10 +954,62 @@ impl InteractionDto {
 }
 #[derive(Deserialize)]
 pub struct Reference {
+	/// A malformed ID leaves the reference unresolved instead of rejecting the message.
+	#[serde(default, deserialize_with = "lenient_id")]
 	pub message_id: Option<Id>,
+	#[serde(default, deserialize_with = "lenient_id")]
 	pub channel_id: Option<Id>,
+	/// Only names a forward's source; a malformed value leaves the source unknown.
+	#[serde(default, deserialize_with = "lenient_id")]
+	pub guild_id: Option<Id>,
 	#[serde(rename = "type", default)]
 	pub kind: u64,
+}
+/// A Discord ID string, else `None`; other values are skipped without being buffered.
+fn lenient_id<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Id>, D::Error> {
+	struct Visitor;
+	impl<'de> serde::de::Visitor<'de> for Visitor {
+		type Value = Option<Id>;
+		fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+			f.write_str("a Discord ID")
+		}
+		fn visit_str<E: serde::de::Error>(self, value: &str) -> Result<Self::Value, E> {
+			Ok(value.parse().ok())
+		}
+		fn visit_bool<E: serde::de::Error>(self, _: bool) -> Result<Self::Value, E> {
+			Ok(None)
+		}
+		fn visit_i64<E: serde::de::Error>(self, _: i64) -> Result<Self::Value, E> {
+			Ok(None)
+		}
+		fn visit_u64<E: serde::de::Error>(self, _: u64) -> Result<Self::Value, E> {
+			Ok(None)
+		}
+		fn visit_f64<E: serde::de::Error>(self, _: f64) -> Result<Self::Value, E> {
+			Ok(None)
+		}
+		fn visit_unit<E: serde::de::Error>(self) -> Result<Self::Value, E> {
+			Ok(None)
+		}
+		fn visit_seq<A: serde::de::SeqAccess<'de>>(
+			self,
+			mut seq: A,
+		) -> Result<Self::Value, A::Error> {
+			while seq.next_element::<serde::de::IgnoredAny>()?.is_some() {}
+			Ok(None)
+		}
+		fn visit_map<A: serde::de::MapAccess<'de>>(
+			self,
+			mut map: A,
+		) -> Result<Self::Value, A::Error> {
+			while map
+				.next_entry::<serde::de::IgnoredAny, serde::de::IgnoredAny>()?
+				.is_some()
+			{}
+			Ok(None)
+		}
+	}
+	d.deserialize_any(Visitor)
 }
 #[derive(Default)]
 pub struct Snapshots(Option<Snapshot>);
@@ -955,22 +1039,47 @@ impl<'de> Deserialize<'de> for Snapshots {
 		d.deserialize_seq(Visitor)
 	}
 }
+impl Snapshots {
+	/// The supported body of a forward (reference type 1 on a default message) and where it
+	/// was first sent. Anything else keeps the unsupported-content fallback.
+	pub(crate) fn forward(
+		&mut self,
+		kind: u8,
+		reference: Option<&Reference>,
+	) -> Option<(SnapshotBody, Option<model::ForwardOrigin>)> {
+		let reference = reference.filter(|r| r.kind == 1 && kind == 0)?;
+		let Snapshot { message } = self.0.take().filter(|snapshot| {
+			matches!(snapshot.message.kind, 0 | 19 | 20 | 23)
+				&& snapshot.message.content.len() <= 64 * 1024
+		})?;
+		let origin = reference
+			.channel_id
+			.zip(reference.message_id)
+			.map(|(channel, message)| model::ForwardOrigin {
+				guild: reference.guild_id,
+				channel,
+				message,
+			})
+			.filter(model::ForwardOrigin::valid);
+		Some((message, origin))
+	}
+}
 #[derive(Deserialize)]
 struct Snapshot {
 	message: SnapshotBody,
 }
 #[derive(Deserialize)]
-struct SnapshotBody {
+pub(crate) struct SnapshotBody {
 	#[serde(rename = "type")]
 	kind: u8,
 	#[serde(default)]
-	content: String,
+	pub(crate) content: String,
 	#[serde(default)]
-	attachments: AttachmentList,
+	pub(crate) attachments: AttachmentList,
 	#[serde(default)]
-	embeds: EmbedList,
+	pub(crate) embeds: EmbedList,
 	#[serde(default)]
-	flags: u64,
+	pub(crate) flags: u64,
 	#[serde(default)]
 	poll: Option<polls::PollDto>,
 	#[serde(default)]
@@ -982,15 +1091,14 @@ struct SnapshotBody {
 }
 impl MessageDto {
 	pub fn into_model(mut self) -> Message {
-		let snapshot = self.message_snapshots.0.take().filter(|snapshot| {
-			self.kind == 0
-				&& self.message_reference.as_ref().is_some_and(|r| r.kind == 1)
-				&& matches!(snapshot.message.kind, 0 | 19 | 20 | 23)
-				&& snapshot.message.content.len() <= 64 * 1024
-		});
+		let snapshot = self
+			.message_snapshots
+			.forward(self.kind, self.message_reference.as_ref());
 		let forwarded = snapshot.is_some();
 		let mut snapshot_flags = None;
-		if let Some(Snapshot { message }) = snapshot {
+		let mut forward_origin = None;
+		if let Some((message, origin)) = snapshot {
+			forward_origin = origin;
 			self.content = message.content;
 			self.attachments = message.attachments;
 			self.embeds = message.embeds;
@@ -1092,6 +1200,7 @@ impl MessageDto {
 			reply_to,
 			reply_deleted,
 			forwarded,
+			forward_origin,
 			interaction,
 			unsupported: !matches!(self.kind, 0 | 19 | 20 | 23) || unsupported_reference,
 			attachments: self.attachments.0,
@@ -1437,7 +1546,7 @@ mod tests {
 		{
 			let mut wire = serde_json::json!({
 				"id":"100", "channel_id":"2", "author":{"id":"3","username":"Forwarder"},
-				"type":0, "content":"", "message_reference":{"type":1,"channel_id":"99","message_id":"50"},
+				"type":0, "content":"", "message_reference":{"type":1,"guild_id":"98","channel_id":"99","message_id":"50"},
 				"message_snapshots":[{"message":{"type":0,"content":"Frozen text", "mention_everyone":true,
 					"attachments":[{"id":"60","filename":"Samsung.mp3","size":3850000,"content_type":"audio/mpeg", "url":"https://cdn.discordapp.com/attachments/99/60/Samsung.mp3"}],
 					"embeds":[{"type":"rich","title":"Snapshot embed"}]}}]
@@ -1456,6 +1565,22 @@ mod tests {
 			assert!(message.reply_to.is_none() && !message.mention_everyone);
 			assert!(message.attachments[0].is_audio());
 			assert_eq!(message.embeds[0].title.as_deref(), Some("Snapshot embed"));
+			assert_eq!(
+				message.forward_origin,
+				Some(model::ForwardOrigin {
+					guild: Some(Id(98)),
+					channel: Id(99),
+					message: Id(50),
+				})
+			);
+			// A reference without a usable source still shows the snapshot, without a link.
+			let mut sourceless = wire.clone();
+			sourceless["message_reference"]
+				.as_object_mut()
+				.unwrap()
+				.remove("message_id");
+			let message = read(&sourceless);
+			assert!(message.forwarded && message.forward_origin.is_none());
 			let snapshot = wire["message_snapshots"][0].clone();
 			for snapshots in [
 				serde_json::json!([]),
@@ -1516,12 +1641,9 @@ mod tests {
 					3 => {
 						value["message_reference"]["type"] = 999.into();
 					}
+					// A malformed ID leaves the reply unresolved instead of dropping the message.
 					4 => {
 						value["message_reference"]["message_id"] = "0".into();
-						assert!(
-							decode::<MessageDto>(&serde_json::to_vec(&value).unwrap()).is_err()
-						);
-						continue;
 					}
 					5 => {
 						value["message_reference"]["message_id"] = "100".into();

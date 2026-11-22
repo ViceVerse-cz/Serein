@@ -315,6 +315,10 @@ attachments-media-menu-unavailable-for-synthetic-attachments = Nedostupné pro s
 attachments-open-original-open-original = Otevřít originál…
 # Context: pending_card
 attachments-pending-card-remove-attachment = Odstraňte přílohu
+# Context: pending_viewer
+attachments-pending-viewer-full-size-unavailable = Náhled v plné velikosti není k dispozici
+attachments-pending-viewer-loading = Načítání obrázku…
+attachments-pending-viewer-close = Zavřít (Esc)
 attachments-loading-card-preparing = Připravuje se…
 # Context: show_status
 attachments-show-status-cancel-download = Zrušit stahování
@@ -1683,20 +1687,14 @@ main-restoring-screen-use-a-different-account = Použijte jiný účet
 main-restoring-screen-welcome-back = Vítejte zpět
 # Context: sign_in_accounts
 main-sign-in-accounts-saved-accounts = Uložené účty
-# Context: sign_in_consent
-main-sign-in-consent-passwords-and-2fa-stay-on-discord-s-own-login-page = Hesla a 2FA zůstávají na vlastní přihlašovací stránce Discordu; ve vašem úložišti pověření OS je zachován pouze token relace.
 # Context: sign_in_disclosures
 main-sign-in-disclosures-about-serein = O Serein
 # Context: sign_in_disclosures
 main-sign-in-disclosures-connect-with-this-token = Spojte se s tímto tokenem
 # Context: sign_in_disclosures
-main-sign-in-disclosures-for-owners-who-already-hold-a-valid-discord-session-token = Pro vlastníky, kteří již mají platný token relace Discord, například z jiné přihlášené instalace Serein. Hesla a 2FA se zde nikdy nepoužívají; to zcela obchází hostovanou přihlašovací stránku Discordu.
-# Context: sign_in_disclosures
 main-sign-in-disclosures-forget-saved-login = Zapomeňte uložené přihlašovací údaje
 # Context: sign_in_disclosures
 main-sign-in-disclosures-session-token = Token relace
-# Context: sign_in_disclosures
-main-sign-in-disclosures-sign-in-with-a-session-token = Přihlaste se pomocí tokenu relace
 # Context: sign_in_header
 main-sign-in-header-continue-with-a-saved-account-or-sign-in-with-another = Pokračujte s uloženým účtem nebo se přihlaste pomocí jiného.
 # Context: sign_in_header
@@ -3508,12 +3506,6 @@ settings-activity-reading-programs = Načítání spuštěných programů…
 settings-activity-no-matching-programs = Neběží žádné odpovídající programy.
 # Context: activity_settings
 settings-activity-add-game = Přidat hru
-# Context: appearance_menu
-settings-appearance-menu-display = Zobrazit
-# Context: appearance_menu
-settings-appearance-menu-mode = Režim
-# Context: appearance_menu
-settings-appearance-menu-theme = Téma
 # Context: appearance_settings
 settings-appearance-settings-accent = Přízvuk
 # Context: appearance_settings
@@ -4997,6 +4989,7 @@ profiles-status-clear = Vymazat stav
 send-throttled-title = Hola hola, moc pálivé
 send-throttled-body = Posíláte zprávy příliš rychle!
 send-throttled-dismiss = Vstoupit do zóny klidu
+slowmode-enabled = Pomalý režim je zapnutý
 profiles-private-profile = Soukromý profil
 profiles-private-notice = Profil uživatele { $name } je soukromý, takže některé informace jsou skryté. Pošlete žádost o přátelství, abyste viděli víc.
 settings-cosmetics-name-styles = Styly jmen
@@ -5071,3 +5064,7 @@ moderation-delete-week = Posledních 7 dní
 moderation-confirm-timeout = Oddechový čas
 # Context: moderation
 moderation-confirm-ban = Zabanovat
+
+## crates/ui/src/interface_ui.rs
+# Context: interface_tree
+interface-ui-empty = Tento zásuvný modul zatím nemá co zobrazit.

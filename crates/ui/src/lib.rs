@@ -45,12 +45,16 @@ mod extension_app;
 mod extension_server_actions;
 mod extensions_ui;
 mod interface_tweaks;
+mod interface_ui;
 mod new_message;
 pub mod proxy_auth;
 mod rich_presence;
+mod start_screen;
 mod theme_editor;
+pub use start_screen::{DecodedStartScreen, StartScreenView};
 mod thread_create;
 pub use extensions_ui::{ExtensionContext, ExtensionEntry, ExtensionRequest, ExtensionUi};
+pub use interface_ui::PluginInterface;
 pub mod emoji;
 mod emoji_details;
 mod emoji_picker;
@@ -74,6 +78,7 @@ mod invites;
 pub mod local_time;
 mod markdown;
 mod member_search;
+mod memory;
 mod mentions;
 mod messaging_permissions;
 mod notification_settings;
@@ -125,6 +130,7 @@ mod settings;
 mod setup;
 mod shortcuts;
 mod skeleton;
+mod slowmode;
 mod switcher;
 mod text_menu;
 mod thumbhash;
@@ -145,7 +151,7 @@ use client_core::{Command, MAX_DRAFT_BYTES, NavStep, State};
 use egui::{RichText, TextEdit};
 use model::{Freshness, Id};
 pub use verification::VerificationUi;
-pub use voice::{StageFocus, VOICE_DEVICES_LOADED, VOICE_DEVICES_LOOKING};
+pub use voice::{StageFocus, VOICE_DEVICES_LOADED, VOICE_DEVICES_LOOKING, VoiceRosterRow};
 mod voice_latency;
 pub use voice_latency::VoiceLatency;
 
@@ -322,6 +328,10 @@ pub struct MessagingUi {
 	rail_cache: notifications::RailCache,
 	composer_layout: composer_text::Layout,
 	channel_cache: categories::Cache,
+	/// Rows the server banner holds at the head of the channel list; zero without one.
+	banner_rows: usize,
+	/// The channel list's viewport and scroll offset as last drawn, for the banner riding it.
+	channel_list_view: Option<(egui::Rect, f32)>,
 	channel_move: Option<(Id, client_core::channel_actions::Action)>,
 	search: search::SearchUi,
 	settings: settings::Settings,
@@ -464,6 +474,16 @@ pub struct MessagingUi {
 	pub attachment_previews: Vec<Option<std::sync::Arc<egui::ColorImage>>>,
 	/// GPU copies of `attachment_previews`, keyed by the pixel buffer they were uploaded from.
 	attachment_textures: Vec<Option<(usize, egui::TextureHandle)>>,
+	/// Staged file the user opened full size; the app decodes it into `attachment_view_image`.
+	pub attachment_view_open: Option<usize>,
+	/// Stable upload selection keys, in the same order as `attachment_files`.
+	pub attachment_keys: Vec<u64>,
+	attachment_view_file: Option<(String, u64, Option<u64>)>,
+	pub attachment_view_image: Option<(usize, Option<std::sync::Arc<egui::ColorImage>>)>,
+	/// Conversation the open viewer belongs to, so switching leaves it behind.
+	attachment_view_scope: Option<(u64, Option<Id>)>,
+	/// GPU copy of the full-size decode above.
+	attachment_view_texture: Option<(usize, egui::TextureHandle)>,
 	pub attach_requested: bool,
 	pub host_attachment_requested: Option<usize>,
 	pub attachment_paste_requested: Option<AttachmentPaste>,
@@ -538,6 +558,10 @@ pub struct MessagingUi {
 	stream_preview_watch: Option<(Id, Id)>,
 	/// Guild voice channel double-clicked in the channel list, joined after selection applies.
 	voice_join: Option<Id>,
+	/// The interface a granted plugin last asked to show in place of the main panes.
+	plugin_interface: Option<std::sync::Arc<interface_ui::PluginInterface>>,
+	/// The chat window channel the plugin interface last opened through selection.
+	interface_chat: Option<Id>,
 	pub voice_inputs: Vec<(String, String)>,
 	pub voice_outputs: Vec<(String, String)>,
 	pub voice_input: Option<String>,
@@ -549,6 +573,8 @@ pub struct MessagingUi {
 	pub voice_refresh_devices: bool,
 	pub voice_device_status: &'static str,
 	pub voice_microphone_unavailable: bool,
+	/// The running call or microphone test moved automatic suppression to RNNoise.
+	pub voice_suppression_fell_back: bool,
 	pub voice_push_to_talk: bool,
 	/// Device-local voice intent, retained between calls and restarts.
 	pub voice_muted: bool,
@@ -632,6 +658,25 @@ pub struct MessagingUi {
 	pub blur: u8,
 }
 
+/// Servers in rail order: ones not yet in folder settings first, then each folder's servers,
+/// whether or not the folder is expanded.
+fn server_order(state: &State) -> Vec<Id> {
+	let foldered: Vec<Id> = state
+		.guild_folders
+		.iter()
+		.flat_map(|settings| &settings.folders)
+		.flat_map(|folder| folder.guild_ids.iter().copied())
+		.filter(|id| state.guild(*id).is_some())
+		.collect();
+	state
+		.guilds
+		.iter()
+		.map(|guild| guild.id)
+		.filter(|id| !foldered.contains(id))
+		.chain(foldered.iter().copied())
+		.collect()
+}
+
 /// Context strip (reply/edit) drawn as the rounded top of the composer block.
 fn composer_cap(
 	ui: &mut egui::Ui,
@@ -703,6 +748,12 @@ enum MentionWrite {
 	DidNotFit,
 }
 
+/// Conservative width of the nightly/dev build pill: its glyph, label and a long version
+/// string, wider than the widest pill it draws.
+const BUILD_BADGE_ROOM: f32 = 250.0;
+/// Conservative width of the offline-preview pill in the title bar.
+const OFFLINE_BADGE_ROOM: f32 = 120.0;
+
 impl MessagingUi {
 	pub fn interaction_modal_id(&self) -> Option<Id> {
 		self.interaction_components.modal_id()
@@ -733,9 +784,10 @@ impl MessagingUi {
 		press
 	}
 
-	/// True while a drive needs the cursor position, including outside the window.
-	pub fn tracking_pointer(&self) -> bool {
-		self.scroll.tracking()
+	/// True while a drive or a text selection drag needs the cursor position, including
+	/// outside the window.
+	pub fn tracking_pointer(&self, ctx: &egui::Context) -> bool {
+		self.scroll.tracking() || select::dragging(ctx)
 	}
 
 	/// Returns whether the configured push-to-talk chord is held in the focused window.
@@ -751,8 +803,10 @@ impl MessagingUi {
 	/// Text entry suppresses held keys, but a held mouse button is never typing.
 	fn voice_hold_down(&self, ctx: &egui::Context, action: model::KeybindAction) -> bool {
 		let wants_keyboard = ctx.egui_wants_keyboard_input();
+		// Raw focus follows the window even when a hidden window runs no UI pass, which would
+		// otherwise keep the last visible frame's key state.
 		ctx.input(|input| {
-			input.focused
+			input.raw.focused
 				&& self.keybinds.chords(action).any(|chord| {
 					(!wants_keyboard || model::keybinds::is_mouse_button(&chord.key))
 						&& crate::keybinds::down(input, chord)
@@ -790,7 +844,7 @@ impl MessagingUi {
 		ctx: &egui::Context,
 		registered_globally: impl Fn(model::KeybindAction, &model::KeyChord) -> bool,
 	) -> u8 {
-		if !ctx.input(|input| input.focused) {
+		if !ctx.input(|input| input.raw.focused) {
 			return 0;
 		}
 		let wants_keyboard = ctx.egui_wants_keyboard_input();
@@ -873,7 +927,7 @@ impl MessagingUi {
 		self.forum.preview_layout(layout);
 	}
 	/// Fixture-only: open the settings dialog of `channel` at startup.
-	#[cfg(feature = "demo")]
+	#[cfg(any(test, feature = "demo"))]
 	pub fn preview_channel_settings(&mut self, channel: Id, generation: u64) {
 		self.channel_menu.preview_settings(channel, generation);
 	}
@@ -977,6 +1031,88 @@ impl MessagingUi {
 					.map(|(_, handle)| handle.clone())
 			})
 			.collect()
+	}
+	/// Clears a viewer whose conversation or selected file changed, before requesting a decode.
+	pub fn validate_attachment_view(&mut self, state: &State) {
+		let valid = self.attachment_view_open.is_some_and(|index| {
+			self.attachment_view_scope == Some((state.generation, state.selected))
+				&& self
+					.selected_files()
+					.get(index)
+					.is_some_and(|(name, bytes)| {
+						self.attachment_view_file.as_ref()
+							== Some(&(
+								name.clone(),
+								*bytes,
+								self.attachment_keys.get(index).copied(),
+							))
+					})
+		});
+		if !valid {
+			self.attachment_view_open = None;
+			self.attachment_view_scope = None;
+			self.attachment_view_file = None;
+			self.attachment_view_image = None;
+			self.attachment_view_texture = None;
+		}
+	}
+	/// Full-size look at one staged image; the tray thumbnail shows until the decode lands.
+	fn attachment_viewer(&mut self, ctx: &egui::Context, state: &State) {
+		self.validate_attachment_view(state);
+		let Some(index) = self.attachment_view_open else {
+			return;
+		};
+		let (filename, _) = self.selected_files()[index].clone();
+		let decoded = self
+			.attachment_view_image
+			.as_ref()
+			.filter(|(current, _)| *current == index)
+			.map(|(_, image)| image.clone());
+		let failed = matches!(decoded, Some(None));
+		// A staged file the app never received has no decode to wait for: the offline fixtures
+		// stage pixels only, so their thumbnail is the whole picture instead of a stuck spinner.
+		let decodable = self
+			.attachment_view_file
+			.as_ref()
+			.is_some_and(|(_, _, key)| key.is_some());
+		let loading = decoded.is_none() && decodable;
+		let full = decoded.flatten();
+		let texture = match full {
+			Some(image) => {
+				let key = std::sync::Arc::as_ptr(&image) as usize;
+				if self
+					.attachment_view_texture
+					.as_ref()
+					.is_none_or(|(current, _)| *current != key)
+				{
+					let handle = ctx.load_texture(
+						"attachment-view",
+						egui::ImageData::Color(image),
+						egui::TextureOptions::LINEAR,
+					);
+					self.attachment_view_texture = Some((key, handle));
+				}
+				self.attachment_view_texture
+					.as_ref()
+					.map(|(_, handle)| handle.clone())
+			}
+			None => {
+				self.attachment_view_texture = None;
+				None
+			}
+		};
+		let thumbnail = self.attachment_textures(ctx).get(index).cloned().flatten();
+		if attachments::pending_viewer(
+			ctx,
+			&filename,
+			texture.or(thumbnail).as_ref(),
+			failed,
+			loading,
+		) {
+			self.attachment_view_open = None;
+			self.attachment_view_scope = None;
+			self.attachment_view_texture = None;
+		}
 	}
 	/// Moves staged files and thumbnails into the optimistic row for `command`.
 	pub fn stage_pending_upload(&mut self, ctx: &egui::Context, command: &Command) {
@@ -1345,6 +1481,17 @@ impl MessagingUi {
 			&mut self.reading_preferences.show_members
 		}
 	}
+	/// Opens the Threads dialog a header control or chat raised, after the frame's selection.
+	fn take_archive_request(&mut self, state: &mut State, commands: &mut Vec<Command>) {
+		if let Some(parent) = self.archive_parent.take()
+			&& let Some(command) =
+				state.request_archives(parent, model::archives::Kind::Public, None)
+		{
+			self.search.open = false;
+			self.archives.focus = true;
+			commands.push(command);
+		}
+	}
 	/// Servers reopen to their last text channel across restarts, not only within a session.
 	fn sync_last_channels(&mut self, state: &mut State) {
 		if !self.channel_preferences_loaded {
@@ -1472,167 +1619,337 @@ impl MessagingUi {
 				ui.style_mut().interaction.selectable_labels = false;
 				let rect = ui.max_rect();
 				design::window_drag(ui, rect);
-				let title_rect = egui::Rect::from_center_size(
-					rect.center(),
-					egui::vec2(rect.width() * 0.3, rect.height()),
-				);
-				ui.scope_builder(
-					egui::UiBuilder::new()
-						.max_rect(egui::Rect::from_min_max(
-							egui::pos2(rect.left() + design::TRAFFIC_LIGHT_INSET + 8.0, rect.top()),
-							egui::pos2(title_rect.left() - 10.0, rect.bottom()),
-						))
-						.layout(egui::Layout::left_to_right(egui::Align::Center)),
-					|ui| {
-						ui.spacing_mut().item_spacing.x = 4.0;
-						if ui
-							.add_enabled_ui(
-								self.settings.open
-									|| self.server_settings.is_open()
-									|| state.trail.can_go_back(),
-								|ui| icons::button(ui, icons::Icon::ArrowLeft, 28.0, "Back"),
-							)
-							.inner
-							.clicked()
-						{
-							self.navigate_history(state, commands, true);
-						}
-						if ui
-							.add_enabled_ui(
-								!self.settings.open
-									&& !self.server_settings.is_open()
-									&& state.trail.can_go_forward(),
-								|ui| icons::button(ui, icons::Icon::ArrowRight, 28.0, "Forward"),
-							)
-							.inner
-							.clicked()
-						{
-							self.navigate_history(state, commands, false);
-						}
-					},
-				);
-				ui.scope_builder(
-					egui::UiBuilder::new().max_rect(title_rect).layout(
-						egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
-					),
-					|ui| {
-						ui.add(
-							egui::Label::new(design::semibold(ui, title, 13.0).color(colors.text))
-								.truncate(),
-						);
-					},
-				);
-
+				let left_end = ui
+					.scope_builder(
+						egui::UiBuilder::new()
+							.max_rect(egui::Rect::from_min_max(
+								egui::pos2(
+									rect.left() + design::TRAFFIC_LIGHT_INSET + 8.0,
+									rect.top(),
+								),
+								rect.right_bottom(),
+							))
+							.layout(egui::Layout::left_to_right(egui::Align::Center)),
+						|ui| {
+							ui.spacing_mut().item_spacing.x = 4.0;
+							if ui
+								.add_enabled_ui(
+									self.settings.open
+										|| self.server_settings.is_open()
+										|| state.trail.can_go_back(),
+									|ui| icons::button(ui, icons::Icon::ArrowLeft, 28.0, "Back"),
+								)
+								.inner
+								.clicked()
+							{
+								self.navigate_history(state, commands, true);
+							}
+							if ui
+								.add_enabled_ui(
+									!self.settings.open
+										&& !self.server_settings.is_open()
+										&& state.trail.can_go_forward(),
+									|ui| {
+										icons::button(ui, icons::Icon::ArrowRight, 28.0, "Forward")
+									},
+								)
+								.inner
+								.clicked()
+							{
+								self.navigate_history(state, commands, false);
+							}
+						},
+					)
+					.response
+					.rect
+					.right();
 				let right_inset = if design::WINDOW_CONTROLS_WIDTH > 0.0 {
 					0.0
 				} else {
 					12.0
 				};
-				ui.scope_builder(
-					egui::UiBuilder::new()
-						.max_rect(egui::Rect::from_min_max(
-							egui::pos2(title_rect.right() + 10.0, rect.top()),
-							rect.right_bottom() - egui::vec2(right_inset, 0.0),
-						))
-						.layout(egui::Layout::right_to_left(egui::Align::Center)),
-					|ui| {
-						if !cfg!(target_os = "linux") || self.uses_custom_title_bar() {
-							design::window_controls(ui);
-						}
-						ui.spacing_mut().item_spacing.x = 10.0;
-						if self.updates.available || self.updates.ready {
-							let (label, icon) = if self.updates.ready {
-								(
-									"updates-shows-update-banner-restart-to-update",
-									icons::Icon::Reload,
-								)
-							} else if self.updates.busy {
-								(
-									"updates-shows-update-banner-updating",
-									icons::Icon::Download,
-								)
-							} else {
-								(
-									"updates-shows-update-banner-update-available",
-									icons::Icon::Download,
-								)
-							};
-							let label = crate::i18n::translate(label);
-							let font = egui::FontId::new(12.0, design::medium_family(ui.ctx()));
-							let galley =
-								ui.painter()
-									.layout_no_wrap(label.clone(), font, colors.accent);
-							let icon_size = 13.0;
-							let gap = 5.0;
-							let pad = egui::vec2(6.0, 2.0);
-							let size = egui::vec2(
-								galley.size().x + icon_size + gap + pad.x * 2.0,
-								galley.size().y.max(icon_size) + pad.y * 2.0,
-							);
-							let (rect, response) =
-								ui.allocate_exact_size(size, egui::Sense::click());
-							ui.painter().rect_filled(
-								rect,
-								255,
-								colors.accent.gamma_multiply(if response.hovered() {
-									0.24
-								} else {
-									0.16
-								}),
-							);
-							let icon_rect = egui::Rect::from_center_size(
-								egui::pos2(rect.left() + pad.x + icon_size / 2.0, rect.center().y),
-								egui::Vec2::splat(icon_size),
-							);
-							icons::paint(ui.painter(), icon, icon_rect, colors.accent);
-							ui.painter().galley(
-								egui::pos2(
-									icon_rect.right() + gap,
-									rect.center().y - galley.size().y / 2.0,
-								),
-								galley,
-								colors.accent,
-							);
-							if response
-								.on_hover_text(crate::i18n::translate_if_key(&self.updates.status))
-								.clicked()
-							{
-								self.open_update_settings();
-							}
-						} else {
-							design::build_badge(ui, self.build);
-						}
-						if state.demo && !self.updates.available && !self.updates.ready {
-							egui::Frame::new()
-								.stroke(egui::Stroke::new(1.0, colors.border))
-								.corner_radius(10)
-								.inner_margin(egui::Margin::symmetric(8, 3))
-								.show(ui, |ui| {
-									ui.label(
-										design::semibold(
-											ui,
-											crate::i18n::translate("lib-title-bar-offline-preview"),
-											10.0,
-										)
-										.color(colors.muted),
-									);
-								})
-								.response
-								.on_hover_text(crate::i18n::translate(
-									"lib-title-bar-synthetic-data-no-network-or-local-storage",
-								));
-						}
-						if !state.demo
-							&& state.auth != client_core::auth::AuthState::Authenticated
-							&& ui
-								.small_button(crate::i18n::translate("lib-title-bar-sign-in-again"))
-								.clicked()
-						{
-							self.reconnect_requested = true;
-						}
+				// The right side lays out before the title so the title takes only the space
+				// left between both sides. The update badge measures its own galley; the build
+				// and offline pills keep conservative bounds wider than they ever draw, so a
+				// badge that would crowd the title is left out.
+				let update_badge = (self.updates.available || self.updates.ready).then(|| {
+					let (label, icon) = if self.updates.ready {
+						(
+							"updates-shows-update-banner-restart-to-update",
+							icons::Icon::Reload,
+						)
+					} else if self.updates.busy {
+						(
+							"updates-shows-update-banner-updating",
+							icons::Icon::Download,
+						)
+					} else {
+						(
+							"updates-shows-update-banner-update-available",
+							icons::Icon::Download,
+						)
+					};
+					let label = crate::i18n::translate(label);
+					let font = egui::FontId::new(12.0, design::medium_family(ui.ctx()));
+					let galley = ui.painter().layout_no_wrap(label, font, colors.accent);
+					(icon, galley)
+				});
+				let badge_room = update_badge.as_ref().map_or(
+					if self.build.channel != design::Channel::Stable {
+						BUILD_BADGE_ROOM
+					} else {
+						0.0
 					},
+					|(_, galley)| galley.size().x + 13.0 + 5.0 + 12.0,
 				);
+				let right_start = ui
+					.scope_builder(
+						egui::UiBuilder::new()
+							.max_rect(egui::Rect::from_min_max(
+								egui::pos2(left_end + 10.0, rect.top()),
+								rect.right_bottom() - egui::vec2(right_inset, 0.0),
+							))
+							.layout(egui::Layout::right_to_left(egui::Align::Center)),
+						|ui| {
+							if !cfg!(target_os = "linux") || self.uses_custom_title_bar() {
+								design::window_controls(ui);
+							}
+							ui.spacing_mut().item_spacing.x = 10.0;
+							if ui.available_width() >= badge_room
+								&& let Some((icon, galley)) = &update_badge
+							{
+								let icon_size = 13.0;
+								let gap = 5.0;
+								let pad = egui::vec2(6.0, 2.0);
+								let size = egui::vec2(
+									galley.size().x + icon_size + gap + pad.x * 2.0,
+									galley.size().y.max(icon_size) + pad.y * 2.0,
+								);
+								let (rect, response) =
+									ui.allocate_exact_size(size, egui::Sense::click());
+								ui.painter().rect_filled(
+									rect,
+									255,
+									colors.accent.gamma_multiply(if response.hovered() {
+										0.24
+									} else {
+										0.16
+									}),
+								);
+								let icon_rect = egui::Rect::from_center_size(
+									egui::pos2(
+										rect.left() + pad.x + icon_size / 2.0,
+										rect.center().y,
+									),
+									egui::Vec2::splat(icon_size),
+								);
+								icons::paint(ui.painter(), *icon, icon_rect, colors.accent);
+								ui.painter().galley(
+									egui::pos2(
+										icon_rect.right() + gap,
+										rect.center().y - galley.size().y / 2.0,
+									),
+									galley.clone(),
+									colors.accent,
+								);
+								if response
+									.on_hover_text(crate::i18n::translate_if_key(
+										&self.updates.status,
+									))
+									.clicked()
+								{
+									self.open_update_settings();
+								}
+							} else if ui.available_width() >= badge_room {
+								design::build_badge(ui, self.build);
+							}
+							if state.demo
+								&& !self.updates.available
+								&& !self.updates.ready && ui.available_width() >= OFFLINE_BADGE_ROOM
+							{
+								egui::Frame::new()
+									.stroke(egui::Stroke::new(1.0, colors.border))
+									.corner_radius(10)
+									.inner_margin(egui::Margin::symmetric(8, 3))
+									.show(ui, |ui| {
+										ui.label(
+											design::semibold(
+												ui,
+												crate::i18n::translate(
+													"lib-title-bar-offline-preview",
+												),
+												10.0,
+											)
+											.color(colors.muted),
+										);
+									})
+									.response
+									.on_hover_text(crate::i18n::translate(
+										"lib-title-bar-synthetic-data-no-network-or-local-storage",
+									));
+							}
+							if !state.demo
+								&& state.auth != client_core::auth::AuthState::Authenticated
+								&& ui
+									.small_button(crate::i18n::translate(
+										"lib-title-bar-sign-in-again",
+									))
+									.clicked()
+							{
+								self.reconnect_requested = true;
+							}
+						},
+					)
+					.response
+					.rect
+					.left();
+				// Centred on the window while both sides leave room; otherwise the title uses all
+				// the space between them, so narrow windows show more of it.
+				let (start, end) = (left_end + 10.0, right_start - 10.0);
+				let half = (rect.center().x - start)
+					.min(end - rect.center().x)
+					.min(rect.width() * 0.15);
+				let title_rect = if half >= 80.0 {
+					egui::Rect::from_center_size(
+						rect.center(),
+						egui::vec2(half * 2.0, rect.height()),
+					)
+				} else {
+					egui::Rect::from_min_max(
+						egui::pos2(start, rect.top()),
+						egui::pos2(end, rect.bottom()),
+					)
+				};
+				if title_rect.width() >= 24.0 {
+					ui.scope_builder(
+						egui::UiBuilder::new().max_rect(title_rect).layout(
+							egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+						),
+						|ui| {
+							ui.add(
+								egui::Label::new(
+									design::semibold(ui, title, 13.0).color(colors.text),
+								)
+								.truncate(),
+							);
+						},
+					);
+				}
 			});
+	}
+	/// Discord's focused navigation and picker shortcuts. They run before the composer, so a
+	/// chord such as Alt+Up moves between channels instead of the text cursor.
+	fn navigation_shortcuts(
+		&mut self,
+		ctx: &egui::Context,
+		state: &mut State,
+		composer_open: bool,
+		commands: &mut Vec<Command>,
+	) {
+		use model::KeybindAction as Action;
+		const ACTIONS: [Action; 12] = [
+			Action::NavigateBack,
+			Action::NavigateForward,
+			Action::PreviousChannel,
+			Action::NextChannel,
+			Action::PreviousUnreadChannel,
+			Action::NextUnreadChannel,
+			Action::PreviousServer,
+			Action::NextServer,
+			Action::MarkChannelRead,
+			Action::OpenEmojiPicker,
+			Action::OpenGifPicker,
+			Action::OpenStickerPicker,
+		];
+		// Exact modifiers, so Alt+Shift+Down is not taken as Alt+Down. A default that an older
+		// profile already gave to another action stays with that action.
+		let Some(action) = ctx.input_mut(|input| {
+			ACTIONS.into_iter().find(|action| {
+				let builtin = self.keybinds.chord(*action);
+				std::iter::once(builtin)
+					.filter(|chord| {
+						chord.is_valid()
+							&& self.keybinds.conflict(chord, Some(*action), None).is_none()
+					})
+					.chain(
+						self.keybinds
+							.custom
+							.iter()
+							.filter(|binding| binding.action == *action)
+							.map(|binding| &binding.chord)
+							.filter(|chord| chord.is_valid()),
+					)
+					.any(|chord| crate::keybinds::pressed_exact(input, chord))
+			})
+		}) else {
+			return;
+		};
+		let reachable =
+			|id| state.can_view(id) && state.channel(id).is_some_and(client_core::navigable);
+		let channel = match action {
+			Action::NavigateBack | Action::NavigateForward => {
+				self.navigate_history(state, commands, action == Action::NavigateBack);
+				None
+			}
+			// The same checks `State::select` makes, so a row it would refuse is skipped.
+			Action::PreviousChannel | Action::NextChannel => {
+				self.channel_cache
+					.step(state.selected, action == Action::NextChannel, |id| {
+						reachable(id)
+					})
+			}
+			Action::PreviousUnreadChannel | Action::NextUnreadChannel => {
+				self.channel_cache
+					.step(state.selected, action == Action::NextUnreadChannel, |id| {
+						reachable(id) && state.unread(id) == Some(true)
+					})
+			}
+			Action::PreviousServer | Action::NextServer => {
+				let order = server_order(state);
+				let len = order.len();
+				let current = self
+					.guild
+					.and_then(|guild| order.iter().position(|id| *id == guild));
+				let next = match (current, action == Action::NextServer) {
+					_ if len == 0 => None,
+					(Some(index), true) => Some(order[(index + 1) % len]),
+					(Some(index), false) => Some(order[(index + len - 1) % len]),
+					(None, true) => order.first().copied(),
+					(None, false) => order.last().copied(),
+				};
+				if let Some(guild) = next
+					&& self.server_settings.navigate_away(state)
+				{
+					self.guild = Some(guild);
+					commands.extend(state.select_guild(guild));
+				}
+				None
+			}
+			Action::MarkChannelRead => {
+				commands.extend(
+					state
+						.selected
+						.and_then(|channel| state.prepare_mark_channel_read(channel)),
+				);
+				None
+			}
+			Action::OpenEmojiPicker if composer_open => {
+				self.emoji_picker.open_emojis();
+				None
+			}
+			Action::OpenGifPicker if composer_open => {
+				self.emoji_picker.open_gifs("");
+				None
+			}
+			Action::OpenStickerPicker if composer_open => {
+				self.emoji_picker.open_stickers(None);
+				None
+			}
+			_ => None,
+		};
+		if let Some(channel) = channel {
+			commands.extend(state.select(channel));
+		}
 	}
 	fn navigate_history(&mut self, state: &mut State, commands: &mut Vec<Command>, back: bool) {
 		if self.timeline.video.is_fullscreen()
@@ -2132,15 +2449,67 @@ impl MessagingUi {
 	) {
 		let colors = design::palette(ui);
 		let language = self.language;
+		const HEADER: f32 = 48.0;
+		let banner = self
+			.guild
+			.and_then(|guild| state.guild(guild))
+			.and_then(model::Guild::banner_key);
+		// Discord's 16:9 server banner starts behind the header and holds whole rows at the head
+		// of the channel list, so it scrolls away with the channels. 8px part it from them.
+		let column = ui.available_rect_before_wrap();
+		let rows = (((column.width() * 9.0 / 16.0).min(135.0) - HEADER) / categories::CHANNEL_ROW)
+			.round()
+			.max(1.0);
+		let below = rows * categories::CHANNEL_ROW - 8.0;
+		let scrolled = self
+			.channel_list_view
+			.map_or(0.0, |(_, offset)| offset.max(0.0));
+		let art = banner.map(|key| {
+			let seen = egui::Rect::from_min_max(
+				column.min,
+				egui::pos2(
+					column.right(),
+					column.top() + (HEADER + below - scrolled).max(HEADER),
+				),
+			);
+			// An animated banner plays only under the pointer.
+			let hovered = ui.rect_contains_pointer(seen);
+			let color = colors.accent.gamma_multiply(0.4);
+			self.avatars
+				.guild_banner(ui.ctx(), key, hovered, color, state.demo)
+		});
+		// A banner that failed to load gives its rows back.
+		self.banner_rows = match art {
+			Some(Ok(_) | Err(true)) => rows as usize,
+			_ => 0,
+		};
+		// How far the header has turned from the banner's top into the plain bar: not at all at
+		// rest, fully once the banner has scrolled away, and ahead of the scroll in between.
+		let bar = |offset: f32| {
+			let left = 1.0 - (offset / below).clamp(0.0, 1.0);
+			1.0 - left * left
+		};
+		let on_banner = matches!(art, Some(Ok(_))) && bar(scrolled) < 0.5;
+		let rule = if matches!(art, Some(Ok(_))) {
+			bar(scrolled)
+		} else {
+			1.0
+		};
+		// Reserved under the name and under the list; filled once the list reports its scroll.
+		let mut backdrop = None;
 		egui::Panel::top("sidebar-header")
-			.exact_size(48.0)
+			.exact_size(HEADER)
 			.show_separator_line(false)
 			.frame(egui::Frame::new().inner_margin(egui::Margin::symmetric(16, 0)))
 			.show(ui, |ui| {
 				let rect = ui.max_rect();
+				backdrop = Some((
+					ui.painter().add(egui::Shape::Noop),
+					rect.expand2(egui::vec2(16.0, 0.0)),
+				));
 				ui.horizontal_centered(|ui| {
 					if let Some(guild) = self.guild {
-						self.server_menu.header(ui, state, guild, title);
+						self.server_menu.header(ui, state, guild, title, on_banner);
 						return;
 					}
 					ui.add(
@@ -2154,14 +2523,15 @@ impl MessagingUi {
 				ui.painter().hline(
 					rect.x_range().expand(16.0),
 					rect.bottom(),
-					egui::Stroke::new(1.0, colors.border),
+					egui::Stroke::new(1.0, colors.border.gamma_multiply(rule)),
 				);
 			});
+		let under_list = ui.painter().add(egui::Shape::Noop);
 		egui::Frame::new()
 			.inner_margin(egui::Margin {
 				left: 8,
 				right: 8,
-				top: 8,
+				top: if self.banner_rows > 0 { 0 } else { 8 },
 				bottom: 0,
 			})
 			.show(ui, |ui| {
@@ -2288,15 +2658,84 @@ impl MessagingUi {
 					commands.push(command);
 				}
 				self.apply_voice_join(state, commands);
-				if let Some(parent) = self.archive_parent.take()
-					&& let Some(command) =
-						state.request_archives(parent, model::archives::Kind::Public, None)
-				{
-					self.search.open = false;
-					self.archives.focus = true;
-					commands.push(command);
-				}
+				self.take_archive_request(state, commands);
 			});
+		if self.banner_rows > 0
+			&& let Some(art) = art
+			&& let Some((under_name, header)) = backdrop
+			&& let Some((list, offset)) = self.channel_list_view
+		{
+			let top = list.top() - offset;
+			let frame = egui::Rect::from_min_max(
+				egui::pos2(header.left(), top - HEADER),
+				egui::pos2(header.right(), top + below),
+			);
+			let listed = ui.painter().with_clip_rect(egui::Rect::from_min_max(
+				egui::pos2(header.left(), list.top()),
+				egui::pos2(header.right(), list.bottom()),
+			));
+			match art {
+				Ok(texture) => {
+					let uv = avatars::cover_uv(texture.resolution_vec2(), frame.size());
+					listed.set(
+						under_list,
+						egui::Shape::image(texture.id(), frame, uv, egui::Color32::WHITE),
+					);
+					// At rest the name sits on the banner under a shade that fades out by the
+					// header's lower edge. Scrolling thins both away, leaving the plain bar.
+					let fade = 1.0 - bar(offset.max(0.0));
+					let seen = header.intersect(frame);
+					if fade > 0.0 && seen.is_positive() {
+						// One mesh carries the image, its shade and the rounded corner of the
+						// surface the lists sit on, which a plain image would square off.
+						let radius = if design::has_window_background(ui) {
+							0.0
+						} else {
+							8.0f32.min(seen.height())
+						};
+						const STEPS: usize = 8;
+						let mut outline = Vec::with_capacity(STEPS + 4);
+						for step in 0..=STEPS {
+							let angle = std::f32::consts::FRAC_PI_2 * step as f32 / STEPS as f32;
+							outline.push(
+								seen.left_top()
+									+ egui::vec2(1.0 - angle.cos(), 1.0 - angle.sin()) * radius,
+							);
+						}
+						outline.extend([seen.right_top(), seen.right_bottom(), seen.left_bottom()]);
+						let mut mesh = egui::Mesh::with_texture(texture.id());
+						for pos in std::iter::once(seen.center()).chain(outline) {
+							let at = (pos - frame.min) / frame.size();
+							let shade = 150.0 / 255.0
+								* fade * (1.0 - (pos.y - header.top()) / header.height())
+								.clamp(0.0, 1.0);
+							let level = (255.0 * fade * (1.0 - shade)) as u8;
+							mesh.vertices.push(egui::epaint::Vertex {
+								pos,
+								uv: uv.min + at * uv.size(),
+								color: egui::Color32::from_rgba_premultiplied(
+									level,
+									level,
+									level,
+									(255.0 * fade) as u8,
+								),
+							});
+						}
+						let rim = mesh.vertices.len() as u32 - 1;
+						for point in 1..=rim {
+							mesh.add_triangle(0, point, point % rim + 1);
+						}
+						ui.painter()
+							.with_clip_rect(header)
+							.set(under_name, egui::Shape::mesh(mesh));
+					}
+				}
+				Err(_) => listed.set(
+					under_list,
+					egui::Shape::rect_filled(frame, 0, skeleton::fill(ui)),
+				),
+			}
+		}
 	}
 	/// Account card; while in a call it grows upward with the call header and quick actions.
 	fn account_card(&mut self, ui: &mut egui::Ui, state: &mut State, commands: &mut Vec<Command>) {
@@ -3775,7 +4214,7 @@ impl MessagingUi {
                     egui::pos2(ui.max_rect().right() + 10.0, ui.max_rect().top()),
                 );
                 if !editing_here && (self.attachment.is_some() || self.attachment_loading > 0) {
-                    self.attachment_tray(ui, state.can_send(channel), upload_limit);
+                    self.attachment_tray(ui, state, state.can_send(channel), upload_limit);
                 }
                 // Tall drafts stack the actions in bottom-aligned columns so the text keeps the
                 // width. Last pass's visible draft height decides.
@@ -3922,9 +4361,11 @@ impl MessagingUi {
                                 ui.set_width(ui.available_width());
                         if application_command {
                             return ui.scope(|ui| {
-                                ui.add_enabled_ui(keyboard_enabled, |ui| {
-                                    self.slash_commands.composer(ui, state, channel, &self.keybinds);
+                                let query = ui.add_enabled_ui(keyboard_enabled, |ui| {
+                                    self.slash_commands.composer(ui, state, channel, &self.keybinds)
                                 });
+                                self.mention_lookup.text = query.inner;
+                                self.mention_lookup.sync(ctx, state, channel, 0, commands);
                                 if self.slash_commands.active.is_none() {
                                     ctx.memory_mut(|memory| memory.request_focus(composer_id));
                                 }
@@ -4255,7 +4696,15 @@ impl MessagingUi {
                             && self.slash_commands.can_submit(state, channel);
                         if (send || slash_run) && !cancel_edit {
                             if let Some((edit_channel, message, content)) = &editing {
-                                if state.freshness == Freshness::Fresh
+                                // Like the official client, saving an emptied edit asks to delete the
+                                // message. Attachments would outlive the text, so those keep the edit.
+                                if content.trim().is_empty()
+                                    && state.timeline.get(*message).is_some_and(|target| {
+                                        target.channel == *edit_channel && target.attachments.is_empty()
+                                    })
+                                {
+                                    self.deleting = Some((*edit_channel, *message));
+                                } else if state.freshness == Freshness::Fresh
                                     && let Some(command) = state.prepare_edit(*edit_channel, *message,
                                         if self.convert_emoticons { emoticons::convert(content) } else { content.clone() })
                                 {
@@ -4324,7 +4773,13 @@ impl MessagingUi {
 		}
 	}
 	/// Selected-file cards above the composer input, in the style of Discord's upload tray.
-	fn attachment_tray(&mut self, ui: &mut egui::Ui, can_host: bool, upload_limit: u64) {
+	fn attachment_tray(
+		&mut self,
+		ui: &mut egui::Ui,
+		state: &State,
+		can_host: bool,
+		upload_limit: u64,
+	) {
 		let colors = design::palette(ui);
 		let textures = self.attachment_textures(ui.ctx());
 		ui.add_space(4.0);
@@ -4342,7 +4797,7 @@ impl MessagingUi {
 					for (index, (filename, bytes)) in files.iter().enumerate() {
 						ui.push_id(index, |ui| {
 							ui.vertical(|ui| {
-								if ui
+								match ui
 									.scope(|ui| {
 										attachments::pending_card(
 											ui,
@@ -4354,7 +4809,22 @@ impl MessagingUi {
 									})
 									.inner
 								{
-									self.remove_attachment_index = Some(index);
+									attachments::PendingAction::Remove => {
+										self.remove_attachment_index = Some(index);
+										self.attachment_view_open = None;
+										self.attachment_view_scope = None;
+									}
+									attachments::PendingAction::Preview => {
+										self.attachment_view_file = Some((
+											filename.clone(),
+											*bytes,
+											self.attachment_keys.get(index).copied(),
+										));
+										self.attachment_view_open = Some(index);
+										self.attachment_view_scope =
+											Some((state.generation, state.selected));
+									}
+									attachments::PendingAction::None => {}
 								}
 								if *bytes > upload_limit
 									&& ui
@@ -4730,6 +5200,20 @@ impl MessagingUi {
 			self.interface_tweaks = std::sync::Arc::new(tweaks);
 		}
 	}
+	/// Replaces the interface a granted plugin asked to show in place of the main panes;
+	/// `None` restores the normal layout.
+	pub fn set_plugin_interface(&mut self, interface: Option<interface_ui::PluginInterface>) {
+		if interface.is_none() {
+			self.interface_chat = None;
+		}
+		self.plugin_interface = interface.map(std::sync::Arc::new);
+	}
+	/// The window size the plugin interface in place of the main panes asks for.
+	pub fn plugin_interface_size(&self) -> Option<extensions::InterfaceSize> {
+		self.plugin_interface
+			.as_ref()
+			.and_then(|interface| interface.tree.size)
+	}
 	/// Draws one frame of the signed-in client and returns the commands it produced for the
 	/// service layer.
 	pub fn show(&mut self, ui: &mut egui::Ui, state: &mut State) -> Vec<Command> {
@@ -4980,6 +5464,14 @@ impl MessagingUi {
 		}) {
 			self.switcher.open(&ctx);
 		}
+		if !settings_open
+			&& !self.switcher.is_open()
+			&& !self.ime_active
+			&& self.keybind_capture.is_none()
+			&& ctx.input(|input| input.focused)
+		{
+			self.navigation_shortcuts(&ctx, state, composer_open, &mut commands);
+		}
 		self.switcher_frame = self.switcher.is_open();
 		let direct_origin = (state.selected, state.request);
 		if let Some(command) = state.select_opened_dm() {
@@ -5042,6 +5534,29 @@ impl MessagingUi {
 			.map_or_else(|| language.text("direct-messages"), |g| g.name.clone());
 		if self.shows_title_bar() {
 			self.title_bar(ui, state, &mut commands, &title);
+		}
+		// A plugin's declarative interface stands in for the navigation, conversation and member
+		// panes; the dialogs above and the overlays after the panes still run.
+		if let Some(interface) = self.plugin_interface.clone() {
+			// The replaced panes have no conversation header or search pane, so an open
+			// search would leave an orphaned overlay and pending results behind.
+			self.search.close();
+			if state.search.is_some() {
+				commands.push(state.clear_search());
+			}
+			// Nor can they draw the channel menu: an open settings dialog would stay open
+			// invisibly and keep the settings-open gate shut, so it closes here.
+			self.channel_menu.close_dialog(state);
+			self.show_plugin_interface(ui, state, &mut commands, &interface);
+			// A plugin chat visit is remembered like one from the channel list.
+			self.sync_last_channels(state);
+			if let Some(command) = state.continue_mark_all_read() {
+				commands.push(command);
+			}
+			let mut commands = self.show_overlays(ui, state, ctx, commands, settings_open, None);
+			// No sidebar runs in this layout, so a Threads request raised this frame opens here.
+			self.take_archive_request(state, &mut commands);
+			return commands;
 		}
 		// Server rail and channel list share one resizable column so the account card can
 		// span both, like Discord's bottom-left user pill.
@@ -5214,7 +5729,12 @@ impl MessagingUi {
 		{
 			self.search.focus_conversation(channel, state);
 		}
-		self.search.sync(&ctx, state, &mut commands);
+		self.search.sync(
+			&ctx,
+			state,
+			&mut commands,
+			self.attachment_view_open.is_none(),
+		);
 		self.search.extension_actions = self.extensions.message_actions();
 		let search_open =
 			self.search.results_visible(state) && state.selected.is_some() && !selected_voice;
@@ -5522,289 +6042,306 @@ impl MessagingUi {
 					);
 					return;
 				}
-				egui::Panel::bottom("composer")
-					.show_separator_line(false)
-					.frame(
-						egui::Frame::new()
-							// The central panel already paints the chat surface; a second
-							// coat would band a darker strip under a see-through timeline.
-							.fill(if design::has_section_background(ui) {
-								design::section_surface(
-									ui,
-									background.chat,
-									design::ImageSection::Composer,
-								)
-							} else {
-								egui::Color32::TRANSPARENT
-							})
-							// The bottom inset matches the account card's, so the input and the
-							// account pill sit on one line across the window.
-							.inner_margin(egui::Margin {
-								left: 16,
-								right: 16,
-								top: 2,
-								bottom: 8,
-							}),
-					)
-					.show(ui, |ui| {
-						if state.message_request(channel) {
-							self.message_request_bar(ui, state, channel);
-						}
-						self.composer(ui, state, channel, &ctx, &mut commands);
-					});
-				if let Some((shape, top)) = message_fill {
-					let remaining = ui.available_rect_before_wrap();
-					ui.painter().set(
-						shape,
-						egui::Shape::rect_filled(
-							egui::Rect::from_min_max(
-								egui::pos2(remaining.left(), top),
-								remaining.right_bottom(),
-							),
-							0.0,
-							message_surface,
-						),
-					);
-				}
-				let notices: Vec<String> = [
-					match state.freshness {
-						Freshness::Fresh | Freshness::Loading => None,
-						Freshness::Stale => Some("Cached history · awaiting sync"),
-						Freshness::Unavailable => Some("Conversation unavailable"),
-					}
-					.map(str::to_owned),
-					state.read_state.status(channel).map(str::to_owned),
-					(state.archived_thread.is_some() && state.archived_thread == state.selected)
-						.then(|| "Opened from archive".to_owned()),
-				]
-				.into_iter()
-				.flatten()
-				.collect();
-				if !notices.is_empty() {
-					egui::Frame::new()
-						.inner_margin(egui::Margin::symmetric(16, 4))
-						.show(ui, |ui| {
-							ui.label(
-								RichText::new(notices.join(" · "))
-									.size(11.0)
-									.color(colors.muted),
-							);
-						});
-				}
+				self.conversation(ui, state, channel, &mut commands, message_fill);
+			});
+		self.show_overlays(
+			ui,
+			state,
+			ctx,
+			commands,
+			settings_open,
+			Some(selected_forum),
+		)
+	}
+	/// A text conversation's composer, notices and timeline below whatever header the caller
+	/// drew, with the requests they raise. The usual layout and a plugin's chat window share it.
+	/// `message_fill` is the caller's reserved backdrop shape and its top edge.
+	fn conversation(
+		&mut self,
+		ui: &mut egui::Ui,
+		state: &mut State,
+		channel: Id,
+		commands: &mut Vec<Command>,
+		message_fill: Option<(egui::layers::ShapeIdx, f32)>,
+	) {
+		let ctx = ui.ctx().clone();
+		let colors = design::palette(ui);
+		let background = design::window_palette(ui);
+		let message_surface =
+			design::section_surface(ui, background.chat, design::ImageSection::MessageList);
+		egui::Panel::bottom("composer")
+			.show_separator_line(false)
+			.frame(
 				egui::Frame::new()
-					.inner_margin(egui::Margin {
-						left: 0,
-						right: 0,
-						top: 4,
-						bottom: 0,
+					// The central panel already paints the chat surface; a second
+					// coat would band a darker strip under a see-through timeline.
+					.fill(if design::has_section_background(ui) {
+						design::section_surface(ui, background.chat, design::ImageSection::Composer)
+					} else {
+						egui::Color32::TRANSPARENT
 					})
-					.show(ui, |ui| {
-						design::paint_chat_background(ui, ui.available_rect_before_wrap());
-						self.timeline.hide_media_links = self.reading_preferences.hide_media_links;
-						self.timeline.hide_blocked_messages = self.hide_blocked_messages;
-						self.timeline.hide_ignored_messages = self.hide_ignored_messages;
-						self.timeline.compact_messages = self.reading_preferences.compact_messages;
-						self.timeline.double_click_reaction = self
-							.reading_preferences
-							.double_click_reaction_enabled
-							.then_some(self.reading_preferences.double_click_emoji());
-						self.timeline.instant_scrolling =
-							!self.reading_preferences.smooth_scrolling;
-						self.timeline.extension_actions = self.extensions.message_actions();
-						self.timeline.quick_reactions =
-							Some(self.reaction_picker.quick_reactions(state));
-						let mut seen = std::collections::BTreeSet::new();
-						let author_lookup: Vec<_> = state
-							.timeline
-							.iter()
-							.rev()
-							.filter(|message| !message.author.webhook)
-							.map(|message| message.author.id)
-							.filter(|id| seen.insert(*id))
-							.take(client_core::member_search::LIMIT)
-							.collect();
-						if let Some(command) = state.request_author_members(&author_lookup) {
+					// The bottom inset matches the account card's, so the input and the
+					// account pill sit on one line across the window.
+					.inner_margin(egui::Margin {
+						left: 16,
+						right: 16,
+						top: 2,
+						bottom: 8,
+					}),
+			)
+			.show(ui, |ui| {
+				if state.message_request(channel) {
+					self.message_request_bar(ui, state, channel);
+				}
+				self.composer(ui, state, channel, &ctx, commands);
+			});
+		if let Some((shape, top)) = message_fill {
+			let remaining = ui.available_rect_before_wrap();
+			ui.painter().set(
+				shape,
+				egui::Shape::rect_filled(
+					egui::Rect::from_min_max(
+						egui::pos2(remaining.left(), top),
+						remaining.right_bottom(),
+					),
+					0.0,
+					message_surface,
+				),
+			);
+		}
+		let notices: Vec<String> = [
+			match state.freshness {
+				Freshness::Fresh | Freshness::Loading => None,
+				Freshness::Stale => Some("Cached history · awaiting sync"),
+				Freshness::Unavailable => Some("Conversation unavailable"),
+			}
+			.map(str::to_owned),
+			state.read_state.status(channel).map(str::to_owned),
+			(state.archived_thread.is_some() && state.archived_thread == state.selected)
+				.then(|| "Opened from archive".to_owned()),
+		]
+		.into_iter()
+		.flatten()
+		.collect();
+		if !notices.is_empty() {
+			egui::Frame::new()
+				.inner_margin(egui::Margin::symmetric(16, 4))
+				.show(ui, |ui| {
+					ui.label(
+						RichText::new(notices.join(" · "))
+							.size(11.0)
+							.color(colors.muted),
+					);
+				});
+		}
+		egui::Frame::new()
+			.inner_margin(egui::Margin {
+				left: 0,
+				right: 0,
+				top: 4,
+				bottom: 0,
+			})
+			.show(ui, |ui| {
+				design::paint_chat_background(ui, ui.available_rect_before_wrap());
+				self.timeline.hide_media_links = self.reading_preferences.hide_media_links;
+				self.timeline.hide_blocked_messages = self.hide_blocked_messages;
+				self.timeline.hide_ignored_messages = self.hide_ignored_messages;
+				self.timeline.compact_messages = self.reading_preferences.compact_messages;
+				self.timeline.double_click_reaction = self
+					.reading_preferences
+					.double_click_reaction_enabled
+					.then_some(self.reading_preferences.double_click_emoji());
+				self.timeline.instant_scrolling = !self.reading_preferences.smooth_scrolling;
+				self.timeline.extension_actions = self.extensions.message_actions();
+				self.timeline.quick_reactions = Some(self.reaction_picker.quick_reactions(state));
+				let mut seen = std::collections::BTreeSet::new();
+				let author_lookup: Vec<_> = state
+					.timeline
+					.iter()
+					.rev()
+					.filter(|message| !message.author.webhook)
+					.map(|message| message.author.id)
+					.filter(|id| seen.insert(*id))
+					.take(client_core::member_search::LIMIT)
+					.collect();
+				if let Some(command) = state.request_author_members(&author_lookup) {
+					commands.push(command);
+				}
+				self.timeline.show_with_scroll(
+					ui,
+					state,
+					&mut self.editing,
+					&mut self.deleting,
+					(&mut self.avatars, &mut self.profile),
+					self.pending_upload.as_ref(),
+					&mut self.scroll,
+				);
+				if let Some((id, action)) = self.timeline.poll_action.take()
+					&& let Some(command) = state.prepare_poll(Some(id), action)
+				{
+					commands.push(command);
+				}
+				if let Some(id) = self.timeline.sticker_request.take() {
+					if let Some(command) = state.request_sticker(id) {
+						commands.push(command);
+					}
+					if let Some(command) = state.request_sticker_packs() {
+						commands.push(command);
+					}
+				}
+				if let Some(sticker) = self.timeline.browse_sticker.take() {
+					self.emoji_picker.open_stickers(Some(&sticker));
+				}
+				if let Some(command) = state.request_author_members(&self.timeline.visible_authors)
+				{
+					commands.push(command);
+				}
+				if let Some((action, text, target)) = self.timeline.extension_request.take() {
+					self.extensions
+						.invoke_message(action, text, target, state, ui.ctx());
+				}
+				if let Some((message, anchor, trigger)) = self.timeline.reaction_picker.take() {
+					self.emoji_picker.dismiss(state, commands);
+					self.reaction_picker
+						.open_reaction(state, message, anchor, trigger);
+				}
+				self.reaction_picker.hide_nitro_emojis = self.hide_nitro_emojis;
+				self.reaction_picker
+					.show_reaction(ui, state, &mut self.avatars, commands);
+				if let Some((message, emoji, open)) = self.timeline.reaction_users.take()
+					&& let Some(command) = state.request_reaction_users(message, emoji, open)
+				{
+					commands.push(command);
+				}
+				if let Some(user) =
+					crate::reactions::show_users(ui.ctx(), state, &mut self.avatars, commands)
+				{
+					self.profile.open_full(user);
+				}
+				if let Some((channel, message)) = self.timeline.quick_delete.take()
+					&& let Some(command) = state.prepare_delete(channel, message)
+				{
+					commands.push(command);
+				}
+				if let Some(id) = self.timeline.remove_preserved.take() {
+					state.discard_preserved_deleted(id);
+				}
+				if let Some(nonce) = self.timeline.restore_pending.take() {
+					if state
+						.pending
+						.iter()
+						.any(|p| p.nonce == nonce && p.sticker.is_some())
+					{
+						state.discard_pending_sticker(&nonce);
+					} else {
+						self.restore_pending(state, channel, &nonce);
+					}
+				}
+				if let Some(nonce) = self.timeline.dismiss_pending.take()
+					&& let Some(channel) = state.discard_pending(&nonce)
+				{
+					// The recovery draft may have been the dismissed caption; save it again.
+					self.draft_changes.push(channel);
+				}
+				self.cancel_upload_requested |= std::mem::take(&mut self.timeline.cancel_upload);
+				if let Some(gif) = self.timeline.gif_favorite.take() {
+					state.toggle_gif_favorite(&gif);
+				}
+				match self.timeline.invite_action.take() {
+					Some(invites::Action::OpenGuild(guild)) if state.guild(guild).is_some() => {
+						self.guild = Some(guild);
+						if let Some(command) = state.select_guild(guild) {
 							commands.push(command);
 						}
-						self.timeline.show_with_scroll(
-							ui,
-							state,
-							&mut self.editing,
-							&mut self.deleting,
-							(&mut self.avatars, &mut self.profile),
-							self.pending_upload.as_ref(),
-							&mut self.scroll,
-						);
-						if let Some((id, action)) = self.timeline.poll_action.take()
-							&& let Some(command) = state.prepare_poll(Some(id), action)
-						{
+					}
+					Some(invites::Action::OpenChannel(channel))
+						if state.channel(channel).is_some() =>
+					{
+						if let Some(command) = state.select(channel) {
 							commands.push(command);
 						}
-						if let Some(id) = self.timeline.sticker_request.take() {
-							if let Some(command) = state.request_sticker(id) {
-								commands.push(command);
-							}
-							if let Some(command) = state.request_sticker_packs() {
-								commands.push(command);
-							}
-						}
-						if let Some(sticker) = self.timeline.browse_sticker.take() {
-							self.emoji_picker.open_stickers(Some(&sticker));
-						}
-						if let Some(command) =
-							state.request_author_members(&self.timeline.visible_authors)
+					}
+					Some(invites::Action::JoinVoice(channel))
+						if state.channel(channel).is_some() =>
+					{
+						// The invite's button cannot know every call condition; say why
+						// a join did not start instead of ignoring the click.
+						if let Err(reason) =
+							self.request_call_audio(state, channel, false, None, commands)
 						{
+							self.toasts.push(design::Level::Error, reason);
+						}
+					}
+					Some(invites::Action::Join(code)) => {
+						if state.invite_join.code == code && state.invite_challenge().is_some() {
+							self.verification.active = false;
+						} else if let Some(command) = state.join_invite(code) {
 							commands.push(command);
 						}
-						if let Some((action, text, target)) = self.timeline.extension_request.take()
-						{
-							self.extensions
-								.invoke_message(action, text, target, state, ui.ctx());
-						}
-						if let Some((message, anchor, trigger)) =
-							self.timeline.reaction_picker.take()
-						{
-							self.emoji_picker.dismiss(state, &mut commands);
-							self.reaction_picker
-								.open_reaction(state, message, anchor, trigger);
-						}
-						self.reaction_picker.hide_nitro_emojis = self.hide_nitro_emojis;
-						self.reaction_picker.show_reaction(
-							ui,
-							state,
-							&mut self.avatars,
-							&mut commands,
-						);
-						if let Some((message, emoji, open)) = self.timeline.reaction_users.take()
-							&& let Some(command) =
-								state.request_reaction_users(message, emoji, open)
-						{
-							commands.push(command);
-						}
-						crate::reactions::show_users(
-							ui.ctx(),
-							state,
-							&mut self.avatars,
-							&mut commands,
-						);
-						if let Some((channel, message)) = self.timeline.quick_delete.take()
-							&& let Some(command) = state.prepare_delete(channel, message)
-						{
-							commands.push(command);
-						}
-						if let Some(id) = self.timeline.remove_preserved.take() {
-							state.discard_preserved_deleted(id);
-						}
-						if let Some(nonce) = self.timeline.restore_pending.take() {
-							if state
-								.pending
-								.iter()
-								.any(|p| p.nonce == nonce && p.sticker.is_some())
-							{
-								state.discard_pending_sticker(&nonce);
-							} else {
-								self.restore_pending(state, channel, &nonce);
-							}
-						}
-						if let Some(nonce) = self.timeline.dismiss_pending.take()
-							&& let Some(channel) = state.discard_pending(&nonce)
-						{
-							// The recovery draft may have been the dismissed caption; save it again.
-							self.draft_changes.push(channel);
-						}
-						self.cancel_upload_requested |=
-							std::mem::take(&mut self.timeline.cancel_upload);
-						if let Some(gif) = self.timeline.gif_favorite.take() {
-							state.toggle_gif_favorite(&gif);
-						}
-						match self.timeline.invite_action.take() {
-							Some(invites::Action::OpenGuild(guild))
-								if state.guild(guild).is_some() =>
-							{
-								self.guild = Some(guild);
-								if let Some(command) = state.select_guild(guild) {
-									commands.push(command);
-								}
-							}
-							Some(invites::Action::OpenChannel(channel))
-								if state.channel(channel).is_some() =>
-							{
-								if let Some(command) = state.select(channel) {
-									commands.push(command);
-								}
-							}
-							Some(invites::Action::JoinVoice(channel))
-								if state.channel(channel).is_some() =>
-							{
-								// The invite's button cannot know every call condition; say why
-								// a join did not start instead of ignoring the click.
-								if let Err(reason) = self.request_call_audio(
-									state,
-									channel,
-									false,
-									None,
-									&mut commands,
-								) {
-									self.toasts.push(design::Level::Error, reason);
-								}
-							}
-							Some(invites::Action::Join(code)) => {
-								if state.invite_join.code == code
-									&& state.invite_challenge().is_some()
-								{
-									self.verification.active = false;
-								} else if let Some(command) = state.join_invite(code) {
-									commands.push(command);
-								}
-							}
-							_ => {}
-						}
-						for code in std::mem::take(&mut self.timeline.invite_requests) {
-							if let Some(command) = state.request_invite(code) {
-								commands.push(command);
-							}
-						}
-						if std::mem::take(&mut self.timeline.edit_started) {
-							self.edit_modified = None;
-							self.edit_undo_cleared = false;
-							self.composer_edit = None;
-							self.edit_sent = None;
-						}
-						if std::mem::take(&mut self.timeline.reply_started) {
-							self.focus_switched_composer = true;
-							ctx.request_repaint();
-						}
-						if let Some(target) = self.timeline.reply_target.take() {
-							if let Some(command) = state.open_reply_target(target) {
-								commands.push(command);
-							}
-							ctx.request_repaint();
-						} else if std::mem::take(&mut self.timeline.unread_jump) {
-							if let Some(command) = state.open_unread() {
-								commands.push(command);
-							}
-							ctx.request_repaint();
-						} else if std::mem::take(&mut self.timeline.load_newer)
-							| (std::mem::take(&mut self.timeline.fill_newer)
+					}
+					_ => {}
+				}
+				for code in std::mem::take(&mut self.timeline.invite_requests) {
+					if let Some(command) = state.request_invite(code) {
+						commands.push(command);
+					}
+				}
+				if std::mem::take(&mut self.timeline.edit_started) {
+					self.edit_modified = None;
+					self.edit_undo_cleared = false;
+					self.composer_edit = None;
+					self.edit_sent = None;
+				}
+				if std::mem::take(&mut self.timeline.reply_started) {
+					self.focus_switched_composer = true;
+					ctx.request_repaint();
+				}
+				if let Some(target) = self.timeline.reply_target.take() {
+					if let Some(command) = state.open_reply_target(target) {
+						commands.push(command);
+					}
+					ctx.request_repaint();
+				} else if std::mem::take(&mut self.timeline.unread_jump) {
+					if let Some(command) = state.open_unread() {
+						commands.push(command);
+					}
+					ctx.request_repaint();
+				} else if std::mem::take(&mut self.timeline.load_newer)
+					| (std::mem::take(&mut self.timeline.fill_newer)
 								// A scroll up outranks filling; it asks for older messages.
 								&& !self.timeline.load_older
 								// A history request cancels a loading search; only a scroll may.
 								&& !state.search.as_ref().is_some_and(|s| s.loading)
 								&& !state.archives.as_ref().is_some_and(|a| a.loading))
-						{
-							if let Some(command) = state.newer_history() {
-								commands.push(command);
-							}
-							ctx.request_repaint();
-						} else if std::mem::take(&mut self.timeline.latest) {
-							commands.push(state.history(None));
-						} else if std::mem::take(&mut self.timeline.load_older)
-							&& let Some(command) = state.older_history()
-						{
-							commands.push(command);
-						}
-					});
+				{
+					if let Some(command) = state.newer_history() {
+						commands.push(command);
+					}
+					ctx.request_repaint();
+				} else if std::mem::take(&mut self.timeline.latest) {
+					commands.push(state.history(None));
+				} else if std::mem::take(&mut self.timeline.load_older)
+					&& let Some(command) = state.older_history()
+				{
+					commands.push(command);
+				}
 			});
+	}
+	/// Dialogs, overlays, the profile card, toasts and the requests they raise: everything after
+	/// the panes, in the usual and the plugin-interface layout alike. `selected_forum` is
+	/// `None` while a plugin interface hides the forum pane: its archives then float, and no
+	/// forum visit marks posts read that the user cannot see.
+	fn show_overlays(
+		&mut self,
+		ui: &mut egui::Ui,
+		state: &mut State,
+		ctx: egui::Context,
+		mut commands: Vec<Command>,
+		settings_open: bool,
+		selected_forum: Option<bool>,
+	) -> Vec<Command> {
+		let forum_pane = selected_forum.is_some();
+		let selected_forum = selected_forum == Some(true);
 		if state
 			.archives
 			.as_ref()
@@ -5911,6 +6448,7 @@ impl MessagingUi {
 		self.thread_create.show(&ctx, state, &mut commands);
 		self.new_message
 			.show(&ctx, state, &mut self.avatars, &mut commands);
+		self.attachment_viewer(&ctx, state);
 		self.screen.show(&ctx, state);
 		if let Some(id) = self.timeline.channel_reference_load.take()
 			&& state.channel(id).is_none()
@@ -5956,7 +6494,10 @@ impl MessagingUi {
 		{
 			commands.push(command);
 		}
-		if !settings_open && let Some(command) = state.prepare_forum_visit_read() {
+		if forum_pane
+			&& !settings_open
+			&& let Some(command) = state.prepare_forum_visit_read()
+		{
 			commands.push(command);
 		}
 		if let Some(channel) = self.timeline.mark_channel_read.take() {
@@ -6197,6 +6738,13 @@ impl MessagingUi {
 				Some(dialog::Choice::Confirmed) => {
 					if let Some(command) = state.prepare_delete(channel, message) {
 						commands.push(command);
+						// An emptied edit has nothing left to keep once its message goes.
+						if self.editing.as_ref().is_some_and(|(c, id, text)| {
+							*c == channel && *id == message && text.trim().is_empty()
+						}) {
+							self.editing = None;
+							self.edit_sent = None;
+						}
 					}
 					self.deleting = None;
 				}
@@ -6898,6 +7446,28 @@ mod composer_tests {
 	}
 
 	#[test]
+	fn saving_an_emptied_edit_asks_to_delete_and_keeps_the_edit_open() {
+		let mut state = edit_state();
+		let mut view = MessagingUi {
+			editing: Some((Id(10), Id(20), String::new())),
+			..Default::default()
+		};
+		let ctx = egui::Context::default();
+		edit_frame(&ctx, &mut view, &mut state, vec![]);
+		let commands = edit_frame(
+			&ctx,
+			&mut view,
+			&mut state,
+			vec![edit_key(egui::Key::Enter)],
+		);
+		// Nothing leaves before the confirmation, and declining it must not lose the edit.
+		assert!(commands.is_empty());
+		assert_eq!(view.deleting, Some((Id(10), Id(20))));
+		assert!(view.has_edit());
+		assert_eq!(state.timeline.get(Id(20)).unwrap().content, "Original");
+	}
+
+	#[test]
 	fn emoticon_conversion_edits_wait_for_confirmation_and_keep_raw_text_on_failure() {
 		for success in [false, true] {
 			let mut state = edit_state();
@@ -7020,6 +7590,7 @@ mod composer_tests {
 			selected: Some(Id(10)),
 			channels: vec![model::Channel {
 				user_limit: None,
+				slowmode: 0,
 				id: Id(10),
 				guild: None,
 				parent_id: None,
@@ -7059,6 +7630,7 @@ mod composer_tests {
 					reply_deleted: false,
 					interaction: None,
 					forwarded: false,
+					forward_origin: None,
 					unsupported: false,
 					extra_content: Default::default(),
 					components: vec![],
@@ -7350,6 +7922,7 @@ mod composer_tests {
 		let mut state = edit_state();
 		state.demo = false;
 		state.guilds.push(model::Guild {
+			banner: None,
 			default_message_notifications: None,
 			stickers: None,
 			id: Id(100),
@@ -7501,6 +8074,7 @@ mod composer_tests {
 			target.kind = 0;
 			state.channels.push(target);
 			state.guilds.push(model::Guild {
+				banner: None,
 				default_message_notifications: None,
 				stickers: None,
 				id: Id(100),
@@ -7632,6 +8206,7 @@ mod composer_tests {
 				target.name = "Malformed-origin cached target".into();
 				state.channels.push(target);
 				state.guilds.push(model::Guild {
+					banner: None,
 					id: Id(100),
 					name: "Malformed-origin cached server".into(),
 					icon: None,
@@ -7811,6 +8386,54 @@ mod composer_tests {
 		assert!(view.timeline.opening.is_some());
 		frame(&mut view, &mut state, vec![edit_key(egui::Key::Escape)]);
 		assert!(view.timeline.opening.is_none());
+	}
+
+	#[test]
+	fn staged_viewer_escape_preserves_background_search() {
+		let ctx = egui::Context::default();
+		let mut state = edit_state();
+		let mut view = MessagingUi::default();
+		let frame = |view: &mut MessagingUi, state: &mut State, events| {
+			let output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(1000.0, 700.0),
+					)),
+					events,
+					..Default::default()
+				},
+				|ui| {
+					view.show(ui, state);
+				},
+			);
+			output.drop_without_applying_deltas();
+		};
+		// The first frame adopts the selected conversation, which would close a search opened
+		// before it; open search only once the view follows the selection.
+		frame(&mut view, &mut state, vec![]);
+		view.search.open = true;
+		view.preview_attachment("synthetic.png", 1024, None);
+		view.attachment_view_file = Some(("synthetic.png".into(), 1024, None));
+		view.attachment_view_scope = Some((state.generation, state.selected));
+		view.attachment_view_open = Some(0);
+		for _ in 0..3 {
+			frame(&mut view, &mut state, vec![]);
+		}
+		assert!(view.attachment_view_open.is_some());
+		assert!(view.search.open);
+		frame(&mut view, &mut state, vec![edit_key(egui::Key::Escape)]);
+		assert!(
+			view.attachment_view_open.is_none(),
+			"Escape closes the staged viewer"
+		);
+		assert!(
+			view.search.open,
+			"Escape belongs to the staged viewer, not the search behind it"
+		);
+		// With the viewer closed, Escape returns to the search it was covering.
+		frame(&mut view, &mut state, vec![edit_key(egui::Key::Escape)]);
+		assert!(!view.search.open);
 	}
 
 	#[test]
@@ -8969,6 +9592,7 @@ mod composer_tests {
 			state.selected = Some(Id(11));
 			state.channels.push(model::Channel {
 				user_limit: None,
+				slowmode: 0,
 				id: Id(11),
 				guild: None,
 				kind: 1,
@@ -9043,6 +9667,7 @@ mod composer_tests {
 			selected: Some(Id(1)),
 			channels: vec![model::Channel {
 				user_limit: None,
+				slowmode: 0,
 				last_message: None,
 				id: Id(1),
 				guild: Some(Id(2)),
@@ -9237,6 +9862,7 @@ mod composer_tests {
 			}),
 			channels: vec![model::Channel {
 				user_limit: None,
+				slowmode: 0,
 				last_message: None,
 				id: Id(1),
 				guild: None,
@@ -9639,6 +10265,7 @@ mod composer_tests {
 				selected: Some(Id(1)),
 				channels: vec![model::Channel {
 					user_limit: None,
+					slowmode: 0,
 					last_message: None,
 					id: Id(1),
 					guild,
@@ -9828,9 +10455,6 @@ mod composer_tests {
 		);
 		// Discord may report rosters for rooms this account cannot see; those stay hidden.
 		let mut snapshot = test_support::permission_snapshot(&state);
-		// The voice fixture reuses id 26 for its quiet room; a snapshot lists each id once.
-		let mut seen = std::collections::BTreeSet::new();
-		snapshot.channels.retain(|channel| seen.insert(channel.id));
 		snapshot
 			.channels
 			.iter_mut()
@@ -10130,6 +10754,7 @@ mod composer_tests {
 			selected: Some(Id(1)),
 			channels: vec![model::Channel {
 				user_limit: None,
+				slowmode: 0,
 				last_message: None,
 				id: Id(1),
 				guild: None,
@@ -10813,7 +11438,7 @@ pub fn debug_image_sharing(state: &mut State) -> (Vec<model::ImageShare>, String
 		pending::show(
 			ui,
 			state.pending.last().unwrap(),
-			(false, 10, false),
+			(false, 10, false, u64::MAX),
 			state,
 			(
 				&mut view.avatars,

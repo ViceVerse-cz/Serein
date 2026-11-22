@@ -313,6 +313,10 @@ attachments-media-menu-unavailable-for-synthetic-attachments = 合成附件無�
 attachments-open-original-open-original = 開啟原始檔案…
 # Context: pending_card
 attachments-pending-card-remove-attachment = 移除附件
+# Context: pending_viewer
+attachments-pending-viewer-full-size-unavailable = 無法顯示原尺寸預覽
+attachments-pending-viewer-loading = 正在載入完整尺寸圖片…
+attachments-pending-viewer-close = 關閉（Esc）
 attachments-loading-card-preparing = 準備中…
 
 # Context: show_status
@@ -1671,20 +1675,14 @@ main-restoring-screen-use-a-different-account = 使用其他帳戶
 main-restoring-screen-welcome-back = 歡迎回來
 # Context: sign_in_accounts
 main-sign-in-accounts-saved-accounts = 已儲存的帳戶
-# Context: sign_in_consent
-main-sign-in-consent-passwords-and-2fa-stay-on-discord-s-own-login-page = 密碼與 2FA 只留在 Discord 自己的登入頁；僅工作階段令牌會存進你的作業系統憑證儲存區。
 # Context: sign_in_disclosures
 main-sign-in-disclosures-about-serein = 關於 Serein
 # Context: sign_in_disclosures
 main-sign-in-disclosures-connect-with-this-token = 用這個令牌連線
 # Context: sign_in_disclosures
-main-sign-in-disclosures-for-owners-who-already-hold-a-valid-discord-session-token = 供已持有有效 Discord 工作階段令牌的使用者使用，例如來自另一套已登入的 Serein。這裡絕不會用到密碼與 2FA，且完全略過 Discord 的託管登入頁。
-# Context: sign_in_disclosures
 main-sign-in-disclosures-forget-saved-login = 清除已儲存的登入
 # Context: sign_in_disclosures
 main-sign-in-disclosures-session-token = 工作階段令牌
-# Context: sign_in_disclosures
-main-sign-in-disclosures-sign-in-with-a-session-token = 用工作階段令牌登入
 # Context: sign_in_header
 main-sign-in-header-continue-with-a-saved-account-or-sign-in-with-another = 繼續使用已儲存的帳戶，或登入另一個帳戶。
 # Context: sign_in_header
@@ -3509,12 +3507,6 @@ settings-activity-reading-programs = 正在讀取執行中的程式…
 settings-activity-no-matching-programs = 沒有符合的程式在執行。
 # Context: activity_settings
 settings-activity-add-game = 新增遊戲
-# Context: appearance_menu
-settings-appearance-menu-display = 顯示
-# Context: appearance_menu
-settings-appearance-menu-mode = 模式
-# Context: appearance_menu
-settings-appearance-menu-theme = 主題
 # Context: appearance_settings
 settings-appearance-settings-accent = 強調色
 # Context: appearance_settings
@@ -4992,6 +4984,7 @@ profiles-status-clear = 清除狀態
 send-throttled-title = 哇，太辣了
 send-throttled-body = 你傳送訊息太快了！
 send-throttled-dismiss = 關閉提示
+slowmode-enabled = 慢速模式已啟用
 profiles-private-profile = 私人個人資料
 profiles-private-notice = { $name } 的個人資料為私人，部分資訊已隱藏。加為好友即可查看更多。
 settings-cosmetics-name-styles = 名稱樣式
@@ -5040,3 +5033,7 @@ moderation-delete-week = 過去 7 天
 moderation-confirm-timeout = 禁言
 # Context: moderation
 moderation-confirm-ban = 停權
+
+## crates/ui/src/interface_ui.rs
+# Context: interface_tree
+interface-ui-empty = 此擴充功能目前沒有可顯示的內容。

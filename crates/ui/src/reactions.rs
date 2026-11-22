@@ -362,15 +362,12 @@ pub fn show_users(
 	state: &mut client_core::State,
 	avatars: &mut crate::avatars::Avatars,
 	commands: &mut Vec<client_core::Command>,
-) {
-	let Some(details) = state
+) -> Option<model::User> {
+	let details = state
 		.reactions
 		.users
 		.as_ref()
-		.filter(|details| details.open)
-	else {
-		return;
-	};
+		.filter(|details| details.open)?;
 	let reactions = state
 		.timeline
 		.get(details.message)
@@ -379,6 +376,7 @@ pub fn show_users(
 	let mut select = None;
 	let mut more = false;
 	let mut close = false;
+	let mut profile = None;
 	let response = crate::dialog::Dialog::new(
 		"reaction-users",
 		crate::i18n::translate("reactions-show-users-reactions"),
@@ -428,10 +426,26 @@ pub fn show_users(
 				);
 			}
 			for user in &details.users {
-				ui.horizontal(|ui| {
-					avatars.show_plain(ui, user, REACTOR.avatar, state.demo);
-					ui.label(crate::design::medium(ui, &user.name, 15.0));
+				let row = ui
+					.horizontal(|ui| {
+						avatars.show_plain(ui, user, REACTOR.avatar, state.demo);
+						ui.label(crate::design::medium(ui, &user.name, 15.0));
+					})
+					.response;
+				// The avatar and name open the full profile, which takes this dialog's place.
+				let person = ui
+					.interact(
+						row.rect,
+						ui.make_persistent_id(("reactor", user.id)),
+						egui::Sense::click(),
+					)
+					.on_hover_cursor(egui::CursorIcon::PointingHand);
+				person.widget_info(|| {
+					egui::WidgetInfo::labeled(egui::Role::Button, true, &user.name)
 				});
+				if person.clicked() && !user.webhook {
+					profile = Some(user.clone());
+				}
 			}
 			if details.users.len() >= client_core::reactions::MAX_REACTION_USERS {
 				crate::dialog::hint(ui, "reactions-show-users-showing-the-first-1-000-reactions");
@@ -472,7 +486,7 @@ pub fn show_users(
 			.clicked();
 		});
 	});
-	close |= response.close;
+	close |= response.close || profile.is_some();
 	if close {
 		state.close_reaction_users();
 	} else if let Some(emoji) = select {
@@ -482,6 +496,7 @@ pub fn show_users(
 	} else if more && let Some(command) = state.next_reaction_users_page() {
 		commands.push(command);
 	}
+	profile
 }
 
 #[cfg(test)]

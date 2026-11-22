@@ -1081,6 +1081,7 @@ mod navigation_tests {
 			reply_deleted: false,
 			interaction: None,
 			forwarded: false,
+			forward_origin: None,
 			kind: 0,
 			unsupported: false,
 			components: vec![],
@@ -1102,6 +1103,7 @@ mod navigation_tests {
 			selected: Some(Id(1)),
 			channels: vec![Channel {
 				user_limit: None,
+				slowmode: 0,
 				id: Id(1),
 				guild: None,
 				parent_id: None,

@@ -167,19 +167,38 @@ pub fn known_roles(state: &State, channel: Id) -> &[model::permissions::Role] {
 		.unwrap_or(&[])
 }
 pub fn known_users(state: &State, channel: Id) -> Vec<User> {
+	known_users_with_search(state, channel, searched_members(state, channel, None))
+}
+
+pub(super) fn searched_members<'a>(
+	state: &'a State,
+	channel: Id,
+	query: Option<&str>,
+) -> &'a [model::Member] {
+	let search = &state.member_search[0];
+	if search.request.as_ref().is_some_and(|request| {
+		request.channel == channel && query.is_none_or(|query| request.query == query)
+	}) && state.can_view(channel)
+	{
+		&search.rows
+	} else {
+		&[]
+	}
+}
+
+pub(super) fn known_users_with_search(
+	state: &State,
+	channel: Id,
+	searched: &[model::Member],
+) -> Vec<User> {
 	let mut users = Vec::new();
 	let mut add = |user: &User| {
 		if users.len() < 256 && !users.iter().any(|u: &User| u.id == user.id) {
 			users.push(user.clone());
 		}
 	};
-	if let Some(request) = &state.member_search[0].request
-		&& request.channel == channel
-		&& state.can_view(channel)
-	{
-		for member in &state.member_search[0].rows {
-			add(&member.user);
-		}
+	for member in searched {
+		add(&member.user);
 	}
 	if let Some(owner) = &state.user {
 		add(owner);
@@ -453,7 +472,7 @@ pub fn insert(draft: &mut String, pick: Pick, editing: bool, remaining: usize) -
 	)
 }
 /// Rank a name against the typed query: prefix hits first, then substrings, then snowflakes.
-fn rank(query: &str, name: &str, id: Id) -> Option<u8> {
+pub(super) fn rank(query: &str, name: &str, id: Id) -> Option<u8> {
 	if query.is_empty() {
 		return Some(1);
 	}
@@ -1404,6 +1423,7 @@ mod tests {
 		state.apply(client_core::Envelope {
 			generation: state.generation,
 			event: client_core::Event::GuildChanged(model::GuildPatch {
+				banner: model::Patch::Absent,
 				id: Id(10),
 				name: model::Patch::Value("Longer foreign server name".into()),
 				icon: model::Patch::Value("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".into()),
@@ -1590,6 +1610,7 @@ mod tests {
 			guilds: [20, 10]
 				.into_iter()
 				.map(|id| model::Guild {
+					banner: None,
 					default_message_notifications: None,
 					stickers: None,
 					id: Id(id),
@@ -1682,6 +1703,7 @@ mod tests {
 			};
 			state.channels.push(model::Channel {
 				user_limit: None,
+				slowmode: 0,
 				last_message: None,
 				id: Id(1),
 				guild,
@@ -1699,6 +1721,7 @@ mod tests {
 				use model::permissions as p;
 				state.channels.push(channel(42, Some(guild), 0, "Zoe"));
 				state.guilds.push(model::Guild {
+					banner: None,
 					default_message_notifications: None,
 					stickers: None,
 					id: guild,
@@ -1979,6 +2002,7 @@ mod tests {
 	fn channel(id: u64, guild: Option<Id>, kind: u8, name: &str) -> Channel {
 		Channel {
 			user_limit: None,
+			slowmode: 0,
 			id: Id(id),
 			guild,
 			kind,
@@ -2063,6 +2087,7 @@ mod tests {
 		assert_eq!(query(":+1", 3), Some((0..3, "+1", Kind::Emoji)));
 		assert_eq!(query(":-1", 3), Some((0..3, "-1", Kind::Emoji)));
 		let guilds = vec![model::Guild {
+			banner: None,
 			default_message_notifications: None,
 			stickers: None,
 			id: Id(9),
@@ -2346,6 +2371,7 @@ pub fn debug_role_mentions_check(state: &mut State) {
 			reply_deleted: false,
 			interaction: None,
 			forwarded: false,
+			forward_origin: None,
 			unsupported: false,
 			extra_content: Default::default(),
 			components: vec![],
@@ -2560,8 +2586,8 @@ pub fn debug_role_mentions_check(state: &mut State) {
 		let mut role_color = egui::Color32::TRANSPARENT;
 		let output = ctx.run_ui(Default::default(), |ui| {
 			let colors = crate::design::palette(ui);
-			role_color =
-				crate::design::role_name_color(0xe67e22, colors.mention_bg, colors.mention_text);
+			let (_, surface) = crate::design::role_mention_fill(0xe67e22, ui.visuals().panel_fill);
+			role_color = crate::design::role_name_color(0xe67e22, surface, colors.mention_text);
 			assert_ne!(role_color, colors.mention_text);
 			let roles = known_roles(state, channel);
 			let mut preview = egui::text::LayoutJob::default();

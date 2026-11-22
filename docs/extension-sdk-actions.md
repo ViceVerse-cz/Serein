@@ -73,7 +73,9 @@ The Rust paths below are relative to `AppOutput`. When using the original
 | `panel` / `output.panel` | Array of native `Element` values; no separate panel capability. | A foreground result displays it. Message/app event handlers must return no elements. Activation does not display returned panels. |
 | `storage` / `output.storage` | Optional opaque UTF-8 string; `storage`. | A valid foreground or event result replaces the plugin's saved value before result approval. Activation can read storage but this build does not persist its returned storage. |
 | `appearance` / `output.appearance` | Optional `Theme` object; `appearance`. | An accepted result updates the plugin's appearance overlay immediately, including activation and event results. Preview `tick` results are eased from the currently displayed colors. No Apply button is involved. |
-| `interface_tweaks` / `InterfaceTweaksOutput.interface_tweaks` | Optional array of `InterfaceTweak` names, each at most once; `interface_tweaks` grant. | An `activation` or `panel` result replaces the plugin's tweaks; omission leaves them unchanged and an empty array turns them off. The host applies a tweak while any enabled plugin requests it. `static_typing_indicator` stills typing dots, `plain_profiles` ignores members' profile theme colors `expanded_roles` lists every role in profiles `hidden_request_counts` keeps pending friend and message request counts off the Home button, the Pending tab and the message-request group, `one_ping_per_direct_message` alerts once per direct or group conversation until you read through that message, `hidden_blocked_messages` leaves blocked users' messages out of conversations, `hidden_profile_notes` leaves your private note out of profiles (the user menu still edits it) and `large_stream_preview` doubles the stream preview shown on hovering a live participant, and `double_click_reply_edit` makes double-clicking a message's blank space edit your own message or reply to someone else's, in place of the double-click reaction. Save the user's choice in `storage` and return it again from activation, which runs each time the plugin loads. |
+| `interface_tweaks` / `InterfaceTweaksOutput.interface_tweaks` | Optional array of `InterfaceTweak` names, each at most once; `interface_tweaks` grant. | An `activation` or `panel` result replaces the plugin's tweaks; omission leaves them unchanged and an empty array turns them off. The host applies a tweak while any enabled plugin requests it. `static_typing_indicator` stills typing dots, `plain_profiles` ignores members' profile theme colors `expanded_roles` lists every role in profiles `hidden_request_counts` keeps pending friend and message request counts off the Home button, the Pending tab and the message-request group, `one_ping_per_direct_message` alerts once per direct or group conversation until you read through that message, `hidden_blocked_messages` leaves blocked users' messages out of conversations, `hidden_profile_notes` leaves your private note out of profiles (the user menu still edits it) and `large_stream_preview` doubles the stream preview shown on hovering a live participant, `double_click_reply_edit` makes double-clicking a message's blank space edit your own message or reply to someone else's, in place of the double-click reaction. Save the user's choice in `storage` and return it again from activation, which runs each time the plugin loads. |
+| `interface_ui` / `InterfaceUiOutput.interface_ui` | Optional `InterfaceUi` object (`nodes` row array, optional `window`, optional `dock` item array, optional `add_server` flag, optional `controls` array, optional `size` object); `interface_ui` grant; a row's `native` join also needs `voice_connect`. | Every activation, panel or event result restates the plugin's interface: `Some` replaces the main panes with the row tree, `None` restores the normal layout. Rows carry `id` (opaque row identifier; a row without `native` and with an empty id is inert), `indent`, `icon`, `text`, `badge`, `emphasis`, `selected`, `tint` and optional `native`. Clicks invoke the plugin's declared `interface_click` action (surface `panel`) with `values["id"]` set to the row id and `double_clicked` true for double clicks; Enter on a focused row or dock item is the primary open action and also sets `double_clicked` (as in file managers), while Space on a focused item is a single click; without that declared action rows and dock items are inert. These two rules apply to rows without `native`: a native join row, even with an empty `id` or without a declared `interface_click`, joins through its own target and grant checks below, and routes the click only when it has an id and the action is declared. `native` `{"type":"join_voice","channel_id":"30"}` makes the row a native join: the host labels it with that loaded voice channel's real name (the plugin's `text` is ignored) and, when the plugin holds `voice_connect`, its double click or Enter joins through the client's own join path with the current mute and deafen state, including the confirmation before leaving another call. There is no Apply step: the double-clicked row, carrying the host's own label, is the confirmation. The click still reaches `interface_click` as usual; without the grant only the click routes. A native row whose channel is unknown, not a voice channel or not viewable keeps the plugin's `text` and stays inert (neither joining nor routing). `window` shows one native window beside the tree: `{"kind":"call"}` is the active call's stage (empty without a call or once its channel is no longer viewable), `{"kind":"chat","channel_id":"20"}` selects that channel and shows its native conversation view with its composer; an unknown or inaccessible channel shows nothing until it loads and becomes viewable, native navigation afterwards (links, invites, the conversation switcher) moves the window to the newly selected conversation, and sending keeps the ordinary send rules. Omitted shows no window. `dock` lists small items at the left of the tree pane's bottom control row, in order: each carries `id`, `label`, optional `guild_id` and `selected`; the host paints the loaded server's icon (or the label's initials when unknown), shows `label` on hover, marks `selected` with an accent ring, and routes clicks exactly like row clicks through the same `interface_click` action. `add_server` appends the client's own add-a-server button after the dock items; it opens the native join/create flow directly and is never routed to the plugin. `controls` lists the native buttons at the right of that row, left to right, from `disconnect`, `mute`, `deafen` and `settings`; each is the account card's own button with its usual command, never routed to the plugin. `disconnect` shows only during a call, and the host always appends `settings` when it is missing, so the user can still reach the extension settings to turn the plugin off; an omitted or empty list shows only `settings`. `size` `{"width":360,"height":640}` asks for that window size in logical pixels while the layout shows: the host centers the window on its monitor (clamped to it) and restores the previous size, position and maximized state when the layout ends or stops asking, never saving the requested size; omitted keeps the current window. Bounds: 512 rows, 1-256-byte row text, 1-32-byte badges, unique 1-64-byte ids across rows and dock items, indent 0-8, chat `channel_id` 1-20 decimal digits, at most 64 dock items with 1-64-byte ids and 1-256-byte labels and `guild_id` 1-20 decimal digits, no repeated `controls`, native `channel_id` 1-20 decimal digits, `size` width 200-1600 and height 200-1200; row text, badges and dock labels must be printable (no control characters, not only whitespace); invalid trees are rejected like other invalid outputs. |
+| `start_screen` / `StartScreenOutput.start_screen` | Optional `StartScreen` object or `null`; `start_screen` grant. | Preview. Only an `activation` or `panel` result may carry it, a `null` included. A value replaces this plugin's start screen, `null` clears it and omission leaves it unchanged. The host keeps the accepted value in one device-level file and shows it on the connecting screen from the next launch on, before any account loads; when several plugins set one, the lowest plugin id wins. The screen's pre-rendered `images`, then its optional `title` and `subtitle`, replace the logo and the default copy, and an optional `window` size applies while it shows; the progress bar and **Use a different account** always stay. Invalid screens are rejected like other invalid outputs. See [Start screen](#start-screen-preview) for the image format. |
 | `preserve_deleted_messages` / `output.preserve_deleted_messages` | Boolean, default `false`; `deleted_messages` is required for `true`. | Only an `activation` action may enable host retention of already-loaded deleted messages. |
 | `image_sharing` / `output.image_sharing` | Boolean, default `false`; `image_sharing` is required for `true`. | Legacy compatibility field, validated only for an `activation` action with the grant. It no longer changes host behavior: emoji/sticker image fallback is built in. |
 | `effects` / `effects` | Array containing at most one `HostEffect`; its capability is checked separately. | The native result describes the action. It runs only after its **Apply** button is clicked and current access is rechecked. |
@@ -92,6 +94,7 @@ own button runs another handler; it is different from the host's Apply button.
 | `panel` | Omitted means `[]`; `null` is invalid. | `[]` supplies no panel elements; it is not a command to close a foreground result. |
 | `effects` | Omitted means `[]`; `null` is invalid. | `[]` makes no app proposal. |
 | Activation booleans | Omitted means `false`; `null` is invalid. | `false` does not enable the feature in an activation result. These are not runtime toggle commands for other surfaces. |
+| `start_screen` | Omitted leaves this plugin's start screen unchanged; `null` clears it. | `{}` sets a screen without images or text: only the progress bar and **Use a different account** remain. |
 
 Every returned appearance object replaces the previous object from that plugin;
 it is not a patch to the plugin's old overlay. Omitted theme fields inherit from
@@ -491,8 +494,8 @@ field, so JSON `null` is invalid.
 | `output_percent` | `Option<u16>` / integer or null | Output gain, 0-200 percent. |
 | `push_to_talk` | `Option<bool>` / boolean or null | Set the native push-to-talk preference. |
 | `input_profile` | `Option<String>` / string or null | `voice_isolation`, `studio` or `custom`. |
-| `suppression` | `Option<String>` / string or null | `off`, `rnnoise` or `webrtc`. |
-| `suppression_level` | `Option<u8>` / integer or null | Suppression level, 0-3. |
+| `suppression` | `Option<String>` / string or null | `off`, `rnnoise`, `webrtc`, `deepfilternet` or `auto` (DeepFilterNet, or RNNoise when the device is too busy for it). |
+| `suppression_level` | `Option<u8>` / integer or null | Suppression strength, 0-3 (low through very high). Applies to `webrtc`, `deepfilternet` and, while it runs DeepFilterNet, `auto`; stored but unused with `off`, `rnnoise` or an `auto` session that moved to RNNoise. |
 | `echo_cancellation` | `Option<bool>` / boolean or null | Enable/disable echo cancellation. |
 | `automatic_gain` | `Option<bool>` / boolean or null | Enable/disable automatic gain. |
 | `sensitivity_db` | `Option<i16>` / integer or null | Microphone gate threshold, -80 through 0 dB. |
@@ -991,6 +994,82 @@ masked form and OS credential store; it never enters Wasm input or plugin storag
 SOCKS and PAC are unsupported. Saved invalid configuration should trap during
 activation rather than silently return Direct; the host then blocks initial API
 routing and preserves an already configured route during reload.
+
+### Start screen (preview)
+
+> **Preview capability.** `start_screen` requires a host built from this change;
+> it is not implied by ABI version 1.
+
+Declare `start_screen` and return `StartScreenOutput { output: Output, start_screen:
+Option<Option<StartScreen>> }` from the plugin's `activation` action or a `panel`
+action, exported with `export!(handle)` as usual. The wrapper flattens into the
+normal output JSON. `Some(Some(screen))` replaces this plugin's start screen,
+`Some(None)` (JSON `null`) clears it and `None` (omitted) leaves it unchanged. Call
+`StartScreen::validate()` before returning a screen; the host validates it again.
+
+The host draws nothing of its own design. A plugin screen replaces the client logo,
+the welcome title and the connection stage: its `images` stack top to bottom, flush
+and centered, then `title` and `subtitle` follow as plain text in the client's
+normal font. The progress bar and **Use a different account**, with the space below
+it, always stay. The host reads the screen from the device before any account loads,
+so it shows from the next launch on, without running Wasm.
+
+| Field | Rust / JSON type | Meaning and bounds |
+| --- | --- | --- |
+| `images` | `Vec<StartImage>` / array, default empty | At most 4 images, top to bottom |
+| `title` | `Option<String>` / string | 1-64 bytes without control characters |
+| `subtitle` | `Option<String>` / string | 1-128 bytes without control characters |
+| `window` | `Option<StartWindow>` / object | `width` 240-1,600 and `height` 240-1,200 logical pixels; omitted keeps the window as it is |
+| Image `width`, `height` | `u16` / number | 1-160 cells each |
+| Image `palette` | `Vec<String>` / array | 1-3 colors for cell values 1, 2 and 3: `#RRGGBB`, `#RRGGBBAA` (alpha last), or `accent` / `accent:AA` for the client's current accent color (the one its progress bar uses) at full or `AA` hex opacity. Accent entries follow the user's theme and re-color when it changes |
+| Image `frames` | `Vec<String>` / array | 1-120 frames, each the standard base64 of one packed frame |
+| Image `fps` | `u8` / number, default 12 | 1-30 frames per second when there are two or more frames; a single frame ignores it |
+| Image `cell` | `u8` / number, default 3 | 1-8 logical pixels per cell |
+
+Every cell is a 2-bit value: `0` is transparent and `1`, `2` and `3` select the
+first, second and third palette color; a value past the end of the palette is
+transparent too. A frame lists its `width × height` cells row by row from the top
+left, without row padding, four cells per byte with the first cell in the two most
+significant bits: `byte = c0 << 6 | c1 << 4 | c2 << 2 | c3`. When the cell count is
+not a multiple of four, the last byte is padded with zero bits, so a frame is exactly
+`ceil(width × height / 4)` bytes. Those bytes are encoded as standard base64
+(alphabet `A-Z a-z 0-9 + /`, `=` padding, no line breaks); a frame that decodes to
+any other length is invalid. All frames of all images together may hold at most
+160 KiB (163,840 bytes) before base64.
+
+One frame is a still image. More frames loop from the first, each shown for
+`1 / fps` seconds counted from when the screen appears. Images draw at `cell` logical
+pixels per cell, rounded to whole physical pixels. When they do not fit the window's
+width, or the height left above the text, bar and button, the host scales all of them
+down by the same factor, keeping whole physical pixels per cell until a cell would be
+smaller than one. `window` resizes the window while the start screen shows: the host
+clamps it to the monitor, centers it and never saves it as the window size, then
+restores the previous size, position and maximized state after the screen ends,
+unless the `size` of an [`interface_ui`](#every-output-field) layout takes over first.
+
+This complete result shows a two-color 4×2 image of two frames at 4 frames per
+second and 8 logical pixels per cell, above a title, in a 360×480 window. Frame
+`aRQ=` is the bytes `0x69 0x14`, the cells `1 2 2 1` over `0 1 1 0`; frame `lig=`
+is `0x96 0x28`, the cells `2 1 1 2` over `0 2 2 0`:
+
+```json
+{
+  "start_screen": {
+    "images": [
+      {
+        "width": 4,
+        "height": 2,
+        "palette": ["#5865f2", "#ffffff80"],
+        "frames": ["aRQ=", "lig="],
+        "fps": 4,
+        "cell": 8
+      }
+    ],
+    "title": "Loading",
+    "window": {"width": 360, "height": 480}
+  }
+}
+```
 
 ## Panels and storage
 

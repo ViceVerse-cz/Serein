@@ -1401,6 +1401,7 @@ mod tests {
 				auth: AuthState::Authenticated,
 				gateway_connected: true,
 				guilds: vec![model::Guild {
+					banner: None,
 					default_message_notifications: None,
 					stickers: None,
 					emojis: None,
@@ -1608,6 +1609,7 @@ mod tests {
 			};
 			let channel = |id| model::Channel {
 				user_limit: None,
+				slowmode: 0,
 				id: Id(id),
 				guild: Some(Id(9)),
 				parent_id: None,
@@ -1625,6 +1627,7 @@ mod tests {
 				auth: AuthState::Authenticated,
 				gateway_connected: true,
 				guilds: vec![model::Guild {
+					banner: None,
 					default_message_notifications: None,
 					stickers: None,
 					emojis: None,

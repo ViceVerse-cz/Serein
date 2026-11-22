@@ -16,10 +16,10 @@ Squashed from https://github.com/emilk/egui/pull/8722 at 01022f1e7661.
  7 files changed, 244 insertions(+), 15 deletions(-)
 
 diff --git a/Cargo.toml b/Cargo.toml
-index 1a748c7a5..3f88fc7d8 100644
+index 7d5c9681..a1bf788b 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
-@@ -163,6 +163,7 @@ vello_cpu = { version = "0.3.0", default-features = false, features = [
+@@ -163,6 +163,7 @@ vello_cpu = { version = "0.4.0", default-features = false, features = [
  ] }
  wasm-bindgen = "0.2.126" # Keep wasm-bindgen version in sync in: setup_web.sh, Cargo.toml, Cargo.lock, rust.yml. Don't update this spuriously, because of https://github.com/rerun-io/rerun/issues/8766
  wasm-bindgen-futures = "0.4.76"
@@ -28,7 +28,7 @@ index 1a748c7a5..3f88fc7d8 100644
  web-sys = "0.3.103"
  web-time = "1.1" # Timekeeping for native and web
 diff --git a/crates/eframe/Cargo.toml b/crates/eframe/Cargo.toml
-index d3a86ce2a..c98dd10f4 100644
+index d3a86ce2..c98dd10f 100644
 --- a/crates/eframe/Cargo.toml
 +++ b/crates/eframe/Cargo.toml
 @@ -299,3 +299,8 @@ wgpu = { workspace = true, optional = true }
@@ -41,7 +41,7 @@ index d3a86ce2a..c98dd10f4 100644
 +wasm-bindgen-test.workspace = true
 +web-sys = { workspace = true, features = ["KeyboardEventInit"] }
 diff --git a/crates/eframe/src/web/backend.rs b/crates/eframe/src/web/backend.rs
-index 9c092b68d..206fe221d 100644
+index 9c092b68..206fe221 100644
 --- a/crates/eframe/src/web/backend.rs
 +++ b/crates/eframe/src/web/backend.rs
 @@ -197,32 +197,51 @@ fn parse_query_map(query: &str) -> BTreeMap<String, Vec<String>> {
@@ -107,10 +107,10 @@ index 9c092b68d..206fe221d 100644
      );
  }
 diff --git a/crates/eframe/src/web/events.rs b/crates/eframe/src/web/events.rs
-index ace7ed512..9c6a9eacf 100644
+index 7285e2aa..aade1b2a 100644
 --- a/crates/eframe/src/web/events.rs
 +++ b/crates/eframe/src/web/events.rs
-@@ -199,7 +199,7 @@ pub(crate) fn on_keydown(event: web_sys::KeyboardEvent, runner: &mut AppRunner)
+@@ -210,7 +210,7 @@ pub(crate) fn on_keydown(event: web_sys::KeyboardEvent, runner: &mut AppRunner)
  
      // Fall back to the physical key so that modifier keys (which have no logical
      // `egui::Key`) and non-Latin layouts still produce a `Key` event.
@@ -119,7 +119,7 @@ index ace7ed512..9c6a9eacf 100644
          let egui_event = egui::Event::Key {
              key: active_key,
              physical_key,
-@@ -292,7 +292,7 @@ pub(crate) fn on_keyup(event: web_sys::KeyboardEvent, runner: &mut AppRunner) {
+@@ -303,7 +303,7 @@ pub(crate) fn on_keyup(event: web_sys::KeyboardEvent, runner: &mut AppRunner) {
      let logical_key = translate_key(&event.key());
      let physical_key = translate_key(&event.code());
  
@@ -128,7 +128,7 @@ index ace7ed512..9c6a9eacf 100644
          let egui_event = egui::Event::Key {
              key: active_key,
              physical_key,
-@@ -1123,3 +1123,124 @@ fn get_display_size(resize_observer_entries: &js_sys::Array) -> Result<(u32, u32
+@@ -1187,3 +1187,124 @@ fn get_display_size(resize_observer_entries: &js_sys::Array) -> Result<(u32, u32
  
      Ok(((width.round() * dpr) as u32, (height.round() * dpr) as u32))
  }
@@ -254,7 +254,7 @@ index ace7ed512..9c6a9eacf 100644
 +    }
 +}
 diff --git a/crates/eframe/src/web/input.rs b/crates/eframe/src/web/input.rs
-index 44dfaef83..8948394b2 100644
+index 44dfaef8..8948394b 100644
 --- a/crates/eframe/src/web/input.rs
 +++ b/crates/eframe/src/web/input.rs
 @@ -173,6 +173,42 @@ pub fn translate_key(key: &str) -> Option<egui::Key> {
@@ -301,7 +301,7 @@ index 44dfaef83..8948394b2 100644
      egui::Modifiers {
          alt: event.alt_key(),
 diff --git a/crates/egui-winit/src/lib.rs b/crates/egui-winit/src/lib.rs
-index 92e8375be..284029861 100644
+index 4649e112..bd87a1e7 100644
 --- a/crates/egui-winit/src/lib.rs
 +++ b/crates/egui-winit/src/lib.rs
 @@ -1168,7 +1168,7 @@ impl State {
@@ -313,7 +313,7 @@ index 92e8375be..284029861 100644
              if pressed && self.clipboard_shortcuts {
                  if is_cut_command(self.modifiers, active_key) {
                      self.egui_input.events.push(egui::Event::Cut);
-@@ -1717,6 +1717,45 @@ fn key_from_named_key(named_key: winit::keyboard::NamedKey) -> Option<egui::Key>
+@@ -1718,6 +1718,45 @@ fn key_from_named_key(named_key: winit::keyboard::NamedKey) -> Option<egui::Key>
      })
  }
  
@@ -359,7 +359,7 @@ index 92e8375be..284029861 100644
  fn key_from_key_code(key: winit::keyboard::KeyCode) -> Option<egui::Key> {
      use egui::Key;
      use winit::keyboard::KeyCode;
-@@ -1730,7 +1769,8 @@ fn key_from_key_code(key: winit::keyboard::KeyCode) -> Option<egui::Key> {
+@@ -1731,7 +1770,8 @@ fn key_from_key_code(key: winit::keyboard::KeyCode) -> Option<egui::Key> {
          KeyCode::Escape => Key::Escape,
          KeyCode::Tab => Key::Tab,
          KeyCode::Backspace => Key::Backspace,
@@ -370,7 +370,7 @@ index 92e8375be..284029861 100644
          KeyCode::Insert => Key::Insert,
          KeyCode::Delete => Key::Delete,
 diff --git a/crates/egui/src/data/key.rs b/crates/egui/src/data/key.rs
-index a109974e8..ba3a3195f 100644
+index a109974e..ba3a3195 100644
 --- a/crates/egui/src/data/key.rs
 +++ b/crates/egui/src/data/key.rs
 @@ -16,6 +16,10 @@ pub enum Key {

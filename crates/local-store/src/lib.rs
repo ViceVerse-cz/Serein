@@ -401,6 +401,11 @@ impl LocalStore {
 			[],
 			|row| row.get(0),
 		)?;
+		let has_forward_origin: bool = connection.query_row(
+			"SELECT EXISTS(SELECT 1 FROM pragma_table_info('messages') WHERE name='forward_origin')",
+			[],
+			|row| row.get(0),
+		)?;
 		let has_webhook: bool = connection.query_row(
 			"SELECT EXISTS(SELECT 1 FROM pragma_table_info('messages') WHERE name='webhook')",
 			[],
@@ -464,6 +469,10 @@ impl LocalStore {
 
 		if !has_forwarded {
 			transaction.execute_batch("ALTER TABLE messages ADD COLUMN forwarded INTEGER NOT NULL DEFAULT 0 CHECK(typeof(forwarded)='integer' AND forwarded IN (0,1));")?;
+		}
+		// Nullable, so binaries without it keep reading and writing this schema.
+		if !has_forward_origin {
+			transaction.execute_batch("ALTER TABLE messages ADD COLUMN forward_origin TEXT CHECK(forward_origin IS NULL OR (typeof(forward_origin)='text' AND length(CAST(forward_origin AS BLOB))<=128));")?;
 		}
 		if !has_account_kind {
 			transaction.execute_batch("ALTER TABLE messages ADD COLUMN account_kind INTEGER NOT NULL DEFAULT 0 CHECK(typeof(account_kind)='integer' AND account_kind BETWEEN 0 AND 2);")?;
@@ -1002,7 +1011,7 @@ impl LocalStore {
 			}
 		}
 		let mut insert = transaction.prepare_cached(
-            "INSERT OR REPLACE INTO messages(account,channel,id,author,name,content,edited,reply,unsupported,avatar,discriminator,embeds,embeds_suppressed,attachments,mentions,extra_content,message_kind,reply_deleted,webhook,account_kind,forwarded,author_roles,author_nick,components,application_id,original_flags,sticker_items,interaction,reactions,verified_bot) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29,?30)")?;
+            "INSERT OR REPLACE INTO messages(account,channel,id,author,name,content,edited,reply,unsupported,avatar,discriminator,embeds,embeds_suppressed,attachments,mentions,extra_content,message_kind,reply_deleted,webhook,account_kind,forwarded,author_roles,author_nick,components,application_id,original_flags,sticker_items,interaction,reactions,verified_bot,forward_origin) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29,?30,?31)")?;
 		for message in messages {
 			if previous
 				.get(&message.id)
@@ -1079,6 +1088,12 @@ impl LocalStore {
 			if embeds.len() > MAX_MEDIA_JSON || attachments.len() > MAX_MEDIA_JSON {
 				return Err(StoreError::Capacity);
 			}
+			let forward_origin = message
+				.forward_origin
+				.filter(|origin| message.forwarded && origin.valid())
+				.map(|origin| serde_json::to_string(&origin))
+				.transpose()
+				.map_err(|_| StoreError::Incompatible)?;
 			let verified_bot = message.author.kind == model::AccountKind::VerifiedBot;
 			let account_kind = if verified_bot {
 				model::AccountKind::Bot
@@ -1116,6 +1131,7 @@ impl LocalStore {
 				interaction,
 				reactions,
 				verified_bot,
+				forward_origin,
 			])?;
 		}
 		drop(insert);
@@ -1149,7 +1165,7 @@ impl LocalStore {
 			let bytes = if (page_count - free_pages) * page_size <= 48 * 1024 * 1024 {
 				0
 			} else {
-				transaction.query_row("SELECT coalesce(sum(length(CAST(content AS BLOB))+length(CAST(name AS BLOB))+length(CAST(original_flags AS BLOB))+length(CAST(components AS BLOB))+length(CAST(sticker_items AS BLOB))+coalesce(length(CAST(application_id AS BLOB)),0)+length(CAST(embeds AS BLOB))+length(CAST(attachments AS BLOB))+length(CAST(mentions AS BLOB))+length(CAST(author_roles AS BLOB))+coalesce(length(CAST(author_nick AS BLOB)),0)+coalesce(length(CAST(interaction AS BLOB)),0)+coalesce(length(CAST(reactions AS BLOB)),0)+256),0) FROM messages",[],|row|row.get(0))?
+				transaction.query_row("SELECT coalesce(sum(length(CAST(content AS BLOB))+length(CAST(name AS BLOB))+length(CAST(original_flags AS BLOB))+length(CAST(components AS BLOB))+length(CAST(sticker_items AS BLOB))+coalesce(length(CAST(application_id AS BLOB)),0)+length(CAST(embeds AS BLOB))+length(CAST(attachments AS BLOB))+length(CAST(mentions AS BLOB))+length(CAST(author_roles AS BLOB))+coalesce(length(CAST(author_nick AS BLOB)),0)+coalesce(length(CAST(interaction AS BLOB)),0)+coalesce(length(CAST(reactions AS BLOB)),0)+coalesce(length(CAST(forward_origin AS BLOB)),0)+256),0) FROM messages",[],|row|row.get(0))?
 			};
 			if channels <= 20 && bytes <= 48 * 1024 * 1024 {
 				break;
@@ -1195,7 +1211,7 @@ impl LocalStore {
 		Ok(saved.is_some_and(|saved| saved == first.to_string()))
 	}
 	pub fn load_channel(&self, account: Id, channel: Id) -> Result<Vec<Message>> {
-		let mut query = self.0.prepare_cached("SELECT id,author,name,content,edited,reply,unsupported,avatar,discriminator,embeds,embeds_suppressed,attachments,mentions,extra_content,message_kind,reply_deleted,webhook,account_kind,forwarded,author_roles,author_nick,components,application_id,original_flags,sticker_items,interaction,reactions,verified_bot FROM messages WHERE account=?1 AND channel=?2 ORDER BY length(id),id LIMIT 500")?;
+		let mut query = self.0.prepare_cached("SELECT id,author,name,content,edited,reply,unsupported,avatar,discriminator,embeds,embeds_suppressed,attachments,mentions,extra_content,message_kind,reply_deleted,webhook,account_kind,forwarded,author_roles,author_nick,components,application_id,original_flags,sticker_items,interaction,reactions,verified_bot,forward_origin FROM messages WHERE account=?1 AND channel=?2 ORDER BY length(id),id LIMIT 500")?;
 		let mut rows = query.query(params![account.to_string(), channel.to_string()])?;
 		let mut messages = Vec::new();
 		let mut bytes = 0;
@@ -1352,6 +1368,17 @@ impl LocalStore {
 				}
 				_ => return Err(StoreError::Incompatible),
 			};
+			let forwarded: bool = row.get(18)?;
+			// The source only adds a link, so an unusable one is dropped rather than rejecting
+			// the window, which would also block saving a fresh page over it.
+			let forward_origin = match row.get_ref(28)? {
+				rusqlite::types::ValueRef::Text(bytes) if forwarded && bytes.len() <= 128 => {
+					serde_json::from_slice(bytes)
+						.ok()
+						.filter(model::ForwardOrigin::valid)
+				}
+				_ => None,
+			};
 			let message = Message {
 				poll: None,
 				sticker_items: serde_json::from_str::<
@@ -1394,7 +1421,8 @@ impl LocalStore {
 				extra_content,
 				kind: row.get(14)?,
 				reply_deleted,
-				forwarded: row.get(18)?,
+				forwarded,
+				forward_origin,
 				interaction,
 				nonce: None,
 				revision: 0,
@@ -2032,12 +2060,59 @@ mod tests {
 		let mut messages = store.load_channel(Id(1), Id(2)).unwrap();
 		assert!(!messages[0].forwarded);
 		messages[0].forwarded = true;
+		let origin = model::ForwardOrigin {
+			guild: Some(Id(7)),
+			channel: Id(8),
+			message: Id(9),
+		};
+		messages[0].forward_origin = Some(origin);
 		store.save_channel(Id(1), Id(2), &messages, false).unwrap();
 		drop(store);
 		let store = LocalStore::open(&path).unwrap();
 		let restored = store.load_channel(Id(1), Id(2)).unwrap();
 		assert!(restored[0].forwarded);
+		assert_eq!(restored[0].forward_origin, Some(origin));
 		assert_eq!(restored[0].content, "snapshot text");
+		// An origin on an ordinary row, naming no message, of the wrong type or past its
+		// bound is dropped; the row still loads, so a fresh page can still be saved over it.
+		store
+			.0
+			.execute_batch("PRAGMA ignore_check_constraints=ON;")
+			.unwrap();
+		for corrupt in [
+			"UPDATE messages SET forwarded=0",
+			r#"UPDATE messages SET forward_origin='{"guild":null,"channel":"8","message":"0"}'"#,
+			"UPDATE messages SET forward_origin=X'7B7D'",
+			&format!(
+				r#"UPDATE messages SET forward_origin='{{"guild":"7","channel":"8","message":"9"}}{}'"#,
+				" ".repeat(100)
+			),
+		] {
+			store
+				.0
+				.execute_batch(&format!("SAVEPOINT corrupt; {corrupt};"))
+				.unwrap();
+			let loaded = store.load_channel(Id(1), Id(2)).unwrap();
+			assert!(loaded[0].forward_origin.is_none(), "{corrupt}");
+			assert_eq!(loaded[0].content, "snapshot text");
+			store
+				.0
+				.execute_batch("ROLLBACK TO corrupt; RELEASE corrupt;")
+				.unwrap();
+		}
+		store
+			.0
+			.execute_batch("PRAGMA ignore_check_constraints=OFF;")
+			.unwrap();
+		assert!(
+			store
+				.0
+				.execute(
+					&format!("UPDATE messages SET forward_origin='{}'", "x".repeat(129)),
+					[]
+				)
+				.is_err()
+		);
 		assert!(
 			store
 				.0
@@ -3556,6 +3631,7 @@ mod tests {
 				reply_deleted: false,
 				interaction: None,
 				forwarded: false,
+				forward_origin: None,
 				embeds: vec![model::Embed {
 					title: Some("Cached synthetic embed".into()),
 					..Default::default()

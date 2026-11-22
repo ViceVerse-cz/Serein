@@ -313,6 +313,10 @@ attachments-media-menu-unavailable-for-synthetic-attachments = 合成附件无�
 attachments-open-original-open-original = 打开原始文件…
 # Context: pending_card
 attachments-pending-card-remove-attachment = 移除附件
+# Context: pending_viewer
+attachments-pending-viewer-full-size-unavailable = 无法显示原尺寸预览
+attachments-pending-viewer-loading = 正在加载全尺寸图片…
+attachments-pending-viewer-close = 关闭（Esc）
 attachments-loading-card-preparing = 准备中…
 
 # Context: show_status
@@ -1671,20 +1675,14 @@ main-restoring-screen-use-a-different-account = 使用其他账户
 main-restoring-screen-welcome-back = 欢迎回来
 # Context: sign_in_accounts
 main-sign-in-accounts-saved-accounts = 已保存的账户
-# Context: sign_in_consent
-main-sign-in-consent-passwords-and-2fa-stay-on-discord-s-own-login-page = 密码与 2FA 只留在 Discord 自己的登录页；只有会话令牌会存入你的操作系统凭据存储区。
 # Context: sign_in_disclosures
 main-sign-in-disclosures-about-serein = 关于 Serein
 # Context: sign_in_disclosures
 main-sign-in-disclosures-connect-with-this-token = 使用该令牌连接
 # Context: sign_in_disclosures
-main-sign-in-disclosures-for-owners-who-already-hold-a-valid-discord-session-token = 供已持有有效 Discord 会话令牌的用户使用，例如来自另一套已登录的 Serein。此处绝不会用到密码与 2FA，且完全跳过 Discord 的托管登录页。
-# Context: sign_in_disclosures
 main-sign-in-disclosures-forget-saved-login = 清除已保存的登录
 # Context: sign_in_disclosures
 main-sign-in-disclosures-session-token = 会话令牌
-# Context: sign_in_disclosures
-main-sign-in-disclosures-sign-in-with-a-session-token = 使用会话令牌登录
 # Context: sign_in_header
 main-sign-in-header-continue-with-a-saved-account-or-sign-in-with-another = 继续使用已保存的账户，或登录其他账户。
 # Context: sign_in_header
@@ -3509,12 +3507,6 @@ settings-activity-reading-programs = 正在读取运行中的程序…
 settings-activity-no-matching-programs = 没有符合条件的程序在运行。
 # Context: activity_settings
 settings-activity-add-game = 新增游戏
-# Context: appearance_menu
-settings-appearance-menu-display = 显示
-# Context: appearance_menu
-settings-appearance-menu-mode = 模式
-# Context: appearance_menu
-settings-appearance-menu-theme = 主题
 # Context: appearance_settings
 settings-appearance-settings-accent = 强调色
 # Context: appearance_settings
@@ -4992,6 +4984,7 @@ profiles-status-clear = 清除状态
 send-throttled-title = 哇，太辣了
 send-throttled-body = 你发送消息太快了！
 send-throttled-dismiss = 关闭提示
+slowmode-enabled = 慢速模式已开启
 profiles-private-profile = 私密资料
 profiles-private-notice = { $name } 的个人资料是私密的，部分信息已隐藏。添加为好友即可查看更多。
 settings-cosmetics-name-styles = 名称样式
@@ -5040,3 +5033,7 @@ moderation-delete-week = 过去 7 天
 moderation-confirm-timeout = 禁言
 # Context: moderation
 moderation-confirm-ban = 封禁
+
+## crates/ui/src/interface_ui.rs
+# Context: interface_tree
+interface-ui-empty = 此插件暂时没有可显示的内容。

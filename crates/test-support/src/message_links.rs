@@ -47,6 +47,7 @@ pub fn message_links_demo_state() -> State {
 	let mut state = crate::chat_demo_state();
 	let base = state.channel(Id(20)).unwrap().clone();
 	state.guilds.push(Guild {
+		banner: None,
 		id: Id(30),
 		name: "Another synthetic server".into(),
 		icon: None,

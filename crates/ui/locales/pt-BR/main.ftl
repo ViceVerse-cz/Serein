@@ -312,6 +312,10 @@ attachments-media-menu-unavailable-for-synthetic-attachments = Indisponível par
 attachments-open-original-open-original = Abra o original…
 # Context: pending_card
 attachments-pending-card-remove-attachment = Remover anexo
+# Context: pending_viewer
+attachments-pending-viewer-full-size-unavailable = Prévia em tamanho original indisponível
+attachments-pending-viewer-loading = Carregando imagem em tamanho real…
+attachments-pending-viewer-close = Fechar (Esc)
 attachments-loading-card-preparing = Preparando…
 # Context: show_status
 attachments-show-status-cancel-download = Cancelar download
@@ -1655,20 +1659,14 @@ main-restoring-screen-use-a-different-account = Use uma conta diferente
 main-restoring-screen-welcome-back = bem vindo de volta
 # Context: sign_in_accounts
 main-sign-in-accounts-saved-accounts = Contas salvas
-# Context: sign_in_consent
-main-sign-in-consent-passwords-and-2fa-stay-on-discord-s-own-login-page = As senhas e 2FA permanecem na página de login do Discord; apenas o token da sessão é mantido no armazenamento de credenciais do seu sistema operacional.
 # Context: sign_in_disclosures
 main-sign-in-disclosures-about-serein = Sobre Serein
 # Context: sign_in_disclosures
 main-sign-in-disclosures-connect-with-this-token = Conecte-se com este token
 # Context: sign_in_disclosures
-main-sign-in-disclosures-for-owners-who-already-hold-a-valid-discord-session-token = Para proprietários que já possuem um token de sessão Discord válido, por exemplo, de outra instalação do Serein conectada. Senhas e 2FA nunca são usados ​​aqui; isso ignora totalmente a página de login hospedada do Discord.
-# Context: sign_in_disclosures
 main-sign-in-disclosures-forget-saved-login = Esqueci o login salvo
 # Context: sign_in_disclosures
 main-sign-in-disclosures-session-token = Token de sessão
-# Context: sign_in_disclosures
-main-sign-in-disclosures-sign-in-with-a-session-token = Faça login com um token de sessão
 # Context: sign_in_header
 main-sign-in-header-continue-with-a-saved-account-or-sign-in-with-another = Continue com uma conta salva ou faça login com outra.
 # Context: sign_in_header
@@ -3203,7 +3201,7 @@ server-settings-engagement-default-notification-settings = Configurações de no
 # Context: engagement
 server-settings-engagement-display-activity-feed-in-this-server = Exibir feed de atividades neste servidor
 # Context: engagement
-server-settings-engagement-engagement = Noivado
+server-settings-engagement-engagement = Engajamento
 # Context: engagement
 server-settings-engagement-inactive-channel = Canal inativo
 # Context: engagement
@@ -3239,7 +3237,7 @@ server-settings-page-body-reload-server-settings = Recarregar configurações do
 # Context: label
 server-settings-page-emoji = Emoji
 # Context: label
-server-settings-page-engagement = Noivado
+server-settings-page-engagement = Engajamento
 # Context: label
 server-settings-page-integrations = Integrações
 # Context: label
@@ -3478,12 +3476,6 @@ settings-activity-reading-programs = Lendo programas em execução…
 settings-activity-no-matching-programs = Nenhum programa correspondente está em execução.
 # Context: activity_settings
 settings-activity-add-game = Adicionar jogo
-# Context: appearance_menu
-settings-appearance-menu-display = Mostrar
-# Context: appearance_menu
-settings-appearance-menu-mode = Modo
-# Context: appearance_menu
-settings-appearance-menu-theme = Tema
 # Context: appearance_settings
 settings-appearance-settings-accent = Sotaque
 # Context: appearance_settings
@@ -4895,6 +4887,7 @@ profiles-status-clear = Limpar status
 send-throttled-title = Calma aí, apimentado demais
 send-throttled-body = Você está enviando mensagens rápido demais!
 send-throttled-dismiss = Entrar na zona de calma
+slowmode-enabled = O modo lento está ativado
 profiles-private-profile = Perfil privado
 profiles-private-notice = O perfil de { $name } é privado, então algumas informações estão ocultas. Envie um pedido de amizade para ver mais.
 settings-cosmetics-name-styles = Estilos de nome
@@ -4943,3 +4936,7 @@ moderation-delete-week = Últimos 7 dias
 moderation-confirm-timeout = Castigar
 # Context: moderation
 moderation-confirm-ban = Banir
+
+## crates/ui/src/interface_ui.rs
+# Context: interface_tree
+interface-ui-empty = Este plug-in ainda não tem nada para mostrar.

@@ -182,6 +182,7 @@ mod tests {
 		let mut state = State {
 			channels: vec![model::Channel {
 				user_limit: None,
+				slowmode: 0,
 				id: Id(1),
 				guild: None,
 				parent_id: None,

@@ -282,6 +282,7 @@ mod tests {
 	fn channel(id: u64, parent: Option<Id>, kind: u8) -> Channel {
 		Channel {
 			user_limit: None,
+			slowmode: 0,
 			id: Id(id),
 			guild: Some(Id(1)),
 			parent_id: parent,
@@ -333,6 +334,7 @@ mod tests {
 			reply_deleted: false,
 			interaction: None,
 			forwarded: false,
+			forward_origin: None,
 			unsupported: false,
 			extra_content: Default::default(),
 			embeds: vec![],
@@ -357,6 +359,7 @@ mod tests {
 				discriminator: 0,
 			}),
 			guilds: vec![Guild {
+				banner: None,
 				default_message_notifications: None,
 				stickers: None,
 				emojis: None,
@@ -570,6 +573,7 @@ mod tests {
 							guild: Id(guild),
 							patch: model::ChannelPatch {
 								user_limit: model::Patch::Absent,
+								slowmode: model::Patch::Absent,
 								icon: model::Patch::Absent,
 								id: Id(id),
 								name: model::Patch::Value("Updated archive metadata".into()),

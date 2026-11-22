@@ -5,6 +5,7 @@ Subject: [PATCH] egui#8814: Only interrupt IME composition when focus moves to
  another widget
 
 Squashed from https://github.com/emilk/egui/pull/8814 at 8a1d34137bee.
+Adapted to `FocusWidget` from egui#8878.
 ---
  crates/egui/src/memory/mod.rs                | 12 ++++--
  crates/egui/src/widgets/text_edit/builder.rs | 12 +++++-
@@ -13,10 +14,10 @@ Squashed from https://github.com/emilk/egui/pull/8814 at 8a1d34137bee.
  create mode 100644 crates/egui/tests/ime_focus.rs
 
 diff --git a/crates/egui/src/memory/mod.rs b/crates/egui/src/memory/mod.rs
-index 8d8c854fc..8d3826388 100644
+index 1beb5cbe..d2f3cc34 100644
 --- a/crates/egui/src/memory/mod.rs
 +++ b/crates/egui/src/memory/mod.rs
-@@ -918,17 +918,23 @@ impl Memory {
+@@ -939,17 +939,23 @@ impl Memory {
      /// Give keyboard focus to a specific widget.
      /// See also [`crate::Response::request_focus`].
      ///
@@ -38,16 +39,16 @@ index 8d8c854fc..8d3826388 100644
 +        if self.focused() != Some(id) {
 +            self.interrupt_ime();
 +        }
-         self.focus_mut().id_next_frame = Some(id);
+         self.focus_mut().widget_next_frame = Some(FocusWidget::new(id));
 -        self.interrupt_ime();
      }
  
-     /// Surrender keyboard focus for a specific widget.
+     /// How the keyboard focus got to the focused widget.
 diff --git a/crates/egui/src/widgets/text_edit/builder.rs b/crates/egui/src/widgets/text_edit/builder.rs
-index 44236a69e..89bfdfb8d 100644
+index a9130e87..8495aaa9 100644
 --- a/crates/egui/src/widgets/text_edit/builder.rs
 +++ b/crates/egui/src/widgets/text_edit/builder.rs
-@@ -878,7 +878,12 @@ impl<'t> TextEdit<'t> {
+@@ -877,7 +877,12 @@ impl<'t> TextEdit<'t> {
              );
  
              if did_interact || response.clicked() {
@@ -61,7 +62,7 @@ index 44236a69e..89bfdfb8d 100644
                  state.cursor_purpose = TextEditCursorPurpose::Selection;
  
                  state.last_interaction_time = ui.input(|i| i.time);
-@@ -918,7 +923,10 @@ impl<'t> TextEdit<'t> {
+@@ -917,7 +922,10 @@ impl<'t> TextEdit<'t> {
                  .set_char_range(Some(CCursorRange::one(ccursor)));
              state.cursor_purpose = TextEditCursorPurpose::Selection;
              state.last_interaction_time = ui.input(|i| i.time);
@@ -75,7 +76,7 @@ index 44236a69e..89bfdfb8d 100644
              ui.ctx().request_repaint(); // The galley is now stale
 diff --git a/crates/egui/tests/ime_focus.rs b/crates/egui/tests/ime_focus.rs
 new file mode 100644
-index 000000000..9206393dc
+index 00000000..9206393d
 --- /dev/null
 +++ b/crates/egui/tests/ime_focus.rs
 @@ -0,0 +1,43 @@

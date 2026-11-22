@@ -312,6 +312,10 @@ attachments-media-menu-unavailable-for-synthetic-attachments = No disponible par
 attachments-open-original-open-original = Abrir original…
 # Context: pending_card
 attachments-pending-card-remove-attachment = Quitar archivo adjunto
+# Context: pending_viewer
+attachments-pending-viewer-full-size-unavailable = Vista previa a tamaño completo no disponible
+attachments-pending-viewer-loading = Cargando imagen a tamaño completo…
+attachments-pending-viewer-close = Cerrar (Esc)
 attachments-loading-card-preparing = Preparando…
 # Context: show_status
 attachments-show-status-cancel-download = Cancelar descarga
@@ -1655,20 +1659,14 @@ main-restoring-screen-use-a-different-account = Usa una cuenta diferente
 main-restoring-screen-welcome-back = Bienvenido de nuevo
 # Context: sign_in_accounts
 main-sign-in-accounts-saved-accounts = Cuentas guardadas
-# Context: sign_in_consent
-main-sign-in-consent-passwords-and-2fa-stay-on-discord-s-own-login-page = Las contraseñas y 2FA permanecen en la página de inicio de sesión de Discord; solo se conserva el token de sesión en el almacén de credenciales de su sistema operativo.
 # Context: sign_in_disclosures
 main-sign-in-disclosures-about-serein = Sobre Serein
 # Context: sign_in_disclosures
 main-sign-in-disclosures-connect-with-this-token = Conéctate con este token
 # Context: sign_in_disclosures
-main-sign-in-disclosures-for-owners-who-already-hold-a-valid-discord-session-token = Para propietarios que ya tienen un token de sesión de Discord válido, por ejemplo, de otra instalación de Serein que haya iniciado sesión. Aquí nunca se utilizan contraseñas ni 2FA; esto omite por completo la página de inicio de sesión alojada de Discord.
-# Context: sign_in_disclosures
 main-sign-in-disclosures-forget-saved-login = Olvidar el inicio de sesión guardado
 # Context: sign_in_disclosures
 main-sign-in-disclosures-session-token = token de sesión
-# Context: sign_in_disclosures
-main-sign-in-disclosures-sign-in-with-a-session-token = Iniciar sesión con un token de sesión
 # Context: sign_in_header
 main-sign-in-header-continue-with-a-saved-account-or-sign-in-with-another = Continúe con una cuenta guardada o inicie sesión con otra.
 # Context: sign_in_header
@@ -3478,12 +3476,6 @@ settings-activity-reading-programs = Leyendo programas en ejecución…
 settings-activity-no-matching-programs = No hay programas coincidentes en ejecución.
 # Context: activity_settings
 settings-activity-add-game = Añadir juego
-# Context: appearance_menu
-settings-appearance-menu-display = Mostrar
-# Context: appearance_menu
-settings-appearance-menu-mode = Modo
-# Context: appearance_menu
-settings-appearance-menu-theme = Tema
 # Context: appearance_settings
 settings-appearance-settings-accent = Acento
 # Context: appearance_settings
@@ -4898,6 +4890,7 @@ profiles-status-clear = Borrar estado
 send-throttled-title = Tranquilo, demasiado picante
 send-throttled-body = ¡Estás enviando mensajes demasiado rápido!
 send-throttled-dismiss = Entrar en la zona chill
+slowmode-enabled = El modo lento está activado
 profiles-private-profile = Perfil privado
 profiles-private-notice = El perfil de { $name } es privado, así que parte de la información está oculta. Envía una solicitud de amistad para ver más.
 settings-cosmetics-name-styles = Estilos de nombre
@@ -4946,3 +4939,7 @@ moderation-delete-week = Últimos 7 días
 moderation-confirm-timeout = Aislar
 # Context: moderation
 moderation-confirm-ban = Banear
+
+## crates/ui/src/interface_ui.rs
+# Context: interface_tree
+interface-ui-empty = Este complemento todavía no tiene nada que mostrar.

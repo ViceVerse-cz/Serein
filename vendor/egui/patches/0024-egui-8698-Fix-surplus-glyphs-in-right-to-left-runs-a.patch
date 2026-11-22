@@ -5,13 +5,14 @@ Subject: [PATCH] egui#8698: Fix surplus glyphs in right-to-left runs and
  overflow in previous-word navigation
 
 Squashed from https://github.com/emilk/egui/pull/8698 at 47158b2d385c, merged with patch 0009's direction override and cluster collection.
+Ported to harfrust's in-place `Buffer` shaping API (egui#8874); the PR head still targets the older API.
 ---
  .../src/text_selection/text_cursor_state.rs   |  9 ++-
- crates/epaint/src/text/text_layout.rs         | 77 +++++++++++++++++--
- 2 files changed, 79 insertions(+), 7 deletions(-)
+ crates/epaint/src/text/text_layout.rs         | 75 +++++++++++++++++--
+ 2 files changed, 78 insertions(+), 6 deletions(-)
 
 diff --git a/crates/egui/src/text_selection/text_cursor_state.rs b/crates/egui/src/text_selection/text_cursor_state.rs
-index 7a5e325f2..ee8fe787e 100644
+index 471430ef..42f28614 100644
 --- a/crates/egui/src/text_selection/text_cursor_state.rs
 +++ b/crates/egui/src/text_selection/text_cursor_state.rs
 @@ -373,7 +373,9 @@ fn ccursor_next_line(text: &str, ccursor: CCursor) -> CCursor {
@@ -38,10 +39,10 @@ index 7a5e325f2..ee8fe787e 100644
  
      #[test]
 diff --git a/crates/epaint/src/text/text_layout.rs b/crates/epaint/src/text/text_layout.rs
-index d96fdc0c5..4c17746c5 100644
+index 9d0fbed6..26b4a7d9 100644
 --- a/crates/epaint/src/text/text_layout.rs
 +++ b/crates/epaint/src/text/text_layout.rs
-@@ -261,11 +261,13 @@ struct TextRun {
+@@ -262,11 +262,13 @@ struct TextRun {
  /// ligatures), zero-width "continuation" glyphs are emitted for the extra
  /// characters so that `glyphs.len() == char_count` — an invariant that all
  /// cursor and selection code relies on.
@@ -50,12 +51,12 @@ index d96fdc0c5..4c17746c5 100644
      fonts: &mut FontsImpl,
      run: &TextRun,
      run_text: &str,
-     glyph_buffer: &harfrust::GlyphBuffer,
+     glyph_buffer: &harfrust::Buffer,
 +    direction: harfrust::Direction,
      face_metrics: &StyledMetrics,
      ctx: &mut ShapingContext,
      paragraph: &mut Paragraph,
-@@ -298,6 +300,11 @@ fn layout_shaped_run(
+@@ -299,6 +301,11 @@ fn layout_shaped_run(
      let mut cluster_start_byte: usize = 0;
      let mut cluster_glyph_count: usize = 0;
  
@@ -67,7 +68,7 @@ index d96fdc0c5..4c17746c5 100644
      for (info, pos) in iter::zip(glyph_buffer.glyph_infos(), glyph_buffer.glyph_positions()) {
          let glyph_id = skrifa::GlyphId::new(info.glyph_id);
          let cluster = info.cluster;
-@@ -335,11 +342,18 @@ fn layout_shaped_run(
+@@ -336,11 +343,18 @@ fn layout_shaped_run(
          let is_new_cluster = ctx.prev_cluster.is_none_or(|pc| pc != cluster);
          if is_new_cluster {
              if !collect && ctx.prev_cluster.is_some() {
@@ -87,7 +88,7 @@ index d96fdc0c5..4c17746c5 100644
                      cluster_glyph_count,
                      face_metrics,
                  );
-@@ -454,11 +468,16 @@ fn layout_shaped_run(
+@@ -455,11 +469,16 @@ fn layout_shaped_run(
  
      // Emit continuation glyphs for the last cluster in the run.
      if !collect && ctx.prev_cluster.is_some() {
@@ -105,55 +106,58 @@ index d96fdc0c5..4c17746c5 100644
              cluster_glyph_count,
              face_metrics,
          );
-@@ -680,7 +699,7 @@ fn layout_section(
+@@ -681,7 +700,7 @@ fn layout_section(
                  flags |= harfrust::BufferFlags::END_OF_TEXT;
              }
  
--            let glyph_buffer = shape_text(
-+            let (glyph_buffer, direction) = shape_text(
+-            shape_text(
++            let direction = shape_text(
                  font_face,
                  run_text,
                  &format.coords,
-@@ -694,6 +713,7 @@ fn layout_section(
+@@ -695,6 +714,7 @@ fn layout_section(
                  run,
                  run_text,
-                 &glyph_buffer,
+                 shape_buffer,
 +                direction,
                  &face_metrics,
                  &mut ctx,
                  paragraph,
-@@ -1652,7 +1672,8 @@ fn segment_into_runs(
+@@ -1682,7 +1702,8 @@ fn segment_into_runs(
      }
  }
  
--/// Shape a text run and return the raw [`harfrust::GlyphBuffer`].
-+/// Shape a text run and return the raw [`harfrust::GlyphBuffer`],
-+/// with the direction the shaper guessed for the whole run.
+-/// Shape a text run into `buffer`, replacing its (empty) contents with positioned glyphs.
++/// Shape a text run into `buffer`, replacing its (empty) contents with positioned glyphs,
++/// and return the direction the shaper guessed for the whole run.
  ///
  /// The caller should iterate `glyph_infos()` / `glyph_positions()` (both
  /// `Copy` slices) and convert font units to pixels using `metrics.px_scale_factor`.
-@@ -1664,7 +1685,7 @@ fn shape_text(
-     mut buffer: harfrust::UnicodeBuffer,
+@@ -1694,7 +1715,7 @@ fn shape_text(
+     buffer: &mut harfrust::Buffer,
      flags: harfrust::BufferFlags,
      right_to_left: Option<bool>,
--) -> harfrust::GlyphBuffer {
-+) -> (harfrust::GlyphBuffer, harfrust::Direction) {
-     let font_ref = font_face.skrifa_font_ref();
+-) {
++) -> harfrust::Direction {
+     let base_font = font_face.shaper_font();
      let tweak = font_face.tweak();
  
-@@ -1697,8 +1718,10 @@ fn shape_text(
+@@ -1717,12 +1738,14 @@ fn shape_text(
              harfrust::Direction::LeftToRight
          });
      }
 +    let direction = buffer.direction();
  
--    shaper.shape(buffer, harfrust::ShapeOptions::new())
-+    let glyph_buffer = shaper.shape(buffer, harfrust::ShapeOptions::new());
-+    (glyph_buffer, direction)
+     let shaper_font = harfrust::ShaperFont::new(font);
+     if let Err(err) = harfrust::shape(&shaper_font, buffer, harfrust::ShapeOptions::new()) {
+         debug_assert!(false, "harfrust failed to shape {text:?}: {err}");
+         buffer.clear();
+     }
++    direction
  }
  
  // ----------------------------------------------------------------------------
-@@ -2817,6 +2840,48 @@ mod tests {
+@@ -2833,6 +2856,48 @@ mod tests {
          }
      }
  

@@ -156,6 +156,10 @@ struct Live {
 	cues: CallCues,
 	session: Zeroizing<String>,
 	negotiation_revision: u64,
+	/// When Discord last moved this session to another channel; its voice server may follow.
+	moved: Option<Instant>,
+	/// When Discord closed the voice socket, while the gateway may still report a move.
+	closed: Option<Instant>,
 	// Retained only until Gateway acknowledges the server-accepted local transport candidate.
 	negotiation: Option<Pending>,
 	media_ready: bool,
@@ -326,6 +330,12 @@ const REJOIN_DELAYS: [Duration; voice::MAX_REJOIN_ATTEMPTS as usize] = [
 const REJOIN_STABLE: Duration = Duration::from_secs(30);
 /// How long a rejoin waits for Discord to confirm that this account left the channel.
 const REJOIN_DEPARTURE_TIMEOUT: Duration = Duration::from_secs(5);
+/// How long after a move Discord may still close the old voice socket or name a new server
+/// (unverified; both arrive within moments).
+const MOVE_WINDOW: Duration = Duration::from_secs(10);
+/// A moved session's old socket can close before the gateway reports the move (unverified
+/// order); the close counts as a removal only once this has passed without one.
+const MOVE_GRACE: Duration = Duration::from_secs(2);
 /// Shown while a live call has no audio device; the call itself stays connected.
 const AUDIO_UNAVAILABLE: &str =
 	"Audio devices are unavailable; the call stays connected while they come back";
@@ -516,6 +526,34 @@ impl Voice {
 			rejoin.departure_confirmed = true;
 			rejoin.at = Some(Instant::now());
 		}
+		if let voice::Event::Moved {
+			from,
+			channel,
+			request,
+		} = event
+		{
+			if let Some(live) = self.live.as_mut().filter(|live| {
+				(live.generation, live.channel, live.request) == (state.generation, *from, *request)
+			}) {
+				live.channel = *channel;
+				live.moved = Some(Instant::now());
+				if let Some(negotiation) = &mut live.negotiation {
+					negotiation.channel = *channel;
+				}
+			} else if let Some(pending) = self.pending.as_mut().filter(|pending| {
+				(pending.generation, pending.channel, pending.request)
+					== (state.generation, *from, *request)
+			}) {
+				// Moved again while media was restarting for the previous move: keep the
+				// session, and wait for the voice server Discord names for this channel.
+				pending.channel = *channel;
+				pending.server = None;
+				pending.negotiation_revision = None;
+				pending.failed_candidate = false;
+				pending.started = Instant::now();
+			}
+			return None;
+		}
 		if let voice::Event::TakenOver { channel, request } = event {
 			let current = self
 				.live
@@ -606,6 +644,7 @@ impl Voice {
 			self.stop();
 			self.pending = pending;
 		}
+		let mut server_changed = false;
 		if let Some(live) = &self.live {
 			match event {
 				voice::Event::State {
@@ -633,10 +672,14 @@ impl Voice {
 					&& *channel == live.channel
 					&& live.negotiation.is_none() =>
 				{
-					return Some("Voice server changed; start a new encrypted call");
+					server_changed = true;
 				}
 				_ => {}
 			}
+		}
+		// A move's new voice server is taken below, by the negotiation that follows the move.
+		if server_changed && !self.follow_move(state) {
+			return Some("Voice server changed; start a new encrypted call");
 		}
 		let pending = self.pending.as_mut()?;
 		if pending.generation != state.generation
@@ -694,6 +737,38 @@ impl Voice {
 		}
 		None
 	}
+	/// Discord moved this session a moment ago and is replacing its voice server: restart media
+	/// for the new channel with the same session. A join would be ignored, and a leave would
+	/// drop the account from a channel it may not be able to enter by itself.
+	fn follow_move(&mut self, state: &State) -> bool {
+		let Some(live) = self.live.as_ref().filter(|live| {
+			live.generation == state.generation
+				&& live.moved.is_some_and(|at| at.elapsed() < MOVE_WINDOW)
+		}) else {
+			return false;
+		};
+		let Ok(session) = Secret::new(live.session.to_string()) else {
+			return false;
+		};
+		let pending = Pending {
+			generation: live.generation,
+			channel: live.channel,
+			request: live.request,
+			ring: false,
+			user: live.user,
+			peer: live.peer,
+			guild: state.voice.active.as_ref().and_then(|call| call.guild),
+			session: Some(session),
+			negotiation_revision: None,
+			server: None,
+			started: Instant::now(),
+			failed_candidate: false,
+		};
+		note(Level::Info, "following channel move", &[]);
+		self.stop();
+		self.pending = Some(pending);
+		true
+	}
 	fn end_control(&self, channel: Id, request: u64) -> Command {
 		let established = self.live.as_ref().is_some_and(|live| {
 			live.channel == channel && live.request == request && live.negotiation.is_none()
@@ -720,6 +795,11 @@ impl Voice {
 	/// Media for the active call failed. A call this device had joined rejoins automatically
 	/// within the attempt budget; anything else fails as before.
 	pub fn fail_or_rejoin(&mut self, state: &mut State, message: &'static str) -> Option<Command> {
+		// Discord closes the old voice socket when it moves a session; the server it names next
+		// carries the call on.
+		if message == discord_voice::DISCONNECTED_BY_DISCORD && self.follow_move(state) {
+			return None;
+		}
 		let call = state.voice.active.as_ref()?;
 		let (channel, request, camera) = (call.channel, call.request, call.camera);
 		let joined = self.live.as_ref().is_some_and(|live| {
@@ -924,6 +1004,10 @@ impl Voice {
 		self.poll_camera_test(state, ui, ctx);
 		ui.voice_speaking.clear();
 		ui.voice_microphone_unavailable = false;
+		ui.voice_suppression_fell_back = self
+			.mic_preview
+			.as_ref()
+			.is_some_and(|preview| preview.audio.suppression_fell_back());
 		self.poll_camera_devices(state.demo, ui, ctx);
 		if ui.voice_refresh_devices {
 			ui.voice_refresh_devices = false;
@@ -1196,6 +1280,7 @@ impl Voice {
 			failure = live.failure.get().copied();
 			let devices_ready = live.audio.is_ready();
 			ui.voice_microphone_unavailable = live.audio.microphone_unavailable();
+			ui.voice_suppression_fell_back |= live.audio.suppression_fell_back();
 			if ui.voice_settings_open() {
 				ui.voice_preview_level = Some(live.audio.preview_level_db());
 				ctx.request_repaint_after(Duration::from_millis(50));
@@ -1354,6 +1439,22 @@ impl Voice {
 			state.status = "Waiting for current voice connection details";
 			ctx.request_repaint_after(Duration::from_millis(50));
 			return None;
+		}
+		if failure == Some(discord_voice::DISCONNECTED_BY_DISCORD)
+			&& state
+				.voice
+				.active
+				.as_ref()
+				.is_some_and(|call| call.guild.is_some())
+			&& let Some(live) = self.live.as_mut()
+			// A move that kept its socket long ago says nothing about this close.
+			&& live.moved.is_none_or(|at| at.elapsed() >= MOVE_WINDOW)
+		{
+			let waited = live.closed.get_or_insert_with(Instant::now).elapsed();
+			if waited < MOVE_GRACE {
+				ctx.request_repaint_after(MOVE_GRACE - waited);
+				return None;
+			}
 		}
 		let command = if let Some(error) = failure {
 			self.fail_or_rejoin(state, error)
@@ -1962,6 +2063,8 @@ impl Voice {
 			camera_clock: Instant::now(),
 			remote_video,
 			stream_audio,
+			moved: None,
+			closed: None,
 			negotiation: Some(pending),
 		});
 		Ok(())
@@ -2993,6 +3096,8 @@ mod tests {
 			cues: CallCues::default(),
 			session: Zeroizing::new("synthetic-session".into()),
 			negotiation_revision: 2,
+			moved: None,
+			closed: None,
 			negotiation: Some(pending),
 			media_ready: false,
 			waiting_for_peer: false,

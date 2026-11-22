@@ -1,6 +1,9 @@
 //! Offline Linux tray check. Run with `dbus-run-session -- cargo run --locked -p tray-debug`.
 #[cfg(target_os = "linux")]
 #[path = "../../../crates/platform/src/tray.rs"]
+// The tool compiles the platform tray source directly and exercises only its D-Bus item, so
+// the menu API it also contains is unused here.
+#[allow(dead_code)]
 mod tray;
 
 pub use egui;
@@ -97,6 +100,11 @@ mod linux {
 			.build()
 			.await?;
 		let tray = start();
+		// A call row ahead of the actions enables Disconnect and shifts every menu id.
+		tray.set_menu(&tray::Menu {
+			call: Some("Synthetic"),
+			..Default::default()
+		});
 		for state in [
 			tray::VoiceState::Unmuted,
 			tray::VoiceState::Speaking,
@@ -131,7 +139,16 @@ mod linux {
 		let menu_path: zbus::zvariant::OwnedObjectPath = item.get_property("Menu").await?;
 		let menu =
 			zbus::Proxy::new(&bus, service.clone(), menu_path, "com.canonical.dbusmenu").await?;
-		for (id, expected) in [(1i32, Event::Show), (2, Event::Minimize), (3, Event::Quit)] {
+		// ksni numbers every row, separators included: call, separator, Show, Minimize,
+		// separator, Mute, Deafen, Disconnect, separator, Quit.
+		for (id, expected) in [
+			(3i32, Event::Show),
+			(4, Event::Minimize),
+			(6, Event::ToggleMute),
+			(7, Event::ToggleDeafen),
+			(8, Event::Disconnect),
+			(10, Event::Quit),
+		] {
 			menu.call::<_, _, ()>(
 				"Event",
 				&(id, "clicked", zbus::zvariant::Value::new(0i32), 0u32),
@@ -172,7 +189,7 @@ mod linux {
 		drop(tray);
 		println!("PASS: host lost during registration");
 		println!(
-			"PASS: absent host, registration, icon, coalesced Show, menu Show/Minimize/Quit, unregister and host loss (synthetic private D-Bus; no desktop rendering)."
+			"PASS: absent host, registration, icon, coalesced Show, menu actions, unregister and host loss (synthetic private D-Bus; no desktop rendering)."
 		);
 		Ok(())
 	}

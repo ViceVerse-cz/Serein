@@ -392,6 +392,7 @@ mod tests {
 	fn channel(id: u64, kind: u8, parent_id: Option<Id>) -> Channel {
 		Channel {
 			user_limit: None,
+			slowmode: 0,
 			id: Id(id),
 			guild: Some(Id(100)),
 			parent_id,
@@ -530,6 +531,7 @@ mod tests {
 				auth: client_core::auth::AuthState::Authenticated,
 				gateway_connected: true,
 				guilds: vec![model::Guild {
+					banner: None,
 					default_message_notifications: None,
 					stickers: None,
 					id: Id(100),

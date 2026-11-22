@@ -683,6 +683,7 @@ mod tests {
 	fn channel(id: u64, parent: Option<Id>, kind: u8) -> Channel {
 		Channel {
 			user_limit: None,
+			slowmode: 0,
 			id: Id(id),
 			guild: Some(Id(1)),
 			parent_id: parent,
@@ -712,6 +713,7 @@ mod tests {
 				discriminator: 0,
 			}),
 			guilds: vec![model::Guild {
+				banner: None,
 				default_message_notifications: None,
 				stickers: None,
 				emojis: None,
@@ -989,6 +991,7 @@ mod tests {
 				reply_deleted: false,
 				interaction: None,
 				forwarded: false,
+				forward_origin: None,
 				unsupported: false,
 				components: vec![],
 				application_id: None,

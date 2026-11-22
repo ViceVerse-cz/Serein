@@ -10,7 +10,7 @@ Squashed from https://github.com/emilk/egui/pull/5180 at 1fcd4c358890.
  1 file changed, 5 insertions(+)
 
 diff --git a/crates/egui/src/text_selection/text_cursor_state.rs b/crates/egui/src/text_selection/text_cursor_state.rs
-index da34de042..d6bb04a4a 100644
+index bd4dda02..c40a84c1 100644
 --- a/crates/egui/src/text_selection/text_cursor_state.rs
 +++ b/crates/egui/src/text_selection/text_cursor_state.rs
 @@ -160,6 +160,11 @@ impl TextCursorState {

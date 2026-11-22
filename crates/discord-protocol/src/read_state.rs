@@ -51,7 +51,9 @@ pub(crate) fn account_entries<'de, D: Deserializer<'de>, T: Deserialize<'de>>(
 #[derive(Deserialize)]
 pub struct Entry {
 	pub id: Id,
-	#[serde(rename = "type", default)]
+	/// Zero is a channel. The desktop client's READY names it `read_state_type` (recorded
+	/// 2026-11-20); those entries are keyed by a server or user ID, never a channel.
+	#[serde(rename = "type", alias = "read_state_type", default)]
 	pub kind: u8,
 	#[serde(default, deserialize_with = "optional_id")]
 	pub last_message_id: Option<Id>,
@@ -141,6 +143,12 @@ mod tests {
 		let snapshot: Snapshot = crate::decode(br#"{"entries":[{"id":"1","last_message_id":"0","mention_count":7},{"id":"2","last_message_id":"3","type":2}],"version":4,"partial":true}"#).unwrap();
 		assert_eq!(snapshot.entries[0].last_message_id, None);
 		assert_eq!(snapshot.entries[0].mention_count, 7);
+		// A non-channel entry as recorded must not read as a channel with that badge count.
+		let other: Snapshot = crate::decode(
+			br#"{"entries":[{"id":"9","read_state_type":2,"badge_count":3,"last_acked_id":"4"}]}"#,
+		)
+		.unwrap();
+		assert_eq!(other.entries[0].kind, 2);
 		let numeric: Snapshot = crate::decode(br#"{"entries":[{"id":"1","last_message_id":0,"type":1},{"id":"2","last_message_id":5,"type":1},{"id":"3","last_message_id":null}],"version":4,"partial":false}"#).unwrap();
 		assert_eq!(numeric.entries[0].last_message_id, None);
 		assert_eq!(numeric.entries[1].last_message_id, Some(Id(5)));

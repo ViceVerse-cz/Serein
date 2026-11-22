@@ -609,6 +609,11 @@ impl Picker {
 			}
 		};
 	}
+	pub(crate) fn open_emojis(&mut self) {
+		self.pending_open = true;
+		self.tab = Tab::Emoji;
+		self.focus = true;
+	}
 	pub(crate) fn open_stickers(&mut self, sticker: Option<&model::Sticker>) {
 		self.pending_open = true;
 		self.tab = Tab::Stickers;
@@ -2833,6 +2838,7 @@ mod tests {
 		apply(
 			&mut state,
 			Event::GuildChanged(model::GuildPatch {
+				banner: model::Patch::Absent,
 				default_message_notifications: model::Patch::Absent,
 				id: guild,
 				name: model::Patch::Value("Needle server".into()),
@@ -3591,6 +3597,7 @@ mod tests {
 	fn server_grid_only_requests_visible_images_and_resets_on_navigation() {
 		let mut state = State {
 			guilds: vec![model::Guild {
+				banner: None,
 				default_message_notifications: None,
 				stickers: None,
 				id: Id(1),
@@ -3611,6 +3618,7 @@ mod tests {
 			}],
 			channels: vec![model::Channel {
 				user_limit: None,
+				slowmode: 0,
 				id: Id(2),
 				guild: None,
 				parent_id: None,

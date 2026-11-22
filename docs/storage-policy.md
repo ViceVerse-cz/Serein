@@ -267,13 +267,16 @@ retention means released capacity does not guarantee an equal process-RSS drop.
 Independently granted app snapshots contain only already-loaded, accessible data.
 The serialized snapshot remains capped at 64 KiB. Directories hold at most 100
 channels and 100 joined guilds; the selected channel has at most 32 loaded
-recipients. Timeline, members/presence and voice limits remain 50 ordinary loaded
-messages, 100 entries each and 64 participant IDs respectively. A simultaneous
+messages, 100 entries each and 64 participant IDs respectively. The voice roster adds
+up to 128 tracked participants with names and flags across voice channels the account
+can view, on its own 16-KiB byte budget within the snapshot. A simultaneous
 `message_details` grant lowers the timeline row limit to 20, retaining its 20-KiB
 byte budget and the shared 10-million Wasm fuel limit; valid wire size alone does not
 guarantee execution fits the fuel budget. Collector budgets
-include item overhead and escaped text: 10 KiB channels, 20 KiB timeline, 6 KiB
-each members/presence/channel-detail recipients, and 8 KiB guilds. Names are
+include item overhead and escaped text: 10 KiB channels (plus 48 KiB and up to 250
+channels for the focus server, trimmed from the end to keep the snapshot within
+64 KiB), 20 KiB timeline, 6 KiB each members/presence/channel-detail recipients, and
+8 KiB guilds. Names are
 sanitized to 128 UTF-8 bytes; timeline rows above 4 KiB of content are omitted.
 Message details add up to 20 fresh readable timeline records in an 8-KiB group,
 with at most 32 mention IDs, 10 attachment labels and 16 reaction summaries per
@@ -607,6 +610,14 @@ message storage; source channels/messages are never fetched. Existing rows retai
 their content and default to ordinary messages until refreshed. Schema-15 binaries
 cannot reopen this upgraded cache.
 
+Forward sources (schema 29, no version change): a nullable `forward_origin` JSON column, at
+most 128 bytes, keeps the source server, channel and message IDs from a forward's type-1
+`message_reference` so cached forwards keep their "server · time" source line. Only forwarded
+rows keep one; a malformed or zero-ID value, or one on another row, loads as absent. Rows cached
+before the column, or by older binaries that still open this schema, show no source line until
+refreshed. The source is never fetched: the line names only joined servers and loaded
+conversations, and opens the message through the existing chat-link navigation.
+
 Channel preferences (September 21, schema 15): favorites, pins and collapsed categories are
 device-local, account-isolated SQLite preferences. Pins cover home DMs. Favorites cover guild
 channels. All three lists together contain at most 256 IDs,
@@ -731,7 +742,10 @@ session-local. Normal window geometry is device-local in the bounded app_prefere
 two logical size integers (1..=16,384), an optional physical position pair
 (-131,072..=131,072) and a maximized boolean. While maximized, the normal size and position are
 kept so un-maximizing after a restart returns to them. It survives account logout and introduces
-no new file or table.
+no new file or table. A window size a plugin asks for (a start screen's `window` while that
+screen shows, otherwise the shown `interface_ui` layout's `size`) is never saved: placement
+sampling pauses while it applies, and the user's own size, position and maximized state, kept in
+memory from when the first plugin size took over, return once no plugin asks.
 Notification opt-in, hidden-channel visibility, primary RGB color, audio devices (up to 1,024 bytes each),
 input profile/custom processing, push-to-talk, gain, keyboard and mouse-button bindings (including up to 32
 extra custom bindings) and the global-keybind
@@ -1966,6 +1980,34 @@ Their local-only request keys select 64, 128 or 256-pixel renditions. Each SVG h
 a 64 KiB decompression/window limit and shares the media worker’s eight decode
 permits, 1,024-item bounded requests and 128-item / 128 MiB result queue. No runtime
 network or disk cache is used for this bundled artwork, including in offline demo.
+
+## Plugin start screen (preview)
+
+One device-level file, `extensions/start-screen.json` (in the temporary demo profile
+under `--demo`), keeps the start screen that the enabled plugin granted `start_screen`
+last set: the owning plugin id, the SHA-256 account key that also names that account's
+extension directory (no account identifier), and the validated screen. It is read once
+at launch, before authentication and without running plugin code, and holds at most
+229 KiB (234,840 bytes): the base64 of the 160 KiB packed-frame limit (about 214 KiB) plus
+16 KiB for the JSON structure, text, palettes, window size and owner, so the largest valid
+screen (about 217 KiB) always fits. A missing, oversized or invalid file shows the default
+screen. When several plugins set one, the lowest plugin id wins. Writes replace the file
+atomically on a short-lived background thread, one at a time with only the newest pending
+value queued, so rendering never waits for them. A failed write keeps its value and is
+retried on later frames, up to three attempts with a delay before later retries; a screen
+over the file budget is never retried, because no attempt can fit it. The desktop's close
+gate waits for a queued or in-flight write before exiting. Disabling, removing or failing
+the owning plugin, revoking its grant, ending its account session (which removes that
+account's plugins) or its explicit `start_screen: null` removes the file or hands the
+screen to the next plugin. In memory the accepted screen keeps its value as set (base64
+frames of at most
+about 214 KiB) and, decoded once when it is loaded or accepted, one palette-index byte per
+cell of every frame: at most 640 KiB for the 160 KiB packed limit. While the start screen
+shows, each of its at most four images has one reused texture of at most 160×160 cells
+(100 KiB RGBA), all released once the start screen is gone. Its `window` size is clamped to
+the monitor and centered while the screen shows and is never saved: placement sampling pauses,
+and the user's own size, position and maximized state, kept in memory, return once no plugin
+size applies.
 
 ## Native camera format selection
 

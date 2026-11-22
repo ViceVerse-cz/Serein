@@ -132,7 +132,7 @@ For the owner-controlled live gate, leave the peer connected in a private DM cal
 DM in Serein, wait for the banner, then explicitly Join. Verify no new ring, actual two-way
 audio, leaving/rejoining while the peer stays, and disappearance after the peer ends the call.
 
-Mute/deafen, saved input/output selection and focused V push-to-talk are implemented. Remappable mute and deafen bindings use global native registration when supported and when a modifier is present; they fall back to focused input on Wayland or when registration is unavailable. Settings → Keybinds offers **Enable global keybinds**, saved on this device and enabled by default. Turning it off unregisters global voice shortcuts; mute, deafen and push-to-talk still work while Serein is focused, with the existing text-entry guards. Push-to-talk releases when focus is lost and is disabled while text entry has focus. It remains focused-only by default. Push to Mute is unassigned by default; once bound, holding it mutes the microphone during a call and releasing it restores the previous state, and it registers globally like push-to-talk. Voice and other remappable actions can also use mouse 3, 4 or 5, optionally with modifiers; left and right click cancel recording instead. A bound mouse button no longer starts middle-click autoscroll or back/forward navigation. Mouse bindings work while Serein is focused on every platform and, with global keybinds enabled, are polled globally on Windows only; macOS, X11 and the Wayland portal have no global mouse-button registration. The Keybinds page also lists up to 32 **Custom bindings** that add extra chords to any action, including the four global voice actions. A chord may belong to only one binding, so recording a key or mouse button that is already taken is refused. Devices are initialized only following an explicit call with authenticated empty-room waiting or encrypted readiness, or an explicit local microphone test; no microphone test runs at startup. Acoustic echo cancellation follows the selected input profile; see below for its limits. A microphone that fails to open or start, reports a fatal callback error, or delivers no audio callbacks for five seconds is disabled with a visible warning. The call and speaker playback remain connected, and the client periodically retries microphone setup in the background while selecting another input immediately retries. Transient buffer discontinuities and non-fatal stream glitches do not disable the microphone. Ordinary silence does not trigger the warning. Selected speaker failures can fall back to the default output; an unusable output can still fail the call.
+Mute/deafen, saved input/output selection and focused V push-to-talk are implemented. Remappable voice bindings with a modifier use global native registration when supported; single keys and mouse buttons are watched without being registered on Windows, macOS and X11 (see [platform support](platform-support.md)), and fall back to focused input on Wayland or when neither is available. Push to Talk keeps transmitting for a release delay after the key is let go: 20 ms by default, 0–2,000 ms, matching Discord; while DeepFilterNet runs it adds 20 ms for that suppressor's longer delay (see below). Settings → Keybinds offers **Enable global keybinds**, saved on this device and enabled by default. Turning it off unregisters global voice shortcuts; mute, deafen and push-to-talk still work while Serein is focused, with the existing text-entry guards. While Serein is focused, push-to-talk is disabled while text entry has focus. Push to Mute is unassigned by default; once bound, holding it mutes the microphone during a call and releasing it restores the previous state, and it registers globally like push-to-talk. Voice and other remappable actions can also use mouse 3, 4 or 5, optionally with modifiers; left and right click cancel recording instead. A bound mouse button no longer starts middle-click autoscroll or back/forward navigation. Mouse bindings work while Serein is focused on every platform and, with global keybinds enabled, are polled globally on Windows and macOS; X11 polls only the middle button, and the Wayland portal has no global mouse-button registration. The Keybinds page also lists up to 32 **Custom bindings** that add extra chords to any action, including the four global voice actions. A chord may belong to only one binding, so recording a key or mouse button that is already taken is refused. Devices are initialized only following an explicit call with authenticated empty-room waiting or encrypted readiness, or an explicit local microphone test; no microphone test runs at startup. Acoustic echo cancellation follows the selected input profile; see below for its limits. A microphone that fails to open or start, reports a fatal callback error, or delivers no audio callbacks for five seconds is disabled with a visible warning. The call and speaker playback remain connected, and the client periodically retries microphone setup in the background while selecting another input immediately retries. Transient buffer discontinuities and non-fatal stream glitches do not disable the microphone. Ordinary silence does not trigger the warning. Selected speaker failures can fall back to the default output; an unusable output can still fail the call.
 
 One-to-one DM calls accept only their expected peer. Group DM and server calls support up to 64 total participants, with independent bounded decoder/jitter state and mixed mono playback. Only DAVE version 1 is accepted; encryption downgrades and group identities outside the authenticated participant roster fail closed. Stage channels and recording are unsupported. Outgoing screen sharing and macOS camera support is described below. Voice WebSocket resumption has a finite retry budget; an established call can then attempt bounded rejoining after media failure. A resumable main Gateway disconnect preserves the call; a fresh Gateway session invalidates it. Exhausted recovery requires an explicit new call. Voice credentials, ephemeral DAVE identities and audio stay in bounded session memory. The displayed privacy code applies to the current group epoch; identities are not remembered across calls. Comparing codes does not establish long-term identity verification or text-message encryption.
 
@@ -354,7 +354,7 @@ summary. Remove the environment variables to disable diagnostics on the next lau
 
 Each voice stage reports `[calls, total_us, max_us]` over `window_ms`:
 `echo_render` processes speaker reference; `echo_capture` includes the selected microphone
-processing; `noise` isolates RNNoise inference within `echo_capture`
+processing; `noise` isolates RNNoise or DeepFilterNet inference within `echo_capture`
 (WebRTC suppression remains inside the combined processor timing);
 `encode` includes Opus and outgoing encryption; `mix` includes remote Opus decoding; `receive` measures accepted packet decryption/queueing.
 `noise_frames` identifies capture frames processed with suppression enabled.
@@ -364,7 +364,8 @@ full capture/playback worker queues; `stalls` counts transport gaps of at least 
 Stage timings exclude device callbacks, socket waits, device opening and UI rendering.
 These are elapsed times, including scheduler preemption, **not process CPU percentages**.
 `debug=true` identifies a build with debug assertions. Development builds optimize the
-Sonora echo-processing crates, RNNoise (`nnnoiseless` and its FFT chain) and libopus
+Sonora echo-processing crates, RNNoise (`nnnoiseless` and its FFT chain), DeepFilterNet
+(`deepfilternet`) and libopus
 while keeping application code unoptimized and debuggable; release builds remain the reference for overall performance. Rebuild and
 restart to apply this change. Compare speaking, muted and noise-suppression-on/off windows to narrow
 the cause; UI frame diagnostics help identify excessive rendering separately.
@@ -441,11 +442,12 @@ lifecycle gates hide ineligible activity, including while alone.
 
 Voice & Video settings offers three saved profiles:
 
-- **Voice Isolation:** RNNoise suppression, AEC3 echo cancellation, digital automatic gain
-  control (maximum 20 dB), and −55 dBFS input sensitivity.
+- **Voice Isolation:** automatic noise suppression, AEC3 echo cancellation, digital
+  automatic gain control (maximum 20 dB), and −55 dBFS input sensitivity.
 - **Studio:** bypasses processing and sensitivity gating. Manual gain, mute, deafen,
   push-to-talk and permission/security gates still apply.
-- **Custom:** Off, RNNoise, or WebRTC (four suppression strengths);
+- **Custom:** Automatic, Off, RNNoise, WebRTC or DeepFilterNet (WebRTC, DeepFilterNet and
+  Automatic with four suppression strengths);
   independent echo cancellation and automatic gain controls; and optional manual
   sensitivity from −80 to 0 dBFS. The gate uses 3 dB hysteresis, a 200 ms release
   hold and a 5 ms ramp. This controls transmitted audio, not just the speaking glow.
@@ -454,13 +456,43 @@ Switching profiles retains Custom settings; editing a preset starts from its vis
 values. Saved preferences without a profile migrate to Custom with their prior
 RNNoise/Off choice, echo cancellation enabled, and gain control/sensitivity gating off.
 
-The worker processes AEC/WebRTC suppression, then optional RNNoise,
+The worker processes AEC/WebRTC suppression, then optional RNNoise or DeepFilterNet,
 then digital automatic gain, manual gain, the local meter, and sensitivity gating.
 Calls and microphone preview share this path; playback audio is not denoised.
 No DSP runs in rendering or native audio callbacks. Settings replace one fixed-size
 worker snapshot and do not add a queue. Native PCM queues remain eight frames each.
 
-RNNoise uses bundled nnnoiseless 0.5.2. These processors keep bounded session state,
+RNNoise uses bundled nnnoiseless 0.5.2. DeepFilterNet runs the DeepFilterNet3 model
+(48 kHz, 10 ms hops) in `crates/deepfilternet`, a plain-Rust port of the reference
+real-time path with the model weights embedded in the executable. Like the reference
+command line's −15/35/35 dB stage thresholds, it runs both decoder stages on every frame.
+Its strength caps the
+attenuation at 12 dB (Low) or 24 dB (Moderate), runs the full model (High, the default)
+or adds the model's post-filter, which attenuates very noisy sections further (Very
+high). Its STFT overlap and two look-ahead frames delay the microphone by 30 ms, compared
+with 10 ms for RNNoise. Selecting it decodes nothing: the worker builds about 150 KB of
+state in place, and the first frames page the weights in from the executable. Mute,
+device and security resets clear its look-ahead and recurrent history in place.
+
+Automatic, the Voice Isolation choice and the default, runs DeepFilterNet and times every
+10 ms hop on the worker. When the last fifty hops add up to more than 150 ms (3 ms each on
+average, 30% of real time), with no single hop counted for more than 10 ms, RNNoise takes
+over from the next hop. Of the 80 ms of input kept for this, it warms up on the older
+60 ms and queues the newest 20 ms, so it continues two hops behind, where DeepFilterNet's
+delayed output left off. No captured audio is skipped, and the 30 ms delay stays until
+the next reset or until RNNoise stops. Hops from before a capture pause of more
+than a second (mute, push-to-talk) no longer count; the short restart after an overrun
+keeps them. The decision lasts until the suppression choice changes or the call or
+microphone test ends, so a busy device does not switch back and forth; Voice & Video
+settings then says that RNNoise is active and hides the strength, which RNNoise does not
+have. The timing is elapsed time, so load from other programs counts too. Nothing about
+it is stored, and the kept input is cleared on every reset.
+While DeepFilterNet runs, by choice or under Automatic, push-to-talk transmits 20 ms past
+its release delay: the audio leaving the suppressor then is still from before the release
+delay ended. Once Automatic has moved to RNNoise the extra 20 ms no longer applies. Saved
+Custom choices, including RNNoise from
+older versions, are unchanged. These
+processors keep bounded session state,
 with no audio recordings or remote processing. Quality, CPU cost, physical latency and
 cross-platform behavior require owner-operated checks; this local implementation does
 not establish production readiness or superiority over Discord's processing.

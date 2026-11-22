@@ -86,7 +86,32 @@ pub struct Fonts {
     // root/child passes would then continuously evict one another's working sets.
     // Keep only the layout caches separate; font data and the glyph atlas stay shared.
     galley_caches: BTreeMap<ViewportKey, ViewportGalleyCache>,
+
+    /// Atlas image size, in bytes, beyond which [`Self::begin_pass`] starts the atlas over.
+    atlas_budget: usize,
+
+    /// Passes since the atlas last started over.
+    passes_since_atlas_clear: u64,
+
+    /// Passes a budget clear waits after the previous clear.
+    atlas_clear_wait: u64,
+
+    /// The atlas outgrew the budget before [`Self::atlas_clear_wait`] passed since the last
+    /// clear, so the text on screen probably needs that much.
+    atlas_regrew: bool,
 }
+
+/// The atlas otherwise only starts over when 80% of its rows are used. An atlas
+/// `max_texture_side` wide (8192 on most GPUs) can then keep 256 MiB in RAM and as much
+/// again on the GPU, mostly glyphs that a long-running app no longer shows.
+const ATLAS_BUDGET_BYTES: usize = 16 * 1024 * 1024;
+
+/// Text that needs more than the budget is rasterized again at most once per wait. The wait
+/// doubles while that keeps happening, up to 8 times this, and returns here once a clear
+/// keeps the atlas within budget. It counts passes, so an app that stops painting keeps its
+/// atlas until it paints again.
+const MIN_ATLAS_CLEAR_WAIT: u64 = 600;
+const MAX_ATLAS_CLEAR_WAIT: u64 = MIN_ATLAS_CLEAR_WAIT * 8;
 
 impl Fonts {
     /// Create a new [`Fonts`] for text layout.
@@ -96,6 +121,10 @@ impl Fonts {
         Self {
             fonts: FontsImpl::new(options, definitions),
             galley_caches: Default::default(),
+            atlas_budget: ATLAS_BUDGET_BYTES,
+            passes_since_atlas_clear: 0,
+            atlas_clear_wait: MIN_ATLAS_CLEAR_WAIT,
+            atlas_regrew: false,
         }
     }
 
@@ -179,20 +208,49 @@ impl Fonts {
     /// This function will react to changes in [`TextOptions`],
     /// as well as notice when the font atlas is getting full, and handle that.
     pub fn begin_pass(&mut self, options: TextOptions, viewport_key: ViewportKey) {
+        self.passes_since_atlas_clear = self.passes_since_atlas_clear.saturating_add(1);
         if self.fonts.options() != &options {
             self.fonts.set_options(options);
-            self.fonts.layout_generation = next_layout_generation();
-            self.galley_caches.clear(); // Galleys point into the old atlas.
-        } else if 0.8 < self.fonts.glyphs.fill_ratio() {
+            self.atlas_cleared();
+        } else if 0.8 < self.fonts.glyphs.fill_ratio() || self.atlas_over_budget() {
             // The parsed faces are still fine; only the bitmaps need to go.
             self.fonts.glyphs.clear();
-            self.fonts.layout_generation = next_layout_generation();
-            self.galley_caches.clear(); // Galleys point into the old atlas.
+            self.atlas_cleared();
         }
 
         let viewport_cache = self.galley_caches.entry(viewport_key).or_default();
         viewport_cache.cache.flush_cache();
         viewport_cache.used_since_begin_pass = false;
+    }
+
+    fn atlas_cleared(&mut self) {
+        self.fonts.layout_generation = next_layout_generation();
+        self.galley_caches.clear(); // Galleys point into the old atlas.
+        self.passes_since_atlas_clear = 0;
+        self.atlas_regrew = false;
+    }
+
+    /// Whether to start an atlas that has outgrown its budget over. A clear only waits:
+    /// text that needs a larger atlas regrows it soon after, which lengthens the next wait.
+    fn atlas_over_budget(&mut self) -> bool {
+        let [width, height] = self.fonts.glyphs.atlas().resolution();
+        let waited = self.atlas_clear_wait <= self.passes_since_atlas_clear;
+        if width * height * 4 <= self.atlas_budget {
+            if waited && !self.atlas_regrew {
+                self.atlas_clear_wait = MIN_ATLAS_CLEAR_WAIT;
+            }
+            return false;
+        }
+        if !waited {
+            self.atlas_regrew = true;
+            return false;
+        }
+        self.atlas_clear_wait = if self.atlas_regrew {
+            (self.atlas_clear_wait * 2).min(MAX_ATLAS_CLEAR_WAIT)
+        } else {
+            MIN_ATLAS_CLEAR_WAIT
+        };
+        true
     }
 
     /// Has any text been laid out in this viewport since its last [`Self::begin_pass`]?
@@ -553,7 +611,7 @@ pub(crate) struct FontsImpl {
     family_keys: ahash::HashMap<FontFamily, FamilyKey>,
 
     /// Recycled `harfrust` shaping buffer to avoid per-layout allocations.
-    shape_buffer: Option<harfrust::UnicodeBuffer>,
+    shape_buffer: Option<harfrust::Buffer>,
 
     /// In the order they were added. See [`GlyphRasterizer`].
     glyph_rasterizers: Vec<GlyphRasterizer>,
@@ -585,7 +643,7 @@ impl FontsImpl {
             faces: FaceStore::new(options),
             families: Default::default(),
             family_keys: Default::default(),
-            shape_buffer: Some(harfrust::UnicodeBuffer::new()),
+            shape_buffer: Some(harfrust::Buffer::new()),
             glyph_rasterizers: Vec::new(),
             font_providers: Default::default(),
             missing_glyph_policy: Default::default(),
@@ -662,12 +720,12 @@ impl FontsImpl {
     }
 
     /// Take the recycled shaping buffer (or create a new one if already taken).
-    pub fn take_shape_buffer(&mut self) -> harfrust::UnicodeBuffer {
+    pub fn take_shape_buffer(&mut self) -> harfrust::Buffer {
         self.shape_buffer.take().unwrap_or_default()
     }
 
     /// Return a shaping buffer for reuse.
-    pub fn return_shape_buffer(&mut self, buffer: harfrust::UnicodeBuffer) {
+    pub fn return_shape_buffer(&mut self, buffer: harfrust::Buffer) {
         self.shape_buffer = Some(buffer);
     }
 
@@ -995,6 +1053,55 @@ mod tests {
             .layout_no_wrap("root viewport".to_owned(), font_id, Color32::WHITE);
 
         assert!(Arc::ptr_eq(&root_galley, &root_galley_next_pass));
+    }
+
+    /// A long-running app's atlas starts over once it outgrows its budget, but text that
+    /// needs a larger atlas is rasterized again less and less often.
+    #[test]
+    fn atlas_starts_over_past_its_budget_and_backs_off_for_text_that_needs_it() {
+        let viewport = ViewportKey::new(1);
+        let mut fonts = Fonts::new(TextOptions::default(), FontDefinitions::default());
+        let width = fonts.font_image_resolution()[0];
+        let budget = width * 64 * 4;
+        fonts.atlas_budget = budget;
+        let fill = |fonts: &mut Fonts| {
+            for size in 20..60 {
+                fonts
+                    .with_pixels_per_point_for_viewport(1.0, viewport)
+                    .layout_no_wrap(
+                        "The quick brown fox jumps over the lazy dog".to_owned(),
+                        FontId::proportional(size as f32),
+                        Color32::WHITE,
+                    );
+            }
+            fonts.font_image_resolution()[1]
+        };
+
+        fonts.begin_pass(TextOptions::default(), viewport);
+        fonts.passes_since_atlas_clear = MIN_ATLAS_CLEAR_WAIT;
+        let grown = fill(&mut fonts);
+        assert!(
+            grown > 64,
+            "the text should outgrow the budget, got {grown} rows"
+        );
+        fonts.begin_pass(TextOptions::default(), viewport);
+        assert!(fonts.font_image_resolution()[1] < grown);
+
+        // Right after a clear, the same text outgrows the budget again: it needs that space,
+        // so the atlas is kept until the wait passes, and the next clear waits longer.
+        let regrown = fill(&mut fonts);
+        fonts.begin_pass(TextOptions::default(), viewport);
+        assert_eq!(fonts.font_image_resolution()[1], regrown);
+        fonts.passes_since_atlas_clear = MIN_ATLAS_CLEAR_WAIT;
+        fonts.begin_pass(TextOptions::default(), viewport);
+        assert!(fonts.font_image_resolution()[1] < regrown);
+        assert_eq!(fonts.atlas_clear_wait, 2 * MIN_ATLAS_CLEAR_WAIT);
+
+        // Once a clear holds for a whole wait, the shorter wait returns.
+        fonts.passes_since_atlas_clear = 2 * MIN_ATLAS_CLEAR_WAIT;
+        fonts.begin_pass(TextOptions::default(), viewport);
+        assert_eq!(fonts.atlas_clear_wait, MIN_ATLAS_CLEAR_WAIT);
+        assert_eq!(fonts.atlas_budget, budget);
     }
 
     /// The special emojis are in the private use area, so only our own bundled

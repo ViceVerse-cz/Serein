@@ -12,10 +12,10 @@ Squashed from https://github.com/emilk/egui/pull/8764 at 6eb460a2a6d5.
  create mode 100644 tests/egui_tests/tests/test_text_edit_click_away.rs
 
 diff --git a/crates/egui/src/context.rs b/crates/egui/src/context.rs
-index 997a128b2..443170ef2 100644
+index dcf5a81d..36508900 100644
 --- a/crates/egui/src/context.rs
 +++ b/crates/egui/src/context.rs
-@@ -1552,6 +1552,12 @@ impl Context {
+@@ -1559,6 +1559,12 @@ impl Context {
          #[allow(clippy::allow_attributes, clippy::let_and_return)]
          let res = self.get_response(w);
  
@@ -28,7 +28,7 @@ index 997a128b2..443170ef2 100644
          #[cfg(debug_assertions)]
          if res.contains_pointer() {
              let plugins = self.read(|ctx| ctx.plugins.ordered_plugins());
-@@ -1710,6 +1716,23 @@ impl Context {
+@@ -1717,6 +1723,23 @@ impl Context {
          })
      }
  
@@ -52,7 +52,7 @@ index 997a128b2..443170ef2 100644
      /// Do all interaction for an existing widget, without (re-)registering it.
      pub(crate) fn get_response(&self, widget_rect: WidgetRect) -> Response {
          use response::Flags;
-@@ -1804,14 +1827,9 @@ impl Context {
+@@ -1811,14 +1834,9 @@ impl Context {
              }
  
              let clicked = Some(id) == viewport.interact_widgets.clicked;
@@ -68,7 +68,7 @@ index 997a128b2..443170ef2 100644
                      PointerEvent::Released { click, .. } => {
                          if enabled && sense.senses_click() && clicked && click.is_some() {
                              res.flags.set(Flags::CLICKED, true);
-@@ -1840,17 +1858,6 @@ impl Context {
+@@ -1847,17 +1865,6 @@ impl Context {
                  // We don't hover widgets while interacting with *other* widgets:
                  res.flags.set(Flags::HOVERED, false);
              }
@@ -88,7 +88,7 @@ index 997a128b2..443170ef2 100644
          res
 diff --git a/tests/egui_tests/tests/test_text_edit_click_away.rs b/tests/egui_tests/tests/test_text_edit_click_away.rs
 new file mode 100644
-index 000000000..126ef1ffc
+index 00000000..126ef1ff
 --- /dev/null
 +++ b/tests/egui_tests/tests/test_text_edit_click_away.rs
 @@ -0,0 +1,67 @@
