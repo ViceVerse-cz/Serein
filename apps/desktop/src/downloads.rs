@@ -19,6 +19,12 @@ const DOWNLOAD_EDGE: u32 = 2048;
 /// response arrives, so a bounded request retry is safe and usually lands on a clean connection.
 const DOWNLOAD_ATTEMPTS: u32 = 3;
 const RETRY_DELAY: Duration = Duration::from_millis(150);
+/// Copied images share the composer's pasted-image budget, so a 4K or 5K screenshot can be
+/// copied from a message as well as pasted. Four RGBA copies cover decode, conversion and the
+/// clipboard payload.
+const MAX_COPY_ALLOC: u64 = 4 * ui::MAX_PASTE_PIXELS as u64;
+const COPY_PIXELS_EXCEEDED: &str =
+	"Copy images with at most 16 million pixels; save larger images instead";
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum Status {
 	#[default]
@@ -356,22 +362,26 @@ fn clear_copied_file(clipboard: &mut arboard::Clipboard, path: &Path) -> Result<
 	}
 }
 
+fn copy_size_allowed(width: u32, height: u32) -> bool {
+	width > 0 && height > 0 && u64::from(width) * u64::from(height) <= ui::MAX_PASTE_PIXELS as u64
+}
+
 fn clipboard_image(path: &Path) -> Result<image::RgbaImage, &'static str> {
 	use image::ImageDecoder;
 	let mut reader = image::ImageReader::open(path)
 		.and_then(|reader| reader.with_guessed_format())
 		.map_err(|_| "Could not read copied image")?;
+	// Pixels bound the copy budget, not the edge length: a 5K screenshot is wider than the
+	// old 4096 px edge limit but still fits the shared 16 million pixel budget.
 	let mut limits = image::Limits::default();
-	limits.max_image_width = Some(4096);
-	limits.max_image_height = Some(4096);
-	limits.max_alloc = Some(32 * 1024 * 1024);
+	limits.max_alloc = Some(MAX_COPY_ALLOC);
 	reader.limits(limits);
 	let decoder = reader
 		.into_decoder()
 		.map_err(|_| "Image cannot be copied within the decode limit")?;
 	let (width, height) = decoder.dimensions();
-	if u64::from(width) * u64::from(height) > 4 * 1024 * 1024 {
-		return Err("Copy images with at most 4 million pixels; save larger images instead");
+	if !copy_size_allowed(width, height) {
+		return Err(COPY_PIXELS_EXCEEDED);
 	}
 	image::DynamicImage::from_decoder(decoder)
 		.map(|image| image.into_rgba8())
@@ -743,16 +753,30 @@ mod tests {
 		let pixels = clipboard_image(&file.path).unwrap();
 		assert_eq!(pixels.dimensions(), (2, 1));
 		assert_eq!(pixels.as_raw(), &[20, 40, 60, 255, 20, 40, 60, 255]);
+		// A 4.2 megapixel image used to be refused; copied images now share the paste budget.
 		image::RgbaImage::new(4096, 1025)
 			.save_with_format(&file.path, image::ImageFormat::Png)
 			.unwrap();
-		assert!(clipboard_image(&file.path).is_err());
+		assert_eq!(
+			clipboard_image(&file.path).unwrap().dimensions(),
+			(4096, 1025)
+		);
 		fs::write(&file.path, b"not an image").unwrap();
 		assert!(clipboard_image(&file.path).is_err());
 		assert!(copy_media(&file.path, false, &AtomicBool::new(true)).is_err());
 		drop(file);
 		assert!(!root.exists());
 		assert!(!failed.load(Ordering::Acquire));
+	}
+
+	#[test]
+	fn copied_images_use_the_same_pixel_budget_as_pasted_images() {
+		assert!(copy_size_allowed(1920, 1080));
+		assert!(copy_size_allowed(4096, 1025));
+		assert!(copy_size_allowed(5120, 2880));
+		assert!(!copy_size_allowed(4097, 4097));
+		assert!(!copy_size_allowed(0, 10));
+		assert!(!copy_size_allowed(65535, 65535));
 	}
 
 	#[test]
