@@ -308,14 +308,13 @@ def arch_package(temporary, stage, application_version, libraries):
     depends = {"vulkan-icd-loader", "libglvnd", "libxkbcommon", "libxkbcommon-x11",
                "wayland", "libx11", "libxcursor", "libxi", "libxrandr", "dbus", "xdg-desktop-portal",
                "gst-plugins-good", "gst-plugins-base", "gst-plugin-pipewire"}
-    # Resolve linked libraries to the native pacman package/version (ABI floor).
+    # The owning package is required; its installed build revision is not an ABI floor.
     for path in re.findall(r"(?:=>\s+|^\s*)(/\S+)", libraries, re.MULTILINE):
         owner = output("pacman", "-Qqo", path)
-        name, installed_version = output("pacman", "-Q", owner).split()
-        if name in {"zlib", "zlib-ng-compat"} or Path(path).name.startswith("libz.so"):
+        if owner in {"zlib", "zlib-ng-compat"} or Path(path).name.startswith("libz.so"):
             depends.add("libz.so")
             continue
-        depends.add(f"{name}>={installed_version}")
+        depends.add(owner)
     if any(not re.fullmatch(r"[A-Za-z0-9@._+:>=-]+", item) for item in depends):
         raise ValueError("Invalid native Arch dependency metadata")
     (temporary / "PKGBUILD").write_text(
@@ -352,7 +351,7 @@ def arch_package(temporary, stage, application_version, libraries):
                 raise ValueError(f"Incorrect Arch payload mode: {member.name}")
             contents.extract(member, extracted, filter="data")
     check_payload(stage, extracted)
-    print("Arch smoke passed: metadata, dependency versions, payload contents, modes, owners and no scripts.")
+    print("Arch smoke passed: metadata, dependencies, payload contents, modes, owners and no scripts.")
     return artifact
 
 
