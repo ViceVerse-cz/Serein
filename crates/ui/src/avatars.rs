@@ -2906,6 +2906,57 @@ mod tests {
 	}
 
 	#[test]
+	fn webp_attachment_is_known_to_animate_only_once_its_frames_arrive() {
+		let ctx = egui::Context::default();
+		let mut images = Avatars::default();
+		images.set_animation(true);
+		let media = model::EmbedMedia {
+			url: Some("https://cdn.discordapp.com/attachments/1/2/clip.webp?hm=signed".into()),
+			width: 64,
+			height: 32,
+			..Default::default()
+		};
+		assert!(!images.media_animates(&media), "nothing decoded yet");
+		ctx.run_ui(Default::default(), |ui| {
+			images.show_media(ui, &media, egui::vec2(64.0, 32.0), false, Surface::Inline);
+		})
+		.drop_without_applying_deltas();
+		let key = images.take_requests().pop().expect("webp frame request");
+		assert!(key.contains(":ia:"), "the webp is asked to animate: {key}");
+		images.accept(
+			&ctx,
+			key.clone(),
+			Some(ColorImage::filled([2, 1], egui::Color32::WHITE)),
+		);
+		let frame = |color| std::sync::Arc::new(ColorImage::filled([2, 1], color));
+		images.accept_animation(
+			key,
+			vec![
+				(Duration::from_secs(1), frame(egui::Color32::RED)),
+				(Duration::from_secs(1), frame(egui::Color32::BLUE)),
+			],
+		);
+		assert!(
+			images.media_animates(&media),
+			"two decoded frames make it a clip"
+		);
+		let gif = crate::embeds::gif_for_media(&media, None, images.media_animates(&media))
+			.expect("an animated webp attachment can be favorited");
+		assert_eq!(gif.preview, media.url.clone().unwrap());
+		let still = model::EmbedMedia {
+			url: Some("https://cdn.discordapp.com/attachments/1/2/photo.webp".into()),
+			width: 64,
+			height: 32,
+			..Default::default()
+		};
+		assert!(
+			!images.media_animates(&still),
+			"a static webp keeps its still"
+		);
+		assert!(crate::embeds::gif_for_media(&still, None, false).is_none());
+	}
+
+	#[test]
 	fn inline_gif_frames_release_when_unplayed_and_reload_once_playable() {
 		let ctx = egui::Context::default();
 		let mut images = Avatars::default();
