@@ -5032,6 +5032,7 @@ impl MessagingUi {
 						content_type: Some(format!("image/{ext}")),
 						size: 0,
 						media,
+						animated: false,
 						spoiler: false,
 						duration_ms: None,
 						waveform: Vec::new(),
@@ -5058,6 +5059,7 @@ impl MessagingUi {
 						content_type: Some(format!("image/{ext}")),
 						size: 0,
 						media,
+						animated: false,
 						spoiler: false,
 						duration_ms: None,
 						waveform: Vec::new(),
@@ -11283,52 +11285,60 @@ pub fn debug_gif_favorites_check(mut message: model::Message) -> Vec<model::Gif>
 	message.attachments.clear();
 	message.attachments.push(model::Attachment {
 		id: model::Id(2),
-		filename: "wave.gif".into(),
+		filename: "wave.webp".into(),
 		description: None,
-		content_type: Some("image/gif".into()),
+		content_type: Some("image/webp".into()),
 		size: 100,
+		animated: false,
 		spoiler: false,
 		duration_ms: None,
 		waveform: vec![],
 		media: model::EmbedMedia {
-			url: Some(gifs[0].url.clone()),
+			url: Some(
+				"https://cdn.discordapp.com/attachments/1/2/wave.webp?ex=abc&is=def&hm=123".into(),
+			),
 			width: 320,
 			height: 200,
 			..Default::default()
 		},
 	});
-	let mut star = None;
-	for click in [false, true] {
-		let events = star
-			.filter(|_| click)
-			.map(|pos| {
-				vec![
-					egui::Event::PointerMoved(pos),
-					egui::Event::PointerButton {
-						pos,
-						button: egui::PointerButton::Primary,
-						pressed: true,
-						modifiers: Default::default(),
-					},
-					egui::Event::PointerButton {
-						pos,
-						button: egui::PointerButton::Primary,
-						pressed: false,
-						modifiers: Default::default(),
-					},
-				]
-			})
-			.unwrap_or_default();
+	let mut hover = egui::Pos2::ZERO;
+	// Hover over the top-left control area before clicking each attachment.
+	for frame in 0..24 {
+		message.attachments[0].animated = frame >= 12;
+		let events = if frame == 11 || frame == 23 {
+			vec![
+				egui::Event::PointerMoved(hover),
+				egui::Event::PointerButton {
+					pos: hover,
+					button: egui::PointerButton::Primary,
+					pressed: true,
+					modifiers: Default::default(),
+				},
+				egui::Event::PointerButton {
+					pos: hover,
+					button: egui::PointerButton::Primary,
+					pressed: false,
+					modifiers: Default::default(),
+				},
+			]
+		} else if frame > 0 {
+			vec![egui::Event::PointerMoved(hover)]
+		} else {
+			Vec::new()
+		};
 		let output = ctx.run_ui(
 			egui::RawInput {
 				screen_rect: Some(egui::Rect::from_min_size(
 					egui::Pos2::ZERO,
 					egui::vec2(640.0, 480.0),
 				)),
+				time: Some(f64::from(frame) / 60.0),
 				events,
 				..Default::default()
 			},
 			|ui| {
+				hover = ui.next_widget_position() + egui::vec2(20.0, 20.0);
 				attachments::show(
 					ui,
 					&message,
@@ -11344,13 +11354,13 @@ pub fn debug_gif_favorites_check(mut message: model::Message) -> Vec<model::Gif>
 				);
 			},
 		);
-		star = output.shapes.iter().find_map(|shape| match &shape.shape {
-			egui::Shape::Rect(rect) if rect.rect.size() == egui::Vec2::splat(30.0) => {
-				Some(rect.rect.center())
-			}
-			_ => None,
-		});
 		output.drop_without_applying_deltas();
+		if frame == 11 {
+			assert!(
+				download.gif_favorite_request.is_none(),
+				"static WebP cannot be starred"
+			);
+		}
 	}
 	let clicked = download
 		.gif_favorite_request
@@ -11360,6 +11370,11 @@ pub fn debug_gif_favorites_check(mut message: model::Message) -> Vec<model::Gif>
 	assert!(state.is_gif_favorite(&clicked));
 	assert!(state.toggle_gif_favorite(&clicked));
 	assert!(!state.is_gif_favorite(&clicked));
+	assert_eq!(
+		Some(&clicked.url),
+		message.attachments[0].media.url.as_ref()
+	);
+	gifs.push(clicked);
 	gifs
 }
 

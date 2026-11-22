@@ -3028,7 +3028,9 @@ Unsupported-format and unconfirmed-save errors now retain their specific message
 Issue #559 supplied no response payload, so its live failure remains unverified.
 
 Message stars also cover uploaded GIF attachments, image galleries, video-only
-GIF embeds and external GIFs with an admitted Discord media proxy. Shared HTTPS
+GIF embeds and external GIFs with an admitted Discord media proxy. Uploaded WebP
+attachments are eligible when Discord sends the unofficial animation flag (bit 5,
+from [discord.py-self AttachmentFlags](https://github.com/dolfies/discord.py-self/blob/master/discord/flags.py)). Shared HTTPS
 links may come from any host; this does not authorize fetching arbitrary origins.
 Previews still use the existing provider/Discord media admission and bounded
 pipeline. The original share URL, including attachment signatures, is retained.

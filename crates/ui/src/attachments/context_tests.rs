@@ -7,6 +7,7 @@ fn attachment(video: bool) -> Attachment {
 		content_type: Some(if video { "video/mp4" } else { "image/png" }.into()),
 		description: None,
 		size: 512,
+		animated: false,
 		spoiler: false,
 		duration_ms: None,
 		waveform: Vec::new(),

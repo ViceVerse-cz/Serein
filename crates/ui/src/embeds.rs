@@ -1459,6 +1459,7 @@ mod tests {
 			content_type: Some("image/png".into()),
 			size: 1,
 			media: Default::default(),
+			animated: false,
 			spoiler: false,
 		}];
 		message.content = "Ordinary text".into();

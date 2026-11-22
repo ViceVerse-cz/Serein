@@ -13,6 +13,8 @@ pub struct Attachment {
 	pub size: u64,
 	pub media: EmbedMedia,
 	pub spoiler: bool,
+	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
+	pub animated: bool,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub duration_ms: Option<u32>,
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -155,6 +157,7 @@ mod audio_tests {
 				content_type: None,
 				size: 32,
 				media: EmbedMedia::default(),
+				animated: false,
 				spoiler: false,
 				duration_ms: None,
 				waveform: Vec::new(),
@@ -191,6 +194,7 @@ mod audio_tests {
 				content_type: None,
 				size: 32,
 				media: EmbedMedia::default(),
+				animated: false,
 				spoiler: false,
 			};
 			for filename in [

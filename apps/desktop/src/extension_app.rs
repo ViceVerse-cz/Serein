@@ -1792,6 +1792,7 @@ mod tests {
 				url: Some("https://example.org/PRIVATE_URL".into()),
 				..Default::default()
 			},
+			animated: false,
 			spoiler: true,
 			duration_ms: None,
 			waveform: vec![],

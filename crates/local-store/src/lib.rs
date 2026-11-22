@@ -3471,6 +3471,7 @@ mod tests {
 			description: Some("Synthetic alt text".into()),
 			content_type: Some("image/png".into()),
 			size: 2048,
+			animated: false,
 			spoiler: true,
 			media: model::EmbedMedia {
 				url: Some("https://cdn.discordapp.com/attachments/2/5/synthetic.png".into()),

@@ -1120,6 +1120,7 @@ mod tests {
 				height: 1080,
 				..Default::default()
 			},
+			animated: false,
 			spoiler: false,
 			duration_ms: None,
 			waveform: Vec::new(),
@@ -1254,6 +1255,7 @@ mod tests {
 				height: 1280,
 				..Default::default()
 			},
+			animated: false,
 			spoiler: false,
 			duration_ms: Some(11_817),
 			waveform: Vec::new(),

@@ -159,6 +159,7 @@ pub fn message(id: u64, channel: Id) -> Message {
                     description: Some("Original synthetic landscape · offline preview".into()),
                     content_type: Some("image/png".into()),
                     size: 2048,
+                    animated: false,
                     spoiler: false,
                     media: EmbedMedia {
                         url: Some(
@@ -179,6 +180,7 @@ pub fn message(id: u64, channel: Id) -> Message {
                     description: Some("Second original landscape · offline gallery preview".into()),
                     content_type: Some("image/png".into()),
                     size: 2048,
+                    animated: false,
                     spoiler: false,
                     media: EmbedMedia {
                         url: Some("https://cdn.discordapp.com/attachments/1/702/synthetic-second-landscape.png".into()),
@@ -196,6 +198,7 @@ pub fn message(id: u64, channel: Id) -> Message {
                     description: None,
                     content_type: Some("text/plain".into()),
                     size: 128,
+                    animated: false,
                     spoiler: false,
                     media: EmbedMedia {
                         url: Some(
@@ -1277,6 +1280,7 @@ pub fn audio_demo_state() -> State {
 			description: None,
 			content_type: Some(kind.into()),
 			size: 529244,
+			animated: false,
 			spoiler: false,
 			media: EmbedMedia {
 				url: Some(format!(
@@ -1437,6 +1441,7 @@ pub fn video_demo_state() -> State {
 		size: 120000,
 		duration_ms: Some(3000),
 		waveform: Vec::new(),
+		animated: false,
 		spoiler: false,
 		media: EmbedMedia {
 			url: Some("https://cdn.discordapp.com/attachments/20/801/synthetic-video.mov".into()),

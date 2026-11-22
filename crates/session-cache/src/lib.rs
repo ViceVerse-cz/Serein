@@ -999,6 +999,7 @@ mod tests {
 				description: Some("Synthetic attachment".into()),
 				content_type: Some("image/png".into()),
 				size: 100,
+				animated: false,
 				spoiler: true,
 				media: model::EmbedMedia {
 					url: Some("https://cdn.discordapp.com/attachments/1/20/synthetic.png".into()),
@@ -1575,6 +1576,7 @@ mod tests {
 					height: 480,
 					..Default::default()
 				},
+				animated: false,
 				spoiler: false,
 			};
 			let update = |attachments| MessagePatch {

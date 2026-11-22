@@ -115,6 +115,8 @@ impl AttachmentDto {
 				placeholder: placeholder(self.placeholder, self.placeholder_version),
 			},
 			spoiler,
+			// Bit 5 is the unofficial animation flag from the same source.
+			animated: self.flags & (1 << 5) != 0,
 		};
 		// Give every allowed file its own share, so a long description cannot hide later files.
 		let available = (model::MAX_ATTACHMENT_BYTES / model::MAX_ATTACHMENTS)
@@ -285,12 +287,26 @@ mod tests {
 				.unwrap();
 				assert!(list.0[0].spoiler);
 			}
-			let animated = crate::decode::<AttachmentList>(
-				br#"[{"id":"4","filename":"image.gif","flags":32}]"#,
+			let webp = crate::decode::<AttachmentList>(
+				br#"[{"id":"4","filename":"animated.webp","flags":32},{"id":"5","filename":"still.webp"}]"#,
 			)
 			.unwrap();
-			assert!(!animated.0[0].spoiler);
-			assert!(animated.0[0].is_image());
+			assert!(!webp.0[0].spoiler);
+			assert!(webp.0[0].is_image());
+			assert!(webp.0[0].animated);
+			assert!(!webp.0[1].animated);
+			for attachment in webp.0 {
+				// A still serializes without the animation field, like older cached rows.
+				let cached = serde_json::to_value(&attachment).unwrap();
+				assert_eq!(
+					cached.get("animated"),
+					attachment.animated.then_some(&json!(true))
+				);
+				assert_eq!(
+					serde_json::from_value::<Attachment>(cached).unwrap(),
+					attachment
+				);
+			}
 			let kinds = crate::decode::<AttachmentList>(br#"[{"id":"4","filename":"photo.PNG"},{"id":"5","filename":"plain.png","content_type":"text/plain"},{"id":"6","filename":"unknown.bin"},{"id":"7","filename":"unknown.bin","content_type":"image/jpeg"}]"#).unwrap();
 			assert!(kinds.0[0].is_image());
 			assert!(!kinds.0[1].is_image());

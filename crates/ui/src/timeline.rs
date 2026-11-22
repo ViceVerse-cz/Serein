@@ -5561,6 +5561,7 @@ impl TimelineView {
 					content_type: Some("image/png".into()),
 					size: 0,
 					media,
+					animated: false,
 					spoiler: false,
 					duration_ms: None,
 					waveform: Vec::new(),
@@ -6311,6 +6312,7 @@ mod tests {
 				content_type: Some("image/png".into()),
 				size: 64,
 				media: media.clone(),
+				animated: false,
 				spoiler: false,
 				duration_ms: None,
 				waveform: vec![],
@@ -6395,6 +6397,7 @@ mod tests {
 			content_type: Some("text/plain".into()),
 			size: 128,
 			media: model::EmbedMedia::default(),
+			animated: false,
 			spoiler: false,
 			duration_ms: None,
 			waveform: vec![],
@@ -6449,6 +6452,7 @@ mod tests {
 				height: 1280,
 				..Default::default()
 			},
+			animated: false,
 			spoiler: false,
 			duration_ms: None,
 			waveform: vec![],
@@ -7735,6 +7739,7 @@ mod tests {
 			content_type: None,
 			size: 1,
 			media: Default::default(),
+			animated: false,
 			spoiler: false,
 			duration_ms: None,
 			waveform: vec![],
@@ -10816,6 +10821,7 @@ mod tests {
 			description: None,
 			content_type: Some("image/png".into()),
 			size: 100,
+			animated: false,
 			spoiler: true,
 			media: model::EmbedMedia {
 				url: Some("https://cdn.discordapp.com/attachments/2/7/hidden.png".into()),
@@ -10864,6 +10870,7 @@ mod tests {
 			id: Id(id),
 			filename: format!("plain-{id}.png"),
 			description: None,
+			animated: false,
 			spoiler: false,
 			media: model::EmbedMedia {
 				url: Some(format!(

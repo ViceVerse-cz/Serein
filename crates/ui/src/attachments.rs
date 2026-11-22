@@ -514,18 +514,17 @@ pub(crate) fn show_subset(
 									)
 								});
 								media_context_menu(&response, attachment, download, opening, demo);
-								let gif = crate::embeds::gif_for_media(
-									&attachment.media,
-									None,
-									attachment.filename.to_ascii_lowercase().ends_with(".gif")
-										|| attachment.content_type.as_deref().is_some_and(|mime| {
-											mime.split(';')
-												.next()
-												.unwrap_or(mime)
-												.trim()
-												.eq_ignore_ascii_case("image/gif")
-										}),
-								);
+								let animated = attachment.animated
+									|| attachment.filename.to_ascii_lowercase().ends_with(".gif")
+									|| attachment.content_type.as_deref().is_some_and(|mime| {
+										mime.split(';')
+											.next()
+											.unwrap_or(mime)
+											.trim()
+											.eq_ignore_ascii_case("image/gif")
+									});
+								let gif =
+									crate::embeds::gif_for_media(&attachment.media, None, animated);
 								let star = gif.map(|gif| {
 									let favorite = download.gif_favorites.contains(&gif.url);
 									let star = crate::embeds::favorite_star(
@@ -1816,6 +1815,7 @@ mod tests {
 				description: None,
 				content_type: Some("image/png".into()),
 				size: 512,
+				animated: false,
 				spoiler: false,
 				media: model::EmbedMedia {
 					width: 640,
@@ -1959,6 +1959,7 @@ mod tests {
 				description: None,
 				content_type: Some("image/png".into()),
 				size: 512,
+				animated: false,
 				spoiler: false,
 				media: model::EmbedMedia {
 					width: 640,
@@ -2071,6 +2072,7 @@ mod tests {
 			description: None,
 			content_type: Some("application/pdf".into()),
 			size: 512,
+			animated: false,
 			spoiler: false,
 			media: model::EmbedMedia {
 				url: Some("https://cdn.discordapp.com/attachments/2/3/synthetic-report.pdf".into()),

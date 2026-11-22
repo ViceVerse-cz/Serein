@@ -446,6 +446,7 @@ fn main() {
 				description: None,
 				content_type: Some("text/plain".into()),
 				size: 128,
+				animated: false,
 				spoiler: false,
 				media: model::EmbedMedia {
 					url: Some(
@@ -604,6 +605,7 @@ fn main() {
 			description: Some("offline preview".into()),
 			content_type: Some("image/png".into()),
 			size: 2048,
+			animated: false,
 			spoiler: false,
 			media: model::EmbedMedia {
 				url: Some(

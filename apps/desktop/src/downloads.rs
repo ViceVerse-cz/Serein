@@ -98,6 +98,7 @@ impl Downloads {
 			content_type: Some("image/png".into()),
 			size: 0,
 			media: model::EmbedMedia::default(),
+			animated: false,
 			spoiler: false,
 			duration_ms: None,
 			waveform: Vec::new(),
@@ -759,7 +760,7 @@ mod tests {
 
 	fn attachment() -> Attachment {
 		Attachment { duration_ms: None, waveform: Vec::new(), id: model::Id(2), filename: "synthetic image.png".into(), description: None,
-            content_type: Some("image/png".into()), size: 1024, spoiler: false,
+            content_type: Some("image/png".into()), size: 1024, animated: false, spoiler: false,
             media: model::EmbedMedia { url: Some("https://cdn.discordapp.com/attachments/1/2/synthetic%20image.png?ex=123&is=123&hm=abc".into()), ..Default::default() } }
 	}
 	async fn endpoint(
