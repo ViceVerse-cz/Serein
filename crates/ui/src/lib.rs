@@ -3176,6 +3176,28 @@ impl MessagingUi {
 							shortcuts_available,
 						),
 					);
+					let slots = state.group_dm_slots(c.id);
+					let available = slots.is_some_and(|slots| slots > 0)
+						&& (state.demo || state.gateway_connected)
+						&& !state.group_action_pending();
+					let button = ui
+						.add_enabled_ui(available, |ui| {
+							icons::button(
+								ui,
+								icons::Icon::AddPeople,
+								32.0,
+								&crate::i18n::translate("group-add-title"),
+							)
+						})
+						.inner;
+					if slots == Some(0) {
+						button
+							.clone()
+							.on_disabled_hover_text(crate::i18n::translate("group-add-full"));
+					}
+					if button.clicked() {
+						self.new_message.open_for_group(state, c.id);
+					}
 				}
 				if state.selected.is_some() && !selected_voice {
 					if self.search.open && !self.search.pins() {

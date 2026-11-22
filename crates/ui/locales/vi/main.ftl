@@ -5232,3 +5232,8 @@ native-login-web-open = Mở trang đăng nhập của Discord
 ## crates/ui/src/interface_ui.rs
 # Context: interface_tree
 interface-ui-empty = Plugin này chưa có gì để hiển thị.
+
+group-add-title = Th?m b?n v?o tin nh?n tr?c ti?p
+group-add-subtitle = Ch?n m?t ng??i b?n ?? th?m v?o nh?m n?y.
+group-add-full = Nh?m n?y ?? ??t gi?i h?n 10 ng??i.
+group-add-confirm = Th?m b?n

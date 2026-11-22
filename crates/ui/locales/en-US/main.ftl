@@ -5220,3 +5220,8 @@ native-login-web-open = Open Discord's login page
 ## crates/ui/src/interface_ui.rs
 # Context: interface_tree
 interface-ui-empty = This plugin has nothing to show yet.
+
+group-add-title = Add Friends to DM
+group-add-subtitle = Choose a friend to add to this group.
+group-add-full = This group has reached the 10-person limit.
+group-add-confirm = Add Friend

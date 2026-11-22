@@ -1,4 +1,4 @@
-//! One bounded "start a conversation" picker: a direct message, or a group of up to ten people.
+//! One bounded friend picker for starting a conversation or adding to an existing group.
 use crate::{avatars::Avatars, design, dialog};
 use client_core::{Command, State, user_actions::MAX_GROUP_RECIPIENTS};
 use model::Id;
@@ -10,6 +10,10 @@ const FRIENDS: usize = 16;
 pub(crate) struct NewMessageUi {
 	open: bool,
 	generation: u64,
+	group: Option<Id>,
+	submitted: Option<u64>,
+	error: Option<&'static str>,
+	queried_recipients: Vec<Id>,
 	query: String,
 	selected: Vec<Id>,
 	focus: bool,
@@ -19,11 +23,14 @@ pub(crate) struct NewMessageUi {
 }
 
 /// The friends matching `query` by display name or handle, alphabetical and bounded.
-fn matching_friends(state: &State, query: &str) -> Vec<Id> {
+fn matching_friends(state: &State, query: &str, group: Option<Id>) -> Vec<Id> {
 	let query = query.to_lowercase();
 	let words: Vec<&str> = query.split_whitespace().collect();
 	let mut found: Vec<(String, Id)> = Vec::new();
 	for friend in state.friends() {
+		if group.is_some_and(|channel| !state.group_recipient_eligible(channel, friend.id)) {
+			continue;
+		}
 		let name = state.user_display_name(friend).to_lowercase();
 		let handle = state
 			.friend_username(friend.id)
@@ -54,6 +61,11 @@ impl NewMessageUi {
 			..Self::default()
 		};
 	}
+	pub fn open_for_group(&mut self, state: &State, channel: Id) {
+		self.open(state);
+		self.group = Some(channel);
+	}
+
 	pub fn show(
 		&mut self,
 		ctx: &egui::Context,
@@ -64,121 +76,194 @@ impl NewMessageUi {
 		if !self.open {
 			return;
 		}
-		if self.generation != state.generation {
+		if self.generation != state.generation
+			|| self.group.is_some_and(|channel| {
+				state.selected != Some(channel) || !state.is_group_dm(channel)
+			}) {
 			*self = Self::default();
 			return;
 		}
-		// Someone unfriended while the picker is open can no longer be messaged from it.
-		self.selected.retain(|user| state.friend(*user).is_some());
+		let group = self.group;
+		if let Some(channel) = group
+			&& let Some(request) = self.submitted
+			&& let Some(success) = state.group_action_completed(channel, request)
+		{
+			if success {
+				*self = Self::default();
+				return;
+			}
+			self.submitted = None;
+			self.error = state.group_action_status(channel);
+		}
+		self.selected.retain(|user| match group {
+			Some(channel) => state.group_recipient_eligible(channel, *user),
+			None => state.friend(*user).is_some(),
+		});
 		let mut create = false;
 		let mut close = false;
-		let pending = state.user_action_pending();
-		let response =
-			dialog::Dialog::new("new-message", crate::i18n::translate("new-message-title"))
-				.subtitle(crate::i18n::translate("new-message-subtitle"))
-				.width(440.0)
-				.show(ctx, |d| {
-					d.content(|ui| {
-						let input = design::input(
-							ui,
-							egui::TextEdit::singleline(&mut self.query)
-								.align(egui::Align2::LEFT_CENTER)
-								.hint_text(crate::i18n::translate("new-message-search"))
-								.char_limit(128),
-						);
-						if std::mem::take(&mut self.focus) {
-							input.request_focus();
-						}
+		let pending = if group.is_some() {
+			self.submitted.is_some() || state.group_action_pending()
+		} else {
+			state.user_action_pending()
+		};
+		let full_group = group
+			.is_some_and(|channel| state.group_dm_slots(channel).is_none_or(|slots| slots == 0));
+		let title = if group.is_some() {
+			"group-add-title"
+		} else {
+			"new-message-title"
+		};
+		let subtitle = if group.is_some() {
+			"group-add-subtitle"
+		} else {
+			"new-message-subtitle"
+		};
+		let response = dialog::Dialog::new("new-message", crate::i18n::translate(title))
+			.subtitle(crate::i18n::translate(subtitle))
+			.width(440.0)
+			.show(ctx, |d| {
+				d.content(|ui| {
+					let input = design::input(
+						ui,
+						egui::TextEdit::singleline(&mut self.query)
+							.align(egui::Align2::LEFT_CENTER)
+							.hint_text(crate::i18n::translate("new-message-search"))
+							.char_limit(128),
+					);
+					if std::mem::take(&mut self.focus) {
+						input.request_focus();
+					}
+					if group.is_none() {
 						design::hint(ui, &crate::i18n::translate("new-message-hint"));
-						ui.add_space(8.0);
-					});
-					d.content(|ui| {
-						egui::ScrollArea::vertical()
-							.id_salt("new-message-people")
-							.max_height((ctx.content_rect().height() - 340.0).clamp(80.0, 300.0))
-							.auto_shrink([false, true])
-							.show(ui, |ui| {
-								// Rebuild at most once a second, like the other search lists.
-								let now = ui.input(|input| input.time);
-								let view = state.relationship_view();
-								let stale =
-									self.queried.as_ref().is_none_or(|(query, cached, at)| {
-										*query != self.query
-											|| *cached != view || !(0.0..1.0).contains(&(now - at))
-									});
-								if stale {
-									let query = self.query.clone();
-									self.matches = matching_friends(state, &query);
-									self.queried = Some((query, view, now));
-								}
-								if self.matches.is_empty() {
-									ui.label(crate::i18n::translate("new-message-no-people-found"));
-								}
-								for index in 0..self.matches.len() {
-									let id = self.matches[index];
-									let Some(friend) = state.friend(id) else {
-										continue;
-									};
-									let selected = self.selected.contains(&id);
-									let full = self.selected.len() >= MAX_GROUP_RECIPIENTS;
-									let enabled = !pending && (selected || !full);
-									let handle = state.friend_username(id).unwrap_or_default();
-									let response = ui
-										.push_id(id.0, |ui| {
-											ui.add_enabled_ui(enabled, |ui| {
-												design::selection_row(
-													ui,
-													selected,
-													state.user_display_name(friend),
-													&format!("@{handle}"),
-													|ui, rect| {
-														avatars.paint_user(
-															ui, friend, 32.0, rect, state.demo,
-														);
-													},
-												)
-											})
-											.inner
+					}
+					if full_group {
+						design::hint(ui, &crate::i18n::translate("group-add-full"));
+					}
+					if let Some(error) = self.error {
+						design::hint(ui, error);
+					}
+					ui.add_space(8.0);
+				});
+				d.content(|ui| {
+					egui::ScrollArea::vertical()
+						.id_salt("new-message-people")
+						.max_height((ctx.content_rect().height() - 340.0).clamp(80.0, 300.0))
+						.auto_shrink([false, true])
+						.show(ui, |ui| {
+							// Rebuild at most once a second, like the other search lists.
+							let now = ui.input(|input| input.time);
+							let view = state.relationship_view();
+							let stale = self.queried.as_ref().is_none_or(|(query, cached, at)| {
+								*query != self.query
+									|| *cached != view || !(0.0..1.0).contains(&(now - at))
+							});
+							let roster = group
+								.and_then(|channel| state.channel(channel))
+								.map_or(&[][..], |channel| channel.recipients.as_slice());
+							if stale
+								|| !roster
+									.iter()
+									.map(|user| user.id)
+									.eq(self.queried_recipients.iter().copied())
+							{
+								let query = self.query.clone();
+								self.matches = matching_friends(state, &query, group);
+								self.queried = Some((query, view, now));
+								self.queried_recipients =
+									roster.iter().map(|user| user.id).collect();
+							}
+							if self.matches.is_empty() {
+								ui.label(crate::i18n::translate("new-message-no-people-found"));
+							}
+							for index in 0..self.matches.len() {
+								let id = self.matches[index];
+								let Some(friend) = state.friend(id) else {
+									continue;
+								};
+								let selected = self.selected.contains(&id);
+								let full = self.selected.len() >= MAX_GROUP_RECIPIENTS;
+								let enabled = !pending && !full_group && (selected || !full);
+								let handle = state.friend_username(id).unwrap_or_default();
+								let response = ui
+									.push_id(id.0, |ui| {
+										ui.add_enabled_ui(enabled, |ui| {
+											design::selection_row(
+												ui,
+												selected,
+												state.user_display_name(friend),
+												&format!("@{handle}"),
+												|ui, rect| {
+													avatars.paint_user(
+														ui, friend, 32.0, rect, state.demo,
+													);
+												},
+											)
 										})
-										.inner;
-									if response.clicked() {
-										if selected {
-											self.selected.retain(|user| *user != id);
-										} else {
-											self.selected.push(id);
+										.inner
+									})
+									.inner;
+								if response.clicked() {
+									if selected {
+										self.selected.retain(|user| *user != id);
+									} else {
+										if group.is_some() {
+											self.selected.clear();
 										}
+										self.selected.push(id);
 									}
 								}
-							});
-					});
-					d.footer(|ui| {
-						let ready = !self.selected.is_empty()
-							&& !pending && (state.demo || state.gateway_connected);
-						create = ui
-							.add_enabled_ui(ready, |ui| {
-								dialog::action(ui, "new-message-create", dialog::Action::Primary)
-							})
-							.inner
-							.clicked();
-						close = dialog::action(ui, "new-message-cancel", dialog::Action::Neutral)
-							.clicked();
-					});
+							}
+						});
 				});
+				d.footer(|ui| {
+					let ready = !self.selected.is_empty()
+						&& !full_group && !pending
+						&& (state.demo || state.gateway_connected);
+					let action = if group.is_some() {
+						"group-add-confirm"
+					} else {
+						"new-message-create"
+					};
+					create = ui
+						.add_enabled_ui(ready, |ui| {
+							dialog::action(ui, action, dialog::Action::Primary)
+						})
+						.inner
+						.clicked();
+					close = ui
+						.add_enabled_ui(self.submitted.is_none(), |ui| {
+							dialog::action(ui, "new-message-cancel", dialog::Action::Neutral)
+						})
+						.inner
+						.clicked();
+				});
+			});
 		if create {
 			if let Some(command) = self.issue(state) {
+				if let Command::GroupAction { request, .. } = &command {
+					self.submitted = Some(*request);
+					self.error = None;
+				} else {
+					close = true;
+				}
 				commands.push(command);
-				close = true;
-			} else if self.opened(state) {
+			} else if group.is_none() && self.opened(state) {
 				// The conversation was already loaded, or already on screen.
 				close = true;
 			}
 		}
-		if close || response.close {
+		if (close || response.close) && self.submitted.is_none() {
 			*self = Self::default();
 		}
 	}
 	/// One recipient opens a DM; more become a group the service admits.
 	fn issue(&self, state: &mut State) -> Option<Command> {
+		if let Some(channel) = self.group {
+			let [user] = self.selected.as_slice() else {
+				return None;
+			};
+			return state.add_group_recipient(channel, *user);
+		}
 		if let [user] = self.selected.as_slice() {
 			let friend = state.friend(*user)?.clone();
 			return state.open_user_dm(&friend);
@@ -250,6 +335,40 @@ mod tests {
 			});
 		}
 		(state, people)
+	}
+
+	#[test]
+	fn the_group_picker_filters_current_members_and_targets_the_existing_group() {
+		let (mut state, people) = fixture();
+		state.channels.push(model::Channel {
+			id: Id(50),
+			guild: None,
+			kind: 3,
+			name: "Synthetic group".into(),
+			recipients: vec![people[0].clone()],
+			parent_id: None,
+			position: 0,
+			last_message: None,
+			member_list_id: None,
+			tags: None,
+			message_count: None,
+			icon: None,
+			user_limit: None,
+			slowmode: 0,
+		});
+		state.invalidate_navigation();
+		state.selected = Some(Id(50));
+		assert_eq!(matching_friends(&state, "", Some(Id(50))), [people[1].id]);
+		let mut picker = NewMessageUi::default();
+		picker.open_for_group(&state, Id(50));
+		picker.selected = vec![people[1].id];
+		assert!(matches!(
+			picker.issue(&mut state),
+			Some(Command::GroupAction {
+				action: client_core::group_actions::Action::AddRecipient { channel: Id(50), user },
+				..
+			}) if user == people[1].id
+		));
 	}
 
 	#[test]
