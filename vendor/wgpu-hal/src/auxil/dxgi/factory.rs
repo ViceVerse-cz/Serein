@@ -58,6 +58,17 @@ pub enum DxgiAdapter {
 }
 
 impl DxgiAdapter {
+    fn from_adapter1(adapter: &Dxgi::IDXGIAdapter1) -> Option<Self> {
+        if let Ok(adapter4) = adapter.cast::<Dxgi::IDXGIAdapter4>() {
+            Some(Self::Adapter4(adapter4))
+        } else {
+            adapter
+                .cast::<Dxgi::IDXGIAdapter3>()
+                .ok()
+                .map(Self::Adapter3)
+        }
+    }
+
     pub fn query_video_memory_info(
         &self,
         group: Dxgi::DXGI_MEMORY_SEGMENT_GROUP,
@@ -98,11 +109,8 @@ pub fn enumerate_adapters(factory: DxgiFactory) -> Vec<DxgiAdapter> {
             continue;
         }
 
-        if let Ok(adapter4) = adapter1.cast::<Dxgi::IDXGIAdapter4>() {
-            adapters.push(DxgiAdapter::Adapter4(adapter4));
-        } else {
-            let adapter3 = adapter1.cast::<Dxgi::IDXGIAdapter3>().unwrap();
-            adapters.push(DxgiAdapter::Adapter3(adapter3));
+        if let Some(adapter) = DxgiAdapter::from_adapter1(&adapter1) {
+            adapters.push(adapter);
         }
     }
 
@@ -132,6 +140,31 @@ impl Deref for DxgiFactory {
 }
 
 impl DxgiFactory {
+    pub fn minimum_power_adapter(&self) -> Option<DxgiAdapter> {
+        let Self::Factory6(factory) = self else {
+            return None;
+        };
+        for index in 0.. {
+            // DXGI returns the integrated GPU before discrete and external adapters.
+            let adapter = unsafe {
+                factory.EnumAdapterByGpuPreference::<Dxgi::IDXGIAdapter1>(
+                    index,
+                    Dxgi::DXGI_GPU_PREFERENCE_MINIMUM_POWER,
+                )
+            }
+            .ok()?;
+            let Ok(desc) = (unsafe { adapter.GetDesc1() }) else {
+                continue;
+            };
+            let software = Dxgi::DXGI_ADAPTER_FLAG(desc.Flags as i32)
+                .contains(Dxgi::DXGI_ADAPTER_FLAG_SOFTWARE);
+            if !software && should_keep_adapter(&adapter) {
+                return DxgiAdapter::from_adapter1(&adapter);
+            }
+        }
+        None
+    }
+
     pub fn as_factory5(&self) -> Option<&Dxgi::IDXGIFactory5> {
         match self {
             Self::Factory4(_) => None,

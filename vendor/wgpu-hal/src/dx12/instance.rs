@@ -167,7 +167,12 @@ impl crate::Instance for super::Instance {
         &self,
         _surface_hint: Option<&super::Surface>,
     ) -> Vec<crate::ExposedAdapter<super::Api>> {
-        let adapters = auxil::dxgi::factory::enumerate_adapters(self.factory.clone());
+        // Exposing an adapter creates a D3D12 device to query its capabilities.
+        let adapters = if self.options.minimum_power_adapter_only {
+            self.factory.minimum_power_adapter().into_iter().collect()
+        } else {
+            auxil::dxgi::factory::enumerate_adapters(self.factory.clone())
+        };
 
         adapters
             .into_iter()

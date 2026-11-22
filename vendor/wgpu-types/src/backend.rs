@@ -535,6 +535,9 @@ impl Dx12AgilitySDK {
 /// Part of [`BackendOptions`].
 #[derive(Clone, Debug, Default)]
 pub struct Dx12BackendOptions {
+    /// Probe only the first eligible hardware adapter in DXGI minimum-power order.
+    /// An unavailable or unsuitable adapter returns an empty list for the caller to retry.
+    pub minimum_power_adapter_only: bool,
     /// Which DX12 shader compiler to use.
     pub shader_compiler: Dx12Compiler,
     /// Presentation system to use.
@@ -569,6 +572,7 @@ impl Dx12BackendOptions {
             Dx12UseFrameLatencyWaitableObject::from_env().unwrap_or_default();
         let agility_sdk = Dx12AgilitySDK::from_env();
         Self {
+            minimum_power_adapter_only: false,
             shader_compiler: compiler,
             presentation_system,
             latency_waitable_object,
@@ -590,6 +594,7 @@ impl Dx12BackendOptions {
             .map(|s| s.with_env())
             .or_else(Dx12AgilitySDK::from_env);
         Self {
+            minimum_power_adapter_only: self.minimum_power_adapter_only,
             shader_compiler,
             presentation_system,
             latency_waitable_object,
