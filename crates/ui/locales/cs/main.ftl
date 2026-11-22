@@ -2292,6 +2292,12 @@ reading-zoom-row-zoom = Přiblížení
 
 ## crates/ui/src/screen.rs
 # Context: body
+screen-body-all-applications = Všechny aplikace
+# Context: body
+screen-body-audio-sources = Zdroje zvuku
+# Context: body
+screen-body-choose-applications-to-share-only-their-sound = Vyberte aplikace, jejichž zvuk se má sdílet. Aplikace je v seznamu, jen když přehrává zvuk.
+# Context: body
 screen-body-frame-rate = Snímková frekvence
 # Context: body
 screen-body-include-the-pointer-in-the-shared-video = Zahrnout ukazatel do sdíleného videa.
@@ -2312,9 +2318,9 @@ screen-body-screen-or-window = Obrazovka nebo okno
 # Context: body
 screen-body-send-what-your-mac-plays-along-with-the-screen-serein = Odesílejte, co váš Mac hraje, spolu s obrazovkou. Serein vlastní zvuk hovoru je vynechán.
 # Context: body
-screen-body-share-sound-from-other-apps-even-when-sharing-one-window = Sdílejte zvuk z jiných aplikací, i když sdílíte jedno okno. Serein vlastní zvuk je vynechán.
+screen-body-share-audio = Sdílet zvuk
 # Context: body
-screen-body-share-system-audio = Sdílejte systémový zvuk
+screen-body-share-sound-from-every-app-or-only-from-the-apps-you-choose = Sdílejte zvuk ze všech aplikací, nebo jen z těch, které vyberete. Serein vlastní zvuk je vynechán.
 # Context: body
 screen-body-share-the-shared-apps-sound-or-other-apps-for-a-screen = Sdílejte zvuk sdílené aplikace, nebo při sdílení obrazovky zvuk všech ostatních aplikací. Serein vlastní zvuk je vynechán.
 # Context: body

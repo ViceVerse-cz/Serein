@@ -2264,6 +2264,12 @@ reading-zoom-row-zoom = Zoom
 
 ## crates/ui/src/screen.rs
 # Context: body
+screen-body-all-applications = Alle Anwendungen
+# Context: body
+screen-body-audio-sources = Audioquellen
+# Context: body
+screen-body-choose-applications-to-share-only-their-sound = Wählen Sie Anwendungen aus, um nur deren Ton zu teilen. Eine Anwendung wird aufgelistet, solange sie Ton wiedergibt.
+# Context: body
 screen-body-frame-rate = Bildrate
 # Context: body
 screen-body-include-the-pointer-in-the-shared-video = Fügen Sie den Zeiger in das geteilte Video ein.
@@ -2284,9 +2290,9 @@ screen-body-screen-or-window = Bildschirm oder Fenster
 # Context: body
 screen-body-send-what-your-mac-plays-along-with-the-screen-serein = Senden Sie zusammen mit dem Bildschirm, was Ihr Mac abspielt. Sereins eigener Anrufton wird weggelassen.
 # Context: body
-screen-body-share-sound-from-other-apps-even-when-sharing-one-window = Teilen Sie Sound von anderen Apps, auch wenn Sie ein Fenster teilen. Sereins eigener Ton wird weggelassen.
+screen-body-share-audio = Audio teilen
 # Context: body
-screen-body-share-system-audio = Teilen Sie Systemaudio
+screen-body-share-sound-from-every-app-or-only-from-the-apps-you-choose = Teilen Sie den Ton aller Apps oder nur der Apps, die Sie auswählen. Sereins eigener Ton wird weggelassen.
 # Context: body
 screen-body-share-the-shared-apps-sound-or-other-apps-for-a-screen = Teilen Sie den Ton der geteilten App oder beim Teilen eines Bildschirms den Ton aller anderen Apps. Sereins eigener Ton wird weggelassen.
 # Context: body

@@ -142,6 +142,30 @@ fn fit_within(bound: (u32, u32), width: u32, height: u32) -> Option<(u32, u32)> 
 	(fitted_width >= 2 && fitted_height >= 2).then_some((fitted_width, fitted_height))
 }
 
+/// Most applications one share may name.
+pub const MAX_AUDIO_APPLICATIONS: usize = 32;
+
+/// One application whose playback can be shared with a screen. Both fields identify it:
+/// launchers such as Wine and Electron run many applications under one executable name.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AudioApplication {
+	pub binary: String,
+	pub name: String,
+}
+
+/// Which applications' playback a share with audio includes. It has no effect on a share
+/// whose [`Settings::audio`] is off.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum AudioScope {
+	/// The platform's own scoping: every other application, or only the shared window's
+	/// application where the platform can name it.
+	#[default]
+	PlatformDefault,
+	/// Only these applications, whatever is shared. One that is not playing adds nothing;
+	/// the share never widens to other applications.
+	Applications(Vec<AudioApplication>),
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct Settings {
 	pub source: SourceId,

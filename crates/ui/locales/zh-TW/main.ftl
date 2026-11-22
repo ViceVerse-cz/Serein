@@ -2295,6 +2295,12 @@ reading-zoom-row-zoom = 縮放
 
 ## crates/ui/src/screen.rs
 # Context: body
+screen-body-all-applications = 所有應用程式
+# Context: body
+screen-body-audio-sources = 音訊來源
+# Context: body
+screen-body-choose-applications-to-share-only-their-sound = 選擇應用程式即可只分享其聲音。應用程式僅在播放音訊時列出。
+# Context: body
 screen-body-frame-rate = 影格率
 # Context: body
 screen-body-include-the-pointer-in-the-shared-video = 分享畫面時包含滑鼠指標。
@@ -2315,9 +2321,9 @@ screen-body-screen-or-window = 螢幕或視窗
 # Context: body
 screen-body-send-what-your-mac-plays-along-with-the-screen-serein = 連同畫面一起送出你的 Mac 播放的聲音。不含 Serein 本身的通話音訊。
 # Context: body
-screen-body-share-sound-from-other-apps-even-when-sharing-one-window = 即使只分享一個視窗，也能送出其他應用程式的聲音。不含 Serein 本身的音訊。
+screen-body-share-audio = 分享音訊
 # Context: body
-screen-body-share-system-audio = 分享系統音訊
+screen-body-share-sound-from-every-app-or-only-from-the-apps-you-choose = 分享所有應用程式的聲音，或僅分享所選應用程式的聲音。不含 Serein 本身的音訊。
 # Context: body
 screen-body-share-the-shared-apps-sound-or-other-apps-for-a-screen = 分享所分享應用程式的聲音；分享螢幕時則分享其他所有應用程式的聲音。Serein 本身的音訊不會包含在內。
 # Context: body

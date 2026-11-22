@@ -2265,6 +2265,12 @@ reading-zoom-row-zoom = Yakınlaştır
 
 ## crates/ui/src/screen.rs
 # Context: body
+screen-body-all-applications = Tüm uygulamalar
+# Context: body
+screen-body-audio-sources = Ses kaynakları
+# Context: body
+screen-body-choose-applications-to-share-only-their-sound = Yalnızca seslerini paylaşmak için uygulamaları seçin. Bir uygulama ses çalarken listelenir.
+# Context: body
 screen-body-frame-rate = Kare hızı
 # Context: body
 screen-body-include-the-pointer-in-the-shared-video = İşaretçiyi paylaşılan videoya ekleyin.
@@ -2285,9 +2291,9 @@ screen-body-screen-or-window = Ekran veya pencere
 # Context: body
 screen-body-send-what-your-mac-plays-along-with-the-screen-serein = Mac'inizin oynattıklarını ekranla birlikte gönderin. Serein'in kendi çağrı sesi dışarıda bırakıldı.
 # Context: body
-screen-body-share-sound-from-other-apps-even-when-sharing-one-window = Bir pencereyi paylaşırken bile diğer uygulamalardaki sesi paylaşın. Serein'in kendi sesi dışarıda bırakıldı.
+screen-body-share-audio = Sesi paylaş
 # Context: body
-screen-body-share-system-audio = Sistem sesini paylaş
+screen-body-share-sound-from-every-app-or-only-from-the-apps-you-choose = Tüm uygulamaların sesini veya yalnızca seçtiğiniz uygulamaların sesini paylaşın. Serein'in kendi sesi dışarıda bırakıldı.
 # Context: body
 screen-body-share-the-shared-apps-sound-or-other-apps-for-a-screen = Paylaşılan uygulamanın sesini veya ekran paylaşırken diğer tüm uygulamaların sesini paylaşın. Serein'in kendi sesi dahil edilmez.
 # Context: body

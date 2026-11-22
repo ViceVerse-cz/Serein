@@ -1,7 +1,7 @@
 //! Linux ownership: one portal session and one bounded media pipeline, no recorder.
 use super::{
-	AudioChunk, EncodedFrame, MAX_ENCODED_BYTES, Settings, SourceId, audio_linux, encode_pixels,
-	encoder,
+	AudioChunk, AudioScope, EncodedFrame, MAX_ENCODED_BYTES, Settings, SourceId, audio_linux,
+	encode_pixels, encoder,
 	gstreamer::{self as capture, Capture, Gpu, Mode},
 	portal_linux::Portal,
 	preview_frame,
@@ -130,6 +130,7 @@ pub(super) fn run(
 	bitrate: Arc<AtomicU32>,
 	send: tokio::sync::mpsc::Sender<EncodedFrame>,
 	audio_send: Option<tokio::sync::mpsc::Sender<AudioChunk>>,
+	audio_scope: AudioScope,
 	audio_epoch: Arc<AtomicU64>,
 	preview: Arc<Mutex<Option<image::RgbaImage>>>,
 	status: Arc<Mutex<&'static str>>,
@@ -174,7 +175,13 @@ pub(super) fn run(
 			}
 			audio = audio_send
 				.map(|send| {
-					audio_linux::Worker::start(send, stop.clone(), ready.clone(), audio_epoch)
+					audio_linux::Worker::start(
+						send,
+						stop.clone(),
+						ready.clone(),
+						audio_epoch,
+						audio_scope,
+					)
 				})
 				.transpose()?;
 			let mut mode_index = 0;

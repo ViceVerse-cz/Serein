@@ -499,7 +499,7 @@ not establish production readiness or superiority over Discord's processing.
 
 ## Screen sharing
 
-In a connected call, select **Share your screen**, choose a display/window, then a resolution and frame rate, cursor visibility and optional **Share system audio**, then select **Share screen**. The screen button changes to **Stop sharing** while starting/sharing; it also remains available in the compact call controls. Call microphone controls remain independent. All presets are selectable without Nitro, but Discord acceptance and sustained frame rate are not guaranteed.
+In a connected call, select **Share your screen**, choose a display/window, then a resolution and frame rate, cursor visibility and optional **Share audio**, then select **Share screen**. The screen button changes to **Stop sharing** while starting/sharing; it also remains available in the compact call controls. Call microphone controls remain independent. All presets are selectable without Nitro, but Discord acceptance and sustained frame rate are not guaranteed.
 
 Starting this device's share plays Discord's screen-share cue. Selecting **Stop sharing** plays the stop cue. Ending the share by leaving the call or logging out does not. The single screen-share sound switch governs both cues.
 
@@ -610,6 +610,16 @@ even when sharing one window, and excludes Serein's own audio, including call pl
 and watched streams. Exclusion happens at capture on the sender: a viewer cannot remove
 their voice once another sender has mixed it into stream audio. Other apps' notifications
 and audio remain included. macOS retains ScreenCaptureKit's current-process exclusion.
+
+On Linux the share dialog lists the applications playing audio once sharing audio is
+switched on. Choosing one or more shares only their playback, whatever screen or window is
+shared and on any desktop; "All applications" keeps the behavior above. An application
+is listed only while it holds a playback stream, is matched by its executable and
+application names together (Wine and Electron run many applications under one executable),
+and adds nothing while it is not playing: a choice never widens to other applications. All
+windows of one application share one choice, since PulseAudio streams do not name a
+window. The choice is fixed when the share starts and is kept for the next share in the
+same session; at most 32 applications can be chosen.
 
 Linux captures individual playback streams through PulseAudio's per-stream monitor API,
 also implemented by PipeWire's PulseAudio server. A stream that does not name its process

@@ -2338,6 +2338,12 @@ reading-zoom-row-zoom = Zoom
 
 ## crates/ui/src/screen.rs
 # Context: body
+screen-body-all-applications = All applications
+# Context: body
+screen-body-audio-sources = Audio sources
+# Context: body
+screen-body-choose-applications-to-share-only-their-sound = Choose applications to share only their sound. An application is listed while it plays audio.
+# Context: body
 screen-body-frame-rate = Frame rate
 # Context: body
 screen-body-include-the-pointer-in-the-shared-video = Include the pointer in the shared video.
@@ -2358,9 +2364,9 @@ screen-body-screen-or-window = Screen or window
 # Context: body
 screen-body-send-what-your-mac-plays-along-with-the-screen-serein = Send what your Mac plays along with the screen. Serein's own call audio is left out.
 # Context: body
-screen-body-share-sound-from-other-apps-even-when-sharing-one-window = Share sound from other apps, even when sharing one window. Serein's own audio is left out.
+screen-body-share-audio = Share audio
 # Context: body
-screen-body-share-system-audio = Share system audio
+screen-body-share-sound-from-every-app-or-only-from-the-apps-you-choose = Share sound from every app, or only from the apps you choose. Serein's own audio is left out.
 # Context: body
 screen-body-share-the-shared-apps-sound-or-other-apps-for-a-screen = Share the shared app's sound, or every other app's sound when sharing a screen. Serein's own audio is left out.
 # Context: body

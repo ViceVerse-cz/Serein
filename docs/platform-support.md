@@ -462,7 +462,8 @@ cancelled portal request. X11 capture and live delivery remain unverified.
 
 Optional Linux stream audio uses native `libpulse` per-application monitoring on
 PulseAudio or PipeWire's PulseAudio server, completing a stream's missing process
-identity from its PulseAudio client. Source builds need the libpulse development
+identity from its PulseAudio client. The share dialog can limit the audio to chosen
+applications that are playing, on any desktop. Source builds need the libpulse development
 package (`libpulse-dev`, `pulseaudio-libs-devel`, `libpulse-devel` or Arch's `libpulse`).
 The existing Flatpak PulseAudio socket permission covers this access; the ScreenCast
 portal's PipeWire remote grants video only. Windows uses native process loopback: one

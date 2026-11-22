@@ -1080,7 +1080,8 @@ local media handoff, not PulseAudio/WASAPI capture, speaker output, or Discord f
 Discord's [August 2025 patch notes](https://discord.com/blog/discord-patch-notes-august-4-2025)
 confirm Linux application-audio sharing; older articles saying Linux audio is unavailable
 are outdated. Unlike Discord's selected-application mode, Serein currently captures other
-eligible applications too, even when sharing one window, excluding its own playback.
+eligible applications too, even when sharing one window, excluding its own playback;
+on Linux the share dialog can limit the audio to chosen applications instead.
 
 September 12 local-preview update: DM and guild call stages display the owner's
 camera and a bounded screen-share preview while waiting alone. Local capture is
@@ -1131,7 +1132,10 @@ Audio chunks are at most 9,600 floats / 38,400 bytes (100 ms). The capture chann
 four chunks / 153,600 bytes. Linux admits at most 32 identified application streams
 (excess streams are left out rather than failing the worker), each with at most 100 ms /
 38,400 bytes of pending PCM (1,228,800 bytes total), and limits each discovery response
-to 256 entries.
+to 256 entries. A share limited to chosen applications names at most 32, and the dialog's
+listing is one bounded discovery (same 256-entry limit, 3 s for connecting and listing
+together) that captures nothing. Clients are listed only when a stream exists, and at
+most 256 are read; a stream whose client lies past that bound is left out.
 The transport reserves 9,600 floats / 38,400 bytes, trims before appending, drains a
 bounded queue snapshot and sends at most one 20 ms frame per tick. Current processing
 buffers and native audio-server/driver storage are additional. Rekeys and stalls clear

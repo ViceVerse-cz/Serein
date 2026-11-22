@@ -9,8 +9,8 @@
 mod screen;
 #[cfg(target_os = "linux")]
 use screen::{
-	AudioChunk, EncodedFrame, MAX_AUDIO_SAMPLES, MAX_ENCODED_BYTES, MAX_RAW_BYTES, RawFrame,
-	Settings, SourceId, encode_pixels, encoder, preview_frame,
+	AudioChunk, AudioScope, EncodedFrame, MAX_AUDIO_SAMPLES, MAX_ENCODED_BYTES, MAX_RAW_BYTES,
+	RawFrame, Settings, SourceId, encode_pixels, encoder, preview_frame,
 };
 #[cfg(target_os = "linux")]
 #[path = "../src/screen/audio_linux.rs"]
@@ -248,7 +248,7 @@ fn main() {
 		audio_linux::check_isolation();
 		stop.store(true, Ordering::Release);
 		drop(pipeline);
-		let mut cancelled = audio_linux::Worker::start(send, stop.clone(), ready.clone(), epoch).unwrap();
+		let mut cancelled = audio_linux::Worker::start(send, stop.clone(), ready.clone(), epoch, AudioScope::PlatformDefault).unwrap();
 		let deadline = Instant::now() + Duration::from_secs(3);
 		loop {
 			if let Some(result) = cancelled.result() { result.unwrap(); break; }

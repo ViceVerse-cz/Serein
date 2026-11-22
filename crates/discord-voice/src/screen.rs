@@ -1,5 +1,5 @@
 //! Explicitly selected, memory-only screen capture and H.264 encoding.
-pub use client_core::screen::{Settings, Source, SourceId};
+pub use client_core::screen::{AudioApplication, AudioScope, Settings, Source, SourceId};
 #[cfg(target_os = "linux")]
 #[path = "screen/audio_linux.rs"]
 mod audio_linux;
@@ -91,6 +91,22 @@ pub fn supported() -> bool {
 	))
 }
 
+/// Whether a share with audio can be limited to chosen applications on this platform.
+pub fn audio_applications_supported() -> bool {
+	cfg!(target_os = "linux")
+}
+
+/// Applications playing audio right now that a share could be limited to. Blocks on one
+/// bounded listing, so call it off the UI thread.
+pub fn audio_applications() -> Result<Vec<AudioApplication>, &'static str> {
+	#[cfg(target_os = "linux")]
+	{
+		audio_linux::applications()
+	}
+	#[cfg(not(target_os = "linux"))]
+	Err("Choosing applications to share audio from is unavailable on this platform")
+}
+
 pub fn sources() -> Result<Vec<Source>, &'static str> {
 	#[cfg(target_os = "linux")]
 	{
@@ -128,10 +144,15 @@ pub struct Worker {
 }
 
 impl Worker {
+	/// `audio_scope` narrows a share with audio to chosen applications where
+	/// [`audio_applications_supported`]; other platforms keep their own scoping.
 	pub fn start(
 		settings: Settings,
+		audio_scope: AudioScope,
 		wake: impl Fn() + Send + 'static,
 	) -> Result<(Self, Video), &'static str> {
+		#[cfg(not(target_os = "linux"))]
+		drop(audio_scope);
 		if !settings.valid() || !supported() {
 			return Err("Screen sharing is unavailable for these settings or this platform");
 		}
@@ -181,6 +202,7 @@ impl Worker {
 					worker_bitrate,
 					send,
 					audio_send,
+					audio_scope,
 					worker_audio_epoch,
 					worker_preview,
 					worker_status,

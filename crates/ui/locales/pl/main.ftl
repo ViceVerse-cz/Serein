@@ -2264,6 +2264,12 @@ reading-zoom-row-zoom = Brzęczenie
 
 ## crates/ui/src/screen.rs
 # Context: body
+screen-body-all-applications = Wszystkie aplikacje
+# Context: body
+screen-body-audio-sources = Źródła dźwięku
+# Context: body
+screen-body-choose-applications-to-share-only-their-sound = Wybierz aplikacje, aby udostępniać tylko ich dźwięk. Aplikacja jest na liście, gdy odtwarza dźwięk.
+# Context: body
 screen-body-frame-rate = Liczba klatek na sekundę
 # Context: body
 screen-body-include-the-pointer-in-the-shared-video = Dołącz wskaźnik do udostępnionego filmu.
@@ -2284,9 +2290,9 @@ screen-body-screen-or-window = Ekran lub okno
 # Context: body
 screen-body-send-what-your-mac-plays-along-with-the-screen-serein = Wysyłaj zawartość odtwarzaną na komputerze Mac wraz z ekranem. Dźwięk rozmowy Sereina został pominięty.
 # Context: body
-screen-body-share-sound-from-other-apps-even-when-sharing-one-window = Udostępniaj dźwięk z innych aplikacji, nawet jeśli udostępniasz jedno okno. Własny dźwięk Sereina został pominięty.
+screen-body-share-audio = Udostępnij dźwięk
 # Context: body
-screen-body-share-system-audio = Udostępnij dźwięk systemowy
+screen-body-share-sound-from-every-app-or-only-from-the-apps-you-choose = Udostępniaj dźwięk ze wszystkich aplikacji lub tylko z wybranych. Własny dźwięk Sereina został pominięty.
 # Context: body
 screen-body-share-the-shared-apps-sound-or-other-apps-for-a-screen = Udostępnij dźwięk udostępnianej aplikacji lub, przy udostępnianiu ekranu, dźwięk wszystkich innych aplikacji. Własny dźwięk Serein jest pomijany.
 # Context: body

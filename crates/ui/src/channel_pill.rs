@@ -508,7 +508,7 @@ fn selection_galley(ui: &egui::Ui, url: &str, size: egui::Vec2) -> Arc<egui::Gal
 
 /// Cached names are untrusted single-line labels: drop bidi and invisible controls,
 /// collapse whitespace, and bound both scanning and output.
-fn bounded_name<'a>(value: &'a str, fallback: &'static str) -> Cow<'a, str> {
+pub(crate) fn bounded_name<'a>(value: &'a str, fallback: &'static str) -> Cow<'a, str> {
 	let invisible = |chr: char| {
 		matches!(chr, '\u{061c}' | '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}' | '\u{feff}')
 			|| chr.is_control()

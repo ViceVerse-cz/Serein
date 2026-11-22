@@ -45,6 +45,7 @@ struct Context {
 struct Pending {
 	context: Context,
 	settings: Settings,
+	audio_scope: screen::AudioScope,
 	user: Id,
 	peer: Option<Id>,
 	session: Zeroizing<String>,
@@ -74,6 +75,12 @@ struct SourceScan {
 	context: Option<(u64, Id, u64)>,
 	receive: mpsc::Receiver<Result<Vec<screen::Source>, &'static str>>,
 }
+/// One listing of the applications playing audio, for the dialog that asked.
+struct AudioScan {
+	generation: u64,
+	context: Option<(u64, Id, u64)>,
+	receive: mpsc::Receiver<Result<Vec<screen::AudioApplication>, &'static str>>,
+}
 
 #[derive(Default)]
 pub(super) struct Screen {
@@ -82,6 +89,7 @@ pub(super) struct Screen {
 	closing: Option<Closing>,
 	retiring: Option<mpsc::Receiver<Result<(), Cow<'static, str>>>>,
 	source_scan: Option<SourceScan>,
+	audio_scan: Option<AudioScan>,
 	command: Option<Command>,
 	sequence: u64,
 	/// Owned when it carries a run-time detail such as a Windows error code.
@@ -257,11 +265,13 @@ impl Screen {
 		{
 			self.retiring = None;
 		}
+		ui.screen.audio_choice_supported = discord_voice::screen::audio_applications_supported();
 		if state.demo {
 			if self.context().is_some() || self.live.is_some() {
 				self.stop();
 			}
 			ui.screen.refresh_requested = false;
+			ui.screen.audio_refresh_requested = false;
 			ui.screen.request = None;
 			ui.screen.busy = false;
 			ui.screen.sharing = false;
@@ -354,6 +364,63 @@ impl Screen {
 			}
 		}
 
+		// One listing at a time; a request made meanwhile is answered by the listing in flight.
+		if std::mem::take(&mut ui.screen.audio_refresh_requested)
+			&& self.audio_scan.is_none()
+			&& ui.screen.open
+			&& ui.screen.audio_choice_supported
+		{
+			let (send, receive) = mpsc::sync_channel(1);
+			let wake = ctx.clone();
+			match std::thread::Builder::new()
+				.name("screen-audio-apps".into())
+				.spawn(move || {
+					let _ = send.send(discord_voice::screen::audio_applications());
+					wake.request_repaint();
+				}) {
+				Ok(_) => {
+					self.audio_scan = Some(AudioScan {
+						generation: state.generation,
+						context: ui.screen.context,
+						receive,
+					})
+				}
+				Err(_) => self.status = "Could not start audio application discovery".into(),
+			}
+		}
+		if let Some(scan) = &self.audio_scan {
+			match scan.receive.try_recv() {
+				// Listed for a dialog that has since closed or changed calls: ask again.
+				Ok(_)
+					if !ui.screen.open
+						|| scan.generation != state.generation
+						|| scan.context != ui.screen.context =>
+				{
+					self.audio_scan = None;
+					if ui.screen.open {
+						ui.screen.audio_refresh_requested = true;
+						ctx.request_repaint();
+					}
+				}
+				Ok(Ok(applications)) => {
+					ui.screen.set_audio_applications(applications);
+					self.audio_scan = None;
+				}
+				// The choice stays on screen, without applications that may no longer play.
+				Ok(Err(error)) => {
+					ui.screen.set_audio_applications(Vec::new());
+					self.status = error.into();
+					self.audio_scan = None;
+				}
+				Err(mpsc::TryRecvError::Disconnected) => {
+					ui.screen.set_audio_applications(Vec::new());
+					self.status = "Audio application discovery stopped".into();
+					self.audio_scan = None;
+				}
+				Err(mpsc::TryRecvError::Empty) => {}
+			}
+		}
+
 		let call_context = call
 			.as_ref()
 			.map(|call| (call.generation, call.channel, call.request));
@@ -407,6 +474,7 @@ impl Screen {
 						self.pending = Some(Pending {
 							context,
 							settings,
+							audio_scope: ui.screen.audio_scope(),
 							user: call.user,
 							peer: call.peer,
 							session: Zeroizing::new(call.session.to_owned()),
@@ -580,7 +648,9 @@ impl Screen {
 			request: pending.context.stream_request,
 		};
 		let wake = ctx.clone();
-		let (worker, video) = Worker::start(pending.settings, move || wake.request_repaint())?;
+		let (worker, video) = Worker::start(pending.settings, pending.audio_scope, move || {
+			wake.request_repaint()
+		})?;
 		let (send, events) = watch::channel(None);
 		let wake = ctx.clone();
 		let identity = pending.identity;
@@ -685,6 +755,7 @@ mod tests {
 		Pending {
 			context,
 			settings,
+			audio_scope: screen::AudioScope::PlatformDefault,
 			user: Id(1),
 			peer: None,
 			session: Zeroizing::new("synthetic-session".into()),

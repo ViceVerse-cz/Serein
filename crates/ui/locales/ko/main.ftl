@@ -2300,6 +2300,12 @@ reading-zoom-row-zoom = 확대/축소
 
 ## crates/ui/src/screen.rs
 # Context: body
+screen-body-all-applications = 모든 앱
+# Context: body
+screen-body-audio-sources = 오디오 소스
+# Context: body
+screen-body-choose-applications-to-share-only-their-sound = 앱을 선택하면 그 앱의 소리만 공유합니다. 소리를 재생 중인 앱만 목록에 표시됩니다.
+# Context: body
 screen-body-frame-rate = 프레임률
 # Context: body
 screen-body-include-the-pointer-in-the-shared-video = 공유 동영상에 마우스 포인터를 포함합니다.
@@ -2320,9 +2326,9 @@ screen-body-screen-or-window = 화면 또는 창
 # Context: body
 screen-body-send-what-your-mac-plays-along-with-the-screen-serein = Mac에서 재생되는 소리를 화면과 함께 전송합니다. Serein의 통화 소리는 제외합니다.
 # Context: body
-screen-body-share-sound-from-other-apps-even-when-sharing-one-window = 창 하나만 공유할 때도 다른 앱의 소리를 공유합니다. Serein의 소리는 제외합니다.
+screen-body-share-audio = 오디오 공유
 # Context: body
-screen-body-share-system-audio = 시스템 오디오 공유
+screen-body-share-sound-from-every-app-or-only-from-the-apps-you-choose = 모든 앱의 소리 또는 선택한 앱의 소리만 공유합니다. Serein의 소리는 제외합니다.
 # Context: body
 screen-body-share-the-shared-apps-sound-or-other-apps-for-a-screen = 창 공유 시 해당 앱의 소리를, 화면 공유 시 다른 모든 앱의 소리를 공유합니다. Serein의 소리는 제외합니다.
 # Context: body

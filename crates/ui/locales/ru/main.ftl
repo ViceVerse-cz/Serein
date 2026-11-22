@@ -2265,6 +2265,12 @@ reading-zoom-row-zoom = Увеличить
 
 ## crates/ui/src/screen.rs
 # Context: body
+screen-body-all-applications = Все приложения
+# Context: body
+screen-body-audio-sources = Источники звука
+# Context: body
+screen-body-choose-applications-to-share-only-their-sound = Выберите приложения, чтобы делиться только их звуком. Приложение отображается, пока воспроизводит звук.
+# Context: body
 screen-body-frame-rate = Частота кадров
 # Context: body
 screen-body-include-the-pointer-in-the-shared-video = Включите указатель в общедоступное видео.
@@ -2285,9 +2291,9 @@ screen-body-screen-or-window = Экран или окно
 # Context: body
 screen-body-send-what-your-mac-plays-along-with-the-screen-serein = Отправьте то, что ваш Mac воспроизводит вместе с экраном. Звук звонка Серейн не учитывается.
 # Context: body
-screen-body-share-sound-from-other-apps-even-when-sharing-one-window = Делитесь звуком из других приложений, даже если вы делитесь одним окном. Собственный звук Серейн не учитывается.
+screen-body-share-audio = Поделиться звуком
 # Context: body
-screen-body-share-system-audio = Поделиться системным звуком
+screen-body-share-sound-from-every-app-or-only-from-the-apps-you-choose = Делитесь звуком всех приложений или только выбранных вами. Собственный звук Серейн не учитывается.
 # Context: body
 screen-body-share-the-shared-apps-sound-or-other-apps-for-a-screen = Передавайте звук общего приложения или, при показе экрана, звук всех остальных приложений. Собственный звук Serein не передаётся.
 # Context: body

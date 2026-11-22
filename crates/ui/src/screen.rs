@@ -2,7 +2,8 @@
 use client_core::{
 	State,
 	screen::{
-		Resolution, Settings, Source, SourceId, offered_frame_rates, offered_resolutions, picture,
+		AudioApplication, AudioScope, MAX_AUDIO_APPLICATIONS, Resolution, Settings, Source,
+		SourceId, offered_frame_rates, offered_resolutions, picture,
 	},
 	voice::Phase,
 };
@@ -48,6 +49,15 @@ pub struct ScreenUi {
 	fps: u32,
 	cursor: bool,
 	audio: bool,
+	/// Whether this platform can limit a share's audio to chosen applications.
+	pub audio_choice_supported: bool,
+	/// Set when the applications playing audio should be listed again.
+	pub audio_refresh_requested: bool,
+	/// Applications playing audio at the latest listing; empty until one arrives.
+	audio_applications: Vec<AudioApplication>,
+	/// Applications chosen for the next share; empty leaves the choice to the platform.
+	/// Kept between shares and always shown, listed or not, so no choice applies unseen.
+	audio_chosen: Vec<AudioApplication>,
 }
 impl Default for ScreenUi {
 	fn default() -> Self {
@@ -71,6 +81,10 @@ impl Default for ScreenUi {
 			fps: 30,
 			cursor: true,
 			audio: cfg!(target_os = "macos"),
+			audio_choice_supported: false,
+			audio_refresh_requested: false,
+			audio_applications: Vec::new(),
+			audio_chosen: Vec::new(),
 		}
 	}
 }
@@ -88,7 +102,15 @@ impl ScreenUi {
 		self.selected = None;
 		self.quality_for = None;
 		self.sources.clear();
+		self.audio_applications.clear();
+		self.audio_refresh_requested = self.audio && !state.demo;
 		if state.demo {
+			self.audio_applications = ["Synthetic music player", "Synthetic game"]
+				.map(|name| AudioApplication {
+					binary: "synthetic".into(),
+					name: name.into(),
+				})
+				.into();
 			self.sources = if cfg!(target_os = "macos") {
 				vec![Source {
 					id: SourceId::SystemPicker,
@@ -163,6 +185,20 @@ impl ScreenUi {
 		}
 	}
 
+	/// The desktop's answer to `audio_refresh_requested`; empty when listing failed.
+	pub fn set_audio_applications(&mut self, applications: Vec<AudioApplication>) {
+		self.audio_applications = applications;
+	}
+
+	/// Which applications the share being requested carries audio from.
+	pub fn audio_scope(&self) -> AudioScope {
+		if self.audio_chosen.is_empty() {
+			AudioScope::PlatformDefault
+		} else {
+			AudioScope::Applications(self.audio_chosen.clone())
+		}
+	}
+
 	fn settings(&self) -> Option<Settings> {
 		let source = self.selected_source()?;
 		let (width, height) = picture(
@@ -196,6 +232,8 @@ impl ScreenUi {
 			self.quality_for = None;
 			self.request = None;
 			self.refresh_requested = false;
+			self.audio_refresh_requested = false;
+			self.audio_applications.clear();
 			self.sharing = false;
 			self.started = None;
 		}
@@ -340,20 +378,28 @@ impl ScreenUi {
 			Some("screen-body-include-the-pointer-in-the-shared-video"),
 			&mut self.cursor,
 		);
-		if self.supported {
+		// The offline preview shows the audio options too; it never captures anything.
+		if self.supported || state.demo {
 			ui.add_space(6.0);
+			let was_sharing_audio = self.audio;
 			crate::design::switch(
 				ui,
-				"screen-body-share-system-audio",
+				"screen-body-share-audio",
 				Some(if cfg!(target_os = "macos") {
 					"screen-body-send-what-your-mac-plays-along-with-the-screen-serein"
 				} else if cfg!(target_os = "windows") {
 					"screen-body-share-the-shared-apps-sound-or-other-apps-for-a-screen"
 				} else {
-					"screen-body-share-sound-from-other-apps-even-when-sharing-one-window"
+					"screen-body-share-sound-from-every-app-or-only-from-the-apps-you-choose"
 				}),
 				&mut self.audio,
 			);
+			if self.audio && !was_sharing_audio {
+				self.audio_refresh_requested = !state.demo;
+			}
+			if self.audio && self.audio_choice_supported {
+				self.audio_application_chips(ui, !state.demo);
+			}
 		}
 		ui.add_space(4.0);
 		ui.add(
@@ -384,6 +430,94 @@ impl ScreenUi {
 					);
 				});
 		}
+	}
+
+	/// Chips limiting the shared sound to chosen applications. Listed applications come
+	/// first; a chosen one that stopped playing stays shown so it can still be released.
+	fn audio_application_chips(&mut self, ui: &mut egui::Ui, refreshable: bool) {
+		let listed = &self.audio_applications;
+		let shown: Vec<&AudioApplication> = listed
+			.iter()
+			.chain(self.audio_chosen.iter().filter(|v| !listed.contains(v)))
+			.collect();
+		// Applications name themselves: sanitize as any untrusted name, and keep chips short.
+		let label = |value: &str| {
+			let name = crate::channel_pill::bounded_name(value, "application");
+			let mut label: String = name.chars().take(32).collect();
+			if label.len() < name.len() {
+				label.push('…');
+			}
+			label
+		};
+		let colors = crate::design::palette(ui);
+		let mut refresh = false;
+		let mut everything = false;
+		let mut toggled = None;
+		ui.add_space(10.0);
+		ui.horizontal(|ui| {
+			ui.label(crate::design::eyebrow(
+				ui,
+				crate::i18n::translate("screen-body-audio-sources"),
+				colors.muted,
+			));
+			ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+				refresh = ui
+					.add_enabled_ui(refreshable, |ui| {
+						crate::design::text_action(
+							ui,
+							&crate::i18n::translate("screen-body-refresh"),
+						)
+					})
+					.inner
+					.clicked();
+			});
+		});
+		ui.add_space(6.0);
+		ui.horizontal_wrapped(|ui| {
+			ui.spacing_mut().item_spacing = egui::vec2(6.0, 6.0);
+			everything = segment(
+				ui,
+				"screen-body-all-applications",
+				self.audio_chosen.is_empty(),
+			)
+			.clicked();
+			for application in &shown {
+				let mut name = label(&application.name);
+				// Two applications under one launcher can share a name; say which is which.
+				if shown
+					.iter()
+					.any(|v| v.name == application.name && v.binary != application.binary)
+				{
+					name = format!("{name} ({})", label(&application.binary));
+				}
+				if segment(ui, &name, self.audio_chosen.contains(application)).clicked() {
+					toggled = Some((*application).clone());
+				}
+			}
+		});
+		ui.add_space(4.0);
+		ui.add(
+			egui::Label::new(
+				egui::RichText::new(crate::i18n::translate(
+					"screen-body-choose-applications-to-share-only-their-sound",
+				))
+				.size(12.0)
+				.color(colors.muted),
+			)
+			.wrap(),
+		);
+		if everything {
+			self.audio_chosen.clear();
+		}
+		// Chooses an application, or releases it when it was already chosen.
+		if let Some(application) = toggled {
+			if let Some(at) = self.audio_chosen.iter().position(|v| *v == application) {
+				self.audio_chosen.remove(at);
+			} else if self.audio_chosen.len() < MAX_AUDIO_APPLICATIONS {
+				self.audio_chosen.push(application);
+			}
+		}
+		self.audio_refresh_requested |= refresh;
 	}
 
 	/// Selectable source rows; the caller bounds the height so options stay visible.

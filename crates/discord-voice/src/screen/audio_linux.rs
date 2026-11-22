@@ -2,6 +2,7 @@
 //! The ScreenCast portal remote grants video only; this uses the existing Pulse socket.
 #![allow(unsafe_code)] // Narrow, worker-owned PulseAudio C boundary; no callbacks outlive their owners.
 use super::{AudioChunk, MAX_AUDIO_SAMPLES};
+use client_core::screen::{AudioApplication, AudioScope, MAX_AUDIO_APPLICATIONS};
 use libpulse_sys as pulse;
 use std::{
 	cell::Cell,
@@ -43,6 +44,7 @@ impl Worker {
 		stop: Arc<AtomicBool>,
 		ready: Arc<AtomicBool>,
 		epoch: Arc<AtomicU64>,
+		audio_scope: AudioScope,
 	) -> Result<Self, &'static str> {
 		let worker_stop = stop.clone();
 		let thread = std::thread::Builder::new()
@@ -52,7 +54,7 @@ impl Worker {
 				if worker_stop.load(Ordering::Acquire) || send.is_closed() {
 					return Ok(());
 				}
-				run(send, &worker_stop, &ready, &epoch)
+				run(send, &worker_stop, &ready, &epoch, &audio_scope)
 			})
 			.map_err(|_| UNAVAILABLE)?;
 		Ok(Self {
@@ -132,6 +134,8 @@ struct Input {
 	sink: u32,
 	pid: u32,
 	binary: String,
+	/// What the application calls itself; its executable name when it does not say.
+	name: String,
 	serial: Option<u64>,
 	monitor: Option<CString>,
 }
@@ -245,6 +249,10 @@ fn input(listed: Listed, client: Option<&Identity>, own: &OwnApplication) -> Opt
 		client: listed.client,
 		sink: listed.sink,
 		pid: identity.pid?.parse().ok()?,
+		name: identity
+			.name
+			.filter(|name| !name.trim().is_empty())
+			.unwrap_or_else(|| binary.clone()),
 		binary,
 		serial: listed.serial,
 		monitor: None,
@@ -262,6 +270,8 @@ struct Listing {
 	inputs_done: bool,
 	sinks_done: bool,
 	clients_done: bool,
+	/// The client listing, requested once there are streams for it to complete.
+	client_operation: *mut pulse::pa_operation,
 	failed: bool,
 }
 impl Listing {
@@ -277,6 +287,7 @@ impl Listing {
 			inputs_done: false,
 			sinks_done: false,
 			clients_done: false,
+			client_operation: null_mut(),
 			failed: false,
 		}
 	}
@@ -290,6 +301,11 @@ impl Listing {
 				.clients
 				.iter()
 				.find_map(|(index, identity)| (*index == listed.client).then_some(identity));
+			// Past the client bound a missing client may simply be unlisted, so its stream
+			// cannot be vetted and is left out.
+			if client.is_none() && self.seen_clients > MAX_LISTED {
+				continue;
+			}
 			let Some(mut input) = input(listed, client, &self.own) else {
 				continue;
 			};
@@ -306,7 +322,7 @@ impl Listing {
 	}
 }
 struct Enumeration {
-	operations: [*mut pulse::pa_operation; 3],
+	operations: [*mut pulse::pa_operation; 2],
 	listing: Box<Listing>,
 	started: Instant,
 }
@@ -325,7 +341,6 @@ impl Enumeration {
 					data,
 				),
 				pulse::pa_context_get_sink_info_list(native.context, Some(listed_sink), data),
-				pulse::pa_context_get_client_info_list(native.context, Some(listed_client), data),
 			]
 		};
 		// Drop releases whichever operations did start.
@@ -354,7 +369,11 @@ impl Drop for Enumeration {
 	fn drop(&mut self) {
 		// SAFETY: cancelling every operation prevents callbacks before userdata is freed.
 		unsafe {
-			for operation in self.operations {
+			for operation in self
+				.operations
+				.into_iter()
+				.chain([self.listing.client_operation])
+			{
 				if !operation.is_null() {
 					pulse::pa_operation_cancel(operation);
 					pulse::pa_operation_unref(operation);
@@ -365,7 +384,7 @@ impl Drop for Enumeration {
 }
 
 extern "C" fn listed_input(
-	_: *mut pulse::pa_context,
+	context: *mut pulse::pa_context,
 	info: *const pulse::pa_sink_input_info,
 	eol: i32,
 	data: *mut c_void,
@@ -375,6 +394,16 @@ extern "C" fn listed_input(
 	if eol != 0 {
 		result.failed |= eol < 0;
 		result.inputs_done = true;
+		// Clients only complete and vet streams, so an empty roster asks for none.
+		if eol < 0 || result.listed.is_empty() {
+			result.clients_done = true;
+			return;
+		}
+		// SAFETY: `context` is the live context dispatching this callback, and `data` is
+		// the same stable Listing, whose Enumeration cancels this operation on Drop.
+		result.client_operation =
+			unsafe { pulse::pa_context_get_client_info_list(context, Some(listed_client), data) };
+		result.failed |= result.client_operation.is_null();
 		return;
 	}
 	result.seen_inputs = result.seen_inputs.saturating_add(1);
@@ -408,13 +437,24 @@ extern "C" fn listed_client(
 		return;
 	}
 	result.seen_clients = result.seen_clients.saturating_add(1);
-	if result.seen_clients > MAX_LISTED || info.is_null() {
+	if info.is_null() {
 		result.failed = true;
+		return;
+	}
+	// Clients past the bound stay unlisted, which leaves their streams out; a busy server
+	// never stops the worker.
+	if result.seen_clients > MAX_LISTED {
 		return;
 	}
 	// SAFETY: Pulse guarantees info is valid for the duration of this callback.
 	let info = unsafe { &*info };
-	if info.index != pulse::PA_INVALID_INDEX {
+	// The streams are already listed, and only their own clients can complete or veto them.
+	if info.index != pulse::PA_INVALID_INDEX
+		&& result
+			.listed
+			.iter()
+			.any(|listed| listed.client == info.index)
+	{
 		result
 			.clients
 			.push((info.index, Identity::read(info.proplist)));
@@ -742,14 +782,78 @@ impl Pending {
 	}
 }
 
-/// Refused applications are removed before the bound, so they can never crowd the others
-/// out of the `MAX_INPUTS` attachments.
-fn admit(inputs: Vec<Input>, excluded: &[Input]) -> Vec<Input> {
+/// Refused and unchosen applications are removed before the bound, so they can never crowd
+/// the others out of the `MAX_INPUTS` attachments.
+fn admit(inputs: Vec<Input>, excluded: &[Input], audio_scope: &AudioScope) -> Vec<Input> {
 	inputs
 		.into_iter()
-		.filter(|input| !excluded.contains(input))
+		.filter(|input| !excluded.contains(input) && includes(audio_scope, input))
 		.take(MAX_INPUTS)
 		.collect()
+}
+
+/// A chosen application is matched by both names, exactly as it was listed. One that is not
+/// playing matches nothing, so a choice never widens to the other applications.
+fn includes(audio_scope: &AudioScope, input: &Input) -> bool {
+	match audio_scope {
+		AudioScope::PlatformDefault => true,
+		AudioScope::Applications(applications) => applications
+			.iter()
+			.take(MAX_AUDIO_APPLICATIONS)
+			.any(|application| {
+				application.binary == input.binary && application.name == input.name
+			}),
+	}
+}
+
+/// The applications a share could include right now: those holding a playback stream this
+/// worker would admit, so Serein and the mixers never appear. One listing on the caller's
+/// thread, bounded by `TIMEOUT` and `MAX_LISTED`; nothing is captured.
+pub(super) fn applications() -> Result<Vec<AudioApplication>, &'static str> {
+	let own = OwnApplication::current()?;
+	let mut native = Native::new()?;
+	// Declared after `native` so its pending operations are cancelled before the context goes.
+	let mut listing: Option<Enumeration> = None;
+	let started = Instant::now();
+	loop {
+		// One deadline covers connecting and the listing itself.
+		if started.elapsed() > TIMEOUT {
+			return Err(UNAVAILABLE);
+		}
+		match native.poll(10)? {
+			pulse::PA_CONTEXT_READY => {}
+			pulse::PA_CONTEXT_FAILED | pulse::PA_CONTEXT_TERMINATED => return Err(UNAVAILABLE),
+			_ => continue,
+		}
+		let request = match &mut listing {
+			Some(request) => request,
+			None => listing.insert(Enumeration::start(&native, &own)?),
+		};
+		if let Some(inputs) = request.take()? {
+			return Ok(distinct(inputs));
+		}
+	}
+}
+
+/// One entry per application, however many streams it holds, in a stable order.
+fn distinct(inputs: Vec<Input>) -> Vec<AudioApplication> {
+	let mut applications: Vec<_> = inputs
+		.into_iter()
+		.map(|input| AudioApplication {
+			binary: input.binary,
+			name: input.name,
+		})
+		.collect();
+	applications.sort_by(|a, b| {
+		(a.name.to_lowercase(), &a.name, &a.binary).cmp(&(
+			b.name.to_lowercase(),
+			&b.name,
+			&b.binary,
+		))
+	});
+	applications.dedup();
+	applications.truncate(MAX_AUDIO_APPLICATIONS);
+	applications
 }
 
 fn run(
@@ -757,6 +861,7 @@ fn run(
 	stop: &AtomicBool,
 	ready: &AtomicBool,
 	epoch: &AtomicU64,
+	audio_scope: &AudioScope,
 ) -> Result<(), &'static str> {
 	let own = OwnApplication::current()?;
 	let mut metrics = crate::diagnostics::Metrics::new(crate::diagnostics::Scope::ScreenAudio);
@@ -819,7 +924,7 @@ fn run(
 		{
 			listing = None;
 			if ready.load(Ordering::Acquire) {
-				let inputs = admit(inputs, &excluded);
+				let inputs = admit(inputs, &excluded, audio_scope);
 				metrics.add(crate::diagnostics::Stage::CaptureRestart, Duration::ZERO);
 				metrics.capture(crate::diagnostics::Capture::Inputs, inputs.len() as u64);
 				// Applications that stopped, and indices that now belong to someone else.
@@ -1022,14 +1127,51 @@ pub(super) fn check_isolation() {
 		let roster = list.inputs();
 		assert_eq!(roster.len(), MAX_INPUTS + 4);
 		assert!(!list.failed);
+		let all = AudioScope::PlatformDefault;
 		assert_eq!(
-			admit(roster.clone(), &[]).len(),
+			admit(roster.clone(), &[], &all).len(),
 			MAX_INPUTS,
 			"excess applications are bounded"
 		);
 		assert!(
-			admit(roster.clone(), &roster[..1]).is_empty(),
+			admit(roster.clone(), &roster[..1], &all).is_empty(),
 			"a refused application is left out, not the share"
+		);
+		// Chosen applications are the whole answer. Two applications under one launcher
+		// are told apart by what they call themselves, even behind a full roster of others.
+		let mut crowded = roster;
+		for name in ["Game.exe", "Launcher.exe"] {
+			crowded.push(Input {
+				name: name.into(),
+				binary: "wine64-preloader".into(),
+				..crowded[0].clone()
+			});
+		}
+		let chosen = |name: &str| {
+			AudioScope::Applications(vec![AudioApplication {
+				binary: "wine64-preloader".into(),
+				name: name.into(),
+			}])
+		};
+		let admitted = admit(crowded.clone(), &[], &chosen("Game.exe"));
+		assert_eq!(admitted.len(), 1);
+		assert_eq!(admitted[0].name, "Game.exe");
+		assert!(
+			admit(crowded.clone(), &[], &chosen("Closed.exe")).is_empty(),
+			"a chosen application that is not playing never widens the share"
+		);
+		assert!(admit(crowded.clone(), &[], &AudioScope::Applications(Vec::new())).is_empty());
+		// The dialog lists each application once and can name every listed stream.
+		assert_eq!(
+			distinct(crowded)
+				.iter()
+				.map(|app| (app.binary.as_str(), app.name.as_str()))
+				.collect::<Vec<_>>(),
+			[
+				("game", "game"),
+				("wine64-preloader", "Game.exe"),
+				("wine64-preloader", "Launcher.exe")
+			]
 		);
 		// Native PipeWire applications name their process only on the client.
 		let bare = pulse::pa_proplist_new();
@@ -1044,8 +1186,8 @@ pub(super) fn check_isolation() {
 		let mut client: pulse::pa_client_info = std::mem::zeroed();
 		client.index = 592;
 		client.proplist = client_props;
-		listed_client(null_mut(), &client, 0, data);
 		listed_input(null_mut(), &info, 0, data);
+		listed_client(null_mut(), &client, 0, data);
 		let inputs = list.inputs();
 		assert_eq!(
 			(inputs[0].pid, inputs[0].binary.as_str()),
@@ -1053,9 +1195,18 @@ pub(super) fn check_isolation() {
 		);
 		set(client_props, c"application.process.binary", c"serein");
 		list.clients.clear();
-		listed_client(null_mut(), &client, 0, data);
 		listed_input(null_mut(), &info, 0, data);
+		listed_client(null_mut(), &client, 0, data);
 		assert!(list.inputs().is_empty(), "client identity is still checked");
+		// Past the client bound an unlisted client cannot vet its stream, which is left out.
+		info.proplist = props;
+		list.clients.clear();
+		listed_input(null_mut(), &info, 0, data);
+		list.seen_clients = MAX_LISTED + 1;
+		assert!(list.inputs().is_empty());
+		list.seen_clients = 0;
+		listed_input(null_mut(), &info, 0, data);
+		assert_eq!(list.inputs().len(), 1);
 		pulse::pa_proplist_free(client_props);
 		pulse::pa_proplist_free(bare);
 		pulse::pa_proplist_free(props);
