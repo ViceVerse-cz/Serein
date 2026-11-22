@@ -2955,7 +2955,7 @@ Discord's [documented attachment object](https://docs.discord.com/developers/res
 sets `IS_SPOILER` from `is_spoiler: true` in message attachment metadata. Serein
 uses that field after staging the bytes. Legacy `SPOILER_` names start marked.
 Clearing that mark removes the prefix from the outgoing filename while preserving
-the source file. Offline fixtures verify the request; live delivery is unverified.
+the source file. Offline fixtures verify the request. Live delivery is unverified.
 
 ## Public Catbox attachment links (October 2, 2026)
 
