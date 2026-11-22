@@ -2344,6 +2344,12 @@ reading-zoom-row-zoom = Thu phóng
 
 ## crates/ui/src/screen.rs
 # Context: body
+screen-body-all-applications = Tất cả ứng dụng
+# Context: body
+screen-body-audio-sources = Nguồn âm thanh
+# Context: body
+screen-body-choose-applications-to-share-only-their-sound = Chọn ứng dụng để chỉ chia sẻ âm thanh của chúng. Ứng dụng chỉ xuất hiện trong danh sách khi đang phát âm thanh.
+# Context: body
 screen-body-frame-rate = Tốc độ khung hình
 # Context: body
 screen-body-include-the-pointer-in-the-shared-video = Bao gồm con trỏ trong video được chia sẻ.
@@ -2364,9 +2370,9 @@ screen-body-screen-or-window = Màn hình hoặc cửa sổ
 # Context: body
 screen-body-send-what-your-mac-plays-along-with-the-screen-serein = Gửi những gì máy Mac của bạn phát cùng với màn hình. Âm thanh cuộc gọi của Serein bị bỏ qua.
 # Context: body
-screen-body-share-sound-from-other-apps-even-when-sharing-one-window = Chia sẻ âm thanh từ các ứng dụng khác, ngay cả khi chia sẻ một cửa sổ. Âm thanh của Serein bị bỏ đi.
+screen-body-share-audio = Chia sẻ âm thanh
 # Context: body
-screen-body-share-system-audio = Chia sẻ âm thanh hệ thống
+screen-body-share-sound-from-every-app-or-only-from-the-apps-you-choose = Chia sẻ âm thanh từ mọi ứng dụng, hoặc chỉ từ những ứng dụng bạn chọn. Âm thanh của Serein bị bỏ đi.
 # Context: body
 screen-body-share-the-shared-apps-sound-or-other-apps-for-a-screen = Chia sẻ âm thanh của ứng dụng được chia sẻ hoặc âm thanh của mọi ứng dụng khác khi chia sẻ màn hình. Âm thanh của Serein bị bỏ đi.
 # Context: body
