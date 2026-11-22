@@ -2596,6 +2596,7 @@ impl TimelineView {
 				),
 				channel: state.selected,
 				following,
+				left_live_edge: !following,
 				anchor: restored.and_then(|cursor| cursor.message.map(|id| (id, cursor.inset))),
 				download: std::mem::take(&mut self.download),
 				// Posters survive the switch so idle stages repaint from cache.
@@ -5328,8 +5329,9 @@ impl TimelineView {
 				.hover_pos()
 				.is_some_and(|pos| output.inner_rect.contains(pos))
 		});
-		let user_scrolled_up =
-			user_scroll > 0.0 && timeline_scrolled_up && (session.holding() || pointer_on_timeline);
+		let user_scrolled_up = user_scroll > 0.0
+			&& timeline_scrolled_up
+			&& (session.holding() || selection_scroll != 0.0 || pointer_on_timeline);
 		// Keyboard selection asks the scroll area to reveal the cursor. That moves the
 		// offset with no wheel or drag. A layout clamp while still at the bottom does not.
 		let selection_scrolled_up = timeline_scrolled_up
@@ -9981,6 +9983,7 @@ mod tests {
 			message_count: None,
 			icon: None,
 			user_limit: None,
+			slowmode: 0,
 			last_message: Some(Id(last)),
 		};
 		let mut state = State {
@@ -10486,6 +10489,83 @@ mod tests {
 		assert!(
 			view.following && !view.left_live_edge,
 			"kinetic arrival at the bottom should resume following"
+		);
+	}
+
+	#[test]
+	fn channel_switch_restoring_near_bottom_anchor_keeps_left_live_edge() {
+		let mut state = State {
+			selected: Some(Id(20)),
+			revision: 1,
+			demo: true,
+			..Default::default()
+		};
+		for id in 1..=80 {
+			state
+				.timeline
+				.insert(text_message(id), false, false)
+				.unwrap();
+		}
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let mut view = TimelineView::default();
+		let mut avatars = crate::avatars::Avatars::default();
+		let mut frame_number = 0;
+		let mut frame = |view: &mut TimelineView, state: &mut State| {
+			frame_number += 1;
+			let output = ctx.run_ui(
+				egui::RawInput {
+					focused: true,
+					time: Some(f64::from(frame_number) / 60.0),
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(900.0, 600.0),
+					)),
+					..Default::default()
+				},
+				|ui| {
+					view.show(
+						ui,
+						state,
+						&mut None,
+						&mut None,
+						(
+							&mut avatars,
+							&mut crate::profiles::ProfileSession::default(),
+						),
+						None,
+					)
+				},
+			);
+			output.drop_without_applying_deltas();
+		};
+		for _ in 0..8 {
+			frame(&mut view, &mut state);
+		}
+		assert!(view.following);
+		let near_bottom = (view.scroll_offset - 1.5).max(0.0);
+		let (index, _, top) = visible_range(&view.rows, near_bottom, near_bottom);
+		let anchor = view.rows[index].0;
+		state.remember_reading(
+			Id(20),
+			client_core::ReadingCursor {
+				message: Some(anchor),
+				inset: near_bottom - top,
+			},
+		);
+		// Switch away while following is cleared so returning restores the saved near-bottom anchor.
+		view.following = false;
+		view.left_live_edge = true;
+		view.anchor = Some((anchor, near_bottom - top));
+		state.selected = Some(Id(21));
+		frame(&mut view, &mut state);
+		state.selected = Some(Id(20));
+		for _ in 0..4 {
+			frame(&mut view, &mut state);
+		}
+		assert!(
+			!view.following && view.left_live_edge,
+			"restoring a near-bottom anchor must preserve left_live_edge and stay off the live edge"
 		);
 	}
 	#[test]
