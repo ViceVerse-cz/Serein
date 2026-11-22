@@ -909,7 +909,7 @@ mod tests {
 			panic!("no frame");
 		};
 		assert!(picture.is_valid());
-			decoder.seek(1.0).unwrap();
+		decoder.seek(1.0).unwrap();
 		let Some(Sample::Video { pts, .. }) = wait_for_sample(&mut decoder, Decoder::poll_video)
 		else {
 			panic!("no frame after seek");
