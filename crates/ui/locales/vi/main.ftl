@@ -315,6 +315,9 @@ attachments-media-menu-unavailable-for-synthetic-attachments = Không có sẵn 
 # Context: open_original
 attachments-open-original-open-original = Mở bản gốc…
 # Context: pending_card
+attachments-mark-spoiler = Đánh dấu tệp đính kèm là nội dung tiết lộ
+attachments-remove-spoiler = Bỏ đánh dấu nội dung tiết lộ
+attachments-spoiler-label = Nội dung tiết lộ
 attachments-pending-card-remove-attachment = Xóa tệp đính kèm
 # Context: pending_viewer
 attachments-pending-viewer-full-size-unavailable = Không thể xem trước kích thước đầy đủ

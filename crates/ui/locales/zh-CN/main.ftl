@@ -312,6 +312,9 @@ attachments-media-menu-unavailable-for-synthetic-attachments = 合成附件无�
 # Context: open_original
 attachments-open-original-open-original = 打开原始文件…
 # Context: pending_card
+attachments-mark-spoiler = 将附件标记为剧透
+attachments-remove-spoiler = 取消附件剧透标记
+attachments-spoiler-label = 剧透
 attachments-pending-card-remove-attachment = 移除附件
 # Context: pending_viewer
 attachments-pending-viewer-full-size-unavailable = 无法显示原尺寸预览

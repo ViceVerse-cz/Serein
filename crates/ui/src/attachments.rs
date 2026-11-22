@@ -176,6 +176,33 @@ pub enum PendingAction {
 	Preview,
 	/// Drop the file from the message.
 	Remove,
+	ToggleSpoiler,
+}
+
+pub(crate) fn spoiler_toggle(ui: &mut egui::Ui, size: f32, spoiler: bool) -> egui::Response {
+	icons::toggle(
+		ui,
+		Icon::EyeSlash,
+		size,
+		spoiler,
+		if spoiler {
+			"attachments-remove-spoiler"
+		} else {
+			"attachments-mark-spoiler"
+		},
+	)
+}
+
+pub(crate) fn spoiler_cover(ui: &egui::Ui, rect: Rect) {
+	let colors = design::palette(ui);
+	ui.painter().rect_filled(rect, 6, colors.base);
+	ui.painter().text(
+		rect.center(),
+		egui::Align2::CENTER_CENTER,
+		crate::i18n::translate("attachments-spoiler-label"),
+		egui::FontId::new(12.0, design::semibold_family(ui.ctx())),
+		colors.text,
+	);
 }
 
 /// Card for a file that will be uploaded with the next message.
@@ -184,14 +211,16 @@ pub fn pending_card(
 	filename: &str,
 	bytes: u64,
 	preview: Option<&egui::TextureHandle>,
-	removable: bool,
+	editable: bool,
+	spoiler: bool,
 ) -> PendingAction {
 	let colors = design::palette(ui);
 	let kind = file_kind(filename, None);
 	let (card, preview_rect) = pending_card_frame(ui);
 	let mut action = PendingAction::None;
-	match preview {
-		Some(texture) => {
+	match (spoiler, preview) {
+		(true, _) => spoiler_cover(ui, preview_rect),
+		(false, Some(texture)) => {
 			let size = texture.resolution_vec2();
 			let scale = (preview_rect.width() / size.x)
 				.min(preview_rect.height() / size.y)
@@ -217,7 +246,7 @@ pub fn pending_card(
 				action = PendingAction::Preview;
 			}
 		}
-		None => {
+		(false, None) => {
 			icons::paint(
 				ui.painter(),
 				kind.icon(),
@@ -249,8 +278,8 @@ pub fn pending_card(
 		.selectable(false),
 	);
 	let pill = Rect::from_min_size(
-		egui::pos2(card.right() - 28.0, card.top() - PENDING_OVERHANG),
-		egui::vec2(36.0, 36.0),
+		egui::pos2(card.right() - 60.0, card.top() - PENDING_OVERHANG),
+		egui::vec2(68.0, 36.0),
 	);
 	ui.painter().rect(
 		pill,
@@ -259,28 +288,29 @@ pub fn pending_card(
 		Stroke::new(1.0, colors.border),
 		StrokeKind::Inside,
 	);
-	let removed = ui
-		.scope_builder(
-			egui::UiBuilder::new().max_rect(pill.shrink(2.0)).layout(
-				egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
-			),
-			|ui| {
-				ui.add_enabled_ui(removable, |ui| {
-					icons::button(
-						ui,
-						Icon::Trash,
-						32.0,
-						&crate::i18n::translate("attachments-pending-card-remove-attachment"),
-					)
-					.clicked()
-				})
-				.inner
-			},
-		)
-		.inner;
-	if removed {
-		return PendingAction::Remove;
-	}
+	ui.scope_builder(
+		egui::UiBuilder::new()
+			.max_rect(pill.shrink(2.0))
+			.layout(egui::Layout::left_to_right(egui::Align::Center)),
+		|ui| {
+			ui.spacing_mut().item_spacing.x = 0.0;
+			ui.add_enabled_ui(editable, |ui| {
+				if spoiler_toggle(ui, 32.0, spoiler).clicked() {
+					action = PendingAction::ToggleSpoiler;
+				}
+				if icons::button(
+					ui,
+					Icon::Trash,
+					32.0,
+					"attachments-pending-card-remove-attachment",
+				)
+				.clicked()
+				{
+					action = PendingAction::Remove;
+				}
+			});
+		},
+	);
 	action
 }
 
@@ -1716,7 +1746,7 @@ mod tests {
 			egui::ColorImage::filled([108, 108], Color32::WHITE),
 			egui::TextureOptions::LINEAR,
 		);
-		let press = |thumbnail: bool, pos: egui::Pos2| {
+		let press = |thumbnail: bool, spoiler: bool, pos: egui::Pos2| {
 			let mut action = PendingAction::None;
 			for events in [
 				vec![],
@@ -1752,6 +1782,7 @@ mod tests {
 							512,
 							thumbnail.then_some(&texture),
 							true,
+							spoiler,
 						);
 					},
 				);
@@ -1760,14 +1791,42 @@ mod tests {
 			action
 		};
 		// The preview area of an image card opens it; the file name below does not.
-		assert_eq!(press(true, egui::pos2(88.0, 62.0)), PendingAction::Preview);
-		assert_eq!(press(true, egui::pos2(88.0, 150.0)), PendingAction::None);
-		assert_eq!(press(true, egui::pos2(20.0, 62.0)), PendingAction::None);
-		assert_eq!(press(true, egui::pos2(166.0, 18.0)), PendingAction::Remove);
+		assert_eq!(
+			press(true, false, egui::pos2(88.0, 62.0)),
+			PendingAction::Preview
+		);
+		assert_eq!(
+			press(true, false, egui::pos2(88.0, 150.0)),
+			PendingAction::None
+		);
+		assert_eq!(
+			press(true, false, egui::pos2(20.0, 62.0)),
+			PendingAction::None
+		);
+		assert_eq!(
+			press(true, false, egui::pos2(166.0, 18.0)),
+			PendingAction::Remove
+		);
+		assert_eq!(
+			press(true, false, egui::pos2(134.0, 18.0)),
+			PendingAction::ToggleSpoiler
+		);
+		assert_eq!(
+			press(true, true, egui::pos2(134.0, 18.0)),
+			PendingAction::ToggleSpoiler
+		);
+		assert_eq!(
+			press(true, true, egui::pos2(88.0, 62.0)),
+			PendingAction::None
+		);
 		// A file without a thumbnail has nothing to open.
-		assert_eq!(press(false, egui::pos2(88.0, 62.0)), PendingAction::None);
+		assert_eq!(
+			press(false, false, egui::pos2(88.0, 62.0)),
+			PendingAction::None
+		);
 		// Pointing at the thumbnail is what tells the user it can be clicked.
 		let cursor_at = |thumbnail: bool, pos: egui::Pos2| {
+			let spoiler = false;
 			let mut icon = egui::CursorIcon::Default;
 			for events in [vec![], vec![egui::Event::PointerMoved(pos)]] {
 				let output = ctx.run_ui(
@@ -1786,6 +1845,7 @@ mod tests {
 							512,
 							thumbnail.then_some(&texture),
 							true,
+							spoiler,
 						);
 					},
 				);

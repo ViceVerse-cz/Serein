@@ -312,6 +312,9 @@ attachments-media-menu-unavailable-for-synthetic-attachments = Недоступ�
 # Context: open_original
 attachments-open-original-open-original = Открыть оригинал…
 # Context: pending_card
+attachments-mark-spoiler = Пометить вложение как спойлер
+attachments-remove-spoiler = Снять пометку спойлера
+attachments-spoiler-label = Спойлер
 attachments-pending-card-remove-attachment = Удалить вложение
 # Context: pending_viewer
 attachments-pending-viewer-full-size-unavailable = Полноразмерный просмотр недоступен

@@ -311,6 +311,9 @@ attachments-media-menu-unavailable-for-synthetic-attachments = Niedostępne dla 
 # Context: open_original
 attachments-open-original-open-original = Otwórz oryginał…
 # Context: pending_card
+attachments-mark-spoiler = Oznacz załącznik jako spoiler
+attachments-remove-spoiler = Usuń oznaczenie spoilera
+attachments-spoiler-label = Spoiler
 attachments-pending-card-remove-attachment = Usuń załącznik
 # Context: pending_viewer
 attachments-pending-viewer-full-size-unavailable = Podgląd w pełnym rozmiarze jest niedostępny

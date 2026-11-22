@@ -311,6 +311,9 @@ attachments-media-menu-unavailable-for-synthetic-attachments = Non disponibile p
 # Context: open_original
 attachments-open-original-open-original = Apri originale...
 # Context: pending_card
+attachments-mark-spoiler = Contrassegna l’allegato come spoiler
+attachments-remove-spoiler = Rimuovi il contrassegno spoiler
+attachments-spoiler-label = Spoiler
 attachments-pending-card-remove-attachment = Rimuovi l'allegato
 # Context: pending_viewer
 attachments-pending-viewer-full-size-unavailable = Anteprima a grandezza intera non disponibile

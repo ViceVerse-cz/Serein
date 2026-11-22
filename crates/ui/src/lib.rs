@@ -478,6 +478,9 @@ pub struct MessagingUi {
 	pub attachment_view_open: Option<usize>,
 	/// Stable upload selection keys, in the same order as `attachment_files`.
 	pub attachment_keys: Vec<u64>,
+	/// Spoiler state in selection order, projected from the native upload sources.
+	pub attachment_spoilers: Vec<bool>,
+	pub attachment_spoiler_requested: Option<(u64, bool)>,
 	attachment_view_file: Option<(String, u64, Option<u64>)>,
 	pub attachment_view_image: Option<(usize, Option<std::sync::Arc<egui::ColorImage>>)>,
 	/// Conversation the open viewer belongs to, so switching leaves it behind.
@@ -990,6 +993,8 @@ impl MessagingUi {
 			self.attachment = Some((filename.to_owned(), bytes));
 		}
 		self.attachment_files.push((filename.to_owned(), bytes));
+		self.attachment_spoilers
+			.push(filename.starts_with("SPOILER_"));
 		self.attachment_previews
 			.resize(self.attachment_files.len() - 1, None);
 		self.attachment_previews
@@ -1001,6 +1006,14 @@ impl MessagingUi {
 			self.attachment.iter().cloned().collect()
 		} else {
 			self.attachment_files.clone()
+		}
+	}
+	fn toggle_attachment_spoiler(&mut self, index: usize, file_count: usize) {
+		self.attachment_spoilers.resize(file_count, false);
+		let spoiler = &mut self.attachment_spoilers[index];
+		*spoiler = !*spoiler;
+		if let Some(key) = self.attachment_keys.get(index) {
+			self.attachment_spoiler_requested = Some((*key, *spoiler));
 		}
 	}
 	/// Textures for `attachment_previews`, uploaded once per pixel buffer and reused per frame.
@@ -1126,12 +1139,25 @@ impl MessagingUi {
 				files: files
 					.into_iter()
 					.zip(textures)
-					.map(|((_, bytes), preview)| pending::UploadFile { bytes, preview })
+					.enumerate()
+					.map(|(index, ((_, bytes), preview))| {
+						let spoiler = self
+							.attachment_spoilers
+							.get(index)
+							.copied()
+							.unwrap_or_default();
+						pending::UploadFile {
+							bytes,
+							preview: preview.filter(|_| !spoiler),
+							spoiler,
+						}
+					})
 					.collect(),
 				progress: None,
 			});
 			self.attachment = None;
 			self.attachment_files.clear();
+			self.attachment_spoilers.clear();
 			self.attachment_previews.clear();
 			self.attachment_textures.clear();
 			self.upload_busy = true;
@@ -4805,6 +4831,10 @@ impl MessagingUi {
 											*bytes,
 											textures.get(index).and_then(Option::as_ref),
 											!self.upload_busy,
+											self.attachment_spoilers
+												.get(index)
+												.copied()
+												.unwrap_or_default(),
 										)
 									})
 									.inner
@@ -4823,6 +4853,9 @@ impl MessagingUi {
 										self.attachment_view_open = Some(index);
 										self.attachment_view_scope =
 											Some((state.generation, state.selected));
+									}
+									attachments::PendingAction::ToggleSpoiler => {
+										self.toggle_attachment_spoiler(index, files.len());
 									}
 									attachments::PendingAction::None => {}
 								}
@@ -6024,8 +6057,11 @@ impl MessagingUi {
 						&self.channel_preferences,
 						self.shortcuts_available(state),
 					);
+					let mut toggle_spoiler = None;
 					let mut staged = forum::Staged {
 						files: &files,
+						spoilers: &self.attachment_spoilers,
+						toggle_spoiler: &mut toggle_spoiler,
 						textures: &textures,
 						choose: &mut self.attach_requested,
 						remove: &mut self.remove_attachment_index,
@@ -6040,6 +6076,9 @@ impl MessagingUi {
 						(&mut self.scroll, &mut staged, &mut self.avatars),
 						(&mut self.channel_menu, view),
 					);
+					if let Some(index) = toggle_spoiler {
+						self.toggle_attachment_spoiler(index, files.len());
+					}
 					return;
 				}
 				self.conversation(ui, state, channel, &mut commands, message_fill);

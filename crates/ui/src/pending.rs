@@ -10,6 +10,7 @@ use crate::{attachments, design, icons};
 pub struct UploadFile {
 	pub bytes: u64,
 	pub preview: Option<egui::TextureHandle>,
+	pub spoiler: bool,
 }
 pub struct Upload {
 	pub nonce: String,
@@ -350,9 +351,13 @@ fn files(ui: &mut egui::Ui, pending: &Pending, upload: Option<&Upload>) {
 						if let Some(file) = file(index) {
 							ui.add(
 								egui::Label::new(
-									RichText::new(attachments::format_size(file.bytes))
-										.size(12.0)
-										.color(colors.muted),
+									RichText::new(if file.spoiler {
+										crate::i18n::translate("attachments-spoiler-label")
+									} else {
+										attachments::format_size(file.bytes)
+									})
+									.size(12.0)
+									.color(colors.muted),
 								)
 								.selectable(false),
 							);
