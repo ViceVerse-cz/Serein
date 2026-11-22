@@ -674,6 +674,19 @@ impl Streams {
 			return Err("Call changed before audio devices could open");
 		}
 		let host = cpal::default_host();
+		let (input_stream, input_read, input_id) = if gate.input_enabled.load(Ordering::Acquire) {
+			match open_input_stream(&host, settings, &gate, revision) {
+				Ok((stream, read, id)) => (Some(stream), read, id),
+				Err(_) => {
+					gate.input_failed_revision
+						.fetch_max(revision, Ordering::AcqRel);
+					(None, rtrb::RingBuffer::new(8).1, None)
+				}
+			}
+		} else {
+			(None, rtrb::RingBuffer::new(8).1, None)
+		};
+		// Starting a Bluetooth microphone can switch the paired speaker to its call format.
 		let output = choose(&host, settings.output.as_deref(), false)?;
 		let output_id = output.id().ok().map(|id| id.to_string());
 		let output_config = platform::audio::output_config(
@@ -694,18 +707,6 @@ impl Streams {
 		let (output_write, output_read) = rtrb::RingBuffer::new(8);
 		let (reference_write, reference_read) = rtrb::RingBuffer::new(8);
 		let render = Playback::new(output_config.sample_rate(), output_read, reference_write);
-		let (input_stream, input_read, input_id) = if gate.input_enabled.load(Ordering::Acquire) {
-			match open_input_stream(&host, settings, &gate, revision) {
-				Ok((stream, read, id)) => (Some(stream), read, id),
-				Err(_) => {
-					gate.input_failed_revision
-						.fetch_max(revision, Ordering::AcqRel);
-					(None, rtrb::RingBuffer::new(8).1, None)
-				}
-			}
-		} else {
-			(None, rtrb::RingBuffer::new(8).1, None)
-		};
 		let output_stream = match output_config.sample_format() {
 			cpal::SampleFormat::F32 => {
 				output_stream::<f32>(&output, &stream_config, render, gate.clone(), revision)
