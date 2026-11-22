@@ -612,9 +612,12 @@ their voice once another sender has mixed it into stream audio. Other apps' noti
 and audio remain included. macOS retains ScreenCaptureKit's current-process exclusion.
 
 Linux captures individual playback streams through PulseAudio's per-stream monitor API,
-also implemented by PipeWire's PulseAudio server. It excludes Serein and streams whose
-application identity cannot be established; it never falls back to a whole-output monitor
-or microphone. The ScreenCast portal grants video only; audio uses the existing desktop
+also implemented by PipeWire's PulseAudio server. A stream that does not name its process
+is completed from its PulseAudio client, as native PipeWire applications name it only
+there. Serein, loopback and combine streams (`node.link-group`), mixers and effect
+processors, and streams whose application identity cannot be established are excluded. A
+stream whose sink is not listed yet waits for the next listing instead of stopping the
+worker. It never falls back to a whole-output monitor or microphone. The ScreenCast portal grants video only; audio uses the existing desktop
 audio access, including Flatpak's PulseAudio socket permission. A separate bounded worker
 handles discovery, capture and mixing outside video encoding and rendering. No applications
 are moved between outputs and no virtual device is installed.

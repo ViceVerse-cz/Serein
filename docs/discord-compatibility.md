@@ -1122,14 +1122,16 @@ continues excluding the current process. Windows uses native process-tree exclus
 20348+ and per-application inclusion on older Windows 10 builds; a capture that fails reports
 its error visibly, without whole-output fallback.
 Linux uses `pa_stream_set_monitor_stream` before connecting each recording stream,
-rejects Serein/unknown application identities and disables recording-stream movement.
+completes missing stream identity from `pa_context_get_client_info_list`, rejects
+Serein/loopback/mixer/unknown identities and disables recording-stream movement.
 Audio access is separate from portal-approved video, using the existing PulseAudio socket.
 See [audio behavior and owner test steps](voice.md#screen-sharing).
 
 Audio chunks are at most 9,600 floats / 38,400 bytes (100 ms). The capture channel holds
-four chunks / 153,600 bytes. Linux admits at most 32 identified application streams,
-each with at most 100 ms / 38,400 bytes of pending PCM (1,228,800 bytes total), and
-limits each discovery response to 256 entries. Excess streams fail visibly.
+four chunks / 153,600 bytes. Linux admits at most 32 identified application streams
+(excess streams are left out rather than failing the worker), each with at most 100 ms /
+38,400 bytes of pending PCM (1,228,800 bytes total), and limits each discovery response
+to 256 entries.
 The transport reserves 9,600 floats / 38,400 bytes, trims before appending, drains a
 bounded queue snapshot and sends at most one 20 ms frame per tick. Current processing
 buffers and native audio-server/driver storage are additional. Rekeys and stalls clear

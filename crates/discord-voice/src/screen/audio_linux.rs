@@ -136,14 +136,14 @@ struct Input {
 	monitor: Option<CString>,
 }
 
-fn property<'a>(info: &'a pulse::pa_sink_input_info, key: &CStr) -> Option<&'a str> {
+fn property(proplist: *const pulse::pa_proplist, key: &CStr) -> Option<String> {
 	let mut data = null();
 	let mut size = 0;
 	// SAFETY: callback-owned info/proplist stays alive until this function returns; Pulse
 	// supplies data and its length, checked before constructing a borrowed byte slice.
 	unsafe {
-		if info.proplist.is_null()
-			|| pulse::pa_proplist_get(info.proplist, key.as_ptr(), &mut data, &mut size) < 0
+		if proplist.is_null()
+			|| pulse::pa_proplist_get(proplist, key.as_ptr(), &mut data, &mut size) < 0
 			|| data.is_null()
 			|| size == 0
 			|| size > 257
@@ -152,130 +152,214 @@ fn property<'a>(info: &'a pulse::pa_sink_input_info, key: &CStr) -> Option<&'a s
 		}
 		std::str::from_utf8(std::slice::from_raw_parts(data.cast::<u8>(), size).strip_suffix(&[0])?)
 			.ok()
+			.map(str::to_owned)
 	}
 }
 
-fn input(info: &pulse::pa_sink_input_info, own: &OwnApplication) -> Option<Input> {
-	let pid = property(info, c"application.process.id");
-	let binary = property(info, c"application.process.binary");
-	if info.index == pulse::PA_INVALID_INDEX
-		|| info.sink == pulse::PA_INVALID_INDEX
-		|| info.client == pulse::PA_INVALID_INDEX
+/// Identity properties copied out of one Pulse proplist. Native PipeWire applications
+/// (Spotify, many games) name their process on the client only, never on the stream, so
+/// a stream's missing fields are completed from its client before it is judged.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct Identity {
+	pid: Option<String>,
+	binary: Option<String>,
+	name: Option<String>,
+	app_id: Option<String>,
+	flatpak: Option<String>,
+	/// Loopback, filter-chain and combine streams carry other applications' mixed audio,
+	/// which includes this call once it reaches the same sink.
+	linked: bool,
+}
+impl Identity {
+	fn read(proplist: *const pulse::pa_proplist) -> Self {
+		Self {
+			pid: property(proplist, c"application.process.id"),
+			binary: property(proplist, c"application.process.binary"),
+			name: property(proplist, c"application.name"),
+			app_id: property(proplist, c"application.id"),
+			flatpak: property(proplist, c"flatpak.app-id"),
+			linked: property(proplist, c"node.link-group").is_some(),
+		}
+	}
+	fn or(self, client: Option<&Self>) -> Self {
+		let Some(client) = client else { return self };
+		Self {
+			pid: self.pid.or_else(|| client.pid.clone()),
+			binary: self.binary.or_else(|| client.binary.clone()),
+			name: self.name.or_else(|| client.name.clone()),
+			app_id: self.app_id.or_else(|| client.app_id.clone()),
+			flatpak: self.flatpak.or_else(|| client.flatpak.clone()),
+			linked: self.linked || client.linked,
+		}
+	}
+}
+
+/// Audio routers and effect processors replay every application, including this call.
+const MIXERS: [&str; 7] = [
+	"pipewire",
+	"pipewire-pulse",
+	"wireplumber",
+	"pw-loopback",
+	"easyeffects",
+	"pulseeffects",
+	"pulseaudio",
+];
+
+/// A listed stream before its client is known.
+#[derive(Clone, Debug)]
+struct Listed {
+	index: u32,
+	client: u32,
+	sink: u32,
+	serial: Option<u64>,
+	identity: Identity,
+}
+
+fn input(listed: Listed, client: Option<&Identity>, own: &OwnApplication) -> Option<Input> {
+	let identity = listed.identity.or(client);
+	if listed.index == pulse::PA_INVALID_INDEX
+		|| listed.sink == pulse::PA_INVALID_INDEX
+		|| listed.client == pulse::PA_INVALID_INDEX
+		|| identity.linked
 		|| !own.allows(
-			pid,
-			binary,
-			property(info, c"application.name"),
-			property(info, c"application.id"),
-		) || property(info, c"flatpak.app-id")
+			identity.pid.as_deref(),
+			identity.binary.as_deref(),
+			identity.name.as_deref(),
+			identity.app_id.as_deref(),
+		) || identity
+		.flatpak
+		.as_deref()
 		.is_some_and(|v| v.eq_ignore_ascii_case("cz.viceverse.serein"))
 	{
 		return None;
 	}
+	let binary = identity.binary?;
+	if MIXERS
+		.iter()
+		.any(|mixer| binary.eq_ignore_ascii_case(mixer))
+	{
+		return None;
+	}
 	Some(Input {
-		index: info.index,
-		client: info.client,
-		sink: info.sink,
-		pid: pid?.parse().ok()?,
-		binary: binary?.to_owned(),
-		serial: property(info, c"object.serial").and_then(|v| v.parse().ok()),
+		index: listed.index,
+		client: listed.client,
+		sink: listed.sink,
+		pid: identity.pid?.parse().ok()?,
+		binary,
+		serial: listed.serial,
 		monitor: None,
 	})
 }
 
 struct Listing {
 	own: OwnApplication,
-	inputs: Vec<Input>,
+	listed: Vec<Listed>,
+	clients: Vec<(u32, Identity)>,
 	monitors: Vec<(u32, CString)>,
 	seen_inputs: usize,
 	seen_sinks: usize,
+	seen_clients: usize,
 	inputs_done: bool,
 	sinks_done: bool,
+	clients_done: bool,
 	failed: bool,
 }
+impl Listing {
+	fn new(own: OwnApplication) -> Self {
+		Self {
+			own,
+			listed: Vec::with_capacity(MAX_INPUTS),
+			clients: Vec::with_capacity(MAX_INPUTS),
+			monitors: Vec::with_capacity(MAX_INPUTS),
+			seen_inputs: 0,
+			seen_sinks: 0,
+			seen_clients: 0,
+			inputs_done: false,
+			sinks_done: false,
+			clients_done: false,
+			failed: false,
+		}
+	}
+	/// Admissible applications with their sink's monitor, at most `MAX_LISTED`. A stream
+	/// whose sink appeared after the sink listing is skipped until the next listing rather
+	/// than failing the whole worker.
+	fn inputs(&mut self) -> Vec<Input> {
+		let mut inputs = Vec::with_capacity(self.listed.len());
+		for listed in std::mem::take(&mut self.listed) {
+			let client = self
+				.clients
+				.iter()
+				.find_map(|(index, identity)| (*index == listed.client).then_some(identity));
+			let Some(mut input) = input(listed, client, &self.own) else {
+				continue;
+			};
+			input.monitor = self
+				.monitors
+				.iter()
+				.find_map(|(sink, monitor)| (*sink == input.sink).then(|| monitor.clone()));
+			if input.monitor.is_some() {
+				inputs.push(input);
+			}
+		}
+		inputs.sort_by_key(|v: &Input| v.index);
+		inputs
+	}
+}
 struct Enumeration {
-	inputs: *mut pulse::pa_operation,
-	sinks: *mut pulse::pa_operation,
+	operations: [*mut pulse::pa_operation; 3],
 	listing: Box<Listing>,
 	started: Instant,
 }
 
-fn resolve_monitors(inputs: &mut [Input], monitors: &[(u32, CString)]) -> Result<(), &'static str> {
-	for input in inputs {
-		input.monitor = monitors
-			.iter()
-			.find_map(|(sink, monitor)| (*sink == input.sink).then(|| monitor.clone()));
-		if input.monitor.is_none() {
-			return Err(UNAVAILABLE);
-		}
-	}
-	Ok(())
-}
-
 impl Enumeration {
 	fn start(native: &Native, own: &OwnApplication) -> Result<Self, &'static str> {
-		let mut listing = Box::new(Listing {
-			own: own.clone(),
-			inputs: Vec::with_capacity(MAX_INPUTS),
-			monitors: Vec::with_capacity(MAX_INPUTS),
-			seen_inputs: 0,
-			seen_sinks: 0,
-			inputs_done: false,
-			sinks_done: false,
-			failed: false,
-		});
-		// SAFETY: this stable Box lives until Drop cancels/unrefs both operations; callbacks
+		let mut listing = Box::new(Listing::new(own.clone()));
+		let data = (&mut *listing as *mut Listing).cast();
+		// SAFETY: this stable Box lives until Drop cancels/unrefs every operation; callbacks
 		// run only during this worker's mainloop dispatch, never concurrently with Rust reads.
-		let inputs = unsafe {
-			pulse::pa_context_get_sink_input_info_list(
-				native.context,
-				Some(listed_input),
-				(&mut *listing as *mut Listing).cast(),
-			)
+		let operations = unsafe {
+			[
+				pulse::pa_context_get_sink_input_info_list(
+					native.context,
+					Some(listed_input),
+					data,
+				),
+				pulse::pa_context_get_sink_info_list(native.context, Some(listed_sink), data),
+				pulse::pa_context_get_client_info_list(native.context, Some(listed_client), data),
+			]
 		};
-		if inputs.is_null() {
-			return Err(UNAVAILABLE);
-		}
-		let sinks = unsafe {
-			pulse::pa_context_get_sink_info_list(
-				native.context,
-				Some(listed_sink),
-				(&mut *listing as *mut Listing).cast(),
-			)
-		};
-		if sinks.is_null() {
-			unsafe {
-				pulse::pa_operation_cancel(inputs);
-				pulse::pa_operation_unref(inputs);
-			}
-			return Err(UNAVAILABLE);
-		}
-		Ok(Self {
-			inputs,
-			sinks,
+		// Drop releases whichever operations did start.
+		let enumeration = Self {
+			operations,
 			listing,
 			started: Instant::now(),
-		})
+		};
+		if enumeration.operations.iter().any(|op| op.is_null()) {
+			return Err(UNAVAILABLE);
+		}
+		Ok(enumeration)
 	}
 	fn take(&mut self) -> Result<Option<Vec<Input>>, &'static str> {
 		let listing = &mut self.listing;
 		if listing.failed || self.started.elapsed() > TIMEOUT {
 			return Err(UNAVAILABLE);
 		}
-		if !listing.inputs_done || !listing.sinks_done {
+		if !listing.inputs_done || !listing.sinks_done || !listing.clients_done {
 			return Ok(None);
 		}
-		resolve_monitors(&mut listing.inputs, &listing.monitors)?;
-		Ok(Some(std::mem::take(&mut listing.inputs)))
+		Ok(Some(listing.inputs()))
 	}
 }
 impl Drop for Enumeration {
 	fn drop(&mut self) {
-		// SAFETY: cancelling both operations prevents callbacks before userdata is freed.
+		// SAFETY: cancelling every operation prevents callbacks before userdata is freed.
 		unsafe {
-			pulse::pa_operation_cancel(self.inputs);
-			pulse::pa_operation_unref(self.inputs);
-			pulse::pa_operation_cancel(self.sinks);
-			pulse::pa_operation_unref(self.sinks);
+			for operation in self.operations {
+				if !operation.is_null() {
+					pulse::pa_operation_cancel(operation);
+					pulse::pa_operation_unref(operation);
+				}
+			}
 		}
 	}
 }
@@ -290,7 +374,6 @@ extern "C" fn listed_input(
 	let result = unsafe { &mut *data.cast::<Listing>() };
 	if eol != 0 {
 		result.failed |= eol < 0;
-		result.inputs.sort_by_key(|v| v.index);
 		result.inputs_done = true;
 		return;
 	}
@@ -299,13 +382,42 @@ extern "C" fn listed_input(
 		result.failed = true;
 		return;
 	}
+	// SAFETY: Pulse guarantees info is valid for the duration of this callback; every
+	// property is copied before it returns.
+	let info = unsafe { &*info };
+	result.listed.push(Listed {
+		index: info.index,
+		client: info.client,
+		sink: info.sink,
+		serial: property(info.proplist, c"object.serial").and_then(|v| v.parse().ok()),
+		identity: Identity::read(info.proplist),
+	});
+}
+
+extern "C" fn listed_client(
+	_: *mut pulse::pa_context,
+	info: *const pulse::pa_client_info,
+	eol: i32,
+	data: *mut c_void,
+) {
+	// SAFETY: registered with Enumeration's stable Box and cancelled before freeing it.
+	let result = unsafe { &mut *data.cast::<Listing>() };
+	if eol != 0 {
+		result.failed |= eol < 0;
+		result.clients_done = true;
+		return;
+	}
+	result.seen_clients = result.seen_clients.saturating_add(1);
+	if result.seen_clients > MAX_LISTED || info.is_null() {
+		result.failed = true;
+		return;
+	}
 	// SAFETY: Pulse guarantees info is valid for the duration of this callback.
-	if let Some(input) = input(unsafe { &*info }, &result.own) {
-		if result.inputs.len() == MAX_INPUTS {
-			result.failed = true;
-		} else {
-			result.inputs.push(input);
-		}
+	let info = unsafe { &*info };
+	if info.index != pulse::PA_INVALID_INDEX {
+		result
+			.clients
+			.push((info.index, Identity::read(info.proplist)));
 	}
 }
 
@@ -630,6 +742,16 @@ impl Pending {
 	}
 }
 
+/// Refused applications are removed before the bound, so they can never crowd the others
+/// out of the `MAX_INPUTS` attachments.
+fn admit(inputs: Vec<Input>, excluded: &[Input]) -> Vec<Input> {
+	inputs
+		.into_iter()
+		.filter(|input| !excluded.contains(input))
+		.take(MAX_INPUTS)
+		.collect()
+}
+
 fn run(
 	send: tokio::sync::mpsc::Sender<AudioChunk>,
 	stop: &AtomicBool,
@@ -697,10 +819,7 @@ fn run(
 		{
 			listing = None;
 			if ready.load(Ordering::Acquire) {
-				let inputs: Vec<Input> = inputs
-					.into_iter()
-					.filter(|input| !excluded.contains(input))
-					.collect();
+				let inputs = admit(inputs, &excluded);
 				metrics.add(crate::diagnostics::Stage::CaptureRestart, Duration::ZERO);
 				metrics.capture(crate::diagnostics::Capture::Inputs, inputs.len() as u64);
 				// Applications that stopped, and indices that now belong to someone else.
@@ -831,94 +950,114 @@ pub(super) fn check_isolation() {
 	assert!(!own.allows(Some("123"), None, None, None));
 	assert!(own.allows(Some("123"), Some("game"), None, None));
 	// Synthetic Pulse metadata only: allocating a proplist never opens a server/device.
-	// SAFETY: pa_sink_input_info consists of C integers/enums/pointers for which zero is
-	// valid; its proplist is owned here and freed after all borrowed callback accesses.
+	// SAFETY: pa_sink_input_info/pa_client_info consist of C integers/enums/pointers for
+	// which zero is valid; proplists are owned here and freed after all borrowed accesses.
 	unsafe {
+		let set = |props: *mut pulse::pa_proplist, key: &CStr, value: &CStr| {
+			assert_eq!(
+				pulse::pa_proplist_sets(props, key.as_ptr(), value.as_ptr()),
+				0
+			);
+		};
 		let props = pulse::pa_proplist_new();
 		assert!(!props.is_null());
-		assert_eq!(
-			pulse::pa_proplist_sets(props, c"application.process.id".as_ptr(), c"123".as_ptr()),
-			0
-		);
-		assert_eq!(
-			pulse::pa_proplist_sets(
-				props,
-				c"application.process.binary".as_ptr(),
-				c"game".as_ptr()
-			),
-			0
-		);
+		set(props, c"application.process.id", c"123");
+		set(props, c"application.process.binary", c"game");
 		let mut info: pulse::pa_sink_input_info = std::mem::zeroed();
 		info.index = 7;
 		info.client = 4;
 		info.sink = 2;
 		info.proplist = props;
-		let mut list = Listing {
-			own: own.clone(),
-			inputs: Vec::new(),
-			monitors: Vec::new(),
-			seen_inputs: 0,
-			seen_sinks: 0,
-			inputs_done: false,
-			sinks_done: false,
-			failed: false,
-		};
-		listed_input(null_mut(), &info, 0, (&mut list as *mut Listing).cast());
-		assert_eq!(list.inputs.len(), 1);
+		let mut list = Listing::new(own.clone());
+		let data = (&mut list as *mut Listing).cast();
+		listed_input(null_mut(), &info, 0, data);
 		let mut sink: pulse::pa_sink_info = std::mem::zeroed();
 		sink.index = 2;
 		sink.monitor_source_name = c"game-output.monitor".as_ptr();
-		listed_sink(null_mut(), &sink, 0, (&mut list as *mut Listing).cast());
-		resolve_monitors(&mut list.inputs, &list.monitors).unwrap();
-		assert_eq!(
-			list.inputs[0].monitor.as_deref(),
-			Some(c"game-output.monitor")
-		);
-		let selected = list.inputs[0].clone();
+		listed_sink(null_mut(), &sink, 0, data);
+		let inputs = list.inputs();
+		assert_eq!(inputs.len(), 1);
+		assert_eq!(inputs[0].monitor.as_deref(), Some(c"game-output.monitor"));
+		let selected = inputs[0].clone();
 		// A new Serein playback stream reusing a former game index is never admitted.
-		list.inputs.clear();
-		pulse::pa_proplist_sets(
-			props,
-			c"application.process.binary".as_ptr(),
-			c"serein".as_ptr(),
-		);
-		listed_input(null_mut(), &info, 0, (&mut list as *mut Listing).cast());
-		assert!(list.inputs.is_empty());
-		pulse::pa_proplist_sets(
-			props,
-			c"application.process.binary".as_ptr(),
-			c"game".as_ptr(),
-		);
+		set(props, c"application.process.binary", c"serein");
+		listed_input(null_mut(), &info, 0, data);
+		assert!(list.inputs().is_empty());
+		set(props, c"application.process.binary", c"game");
 		info.client = 5;
-		listed_input(null_mut(), &info, 0, (&mut list as *mut Listing).cast());
+		listed_input(null_mut(), &info, 0, data);
 		assert_ne!(
-			list.inputs[0], selected,
+			list.inputs()[0],
+			selected,
 			"post-attachment identity must detect index reuse"
 		);
+		// Effect processors and loopbacks replay the whole mix, including this call.
+		set(props, c"application.process.binary", c"easyeffects");
+		listed_input(null_mut(), &info, 0, data);
+		assert!(list.inputs().is_empty());
+		set(props, c"application.process.binary", c"game");
+		set(props, c"node.link-group", c"loopback-1");
+		listed_input(null_mut(), &info, 0, data);
+		assert!(list.inputs().is_empty());
+		pulse::pa_proplist_unset(props, c"node.link-group".as_ptr());
+		// A stream on a sink missing from this listing waits for the next one.
+		info.sink = 99;
+		listed_input(null_mut(), &info, 0, data);
+		assert!(list.inputs().is_empty());
+		info.sink = 2;
 		info.index = pulse::PA_INVALID_INDEX;
+		listed_input(null_mut(), &info, 0, data);
 		assert!(
-			input(&info, &own).is_none(),
+			list.inputs().is_empty(),
 			"invalid monitor index would reset isolation"
 		);
 		info.index = 7;
 		info.sink = pulse::PA_INVALID_INDEX;
-		assert!(input(&info, &own).is_none());
+		listed_input(null_mut(), &info, 0, data);
+		assert!(list.inputs().is_empty());
 		info.sink = 2;
-		for _ in 0..MAX_INPUTS {
-			listed_input(null_mut(), &info, 0, (&mut list as *mut Listing).cast());
+		for _ in 0..MAX_INPUTS + 4 {
+			listed_input(null_mut(), &info, 0, data);
 		}
-		assert!(list.failed);
-		assert_eq!(list.inputs.len(), MAX_INPUTS);
-		let mut missing = vec![Input {
-			index: 9,
-			client: 1,
-			sink: 99,
-			pid: 123,
-			binary: "game".into(),
-			serial: None,
-			monitor: None,
-		}];
-		assert!(resolve_monitors(&mut missing, &list.monitors).is_err());
+		let roster = list.inputs();
+		assert_eq!(roster.len(), MAX_INPUTS + 4);
+		assert!(!list.failed);
+		assert_eq!(
+			admit(roster.clone(), &[]).len(),
+			MAX_INPUTS,
+			"excess applications are bounded"
+		);
+		assert!(
+			admit(roster.clone(), &roster[..1]).is_empty(),
+			"a refused application is left out, not the share"
+		);
+		// Native PipeWire applications name their process only on the client.
+		let bare = pulse::pa_proplist_new();
+		set(bare, c"application.name", c"Spotify");
+		info.proplist = bare;
+		info.client = 592;
+		listed_input(null_mut(), &info, 0, data);
+		assert!(list.inputs().is_empty(), "no identity, no capture");
+		let client_props = pulse::pa_proplist_new();
+		set(client_props, c"application.process.id", c"21701");
+		set(client_props, c"application.process.binary", c"spotify");
+		let mut client: pulse::pa_client_info = std::mem::zeroed();
+		client.index = 592;
+		client.proplist = client_props;
+		listed_client(null_mut(), &client, 0, data);
+		listed_input(null_mut(), &info, 0, data);
+		let inputs = list.inputs();
+		assert_eq!(
+			(inputs[0].pid, inputs[0].binary.as_str()),
+			(21701, "spotify")
+		);
+		set(client_props, c"application.process.binary", c"serein");
+		list.clients.clear();
+		listed_client(null_mut(), &client, 0, data);
+		listed_input(null_mut(), &info, 0, data);
+		assert!(list.inputs().is_empty(), "client identity is still checked");
+		pulse::pa_proplist_free(client_props);
+		pulse::pa_proplist_free(bare);
 		pulse::pa_proplist_free(props);
 	}
 	let mut first = Pending::new(0);
