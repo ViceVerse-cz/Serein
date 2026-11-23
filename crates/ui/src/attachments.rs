@@ -514,18 +514,24 @@ pub(crate) fn show_subset(
 									)
 								});
 								media_context_menu(&response, attachment, download, opening, demo);
-								let gif = crate::embeds::gif_for_media(
-									&attachment.media,
-									None,
-									attachment.filename.to_ascii_lowercase().ends_with(".gif")
-										|| attachment.content_type.as_deref().is_some_and(|mime| {
-											mime.split(';')
-												.next()
-												.unwrap_or(mime)
-												.trim()
-												.eq_ignore_ascii_case("image/gif")
-										}),
-								);
+								// A GIF is one by name, but a webp attachment may be a still: only its
+								// decoded frames say, so the media library answers for those.
+								let name = attachment.filename.to_ascii_lowercase();
+								let mime = attachment
+									.content_type
+									.as_deref()
+									.map(|mime| mime.split(';').next().unwrap_or(mime).trim());
+								let is_gif = name.ends_with(".gif")
+									|| mime
+										.is_some_and(|mime| mime.eq_ignore_ascii_case("image/gif"));
+								let is_webp = name.ends_with(".webp")
+									|| mime.is_some_and(|mime| {
+										mime.eq_ignore_ascii_case("image/webp")
+									});
+								let animated =
+									is_gif || (is_webp && images.media_animates(&attachment.media));
+								let gif =
+									crate::embeds::gif_for_media(&attachment.media, None, animated);
 								let star = gif.map(|gif| {
 									let favorite = download.gif_favorites.contains(&gif.url);
 									let star = crate::embeds::favorite_star(

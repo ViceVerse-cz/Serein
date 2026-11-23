@@ -341,6 +341,9 @@ struct Slot {
 	held: Vec<Held>,
 	attempts: Vec<(Motion, Size, Attempt)>,
 	learned: Learned,
+	/// The decoded media had more than one frame, so it is a clip even when no frames
+	/// are held right now. Kept across animation toggles, unlike `learned`.
+	animated: bool,
 	used: u64,
 }
 
@@ -713,6 +716,7 @@ impl MediaLibrary {
 			};
 			return;
 		}
+		slot.animated = true;
 		let started = slot.carried_start(size, now);
 		let held = &mut slot.held[index];
 		let still = match &held.pixels {
@@ -810,6 +814,16 @@ impl MediaLibrary {
 				Pixels::Still(_) => held.painted + IDLE_TEXTURES,
 			})
 			.min()
+	}
+
+	/// Whether this media decoded into a multi-frame animation. A webp extension alone
+	/// cannot say, so the favorite star asks only once the clip has played.
+	pub(super) fn animates(&mut self, media: &model::EmbedMedia) -> bool {
+		let Some((raw, true)) = pick(media, true) else {
+			return false;
+		};
+		self.source(raw)
+			.is_some_and(|source| self.slots.get(&source).is_some_and(|slot| slot.animated))
 	}
 
 	/// False once this clip failed to decode, so a gifv embed can use its GIF or poster instead.
@@ -1213,6 +1227,12 @@ impl Avatars {
 				[width as u32, height as u32]
 			})
 			.max_by_key(|[width, height]| u64::from(*width) * u64::from(*height))
+	}
+
+	/// Whether this picture turned out to animate. Used for webp attachments, whose
+	/// extension does not tell a still from a clip.
+	pub(crate) fn media_animates(&mut self, media: &model::EmbedMedia) -> bool {
+		self.media.animates(media)
 	}
 
 	pub(crate) fn show_media(
