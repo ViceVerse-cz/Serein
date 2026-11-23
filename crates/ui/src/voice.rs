@@ -423,17 +423,25 @@ impl MessagingUi {
 	/// Everyone in a voice channel the account can view, as the client shows them: the
 	/// resolved display name when the member is loaded, the shown mute and deafen flags,
 	/// and whether the speaking indicator is lit. Channels without a positive view grant
-	/// are left out, like the directory. For plugin snapshots; no audio data leaves this
-	/// summary.
+	/// are left out, like the directory. The active call's channel comes first, so callers
+	/// that cap the rows never drop the call on busy accounts. For plugin snapshots; no
+	/// audio data leaves this summary.
 	pub fn voice_roster<'a>(
 		&'a self,
 		state: &'a State,
 	) -> impl Iterator<Item = VoiceRosterRow<'a>> + 'a {
+		// The roster is kept in update order, so the call just joined sits at the end.
+		let call = state.voice.active.as_ref().map(|call| call.channel);
+		let rows = &state.voice.roster;
+		let ordered = rows
+			.iter()
+			.filter(move |entry| Some(entry.channel) == call)
+			.chain(rows.iter().filter(move |entry| Some(entry.channel) != call));
 		// Snapshots and the change key walk every row each frame, so rows needing the
 		// member fallback share one index of the loaded list. It is built on first use:
 		// rows filtered out or already carrying their member never pay for it.
 		let mut index = None;
-		state.voice.roster.iter().filter_map(move |entry| {
+		ordered.filter_map(move |entry| {
 			if !state.can_view(entry.channel) {
 				return None;
 			}
@@ -773,17 +781,8 @@ impl MessagingUi {
 						egui::vec2(ui.available_width(), 28.0),
 						egui::Layout::left_to_right(egui::Align::Center),
 						|ui| {
-							let galley = crate::role_names::galley(
-								ui,
-								name,
-								egui::TextStyle::Body.resolve(ui.style()),
-								None,
-								colors.chat,
-								name_color,
-								ui.available_width(),
-							);
 							ui.add(
-								egui::Label::new(galley)
+								egui::Label::new(RichText::new(name).color(name_color))
 									.truncate()
 									.show_tooltip_when_elided(false)
 									.selectable(false),
@@ -4722,15 +4721,11 @@ fn name_badge(
 	let font = egui::FontId::new(13.0, design::medium_family(ui.ctx()));
 	let icon_width = if icon.is_some() { 20.0 } else { 0.0 };
 	// One line, truncated with an ellipsis; the tile hover text carries the full name.
-	let galley = crate::role_names::galley(
-		ui,
-		name,
-		font,
-		None,
-		egui::Color32::BLACK,
-		STAGE_TEXT,
-		(rect.width() * 0.6 - icon_width).max(20.0),
-	);
+	let mut job = egui::text::LayoutJob::simple_singleline(name.to_owned(), font, STAGE_TEXT);
+	job.wrap.max_width = (rect.width() * 0.6 - icon_width).max(20.0);
+	job.wrap.max_rows = 1;
+	job.wrap.break_anywhere = true;
+	let galley = ui.painter().layout_job(job);
 	let badge = egui::Rect::from_min_size(
 		rect.left_bottom() + egui::vec2(8.0, -8.0 - 24.0),
 		egui::vec2(galley.size().x + 16.0 + icon_width, 24.0),
