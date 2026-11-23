@@ -1,4 +1,4 @@
-//! One bounded, lazy audio worker. Bundled cues never interrupt attachment playback.
+//! One bounded, lazy audio worker. Cues never interrupt attachment playback.
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use model::notification_preferences::Sound;
 use std::{
@@ -15,9 +15,19 @@ use std::{
 pub const RING_INTERVAL: Duration = Duration::from_secs(6);
 pub const OUTGOING_RING_INTERVAL: Duration = Duration::from_secs(3);
 
+/// What the worker should play: a bundled cue, or a soundboard clip already fetched into memory.
+#[derive(Clone)]
+pub enum Cue {
+	Bundled(Sound),
+	/// Encoded soundboard audio, bounded before decoding by [`model::MAX_SOUND_UPLOAD_BYTES`].
+	#[allow(dead_code)]
+	// The soundboard UI and CDN fetcher will connect this staged playback path.
+	Clip(Arc<[u8]>),
+}
+
 #[derive(Default)]
 pub struct Sounds {
-	send: Option<SyncSender<(u64, Sound, u8)>>,
+	send: Option<SyncSender<(u64, Cue, u8)>>,
 	generation: Arc<AtomicU64>,
 	status: Arc<AtomicU8>,
 }
@@ -42,21 +52,36 @@ impl Sounds {
 		self.status.store(0, Ordering::Release);
 	}
 	pub fn play(&mut self, sound: Sound, volume: u8, ctx: &eframe::egui::Context) {
+		self.play_cue(Cue::Bundled(sound), volume, ctx);
+	}
+
+	/// Plays one fetched soundboard clip through the same bounded worker as the bundled cues.
+	#[allow(dead_code)] // Connected by the forthcoming soundboard fetcher.
+	pub fn play_clip(&mut self, audio: Arc<[u8]>, volume: u8, ctx: &eframe::egui::Context) {
+		if audio.is_empty() || audio.len() > model::MAX_SOUND_UPLOAD_BYTES {
+			self.status.store(2, Ordering::Release);
+			ctx.request_repaint();
+			return;
+		}
+		self.play_cue(Cue::Clip(audio), volume, ctx);
+	}
+
+	fn play_cue(&mut self, cue: Cue, volume: u8, ctx: &eframe::egui::Context) {
 		if self.send.is_none() {
-			let (send, receive) = mpsc::sync_channel::<(u64, Sound, u8)>(1);
+			let (send, receive) = mpsc::sync_channel::<(u64, Cue, u8)>(1);
 			let generation = self.generation.clone();
 			let status = self.status.clone();
 			let context = ctx.clone();
 			if std::thread::Builder::new()
 				.name("serein-notification-audio".into())
 				.spawn(move || {
-					while let Ok((request, sound, volume)) = receive.recv() {
+					while let Ok((request, cue, volume)) = receive.recv() {
 						if generation.load(Ordering::Acquire) != request {
 							continue;
 						}
 						let finished = Arc::new(AtomicBool::new(false));
 						match open(
-							sound,
+							cue,
 							volume,
 							generation.clone(),
 							request,
@@ -108,7 +133,7 @@ impl Sounds {
 			.send
 			.as_ref()
 			.expect("worker started")
-			.try_send((request, sound, volume))
+			.try_send((request, cue, volume))
 			.is_err()
 		{
 			self.status.store(0, Ordering::Release);
@@ -146,23 +171,56 @@ fn samples(sound: Sound, rate: u32, current: &impl Fn() -> bool) -> Result<Vec<[
 		Sound::PttStop => include_bytes!("../../../assets/sounds/discord/ptt-stop.mp3"),
 		Sound::ViewerJoin => include_bytes!("../../../assets/sounds/discord/viewer-join.mp3"),
 	};
-	if bytes.len() > 128 * 1024 || !(8000..=192000).contains(&rate) {
+	decode_samples(bytes, 128 * 1024, rate, current, true)
+}
+
+fn clip_samples(
+	bytes: Arc<[u8]>,
+	rate: u32,
+	current: &impl Fn() -> bool,
+) -> Result<Vec<[f32; 2]>, ()> {
+	decode_samples(bytes, model::MAX_SOUND_UPLOAD_BYTES, rate, current, false)
+}
+
+fn decode_samples<B: AsRef<[u8]> + Send + Sync + 'static>(
+	bytes: B,
+	max_bytes: usize,
+	rate: u32,
+	current: &impl Fn() -> bool,
+	bundled: bool,
+) -> Result<Vec<[f32; 2]>, ()> {
+	if bytes.as_ref().is_empty()
+		|| bytes.as_ref().len() > max_bytes
+		|| !(8000..=192000).contains(&rate)
+	{
 		return Err(());
 	}
 	let mut pcm = Vec::new();
 	let mut source_rate = 0;
+	let mut source_channels = 0;
 	crate::audio::decode_stream(
 		Box::new(Cursor::new(bytes)),
 		current,
 		&mut |chunk, channels, rate, _| {
-			if channels != 2
-				|| !matches!(rate, 44100 | 48000)
+			// Soundboard clips are documented as at most 5.2 seconds; use integer
+			// tenths to keep the decoded limit stable across sample rates.
+			let max_frames = if bundled {
+				rate as usize * 6
+			} else {
+				(rate as usize * 52).div_ceil(10)
+			};
+			if !(1..=2).contains(&channels)
+				|| !(8000..=96000).contains(&rate)
+				|| (bundled && (channels != 2 || !matches!(rate, 44100 | 48000)))
 				|| (source_rate != 0 && source_rate != rate)
-				|| pcm.len() + chunk.len() > rate as usize * 2 * 6
+				|| (source_channels != 0 && source_channels != channels)
+				|| chunk.len() % channels != 0
+				|| chunk.len() > max_frames * channels - pcm.len()
 			{
-				return Err("Invalid bundled notification sound");
+				return Err("Invalid or oversized notification sound");
 			}
 			source_rate = rate;
+			source_channels = channels;
 			pcm.extend(chunk.iter().map(|sample| {
 				if sample.is_finite() {
 					sample.clamp(-1.0, 1.0)
@@ -177,23 +235,33 @@ fn samples(sound: Sound, rate: u32, current: &impl Fn() -> bool) -> Result<Vec<[
 	if !current() || pcm.is_empty() {
 		return Err(());
 	}
-	let frames = pcm.len() / 2;
+	let frames = pcm.len() / source_channels;
 	// ponytail: linear rate conversion; use a band-limited resampler if quality measurements require it.
-	Ok((0..(frames * rate as usize).div_ceil(source_rate as usize))
+	let output_frames = (frames * rate as usize).div_ceil(source_rate as usize);
+	let max_output_frames = if bundled {
+		rate as usize * 6
+	} else {
+		(rate as usize * 52).div_ceil(10)
+	};
+	if output_frames > max_output_frames {
+		return Err(());
+	}
+	Ok((0..output_frames)
 		.map(|frame| {
 			let position = frame as f64 * f64::from(source_rate) / f64::from(rate);
 			let index = (position as usize).min(frames - 1);
 			let next = (index + 1).min(frames - 1);
 			std::array::from_fn(|channel| {
-				let a = pcm[index * 2 + channel];
-				let b = pcm[next * 2 + channel];
+				let channel = channel.min(source_channels - 1);
+				let a = pcm[index * source_channels + channel];
+				let b = pcm[next * source_channels + channel];
 				a + (b - a) * (position - index as f64) as f32
 			})
 		})
 		.collect())
 }
 fn open(
-	sound: Sound,
+	cue: Cue,
 	volume: u8,
 	generation: Arc<AtomicU64>,
 	request: u64,
@@ -207,9 +275,11 @@ fn open(
 	)
 	.map_err(|_| ())?;
 	let config = supported.config();
-	let samples = samples(sound, config.sample_rate, &|| {
-		generation.load(Ordering::Acquire) == request
-	})?;
+	let current = || generation.load(Ordering::Acquire) == request;
+	let samples = match cue {
+		Cue::Bundled(sound) => samples(sound, config.sample_rate, &current),
+		Cue::Clip(bytes) => clip_samples(bytes, config.sample_rate, &current),
+	}?;
 	let duration = Duration::from_secs_f64(samples.len() as f64 / f64::from(config.sample_rate));
 	let stream = match supported.sample_format() {
 		cpal::SampleFormat::F32 => output::<f32>(
@@ -323,6 +393,44 @@ fn callback<T: cpal::SizedSample + cpal::FromSample<f32>>(
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	fn wav(rate: u32, channels: u16, pcm: &[i16]) -> Vec<u8> {
+		let data_bytes = u32::try_from(pcm.len() * 2).unwrap();
+		let mut bytes = Vec::with_capacity(44 + data_bytes as usize);
+		bytes.extend_from_slice(b"RIFF");
+		bytes.extend_from_slice(&(36 + data_bytes).to_le_bytes());
+		bytes.extend_from_slice(b"WAVEfmt ");
+		bytes.extend_from_slice(&16_u32.to_le_bytes());
+		bytes.extend_from_slice(&1_u16.to_le_bytes());
+		bytes.extend_from_slice(&channels.to_le_bytes());
+		bytes.extend_from_slice(&rate.to_le_bytes());
+		bytes.extend_from_slice(&(rate * u32::from(channels) * 2).to_le_bytes());
+		bytes.extend_from_slice(&(channels * 2).to_le_bytes());
+		bytes.extend_from_slice(&16_u16.to_le_bytes());
+		bytes.extend_from_slice(b"data");
+		bytes.extend_from_slice(&data_bytes.to_le_bytes());
+		for sample in pcm {
+			bytes.extend_from_slice(&sample.to_le_bytes());
+		}
+		bytes
+	}
+
+	#[test]
+	fn soundboard_clip_decodes_mono_at_unusual_rate_and_rejects_oversize() {
+		let mono: Arc<[u8]> = wav(11025, 1, &[0, 16384, -16384, 0]).into();
+		let frames = clip_samples(mono.clone(), 48000, &|| true).unwrap();
+		assert_eq!(frames.len(), 18);
+		assert!(frames.iter().all(|frame| frame[0] == frame[1]));
+		assert!(frames.iter().flatten().any(|sample| sample.abs() > 0.4));
+		assert!(clip_samples(mono.clone(), 48000, &|| false).is_err());
+		assert!(clip_samples(Arc::from([]), 48000, &|| true).is_err());
+		let long = wav(11025, 1, &vec![0; 11025 * 7]);
+		assert!(clip_samples(long.into(), 48000, &|| true).is_err());
+		let mut oversized = mono.to_vec();
+		oversized.resize(model::MAX_SOUND_UPLOAD_BYTES + 1, 0);
+		assert!(clip_samples(oversized.into(), 48000, &|| true).is_err());
+	}
+
 	#[test]
 	fn callback_drains_delayed_output_and_cancellation_is_request_local() {
 		let config = cpal::StreamConfig {
