@@ -2,6 +2,7 @@
 use crate::{
 	Command, State,
 	auth::{AuthState, Failure},
+	user_actions::MAX_GROUP_RECIPIENTS,
 };
 use model::{ChannelPatch, Id, Patch};
 
@@ -9,6 +10,10 @@ pub const MAX_ICON_DATA_URI: usize = 22 + 4 * (256_usize * 1024).div_ceil(3);
 
 pub enum Action {
 	Leave(Id),
+	AddRecipient {
+		channel: Id,
+		user: Id,
+	},
 	Edit {
 		channel: Id,
 		name: Option<String>,
@@ -19,13 +24,16 @@ pub enum Action {
 impl Action {
 	pub fn channel(&self) -> Id {
 		match self {
-			Self::Leave(channel) | Self::Edit { channel, .. } => *channel,
+			Self::Leave(channel)
+			| Self::Edit { channel, .. }
+			| Self::AddRecipient { channel, .. } => *channel,
 		}
 	}
 	pub fn valid(&self) -> bool {
 		self.channel().0 != 0
 			&& match self {
 				Self::Leave(_) => true,
+				Self::AddRecipient { user, .. } => user.0 != 0,
 				Self::Edit { name, icon, .. } => {
 					(name.is_some() || !matches!(icon, Patch::Absent))
 						&& name.as_ref().is_none_or(|name| {
@@ -58,11 +66,25 @@ pub enum Event {
 		result: Result<Option<ChannelPatch>, Failure>,
 	},
 }
+#[derive(Clone, Copy)]
+enum PendingKind {
+	Leave,
+	Edit { renaming: bool },
+	AddRecipient(Id),
+}
+
+#[derive(Clone, Copy)]
+struct Pending {
+	channel: Id,
+	request: u64,
+	kind: PendingKind,
+	observed: bool,
+}
+
 #[derive(Default)]
 pub struct Actions {
 	sequence: u64,
-	// channel, request, leaving, renaming, newer service change observed
-	pending: Option<(Id, u64, bool, bool, bool)>,
+	pending: Option<Pending>,
 	status: Option<(Id, &'static str)>,
 	completed: Option<(Id, u64, bool)>,
 }
@@ -106,6 +128,39 @@ impl State {
 	pub fn is_group_dm(&self, channel: Id) -> bool {
 		self.channel(channel)
 			.is_some_and(|c| c.guild.is_none() && c.kind == 3)
+	}
+	/// Remaining seats besides the signed-in account, which some snapshots include.
+	pub fn group_dm_slots(&self, channel: Id) -> Option<usize> {
+		let owner = self.user.as_ref()?.id;
+		let group = self
+			.channel(channel)
+			.filter(|c| c.guild.is_none() && c.kind == 3)?;
+		Some(
+			MAX_GROUP_RECIPIENTS.saturating_sub(
+				group
+					.recipients
+					.iter()
+					.filter(|user| user.id != owner)
+					.count(),
+			),
+		)
+	}
+	pub fn group_recipient_eligible(&self, channel: Id, user: Id) -> bool {
+		self.dm_target_allowed(user, true)
+			&& self.channel(channel).is_some_and(|group| {
+				group.guild.is_none()
+					&& group.kind == 3
+					&& group.recipients.iter().all(|member| member.id != user)
+			})
+	}
+	pub fn add_group_recipient(&mut self, channel: Id, user: Id) -> Option<Command> {
+		if self.selected != Some(channel)
+			|| self.group_dm_slots(channel).is_none_or(|slots| slots == 0)
+			|| !self.group_recipient_eligible(channel, user)
+		{
+			return None;
+		}
+		self.request_group_action(Action::AddRecipient { channel, user })
 	}
 	pub fn leave_group_reason(&self, channel: Id) -> Option<&'static str> {
 		if !self.is_group_dm(channel) {
@@ -160,30 +215,46 @@ impl State {
 		}
 		self.group_actions.sequence = self.group_actions.sequence.wrapping_add(1);
 		let request = self.group_actions.sequence;
-		self.group_actions.pending = Some((
+		self.group_actions.pending = Some(Pending {
 			channel,
 			request,
-			matches!(action, Action::Leave(_)),
-			matches!(&action, Action::Edit { name: Some(_), .. }),
-			false,
-		));
+			kind: match &action {
+				Action::Leave(_) => PendingKind::Leave,
+				Action::Edit { name, .. } => PendingKind::Edit {
+					renaming: name.is_some(),
+				},
+				Action::AddRecipient { user, .. } => PendingKind::AddRecipient(*user),
+			},
+			observed: false,
+		});
 		self.group_actions.status = None;
 		self.group_actions.completed = None;
 		Some(Command::GroupAction { action, request })
 	}
 	pub(crate) fn cancel_group_action(&mut self) {
-		if let Some((channel, request, _, _, _)) = self.group_actions.pending.take() {
+		if let Some(Pending {
+			channel, request, ..
+		}) = self.group_actions.pending.take()
+		{
 			self.group_actions.status =
 				Some((channel, "Outcome unknown; check Discord before retrying"));
 			self.group_actions.completed = Some((channel, request, false));
 		}
 	}
 	pub(crate) fn observe_group_change(&mut self, channel: Id, recreated: bool) {
-		if let Some((target, _, leaving, _, observed)) = &mut self.group_actions.pending
-			&& *target == channel
-			&& (recreated || !*leaving)
+		if let Some(pending) = &mut self.group_actions.pending
+			&& pending.channel == channel
+			&& (recreated || matches!(pending.kind, PendingKind::Edit { .. }))
 		{
-			*observed = true;
+			pending.observed = true;
+		}
+	}
+	pub(crate) fn observe_group_recipient(&mut self, channel: Id, user: Id) {
+		if let Some(pending) = &mut self.group_actions.pending
+			&& pending.channel == channel
+			&& matches!(pending.kind, PendingKind::AddRecipient(target) if target == user)
+		{
+			pending.observed = true;
 		}
 	}
 	pub(crate) fn apply_group_action(&mut self, event: Event) -> Result<(), &'static str> {
@@ -192,52 +263,61 @@ impl State {
 			request,
 			result,
 		} = event;
-		let Some((target, sequence, leaving, renaming, observed)) = self.group_actions.pending
-		else {
+		let Some(pending) = self.group_actions.pending else {
 			return Ok(());
 		};
-		if channel != target || request != sequence {
+		if channel != pending.channel || request != pending.request {
 			return Ok(());
 		}
 		self.group_actions.pending = None;
 		let result = result.and_then(|patch| {
-			if leaving && patch.is_none() {
-				return Ok(None);
-			}
-			if !leaving
-				&& patch.as_ref().is_some_and(|p| {
-					p.id == channel
-						&& match &p.name {
-							Patch::Value(name) => {
-								!name.is_empty()
-									&& name.chars().count() <= 100
-									&& name.capacity() <= 400
-							}
-							Patch::Absent => !renaming,
-							Patch::Null => false,
-						} && match &p.icon {
-						Patch::Value(hash) => {
-							model::valid_avatar_hash(hash) && hash.capacity() <= 128
+			let PendingKind::Edit { renaming } = pending.kind else {
+				return patch.is_none().then_some(None).ok_or(Failure::Ambiguous);
+			};
+			if patch.as_ref().is_some_and(|p| {
+				p.id == channel
+					&& match &p.name {
+						Patch::Value(name) => {
+							!name.is_empty()
+								&& name.chars().count() <= 100
+								&& name.capacity() <= 400
 						}
-						Patch::Null => true,
-						Patch::Absent => false,
-					}
-				}) {
+						Patch::Absent => !renaming,
+						Patch::Null => false,
+					} && match &p.icon {
+					Patch::Value(hash) => model::valid_avatar_hash(hash) && hash.capacity() <= 128,
+					Patch::Null => true,
+					Patch::Absent => false,
+				}
+			}) {
 				Ok(patch)
 			} else {
 				Err(Failure::Ambiguous)
 			}
 		});
 		self.group_actions.completed = Some((channel, request, result.is_ok()));
-		let status = match result {
-			Err(failure) => {
+		let status = match (result, pending.kind) {
+			(Err(failure), _) => {
 				if failure.ends_session() {
 					self.fail(failure);
 				}
 				failure.label()
 			}
-			Ok(_) if observed => "Request completed; latest group settings shown",
-			Ok(Some(patch)) => {
+			(Ok(_), PendingKind::AddRecipient(user)) => {
+				// The successful empty response confirms the write. A newer recipient event
+				// or group snapshot already has the authoritative roster.
+				if !pending.observed
+					&& self.group_dm_slots(channel).is_some_and(|slots| slots > 0)
+					&& self.group_recipient_eligible(channel, user)
+					&& let Some(friend) = self.friend(user).cloned()
+					&& !self.apply_dm_recipient_added(channel, friend)
+				{
+					return Ok(());
+				}
+				"Request completed; latest group members shown"
+			}
+			(Ok(_), _) if pending.observed => "Request completed; latest group settings shown",
+			(Ok(Some(patch)), _) => {
 				if let Some(group) = self
 					.channels
 					.iter_mut()
@@ -254,7 +334,7 @@ impl State {
 				}
 				"Group updated"
 			}
-			Ok(None) => {
+			(Ok(None), _) => {
 				self.remove_channels(&std::collections::BTreeSet::from([channel]));
 				if self.selected == Some(channel) {
 					self.arrived_home();
@@ -395,6 +475,98 @@ mod tests {
 			assert_eq!(state.channels[0].name, name);
 		}
 	}
+	#[test]
+	fn adding_a_friend_checks_scope_and_capacity_and_keeps_newer_recipient_events() {
+		let mut state = state();
+		let make_user = |id| model::User {
+			id: Id(id),
+			name: format!("Synthetic {id}"),
+			avatar: None,
+			webhook: false,
+			kind: Default::default(),
+			discriminator: 0,
+			primary_guild: None,
+			cosmetics: None,
+		};
+		let owner = make_user(1);
+		let friend = make_user(2);
+		let other_friend = make_user(3);
+		state.user = Some(owner.clone());
+		let apply = |state: &mut State, event| {
+			state.apply(Envelope {
+				generation: state.generation,
+				event,
+			})
+		};
+		apply(
+			&mut state,
+			CoreEvent::UserAction(crate::user_actions::Event::Relationships(Some(vec![]))),
+		);
+		apply(
+			&mut state,
+			CoreEvent::UserAction(crate::user_actions::Event::Friends(Some(vec![
+				(friend.clone(), "friend".into()),
+				(other_friend.clone(), "other_friend".into()),
+			]))),
+		);
+		assert!(state.add_group_recipient(Id(10), owner.id).is_none());
+		assert!(state.add_group_recipient(Id(10), Id(99)).is_none());
+		state.selected = Some(Id(11));
+		assert!(state.add_group_recipient(Id(10), friend.id).is_none());
+		state.selected = Some(Id(10));
+		state.channels[0].recipients.push(owner);
+		assert_eq!(state.group_dm_slots(Id(10)), Some(MAX_GROUP_RECIPIENTS));
+		state.channels[0].recipients.extend((11..20).map(make_user));
+		assert!(state.add_group_recipient(Id(10), friend.id).is_none());
+		state.channels[0].recipients.truncate(1);
+		let add = state.add_group_recipient(Id(10), friend.id).unwrap();
+		assert!(state.add_group_recipient(Id(10), other_friend.id).is_none());
+		finish(&mut state, add, Err(Failure::Forbidden));
+		assert!(
+			!state
+				.channel(Id(10))
+				.unwrap()
+				.recipients
+				.iter()
+				.any(|user| user.id == friend.id)
+		);
+		let add = state.add_group_recipient(Id(10), friend.id).unwrap();
+		finish(&mut state, add, Ok(None));
+		assert!(
+			state
+				.channel(Id(10))
+				.unwrap()
+				.recipients
+				.iter()
+				.any(|user| user.id == friend.id)
+		);
+		assert!(state.add_group_recipient(Id(10), friend.id).is_none());
+		let add = state.add_group_recipient(Id(10), other_friend.id).unwrap();
+		apply(
+			&mut state,
+			CoreEvent::RecipientAdded {
+				channel: Id(10),
+				user: other_friend.clone(),
+			},
+		);
+		apply(
+			&mut state,
+			CoreEvent::RecipientRemoved {
+				channel: Id(10),
+				user: other_friend.id,
+			},
+		);
+		finish(&mut state, add, Ok(None));
+		assert!(
+			!state
+				.channel(Id(10))
+				.unwrap()
+				.recipients
+				.iter()
+				.any(|user| user.id == other_friend.id)
+		);
+	}
+
 	#[test]
 	fn group_leave_guards_rejoined_channel_pending_messages_and_session_reset() {
 		let mut state = state();

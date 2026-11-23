@@ -4196,7 +4196,7 @@ impl Desktop {
 					use model::Patch;
 					let channel = action.channel();
 					let patch = match action {
-						Action::Leave(_) => None,
+						Action::Leave(_) | Action::AddRecipient { .. } => None,
 						Action::Edit { name, icon, .. } => Some(model::ChannelPatch {
 							user_limit: Patch::Absent,
 							slowmode: Patch::Absent,

@@ -4943,3 +4943,8 @@ moderation-confirm-ban = Banear
 ## crates/ui/src/interface_ui.rs
 # Context: interface_tree
 interface-ui-empty = Este complemento todavía no tiene nada que mostrar.
+
+group-add-title = Agregar amigos al MD
+group-add-subtitle = Elige un amigo para agregarlo a este grupo.
+group-add-full = Este grupo ha alcanzado el límite de 10 personas.
+group-add-confirm = Agregar amigo

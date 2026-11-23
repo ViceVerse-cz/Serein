@@ -5196,3 +5196,8 @@ native-login-web-open = Discord 로그인 페이지 열기
 ## crates/ui/src/interface_ui.rs
 # Context: interface_tree
 interface-ui-empty = 이 플러그인은 아직 표시할 항목이 없습니다.
+
+group-add-title = DM에 친구 추가
+group-add-subtitle = 이 그룹에 추가할 친구를 선택하세요.
+group-add-full = 이 그룹은 최대 인원인 10명에 도달했습니다.
+group-add-confirm = 친구 추가

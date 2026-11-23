@@ -307,7 +307,7 @@ struct Extras<'a> {
 	retry: Option<&'a client_core::captcha::Retry>,
 	/// Where a challenge the user can solve is reported instead of ending the session.
 	challenge: Option<&'a mut Option<client_core::captcha::Challenge>>,
-	/// Sent as `X-Context-Properties` on a message create.
+	/// Sent as `X-Context-Properties` for a messaging action.
 	context: Option<client_core::fingerprint::MessageContext>,
 	/// Builds the JSON body after cooldown and route admission.
 	prepare: Option<&'a mut (dyn FnMut() -> Result<serde_json::Value, Failure> + Send)>,

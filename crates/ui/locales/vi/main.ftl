@@ -5232,3 +5232,8 @@ native-login-web-open = Mở trang đăng nhập của Discord
 ## crates/ui/src/interface_ui.rs
 # Context: interface_tree
 interface-ui-empty = Plugin này chưa có gì để hiển thị.
+
+group-add-title = Thêm bạn vào tin nhắn trực tiếp
+group-add-subtitle = Chọn một người bạn để thêm vào nhóm này.
+group-add-full = Nhóm này đã đạt giới hạn 10 người.
+group-add-confirm = Thêm bạn

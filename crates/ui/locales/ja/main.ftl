@@ -4923,3 +4923,8 @@ moderation-confirm-ban = BAN
 ## crates/ui/src/interface_ui.rs
 # Context: interface_tree
 interface-ui-empty = このプラグインにはまだ表示するものがありません。
+
+group-add-title = DMに友達を追加
+group-add-subtitle = このグループに追加する友達を選んでください。
+group-add-full = このグループは上限の10人に達しています。
+group-add-confirm = 友達を追加

@@ -4942,3 +4942,8 @@ moderation-confirm-ban = Zbanuj
 ## crates/ui/src/interface_ui.rs
 # Context: interface_tree
 interface-ui-empty = Ta wtyczka nie ma jeszcze nic do pokazania.
+
+group-add-title = Dodaj znajomych do DM
+group-add-subtitle = Wybierz znajomego, którego chcesz dodać do tej grupy.
+group-add-full = Ta grupa osiągnęła limit 10 osób.
+group-add-confirm = Dodaj znajomego

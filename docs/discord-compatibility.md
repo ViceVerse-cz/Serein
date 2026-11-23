@@ -755,6 +755,21 @@ Offline HTTP, reducer, image-boundary and egui interaction tests cover these
 paths. The demo includes a synthetic group. No live group was edited, left, or
 muted, and normal-account service interoperability remains unverified.
 
+### Add friends to an existing group DM
+
+The conversation header opens a friend picker for the selected group. It adds one
+friend per confirmed request. The picker excludes the signed-in account and
+current recipients, and disables additions when the group reaches ten people.
+Discord documents the [Add Friends to DM control and group size](https://support.discord.com/hc/en-us/articles/223657667-Group-Chat-and-Calls).
+
+The normal-account client route is unofficial. Serein sends an empty
+PUT to /channels/{channel}/recipients/{user} with the Add Friends to DM request
+context, as observed in [discord.py-self](https://github.com/dolfies/discord.py-self/blob/master/discord/http.py).
+The documented OAuth route requires a recipient token with the gdm.join scope.
+Serein uses the active account session and sends no OAuth recipient token.
+An empty success response confirms the write. A newer recipient event or group
+snapshot takes precedence over the local result. Verification is offline.
+
 ## Embed image galleries — September 11, 2026
 
 Consecutive same-URL image embeds now share one native card: two columns, with a

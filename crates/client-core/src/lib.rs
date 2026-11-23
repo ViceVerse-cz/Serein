@@ -1624,6 +1624,36 @@ impl State {
 			.filter(|current| current == &next_id)
 	}
 
+	pub(crate) fn apply_dm_recipient_added(&mut self, channel: Id, user: User) -> bool {
+		let Some(index) = self
+			.channel_index(channel)
+			.filter(|&index| self.channels[index].guild.is_none())
+		else {
+			return true;
+		};
+		let previous = self.channels[index].clone();
+		let c = &mut self.channels[index];
+		if let Some(old) = c.recipients.iter_mut().find(|u| u.id == user.id) {
+			*old = user;
+		} else if c.recipients.len() < 64 {
+			c.recipients.push(user);
+		} else {
+			self.fail(auth::Failure::Capacity);
+			return false;
+		}
+		self.navigation_index.bytes.set(None);
+		if self.navigation_bytes() + self.permissions.bytes() > model::account::MAX_BYTES {
+			self.channels[index] = previous;
+			self.navigation_index.bytes.set(None);
+			self.fail(auth::Failure::Capacity);
+			return false;
+		}
+		if self.selected == Some(channel) && self.members.is_some() {
+			let _ = self.request_members();
+		}
+		true
+	}
+
 	pub fn request_members(&mut self) -> Option<Command> {
 		let index = self.channel_index(self.selected?)?;
 		let channel_id = self.channels[index].id;
@@ -3450,35 +3480,14 @@ impl State {
 				Ok(())
 			}
 			Event::RecipientAdded { channel, user } => {
-				if let Some(index) = self
-					.channel_index(channel)
-					.filter(|&index| self.channels[index].guild.is_none())
-				{
-					let previous = self.channels[index].clone();
-					let c = &mut self.channels[index];
-					if let Some(old) = c.recipients.iter_mut().find(|u| u.id == user.id) {
-						*old = user;
-					} else if c.recipients.len() < 64 {
-						c.recipients.push(user);
-					} else {
-						self.fail(auth::Failure::Capacity);
-						return;
-					}
-					if self.navigation_bytes() + self.permissions.bytes()
-						> model::account::MAX_BYTES
-					{
-						self.channels[index] = previous;
-						self.navigation_index.bytes.set(None);
-						self.fail(auth::Failure::Capacity);
-						return;
-					}
-					if self.selected == Some(channel) && self.members.is_some() {
-						let _ = self.request_members();
-					}
+				self.observe_group_recipient(channel, user.id);
+				if !self.apply_dm_recipient_added(channel, user) {
+					return;
 				}
 				Ok(())
 			}
 			Event::RecipientRemoved { channel, user } => {
+				self.observe_group_recipient(channel, user);
 				if self.user.as_ref().is_some_and(|u| u.id == user) {
 					self.end_voice_channel(channel);
 					self.read_state.forget(channel);

@@ -5037,3 +5037,8 @@ moderation-confirm-ban = 封禁
 ## crates/ui/src/interface_ui.rs
 # Context: interface_tree
 interface-ui-empty = 此插件暂时没有可显示的内容。
+
+group-add-title = 添加朋友到私信
+group-add-subtitle = 选择要添加到此群组的朋友。
+group-add-full = 此群组已达到 10 人上限。
+group-add-confirm = 添加朋友
