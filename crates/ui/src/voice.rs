@@ -423,17 +423,25 @@ impl MessagingUi {
 	/// Everyone in a voice channel the account can view, as the client shows them: the
 	/// resolved display name when the member is loaded, the shown mute and deafen flags,
 	/// and whether the speaking indicator is lit. Channels without a positive view grant
-	/// are left out, like the directory. For plugin snapshots; no audio data leaves this
-	/// summary.
+	/// are left out, like the directory. The active call's channel comes first, so callers
+	/// that cap the rows never drop the call on busy accounts. For plugin snapshots; no
+	/// audio data leaves this summary.
 	pub fn voice_roster<'a>(
 		&'a self,
 		state: &'a State,
 	) -> impl Iterator<Item = VoiceRosterRow<'a>> + 'a {
+		// The roster is kept in update order, so the call just joined sits at the end.
+		let call = state.voice.active.as_ref().map(|call| call.channel);
+		let rows = &state.voice.roster;
+		let ordered = rows
+			.iter()
+			.filter(move |entry| Some(entry.channel) == call)
+			.chain(rows.iter().filter(move |entry| Some(entry.channel) != call));
 		// Snapshots and the change key walk every row each frame, so rows needing the
 		// member fallback share one index of the loaded list. It is built on first use:
 		// rows filtered out or already carrying their member never pay for it.
 		let mut index = None;
-		state.voice.roster.iter().filter_map(move |entry| {
+		ordered.filter_map(move |entry| {
 			if !state.can_view(entry.channel) {
 				return None;
 			}

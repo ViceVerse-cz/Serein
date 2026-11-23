@@ -1438,6 +1438,43 @@ mod tests {
 		}
 	}
 
+	/// Regression for #1111: the roster is kept in update order, so on busy accounts the
+	/// call just joined sat past the cap and plugins never saw it or its speaking changes.
+	#[test]
+	fn active_call_survives_a_full_roster() {
+		let mut state = test_support::voice_demo_state();
+		let other = state
+			.voice
+			.roster
+			.iter()
+			.find(|entry| entry.channel == Id(37))
+			.unwrap()
+			.clone();
+		let filler = (0..2 * MAX_VOICE_ROSTER as u64).map(|i| {
+			let mut entry = other.clone();
+			entry.participant.user = Id(1000 + i);
+			entry
+		});
+		state.voice.roster.splice(0..0, filler);
+		let mut messaging = ui::MessagingUi::default();
+		let voice = manifest(vec![Capability::VoiceState]);
+		let before = ChangeKey::capture(&state, &messaging);
+		messaging.voice_speaking = vec![Id(1)];
+		let app = snapshot(&state, &messaging, &voice, None).unwrap();
+		let you = app
+			.voice
+			.unwrap()
+			.roster
+			.into_iter()
+			.find(|row| row.user_id == "1")
+			.expect("the call stays in a full roster");
+		assert!(you.channel_id == "25" && you.speaking);
+		assert_eq!(
+			ChangeKey::capture(&state, &messaging).changed(&before),
+			Some(AppEventKind::Voice)
+		);
+	}
+
 	/// Checks that the voice roster lists every viewable voice channel's people with their
 	/// names and flags, keeps denied channels out, lights speaking only as the client's own
 	/// indicator does, honours local mutes, and raises a voice event when someone starts
