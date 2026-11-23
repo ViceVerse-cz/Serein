@@ -2312,6 +2312,12 @@ reading-chat-reading-settings-scrolling = Cuộn
 # Context: chat_reading_settings
 reading-chat-reading-settings-scrolling-speed = Tốc độ cuộn
 # Context: chat_reading_settings
+reading-chat-reading-settings-show-server-tags = Hiển thị thẻ máy chủ trong trò chuyện
+# Context: chat_reading_settings
+reading-chat-reading-settings-show-server-tags-description = Hiển thị thẻ máy chủ mà một người đang đeo bên cạnh tên của họ trong tin nhắn.
+# Context: chat_reading_settings
+reading-chat-reading-settings-show-server-tags-hidden-everywhere = Đã tắt vì Giao diện › Thẻ máy chủ đang tắt.
+# Context: chat_reading_settings
 reading-chat-reading-settings-smooth-scrolling = Cuộn mượt mà
 # Context: chat_reading_settings
 reading-chat-reading-settings-compact-message-spacing = Tin nhắn nhỏ gọn
@@ -5081,7 +5087,7 @@ settings-cosmetics-all-description = Tất cả mọi thứ dưới đây cùng 
 settings-cosmetics-gradient-names = Tên gradient
 settings-cosmetics-gradient-names-description = Tên vai trò và Nitro pha trộn nhiều màu sắc. Tắt sơn chúng bằng màu đầu tiên.
 settings-cosmetics-clan-tags = Thẻ máy chủ
-settings-cosmetics-clan-tags-description = Thẻ máy chủ mà một người đeo bên cạnh tên của họ.
+settings-cosmetics-clan-tags-description = Thẻ máy chủ mà một người đang đeo bên cạnh tên của họ trong hồ sơ, danh sách thành viên và tin nhắn.
 main-sign-in-rate-limited-detail = Discord đang giới hạn tỷ lệ đăng nhập này. Hãy đợi trước khi thử lại. Một nỗ lực khác trước đó có thể khiến thời gian chờ đợi lâu hơn.
 
 # Avatar badge while someone is typing.
