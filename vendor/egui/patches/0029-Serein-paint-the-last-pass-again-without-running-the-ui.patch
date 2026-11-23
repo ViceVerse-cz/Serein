@@ -11,10 +11,10 @@ layout or tessellation. Anything that asks for a ui pass still gets one.
 buffers still hold those primitives.
 ---
 diff --git a/crates/eframe/src/epi.rs b/crates/eframe/src/epi.rs
-index 5c262530..31472019 100644
+index 5c262530..88340d8f 100644
 --- a/crates/eframe/src/epi.rs
 +++ b/crates/eframe/src/epi.rs
-@@ -334,6 +334,59 @@ pub trait App {
+@@ -334,6 +334,69 @@ pub trait App {
      fn repaint_on_device_event(&mut self, _event: &winit::event::DeviceEvent) -> Option<bool> {
          None
      }
@@ -56,13 +56,23 @@ index 5c262530..31472019 100644
 +/// any thread, like [`egui::Context::request_repaint`].
 +#[cfg(not(target_arch = "wasm32"))]
 +#[derive(Clone)]
-+pub struct PaintOnlyRequester(pub(crate) std::sync::Arc<dyn Fn() + Send + Sync>);
++pub struct PaintOnlyRequester(
++    pub(crate) std::sync::Arc<dyn Fn(core::time::Duration) + Send + Sync>,
++);
 +
 +#[cfg(not(target_arch = "wasm32"))]
 +impl PaintOnlyRequester {
-+    /// Ask for one paint-only frame. Requests made before that frame is painted are merged.
++    /// Ask for one paint-only frame now.
 +    pub fn request(&self) {
-+        (self.0)();
++        (self.0)(core::time::Duration::ZERO);
++    }
++
++    /// Ask for one paint-only frame `delay` from now, for a picture that is due then.
++    ///
++    /// Only the earliest pending request is kept: ask again from [`App::paint_only`] (or
++    /// from the pass that ran instead) for whatever is due later.
++    pub fn request_after(&self, delay: core::time::Duration) {
++        (self.0)(delay);
 +    }
 +}
 +
@@ -74,7 +84,7 @@ index 5c262530..31472019 100644
  }
  
  /// Options controlling the behavior of a native window.
-@@ -794,6 +847,10 @@ pub struct Frame {
+@@ -794,6 +857,10 @@ pub struct Frame {
      #[cfg(not(target_arch = "wasm32"))]
      pub(crate) activation_token: Option<String>,
  
@@ -85,7 +95,7 @@ index 5c262530..31472019 100644
      /// See [`Self::embedded_views`].
      pub(crate) embedded_views: crate::EmbeddedViews,
  }
-@@ -838,6 +895,8 @@ impl Frame {
+@@ -838,6 +905,8 @@ impl Frame {
              window: None,
              #[cfg(not(target_arch = "wasm32"))]
              activation_token: None,
@@ -94,7 +104,7 @@ index 5c262530..31472019 100644
              storage: None,
              #[cfg(feature = "wgpu_no_default_features")]
              wgpu_render_state: None,
-@@ -853,6 +912,14 @@ impl Frame {
+@@ -853,6 +922,14 @@ impl Frame {
          &self.embedded_views
      }
  
@@ -140,7 +150,7 @@ index 41ef7aa1..31af8976 100644
              .glutin
              .borrow()
 diff --git a/crates/eframe/src/native/run.rs b/crates/eframe/src/native/run.rs
-index 04f4a54b..6fb53e0a 100644
+index 04f4a54b..d7526e07 100644
 --- a/crates/eframe/src/native/run.rs
 +++ b/crates/eframe/src/native/run.rs
 @@ -7,7 +7,7 @@ use winit::{
@@ -152,7 +162,7 @@ index 04f4a54b..6fb53e0a 100644
  
  use super::winit_integration::{UserEvent, WinitApp};
  use crate::{
-@@ -92,6 +92,13 @@ struct WinitAppWrapper<T: WinitApp> {
+@@ -92,6 +92,16 @@ struct WinitAppWrapper<T: WinitApp> {
      /// Windows we asked to redraw, and when to give up waiting for their `RedrawRequested`.
      windows_redraw_deadlines: HashMap<WindowId, Instant>,
  
@@ -163,19 +173,23 @@ index 04f4a54b..6fb53e0a 100644
 +    /// Windows asked to paint their last shapes again: see [`crate::App::paint_only`].
 +    windows_paint_only: HashSet<WindowId>,
 +
++    /// When to ask a window for its next paint-only frame; the earliest request is kept.
++    windows_next_paint_only: HashMap<WindowId, Instant>,
++
      winit_app: T,
      return_result: Result<(), crate::Error>,
      run_and_return: bool,
-@@ -102,6 +109,8 @@ impl<T: WinitApp> WinitAppWrapper<T> {
+@@ -102,6 +112,9 @@ impl<T: WinitApp> WinitAppWrapper<T> {
          Self {
              windows_next_repaint_times: HashMap::default(),
              windows_redraw_deadlines: HashMap::default(),
 +            windows_ui_redraw: HashSet::default(),
 +            windows_paint_only: HashSet::default(),
++            windows_next_paint_only: HashMap::default(),
              winit_app,
              return_result: Ok(()),
              run_and_return,
-@@ -230,6 +239,7 @@ impl<T: WinitApp> WinitAppWrapper<T> {
+@@ -230,6 +243,7 @@ impl<T: WinitApp> WinitAppWrapper<T> {
                          // busy-loops a whole CPU core.
                          // See https://github.com/emilk/egui/issues/8326.
                          window.request_redraw();
@@ -183,7 +197,51 @@ index 04f4a54b..6fb53e0a 100644
                          self.windows_redraw_deadlines
                              .entry(*window_id)
                              .or_insert(now + MISSED_REDRAW_TIMEOUT);
-@@ -348,6 +358,7 @@ impl<T: WinitApp> ApplicationHandler<UserEvent> for WinitAppWrapper<T> {
+@@ -240,6 +254,23 @@ impl<T: WinitApp> WinitAppWrapper<T> {
+                 false
+             });
+ 
++        // No redraw deadline for a paint-only frame: a window the windowing system won't
++        // let paint (hidden, occluded) has nothing to show the new picture on, and unlike
++        // a ui repaint there is no logic waiting to run.
++        self.windows_next_paint_only.retain(|window_id, when| {
++            if now < *when {
++                return true; // not yet due
++            }
++            if let Some(window) = self.winit_app.window(*window_id)
++                && !is_invisible_or_minimized(&window)
++            {
++                log::trace!("paint-only request_redraw for {window_id:?}");
++                self.windows_paint_only.insert(*window_id);
++                window.request_redraw();
++            }
++            false
++        });
++
+         // Paint invisible windows directly, since they won't receive
+         // RedrawRequested events on Windows. This ensures that viewport
+         // commands like Visible(true) are still processed.
+@@ -288,12 +319,13 @@ impl<T: WinitApp> WinitAppWrapper<T> {
+         // `ControlFlow::Poll` set earlier was never undone once the last timed
+         // repaint had been consumed, leaving the loop spinning.
+         // See https://github.com/emilk/egui/issues/8326.
+-        let next_repaint_time = core::iter::chain(
+-            self.windows_next_repaint_times.values(),
+-            self.windows_redraw_deadlines.values(),
+-        )
+-        .min()
+-        .copied();
++        let next_repaint_time = self
++            .windows_next_repaint_times
++            .values()
++            .chain(self.windows_redraw_deadlines.values())
++            .chain(self.windows_next_paint_only.values())
++            .min()
++            .copied();
+         event_loop.set_control_flow(match next_repaint_time {
+             Some(next_repaint_time) => ControlFlow::WaitUntil(next_repaint_time),
+             None => ControlFlow::Wait,
+@@ -348,6 +380,7 @@ impl<T: WinitApp> ApplicationHandler<UserEvent> for WinitAppWrapper<T> {
      fn user_event(&mut self, event_loop: &ActiveEventLoop, event: UserEvent) {
          profiling::function_scope!(match &event {
              UserEvent::RequestRepaint { .. } => "UserEvent::RequestRepaint",
@@ -191,28 +249,26 @@ index 04f4a54b..6fb53e0a 100644
              #[cfg(feature = "accesskit")]
              UserEvent::AccessKitActionRequest(_) => "UserEvent::AccessKitActionRequest",
          });
-@@ -389,6 +400,20 @@ impl<T: WinitApp> ApplicationHandler<UserEvent> for WinitAppWrapper<T> {
+@@ -389,6 +422,18 @@ impl<T: WinitApp> ApplicationHandler<UserEvent> for WinitAppWrapper<T> {
                          Ok(EventResult::Wait) // old request - we've already repainted
                      }
                  }
-+                UserEvent::PaintOnly { viewport_id } => {
-+                    // No redraw deadline: a window the windowing system won't let paint
-+                    // (hidden, occluded) has nothing to show the new picture on, and
-+                    // unlike a ui repaint there is no logic waiting to run.
++                UserEvent::PaintOnly { viewport_id, when } => {
++                    // `check_redraw_requests`, which `handle_event_result` runs next,
++                    // asks for the redraw once `when` has come.
 +                    if let Some(window_id) = self.winit_app.window_id_from_viewport_id(viewport_id)
-+                        && let Some(window) = self.winit_app.window(window_id)
-+                        && !is_invisible_or_minimized(&window)
 +                    {
-+                        log::trace!("UserEvent::PaintOnly: request_redraw for {window_id:?}");
-+                        self.windows_paint_only.insert(window_id);
-+                        window.request_redraw();
++                        self.windows_next_paint_only
++                            .entry(window_id)
++                            .and_modify(|earliest| *earliest = (*earliest).min(when))
++                            .or_insert(when);
 +                    }
 +                    Ok(EventResult::Wait)
 +                }
                  #[cfg(feature = "accesskit")]
                  UserEvent::AccessKitActionRequest(request) => {
                      self.winit_app.on_accesskit_event(request)
-@@ -425,8 +450,17 @@ impl<T: WinitApp> ApplicationHandler<UserEvent> for WinitAppWrapper<T> {
+@@ -425,8 +470,17 @@ impl<T: WinitApp> ApplicationHandler<UserEvent> for WinitAppWrapper<T> {
              let event_result = match event {
                  winit::event::WindowEvent::RedrawRequested => {
                      self.windows_redraw_deadlines.remove(&window_id);
@@ -233,7 +289,7 @@ index 04f4a54b..6fb53e0a 100644
                  _ => self.winit_app.window_event(event_loop, window_id, event),
              };
 diff --git a/crates/eframe/src/native/wgpu_integration.rs b/crates/eframe/src/native/wgpu_integration.rs
-index febd435c..cf4199c1 100644
+index febd435c..ae90699c 100644
 --- a/crates/eframe/src/native/wgpu_integration.rs
 +++ b/crates/eframe/src/native/wgpu_integration.rs
 @@ -69,6 +69,18 @@ struct WgpuWinitRunning<'app> {
@@ -264,18 +320,19 @@ index febd435c..cf4199c1 100644
              egui_ctx.clone(),
              &window,
              &self.app_name,
-@@ -302,6 +314,19 @@ impl<'app> WgpuWinitApp<'app> {
+@@ -302,6 +314,20 @@ impl<'app> WgpuWinitApp<'app> {
              wgpu_render_state.clone(),
          );
  
 +        {
 +            let event_loop_proxy = Arc::clone(&self.repaint_proxy);
 +            integration.frame.paint_only_requester =
-+                Some(crate::PaintOnlyRequester(Arc::new(move || {
++                Some(crate::PaintOnlyRequester(Arc::new(move |delay| {
 +                    event_loop_proxy
 +                        .lock()
 +                        .send_event(UserEvent::PaintOnly {
 +                            viewport_id: ViewportId::ROOT,
++                            when: Instant::now() + delay,
 +                        })
 +                        .ok();
 +                })));
@@ -284,7 +341,7 @@ index febd435c..cf4199c1 100644
          {
              let event_loop_proxy = Arc::clone(&self.repaint_proxy);
  
-@@ -424,6 +449,7 @@ impl<'app> WgpuWinitApp<'app> {
+@@ -424,6 +450,7 @@ impl<'app> WgpuWinitApp<'app> {
              app,
              shared,
              pending_deltas: Default::default(),
@@ -292,7 +349,7 @@ index febd435c..cf4199c1 100644
          }))
      }
  }
-@@ -656,6 +682,15 @@ impl WgpuWinitRunning<'_> {
+@@ -656,6 +683,15 @@ impl WgpuWinitRunning<'_> {
              return Ok(EventResult::Wait);
          };
  
@@ -308,7 +365,7 @@ index febd435c..cf4199c1 100644
          profiling::finish_frame!();
  
          let Self {
-@@ -663,6 +698,7 @@ impl WgpuWinitRunning<'_> {
+@@ -663,6 +699,7 @@ impl WgpuWinitRunning<'_> {
              integration,
              shared,
              pending_deltas,
@@ -316,13 +373,14 @@ index febd435c..cf4199c1 100644
          } = self;
  
          let mut frame_timer = crate::stopwatch::Stopwatch::new();
-@@ -849,9 +885,19 @@ impl WgpuWinitRunning<'_> {
+@@ -849,9 +886,20 @@ impl WgpuWinitRunning<'_> {
  
          egui_winit.handle_platform_output_with_event_loop(window, event_loop, platform_output);
  
-+        if viewport_id == ViewportId::ROOT {
-+            *kept_paint = None;
-+        }
++        // Any pass can free textures or start the shared glyph atlas over, also one of
++        // another viewport, so the root's kept shapes end with it. Only the root's own
++        // pass keeps new ones.
++        *kept_paint = None;
 +
          let vsync_secs = if is_visible {
              let clipped_primitives = egui_ctx.tessellate(shapes, pixels_per_point);
@@ -336,7 +394,7 @@ index febd435c..cf4199c1 100644
              let mut screenshot_commands = vec![];
              viewport.actions_requested.retain(|cmd| {
                  if let ActionRequested::Screenshot(callback) = cmd {
-@@ -907,6 +953,14 @@ impl WgpuWinitRunning<'_> {
+@@ -907,6 +955,14 @@ impl WgpuWinitRunning<'_> {
                  window.set_visible(true);
              }
  
@@ -351,7 +409,7 @@ index febd435c..cf4199c1 100644
              vsync_secs
          } else {
              0.0
-@@ -950,6 +1004,77 @@ impl WgpuWinitRunning<'_> {
+@@ -950,6 +1006,83 @@ impl WgpuWinitRunning<'_> {
          }
      }
  
@@ -423,6 +481,12 @@ index febd435c..cf4199c1 100644
 +            window,
 +        );
 +
++        // Long playback may run no full pass at all, and periodic saving must not wait
++        // for one.
++        let window = Arc::clone(window);
++        drop(shared);
++        integration.maybe_autosave(app.as_mut(), Some(&window));
++
 +        true
 +    }
 +
@@ -430,7 +494,7 @@ index febd435c..cf4199c1 100644
          &mut self,
          window_id: WindowId,
 diff --git a/crates/eframe/src/native/winit_integration.rs b/crates/eframe/src/native/winit_integration.rs
-index 7beb5470..8aa0bbc9 100644
+index 7beb5470..a0cc4b89 100644
 --- a/crates/eframe/src/native/winit_integration.rs
 +++ b/crates/eframe/src/native/winit_integration.rs
 @@ -106,6 +106,10 @@ pub enum PassMode {
@@ -444,7 +508,7 @@ index 7beb5470..8aa0bbc9 100644
  }
  
  /// Create an egui context, restoring it from storage if possible.
-@@ -153,6 +157,12 @@ pub enum UserEvent {
+@@ -153,6 +157,15 @@ pub enum UserEvent {
          cumulative_pass_nr: u64,
      },
  
@@ -452,6 +516,9 @@ index 7beb5470..8aa0bbc9 100644
 +    PaintOnly {
 +        /// What to paint again.
 +        viewport_id: ViewportId,
++
++        /// When to paint it.
++        when: Instant,
 +    },
 +
      /// A request related to [`accesskit`](https://accesskit.dev/).
@@ -503,21 +570,22 @@ index 1d8118eb..a45c4533 100644
  
          let uniform_buffer_content = UniformBuffer {
 diff --git a/crates/egui-wgpu/src/winit.rs b/crates/egui-wgpu/src/winit.rs
-index e746b17e..66776faa 100644
+index e746b17e..60cd45e8 100644
 --- a/crates/egui-wgpu/src/winit.rs
 +++ b/crates/egui-wgpu/src/winit.rs
-@@ -38,6 +38,10 @@ pub struct Painter {
+@@ -38,6 +38,11 @@ pub struct Painter {
      depth_texture_view: ViewportIdMap<wgpu::TextureView>,
      msaa_texture_view: ViewportIdMap<wgpu::TextureView>,
      surfaces: ViewportIdMap<SurfaceState>,
 +
-+    /// The viewport whose primitives this painter last uploaded, and the renderer's
-+    /// [`Renderer::buffers_generation`] right after. See [`Self::paint_again`].
-+    buffers_of: Option<(ViewportId, u64)>,
++    /// The viewport whose primitives this painter last uploaded, the renderer's
++    /// [`Renderer::buffers_generation`] right after, and the surface size in pixels the
++    /// upload was made for. See [`Self::paint_again`].
++    buffers_of: Option<(ViewportId, u64, [u32; 2])>,
  }
  
  impl Painter {
-@@ -74,6 +78,8 @@ impl Painter {
+@@ -74,6 +79,8 @@ impl Painter {
              depth_texture_view: Default::default(),
              surfaces: Default::default(),
              msaa_texture_view: Default::default(),
@@ -526,7 +594,7 @@ index e746b17e..66776faa 100644
          }
      }
  
-@@ -501,6 +507,59 @@ impl Painter {
+@@ -501,6 +508,59 @@ impl Painter {
          textures_delta: &mut epaint::textures::TexturesDelta,
          capture_data: Vec<egui::ScreenshotCallback>,
          window: &Arc<winit::window::Window>,
@@ -586,7 +654,7 @@ index e746b17e..66776faa 100644
      ) -> f32 {
          profiling::function_scope!();
  
-@@ -582,13 +641,23 @@ impl Painter {
+@@ -582,13 +642,25 @@ impl Painter {
                  }
              }
  
@@ -598,9 +666,11 @@ index e746b17e..66776faa 100644
 -                &screen_descriptor,
 -            )
 +            // Painting a viewport's last primitives again needs no upload, as long as
-+            // nothing else has uploaded into the renderer's buffers since.
++            // nothing else has uploaded into the renderer's buffers since and the surface
++            // (whose size the uploaded uniforms carry) is as large as it was.
++            let size = screen_descriptor.size_in_pixels;
 +            if same_primitives
-+                && self.buffers_of == Some((viewport_id, renderer.buffers_generation()))
++                && self.buffers_of == Some((viewport_id, renderer.buffers_generation(), size))
 +            {
 +                Vec::new()
 +            } else {
@@ -611,7 +681,7 @@ index e746b17e..66776faa 100644
 +                    clipped_primitives,
 +                    &screen_descriptor,
 +                );
-+                self.buffers_of = Some((viewport_id, renderer.buffers_generation()));
++                self.buffers_of = Some((viewport_id, renderer.buffers_generation(), size));
 +                user_cmd_bufs
 +            }
          };

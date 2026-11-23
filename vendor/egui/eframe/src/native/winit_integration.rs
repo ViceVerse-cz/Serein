@@ -161,6 +161,9 @@ pub enum UserEvent {
     PaintOnly {
         /// What to paint again.
         viewport_id: ViewportId,
+
+        /// When to paint it.
+        when: Instant,
     },
 
     /// A request related to [`accesskit`](https://accesskit.dev/).

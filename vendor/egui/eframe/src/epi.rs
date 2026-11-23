@@ -372,13 +372,23 @@ pub trait App {
 /// any thread, like [`egui::Context::request_repaint`].
 #[cfg(not(target_arch = "wasm32"))]
 #[derive(Clone)]
-pub struct PaintOnlyRequester(pub(crate) std::sync::Arc<dyn Fn() + Send + Sync>);
+pub struct PaintOnlyRequester(
+    pub(crate) std::sync::Arc<dyn Fn(core::time::Duration) + Send + Sync>,
+);
 
 #[cfg(not(target_arch = "wasm32"))]
 impl PaintOnlyRequester {
-    /// Ask for one paint-only frame. Requests made before that frame is painted are merged.
+    /// Ask for one paint-only frame now.
     pub fn request(&self) {
-        (self.0)();
+        (self.0)(core::time::Duration::ZERO);
+    }
+
+    /// Ask for one paint-only frame `delay` from now, for a picture that is due then.
+    ///
+    /// Only the earliest pending request is kept: ask again from [`App::paint_only`] (or
+    /// from the pass that ran instead) for whatever is due later.
+    pub fn request_after(&self, delay: core::time::Duration) {
+        (self.0)(delay);
     }
 }
 

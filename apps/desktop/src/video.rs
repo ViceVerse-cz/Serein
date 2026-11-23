@@ -3,6 +3,7 @@
 mod fallback;
 mod output;
 mod source;
+use crate::gpu_video::Wake;
 use std::sync::{
 	Arc, Mutex,
 	atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
@@ -28,26 +29,6 @@ struct Session {
 	/// ui pass; while they are hidden only new pictures ask for a frame.
 	position_shown: AtomicBool,
 	update: Mutex<Update>,
-}
-/// How the player thread asks for a frame.
-#[derive(Clone)]
-struct Wake {
-	ctx: eframe::egui::Context,
-	picture: Option<eframe::PaintOnlyRequester>,
-}
-impl Wake {
-	/// The ui has to change: playback state, or a position readout that is on screen.
-	fn ui(&self) {
-		self.ctx.request_repaint();
-	}
-	/// Only the picture changed. The renderer presents it over the last pass's shapes
-	/// without running the ui, where it can; otherwise this is an ordinary repaint.
-	fn picture(&self) {
-		match &self.picture {
-			Some(picture) => picture.request(),
-			None => self.ctx.request_repaint(),
-		}
-	}
 }
 impl Session {
 	fn new(volume: f32) -> Self {
@@ -141,10 +122,10 @@ impl Video {
 	}
 	/// Shows the worker's newest picture in the texture the last ui pass drew, without a
 	/// ui pass. `false` when the ui has to run instead: the playback state changed, or the
-	/// picture needs a texture of another size.
+	/// picture needs a texture of another size. Nothing new to show is `true`.
 	pub fn paint_only(&mut self, player: &VideoUi, ctx: &eframe::egui::Context) -> bool {
 		let Some(session) = &self.session else {
-			return false;
+			return true;
 		};
 		let Ok(mut update) = session.update.lock() else {
 			return false;
@@ -276,10 +257,7 @@ impl Video {
 		if self.requests.is_none() {
 			let (sender, mut receiver) = tokio::sync::watch::channel::<Option<Request>>(None);
 			let runtime = runtime.clone();
-			let wake = Wake {
-				ctx: ctx.clone(),
-				picture: self.presenter.clone(),
-			};
+			let wake = Wake::new(ctx, self.presenter.clone());
 			let worker = std::thread::Builder::new()
 				.name("serein-attachment-video".into())
 				.spawn(move || {

@@ -317,11 +317,12 @@ impl<'app> WgpuWinitApp<'app> {
         {
             let event_loop_proxy = Arc::clone(&self.repaint_proxy);
             integration.frame.paint_only_requester =
-                Some(crate::PaintOnlyRequester(Arc::new(move || {
+                Some(crate::PaintOnlyRequester(Arc::new(move |delay| {
                     event_loop_proxy
                         .lock()
                         .send_event(UserEvent::PaintOnly {
                             viewport_id: ViewportId::ROOT,
+                            when: Instant::now() + delay,
                         })
                         .ok();
                 })));
@@ -885,9 +886,10 @@ impl WgpuWinitRunning<'_> {
 
         egui_winit.handle_platform_output_with_event_loop(window, event_loop, platform_output);
 
-        if viewport_id == ViewportId::ROOT {
-            *kept_paint = None;
-        }
+        // Any pass can free textures or start the shared glyph atlas over, also one of
+        // another viewport, so the root's kept shapes end with it. Only the root's own
+        // pass keeps new ones.
+        *kept_paint = None;
 
         let vsync_secs = if is_visible {
             let clipped_primitives = egui_ctx.tessellate(shapes, pixels_per_point);
@@ -1071,6 +1073,12 @@ impl WgpuWinitRunning<'_> {
             &kept_paint.clipped_primitives,
             window,
         );
+
+        // Long playback may run no full pass at all, and periodic saving must not wait
+        // for one.
+        let window = Arc::clone(window);
+        drop(shared);
+        integration.maybe_autosave(app.as_mut(), Some(&window));
 
         true
     }

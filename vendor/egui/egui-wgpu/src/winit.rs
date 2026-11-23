@@ -39,9 +39,10 @@ pub struct Painter {
     msaa_texture_view: ViewportIdMap<wgpu::TextureView>,
     surfaces: ViewportIdMap<SurfaceState>,
 
-    /// The viewport whose primitives this painter last uploaded, and the renderer's
-    /// [`Renderer::buffers_generation`] right after. See [`Self::paint_again`].
-    buffers_of: Option<(ViewportId, u64)>,
+    /// The viewport whose primitives this painter last uploaded, the renderer's
+    /// [`Renderer::buffers_generation`] right after, and the surface size in pixels the
+    /// upload was made for. See [`Self::paint_again`].
+    buffers_of: Option<(ViewportId, u64, [u32; 2])>,
 }
 
 impl Painter {
@@ -642,9 +643,11 @@ impl Painter {
             }
 
             // Painting a viewport's last primitives again needs no upload, as long as
-            // nothing else has uploaded into the renderer's buffers since.
+            // nothing else has uploaded into the renderer's buffers since and the surface
+            // (whose size the uploaded uniforms carry) is as large as it was.
+            let size = screen_descriptor.size_in_pixels;
             if same_primitives
-                && self.buffers_of == Some((viewport_id, renderer.buffers_generation()))
+                && self.buffers_of == Some((viewport_id, renderer.buffers_generation(), size))
             {
                 Vec::new()
             } else {
@@ -655,7 +658,7 @@ impl Painter {
                     clipped_primitives,
                     &screen_descriptor,
                 );
-                self.buffers_of = Some((viewport_id, renderer.buffers_generation()));
+                self.buffers_of = Some((viewport_id, renderer.buffers_generation(), size));
                 user_cmd_bufs
             }
         };

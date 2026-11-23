@@ -2119,6 +2119,19 @@ three times. Percentages are of one core.
 | Asahi same runs, main and render threads | 31.0 / 29.5 / 29.2% | 12.8 / 13.0 / 13.0% | −57% |
 | Asahi same runs, `openh264dec` streaming thread | 62–64% | 62–63% | unchanged |
 
+Watched streams and remote cameras take the same paint-only path; a stream's queued pictures
+ask for their frame at their presentation deadline. No real stream was used. The demo flag
+`--demo-call-stream-live` feeds generated 1080p60 pictures, stamped 80 ms ahead, through the
+stream's own queue and wake-ups, and `--demo-full-repaints` turns the paint-only handle off
+in the same binary for comparison (two alternating 15 s runs on the Asahi machine):
+
+| Workload | Repaint per picture | Paint-only | Delta |
+| --- | ---: | ---: | ---: |
+| Synthetic 1080p60 stream, main and render threads | 29.4 / 29.5% | 14.1 / 13.8% | −53% |
+| Same runs, pictures shown through a paint-only frame | 0 | about 296 of 300 per 5 s | |
+
+The generator itself costs another 20% of a core in both columns and is not app work.
+
 The Linux runs used the same clip without its audio track, because the SSH session has no
 audio output device. No picture was dropped in any macOS pacing window. Single macOS runs
 while building the change put the steps at roughly 25% (baseline), 20% (paint-only frames),
@@ -2128,6 +2141,7 @@ different session than the table and are an attribution, not a second measuremen
 The synthetic channel is almost empty, so the ui pass that no longer runs is small here; a
 busy channel was not measured. Windows was neither built nor measured: it gets paint-only
 frames and the player changes but still copies planes. On Linux the decoder dominates when
-no hardware decoder is installed. Live calls and streams still repaint per picture. Package
-size was not measured. `video::gst::tests::native_mov_decodes_audio_video_and_seeks` fails
+no hardware decoder is installed. Real calls and streams were not run: the stream numbers
+come from the synthetic source only, and stream and camera pictures are still copied on
+every platform. Package size was not measured. `video::gst::tests::native_mov_decodes_audio_video_and_seeks` fails
 on the Asahi machine ("no frame after seek") with and without this change.

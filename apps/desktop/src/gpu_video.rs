@@ -21,6 +21,42 @@ pub fn installed() -> bool {
 	CONVERTER.get().is_some()
 }
 
+/// How a decoder thread asks the window for a frame.
+#[derive(Clone)]
+pub struct Wake {
+	ctx: egui::Context,
+	picture: Option<eframe::PaintOnlyRequester>,
+}
+
+impl Wake {
+	/// `picture` is the renderer's paint-only handle; without one every wake is a repaint.
+	pub fn new(ctx: &egui::Context, picture: Option<eframe::PaintOnlyRequester>) -> Self {
+		Self {
+			ctx: ctx.clone(),
+			picture,
+		}
+	}
+
+	/// The ui has to change: a state, a status line, a readout that is on screen.
+	pub fn ui(&self) {
+		self.ctx.request_repaint();
+	}
+
+	/// Only a picture changed. The renderer presents it over the last pass's shapes
+	/// without running the ui, where it can; otherwise this is an ordinary repaint.
+	pub fn picture(&self) {
+		self.picture_after(std::time::Duration::ZERO);
+	}
+
+	/// [`Self::picture`] for a picture that is due `delay` from now.
+	pub fn picture_after(&self, delay: std::time::Duration) {
+		match &self.picture {
+			Some(picture) => picture.request_after(delay),
+			None => self.ctx.request_repaint_after(delay),
+		}
+	}
+}
+
 /// A decoded picture on its way to the screen.
 pub enum Frame {
 	/// Planes packed in memory, uploaded to the GPU.
@@ -412,11 +448,18 @@ impl VideoTexture {
 	/// Whether showing `frame` keeps the texture already on screen: same id, same size.
 	/// Only then can the shapes that draw it be presented again without a ui pass.
 	pub fn fits(&self, frame: &Frame) -> bool {
-		frame.display_size().is_some_and(|size| {
-			self.gpu
-				.as_ref()
-				.is_some_and(|gpu| (gpu.output.width(), gpu.output.height()) == size)
-		})
+		frame.display_size().is_some_and(|size| self.holds(size))
+	}
+
+	/// [`Self::fits`] for packed planes.
+	pub fn fits_picture(&self, picture: &Picture<&[u8]>) -> bool {
+		picture.is_valid() && self.holds(picture.display_size())
+	}
+
+	fn holds(&self, size: (u32, u32)) -> bool {
+		self.gpu
+			.as_ref()
+			.is_some_and(|gpu| (gpu.output.width(), gpu.output.height()) == size)
 	}
 
 	/// Shows `frame`; returns the texture to paint, or `None` for an invalid picture.

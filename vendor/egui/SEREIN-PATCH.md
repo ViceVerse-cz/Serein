@@ -114,7 +114,9 @@ Upstream can only answer with a full pass per frame: logic, ui, layout, tessella
 fresh upload of every mesh. With this patch an app can instead present the last pass again.
 
 - `Frame::paint_only_requester` returns a `PaintOnlyRequester` (cloneable, any thread). Its
-  `request` asks for one frame of the root viewport that only paints.
+  `request` asks for one frame of the root viewport that only paints; `request_after` asks
+  for one when a picture is due later. Only the earliest pending request is kept, so the app
+  asks again from `App::paint_only` (or from the pass that ran instead).
 - eframe answers such a frame with `App::paint_only` only when nothing has asked for a ui pass
   since the last one: its own `request_redraw` for a due repaint marks the window, and a
   `RedrawRequested` nobody asked for (the windowing system's own) runs the ui as before. Input
@@ -124,14 +126,17 @@ fresh upload of every mesh. With this patch an app can instead present the last 
   the same redraw. No input is consumed and the pass counter does not move.
 - The primitives are kept only while `App::keep_paint` returns `true`, only for the root
   viewport, and not for a pass that freed a texture (it is freed right after that paint). A
-  changed window size, a hidden window, a pending screenshot or unapplied texture deltas also
-  take a full pass.
+  pass of any other viewport drops them too, since it can free textures or start the shared
+  glyph atlas over. A changed window size, a hidden window, a pending screenshot or
+  unapplied texture deltas also take a full pass. Periodic saving still runs after a
+  paint-only frame.
 - `egui_wgpu::winit::Painter::paint_again` paints a viewport's last primitives without
   uploading them when `Renderer::buffers_generation` shows that nothing else has uploaded
-  since. `CallbackTrait::prepare` does not run then, so a paint callback must not depend on
+  since and the surface has the size the upload was made for. `CallbackTrait::prepare` does not run then, so a paint callback must not depend on
   per-frame state prepared there (Serein's corner mask does not).
 
-Serein uses it for inline attachment video (`apps/desktop/src/video.rs`). Only the `wgpu`
+Serein uses it for inline attachment video (`apps/desktop/src/video.rs`), watched streams
+(`watch.rs`) and remote cameras (`voice.rs`). Only the `wgpu`
 backend paints this way; `glow` treats the request as a normal repaint, and the web backend
 has no requester. Limits: one frame of meshes stays in memory while a video session exists;
 immediate child viewports are not repainted by a paint-only frame (Serein opens none).
