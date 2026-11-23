@@ -4049,13 +4049,12 @@ impl MessagingUi {
 		}
 		let new_undo_scope =
 			!editing_here && self.composer_undo != Some((state.generation, channel, composer_id));
-		if new_undo_scope {
-			if let Some((_, _, previous)) =
+		if new_undo_scope
+			&& let Some((_, _, previous)) =
 				self.composer_undo
 					.replace((state.generation, channel, composer_id))
-			{
-				egui::text_edit::TextEditState::default().store(ctx, previous);
-			}
+		{
+			egui::text_edit::TextEditState::default().store(ctx, previous);
 		}
 		if new_undo_scope || focus_edit || (focus_composer && !editing_here) {
 			let mut edit_state = if new_undo_scope || focus_edit {
