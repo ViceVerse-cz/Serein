@@ -92,19 +92,33 @@ impl Encoder {
 			let _ = attributes.SetUINT32(&MF_LOW_LATENCY, 1);
 			let codec: ICodecAPI = transform.cast().map_err(|_| UNAVAILABLE)?;
 			let _ = codec.SetValue(&CODECAPI_AVLowLatencyMode, &VARIANT::from(true));
+			// Strict CBR makes AMD's encoder pad every picture to exactly bit_rate / fps with
+			// filler NAL units, so the link runs at the full target even on a still desktop and
+			// the encoder ignores the buffer size, letting each IDR overshoot several times over.
+			// Every keyframe then loses packets, each loss requests another keyframe, and the
+			// pacer spends the stream on IDRs. Peak-constrained VBR sends no filler, leaving
+			// headroom for the keyframes viewers request.
 			let _ = codec.SetValue(
 				&CODECAPI_AVEncCommonRateControlMode,
-				&VARIANT::from(eAVEncCommonRateControlMode_CBR.0 as u32),
+				&VARIANT::from(eAVEncCommonRateControlMode_PeakConstrainedVBR.0 as u32),
+			);
+			let _ = rate(&codec, config.bit_rate);
+			let _ = codec.SetValue(
+				&CODECAPI_AVEncCommonBufferSize,
+				&VARIANT::from(buffer_bits(config.bit_rate)),
 			);
 			let _ = codec.SetValue(
-				&CODECAPI_AVEncCommonMeanBitRate,
-				&VARIANT::from(config.bit_rate),
+				&CODECAPI_AVEncCommonQualityVsSpeed,
+				&VARIANT::from(QUALITY_VS_SPEED),
 			);
 			let _ = codec.SetValue(
 				&CODECAPI_AVEncMPVDefaultBPictureCount,
 				&VARIANT::from(0_u32),
 			);
-			let _ = codec.SetValue(&CODECAPI_AVEncMPVGOPSize, &VARIANT::from(config.fps * 2));
+			let _ = codec.SetValue(
+				&CODECAPI_AVEncMPVGOPSize,
+				&VARIANT::from(config.fps.saturating_mul(keyframe_seconds(config.profile))),
+			);
 
 			let output = video_type(config, MFVideoFormat_H264)?;
 			output
@@ -173,11 +187,7 @@ impl Encoder {
 
 	pub(crate) fn set_bitrate(&mut self, bitrate: u32) -> Result<(), &'static str> {
 		// SAFETY: Dynamic codec control stays on the encoder's owning worker.
-		unsafe {
-			self.codec
-				.SetValue(&CODECAPI_AVEncCommonMeanBitRate, &VARIANT::from(bitrate))
-				.map_err(|_| FAILED)
-		}
+		unsafe { rate(&self.codec, bitrate).map_err(|_| FAILED) }
 	}
 
 	pub(crate) fn encode(
@@ -330,6 +340,47 @@ impl Encoder {
 	}
 }
 
+/// Seconds between periodic IDRs. Screen sharing (the only Main-profile caller) keeps a
+/// rare safety refresh: viewers request keyframes on join and on loss, and every periodic
+/// IDR is a burst the pacer must absorb. The camera keeps its documented cadence.
+const SCREEN_KEYFRAME_SECONDS: u32 = 10;
+
+fn keyframe_seconds(profile: Profile) -> u32 {
+	match profile {
+		Profile::Main => SCREEN_KEYFRAME_SECONDS,
+		Profile::Baseline => 2,
+	}
+}
+
+/// Leans toward quality: 0–33 is the speed preset, 34–66 balanced and 67–100 quality on
+/// AMD's MFT. One 1080p60 stream leaves a dedicated encoder block plenty of headroom.
+const QUALITY_VS_SPEED: u32 = 70;
+
+/// Short-term peak above the mean. Bounds transport bursts while a keyframe or scene change
+/// spends the buffer.
+fn peak_bits(bitrate: u32) -> u32 {
+	bitrate.saturating_add(bitrate / 2)
+}
+
+/// Rate-control buffer: 250 ms at the mean rate. Advisory; AMD's MFT ignores it, so the
+/// encoder cannot bound a single IDR and only rare keyframes keep bursts infrequent.
+fn buffer_bits(bitrate: u32) -> u32 {
+	bitrate / 4
+}
+
+/// Mean and peak rate; only a rejected mean counts as failure. An encoder that ignores the
+/// peak keeps its own bound.
+unsafe fn rate(codec: &ICodecAPI, bitrate: u32) -> windows::core::Result<()> {
+	unsafe {
+		codec.SetValue(&CODECAPI_AVEncCommonMeanBitRate, &VARIANT::from(bitrate))?;
+		let _ = codec.SetValue(
+			&CODECAPI_AVEncCommonMaxBitRate,
+			&VARIANT::from(peak_bits(bitrate)),
+		);
+		Ok(())
+	}
+}
+
 fn force_keyframe_value() -> VARIANT {
 	VARIANT::from(1_u32)
 }
@@ -448,6 +499,69 @@ fn sample_bytes(sample: &IMFSample, max_bytes: usize) -> Result<Vec<u8>, &'stati
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	/// Regression for AMD's MFT: in CBR it padded every picture with filler NAL units and
+	/// sent an oversized IDR every two seconds, which drove a 720p30 share into a
+	/// loss/keyframe loop. Encodes a synthetic desktop (static detail, a scroll, a scene cut).
+	/// `cargo test --release -p discord-voice hardware_encoder_sends_no_filler -- --ignored --nocapture`
+	#[test]
+	#[ignore = "needs a hardware H.264 encoder"]
+	fn hardware_encoder_sends_no_filler_or_periodic_keyframes() {
+		let (width, height, fps) = (1280_u32, 720_u32, 30_u32);
+		let bit_rate = 4_000_000;
+		let config = Config {
+			width,
+			height,
+			fps,
+			bit_rate,
+			max_bytes: crate::screen::MAX_ENCODED_BYTES,
+			profile: Profile::Main,
+		};
+		let mut encoder = Encoder::new(config).expect("hardware encoder");
+		let length = (width * height * 3 / 2) as usize;
+		let (mut total, mut keyframes) = (0, Vec::new());
+		let frames = (fps * SCREEN_KEYFRAME_SECONDS) as usize;
+		for frame in 0..frames {
+			let (data, keyframe) = encoder
+				.encode_with(length, frame == 0, |picture| {
+					let scroll = frame.clamp(60, 120) - 60;
+					let seed: u32 = if frame >= 150 {
+						0x2545_f491
+					} else {
+						0x85eb_ca6b
+					};
+					let (luma, chroma) = picture.split_at_mut((width * height) as usize);
+					for (row, line) in luma.chunks_exact_mut(width as usize).enumerate() {
+						let y = (row + scroll * 6) as u32;
+						for (x, pixel) in line.iter_mut().enumerate() {
+							let hash = (x as u32 / 3)
+								.wrapping_mul(0x9e37_79b9)
+								.wrapping_add((y / 2).wrapping_mul(seed));
+							*pixel = if (hash >> 13) & 3 == 0 { 30 } else { 220 };
+						}
+					}
+					chroma.fill(128);
+					Ok(())
+				})
+				.unwrap_or_else(|error| panic!("frame {frame}: {error}"));
+			assert!(
+				!crate::video_codec::Codec::H264
+					.nals(&data)
+					.any(|nal| nal[0] & 31 == 12),
+				"frame {frame} carries filler data"
+			);
+			if keyframe {
+				keyframes.push((frame, data.len()));
+			}
+			total += data.len();
+		}
+		println!(
+			"keyframes={keyframes:?} average={} kbps",
+			total * 8 * fps as usize / frames / 1000
+		);
+		assert_eq!(keyframes.len(), 1, "only the requested IDR: {keyframes:?}");
+	}
+
 	#[test]
 	fn larger_native_buffer_does_not_relax_encoded_sample_limit() {
 		let _runtime = Runtime::open().unwrap();
