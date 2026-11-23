@@ -190,6 +190,12 @@ fn dispatch_label(name: &str) -> &'static str {
 		"THREAD_MEMBER_UPDATE",
 		"GUILD_STICKERS_UPDATE",
 		"GUILD_EMOJIS_UPDATE",
+		"SOUNDBOARD_SOUNDS",
+		"GUILD_SOUNDBOARD_SOUNDS_UPDATE",
+		"GUILD_SOUNDBOARD_SOUND_CREATE",
+		"GUILD_SOUNDBOARD_SOUND_UPDATE",
+		"GUILD_SOUNDBOARD_SOUND_DELETE",
+		"VOICE_CHANNEL_EFFECT_SEND",
 		"GUILD_CREATE",
 		"GUILD_UPDATE",
 		"GUILD_MEMBER_UPDATE",
@@ -2561,6 +2567,31 @@ async fn run_session(
 									"GUILD_STICKERS_UPDATE" => {
 										let update: discord_protocol::stickers::GuildStickersUpdate = decode(packet.d.get().as_bytes()).map_err(|_| Failure::Protocol)?;
 										emit(Event::GuildStickers { guild: update.guild_id, stickers: discord_protocol::stickers::guild_catalog(update.stickers.0, update.guild_id).map_err(|_| Failure::Protocol)? })?;
+									}
+									// A soundboard catalog arrives either unsolicited or in reply to a
+									// REQUEST_SOUNDBOARD_SOUNDS opcode; both carry the same shape.
+									"SOUNDBOARD_SOUNDS" => {
+										let update: discord_protocol::soundboard::SoundboardSounds = decode(packet.d.get().as_bytes()).map_err(|_| Failure::Protocol)?;
+										emit(Event::GuildSoundboard { guild: update.guild_id, sounds: discord_protocol::soundboard::guild_catalog(update.soundboard_sounds.0, update.guild_id).map_err(|_| Failure::Protocol)? })?;
+									}
+									"GUILD_SOUNDBOARD_SOUNDS_UPDATE" => {
+										let update: discord_protocol::soundboard::GuildSoundboardSoundsUpdate = decode(packet.d.get().as_bytes()).map_err(|_| Failure::Protocol)?;
+										emit(Event::GuildSoundboard { guild: update.guild_id, sounds: discord_protocol::soundboard::guild_catalog(update.soundboard_sounds.0, update.guild_id).map_err(|_| Failure::Protocol)? })?;
+									}
+									"GUILD_SOUNDBOARD_SOUND_CREATE" | "GUILD_SOUNDBOARD_SOUND_UPDATE" => {
+										let owner: discord_protocol::soundboard::SoundboardGuild = decode(packet.d.get().as_bytes()).map_err(|_| Failure::Protocol)?;
+										let sound = discord_protocol::soundboard::guild_sound(packet.d.get().as_bytes(), owner.guild_id).map_err(|_| Failure::Protocol)?;
+										emit(Event::GuildSoundboardSound { guild: owner.guild_id, sound: Box::new(sound) })?;
+									}
+									"GUILD_SOUNDBOARD_SOUND_DELETE" => {
+										let removed: discord_protocol::soundboard::GuildSoundboardSoundDelete = decode(packet.d.get().as_bytes()).map_err(|_| Failure::Protocol)?;
+										emit(Event::GuildSoundboardSoundRemoved { guild: removed.guild_id, sound: removed.sound_id })?;
+									}
+									// Playback is local: this names a sound every client fetches and mixes itself.
+									"VOICE_CHANNEL_EFFECT_SEND" => {
+										if let Some(effect) = discord_protocol::soundboard::voice_channel_effect(packet.d.get().as_bytes()).map_err(|_| Failure::Protocol)? {
+											emit(Event::VoiceChannelEffect(effect))?;
+										}
 									}
 									"GUILD_EMOJIS_UPDATE" => {
 										let update: GuildEmojisUpdate = decode(packet.d.get().as_bytes()).map_err(|_| Failure::Protocol)?;

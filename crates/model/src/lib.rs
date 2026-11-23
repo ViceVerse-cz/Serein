@@ -52,6 +52,8 @@ mod extra_content;
 pub use extra_content::{ExtraContent, ExtraContentPatch};
 mod mentions;
 pub use mentions::*;
+mod soundboard;
+pub use soundboard::*;
 mod stickers;
 pub use stickers::*;
 mod reactions;

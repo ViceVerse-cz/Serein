@@ -33,6 +33,7 @@ mod server_integrations;
 mod server_invites;
 mod server_roles;
 mod server_settings;
+mod soundboard;
 pub mod spotify;
 pub mod upload;
 mod user_actions;
@@ -2026,6 +2027,32 @@ impl DiscordApi {
 			Command::Prefetch(command) => {
 				Box::pin(SPECULATIVE.scope((), self.execute(*command))).await
 			}
+			Command::DefaultSoundboardSounds => {
+				Event::DefaultSoundboardSounds(self.default_soundboard_sounds().await)
+			}
+			Command::GuildSoundboardSounds(guild) => Event::GuildSoundboardSounds {
+				guild,
+				result: self.guild_soundboard_sounds(guild).await,
+			},
+			Command::PlaySoundboardSound {
+				channel,
+				sound,
+				source_guild,
+			} => Event::SoundboardSoundPlayed {
+				sound,
+				result: self
+					.send_soundboard_sound(channel, sound, source_guild)
+					.await,
+			},
+			Command::CreateSoundboardSound { guild, upload } => Event::SoundboardSoundCreated {
+				guild,
+				result: self.create_soundboard_sound(guild, *upload).await,
+			},
+			Command::DeleteSoundboardSound { guild, sound } => Event::SoundboardSoundDeleted {
+				guild,
+				sound,
+				result: self.delete_soundboard_sound(guild, sound).await,
+			},
 			Command::StickerPacks => Event::StickerPacks(
 				self.request_limited(
 					Method::GET,
