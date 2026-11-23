@@ -312,6 +312,9 @@ attachments-media-menu-unavailable-for-synthetic-attachments = 合成附件無�
 # Context: open_original
 attachments-open-original-open-original = 開啟原始檔案…
 # Context: pending_card
+attachments-mark-spoiler = 將附件標記為暴雷內容
+attachments-remove-spoiler = 取消附件的暴雷標記
+attachments-spoiler-label = 暴雷內容
 attachments-pending-card-remove-attachment = 移除附件
 # Context: pending_viewer
 attachments-pending-viewer-full-size-unavailable = 無法顯示原尺寸預覽

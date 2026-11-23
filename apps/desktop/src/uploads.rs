@@ -544,6 +544,19 @@ impl Uploads {
 	pub fn selection_keys(&self) -> Vec<u64> {
 		self.selected.iter().map(|chosen| chosen.key).collect()
 	}
+	pub fn spoilers(&self) -> Vec<bool> {
+		self.selected
+			.iter()
+			.map(|chosen| chosen.source.spoiler())
+			.collect()
+	}
+	pub fn set_spoiler(&mut self, key: u64, spoiler: bool) {
+		if !self.busy()
+			&& let Some(chosen) = self.selected.iter_mut().find(|chosen| chosen.key == key)
+		{
+			chosen.source.set_spoiler(spoiler);
+		}
+	}
 	pub fn public_selection_key(&self, index: usize) -> Option<u64> {
 		self.selected.get(index).map(|chosen| chosen.key)
 	}
@@ -1671,6 +1684,9 @@ mod tests {
 		let mut uploads = Uploads::default();
 		stage(&mut uploads, 1, a, 3);
 		stage(&mut uploads, 1, a, 4);
+		let keys = uploads.selection_keys();
+		uploads.set_spoiler(keys[1], true);
+		assert_eq!(uploads.spoilers(), [false, true]);
 		uploads.follow_conversation(1, Some(b), true, |_| true);
 		assert!(uploads.files().is_empty() && uploads.has_unsent());
 		assert!(uploads.take_source(1, a).is_none());
@@ -1692,7 +1708,12 @@ mod tests {
 		uploads.follow_conversation(1, Some(b), true, |_| true);
 		assert_eq!(uploads.files(), [("message.txt".to_owned(), 5)]);
 		uploads.follow_conversation(1, Some(a), true, |_| true);
-		assert_eq!(uploads.take_source(1, a).unwrap().len(), 2);
+		uploads.remove_at(0);
+		uploads.set_spoiler(keys[0], false); // A stale action cannot change the remaining file.
+		let sources = uploads.take_source(1, a).unwrap();
+		assert_eq!(sources.len(), 1);
+		assert_eq!(sources[0].size(), 4);
+		assert!(sources[0].spoiler());
 		assert!(uploads.take_notice().is_none());
 		uploads.follow_conversation(1, Some(b), true, |_| true);
 		assert_eq!(uploads.take_source(1, b).unwrap().len(), 1);

@@ -315,6 +315,9 @@ attachments-media-menu-unavailable-for-synthetic-attachments = 테스트용 첨�
 # Context: open_original
 attachments-open-original-open-original = 원본 열기…
 # Context: pending_card
+attachments-mark-spoiler = 첨부 파일을 스포일러로 표시
+attachments-remove-spoiler = 첨부 파일의 스포일러 표시 해제
+attachments-spoiler-label = 스포일러
 attachments-pending-card-remove-attachment = 첨부 파일 제거
 # Context: pending_viewer
 attachments-pending-viewer-full-size-unavailable = 전체 크기 미리보기를 사용할 수 없음

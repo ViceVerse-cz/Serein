@@ -2962,6 +2962,16 @@ routing, offset/calendar validation, stale insertion and budget rejection, plus 
 and preview rendering. Native screenshots and an owner-authorized live test could not
 be captured in this development session: computer use exposed no native applications.
 
+## Spoilers on staged attachments
+
+The composer and forum attachment trays offer a per-file spoiler toggle, following
+[Discord's attachment guidance](https://support.discord.com/hc/en-us/articles/360022320632-Spoiler-Tags).
+Discord's [documented attachment object](https://docs.discord.com/developers/resources/message#attachment-object)
+sets `IS_SPOILER` from `is_spoiler: true` in message attachment metadata. Serein
+uses that field after staging the bytes. Legacy `SPOILER_` names start marked.
+Clearing that mark removes the prefix from the outgoing filename while preserving
+the source file. Offline fixtures verify the request. Live delivery is unverified.
+
 ## Public Catbox attachment links (October 2, 2026)
 
 Each staged message-composer file has a **Host file…** action. Selecting it shows

@@ -103,6 +103,8 @@ pub struct Source {
 	path: PathBuf,
 	bytes: Option<std::sync::Arc<[u8]>>,
 	filename: String,
+	/// An explicit draft override. Legacy filenames retain their default behavior.
+	spoiler: Option<bool>,
 	size: u64,
 	modified: SystemTime,
 }
@@ -135,6 +137,7 @@ impl Source {
 		}
 		Ok(Self {
 			bytes: None,
+			spoiler: None,
 			filename: filename.into(),
 			path,
 			size: metadata.len(),
@@ -150,6 +153,7 @@ impl Source {
 		}
 		Ok(Self {
 			path: PathBuf::new(),
+			spoiler: None,
 			filename: "pasted-image.png".into(),
 			size: bytes.len() as u64,
 			modified: SystemTime::UNIX_EPOCH,
@@ -163,6 +167,7 @@ impl Source {
 		}
 		Ok(Self {
 			path: PathBuf::new(),
+			spoiler: None,
 			filename: "message.txt".into(),
 			size: text.len() as u64,
 			modified: SystemTime::UNIX_EPOCH,
@@ -185,6 +190,7 @@ impl Source {
 		}
 		Ok(Self {
 			path: PathBuf::new(),
+			spoiler: None,
 			filename,
 			size: bytes.len() as u64,
 			modified: SystemTime::UNIX_EPOCH,
@@ -192,6 +198,23 @@ impl Source {
 		})
 	}
 	pub fn filename(&self) -> &str {
+		&self.filename
+	}
+	pub fn spoiler(&self) -> bool {
+		self.spoiler
+			.unwrap_or_else(|| self.filename.starts_with("SPOILER_"))
+	}
+	pub fn set_spoiler(&mut self, spoiler: bool) {
+		self.spoiler = Some(spoiler);
+	}
+	fn outgoing_filename(&self) -> &str {
+		if self.spoiler == Some(false) {
+			let name = self.filename.trim_start_matches("SPOILER_");
+			if name.trim().is_empty() || matches!(name, "." | "..") {
+				return "attachment";
+			}
+			return name;
+		}
 		&self.filename
 	}
 	pub fn size(&self) -> u64 {
@@ -599,7 +622,7 @@ impl DiscordApi {
 					.map_err(|_| Failure::ProtocolAt(CHANGED))?;
 				(Box::new(file), Some(original))
 			};
-		let mut body = serde_json::json!({"files":[{"id":id.to_string(),"filename":source.filename(),"file_size":source.size(),"is_clip":false}]});
+		let mut body = serde_json::json!({"files":[{"id":id.to_string(),"filename":source.outgoing_filename(),"file_size":source.size(),"is_clip":false}]});
 		if let Some(mime) = mime_type(source.filename()) {
 			body["files"][0]["original_content_type"] = mime.into();
 		}
@@ -755,9 +778,15 @@ impl DiscordApi {
 		if let Some(failure) = self.stop_reason() {
 			return Err(failure);
 		}
-		Ok(
-			serde_json::json!({"id":id.to_string(),"filename":source.filename(),"uploaded_filename":target.upload_filename}),
-		)
+		let mut attachment = serde_json::json!({
+			"id": id.to_string(),
+			"filename": source.outgoing_filename(),
+			"uploaded_filename": target.upload_filename,
+		});
+		if source.spoiler == Some(true) {
+			attachment["is_spoiler"] = serde_json::Value::Bool(true);
+		}
+		Ok(attachment)
 	}
 
 	fn upload_url(&self, value: &str) -> Result<Url, Failure> {
@@ -958,8 +987,13 @@ mod tests {
 		{
 			tokio::time::timeout(Duration::from_secs(10), async {
 	            let fixture = Fixture::new(&vec![b'x'; CHUNK_BYTES * 2 + 9]).await;
-	            let source = Source::inspect(fixture.0.clone()).await.unwrap();
+	            let mut source = Source::inspect(fixture.0.clone()).await.unwrap();
 	            let filename = source.filename().to_owned();
+	            let mut spoiler = source.clone();
+	            spoiler.set_spoiler(true);
+	            source.filename = format!("SPOILER_{filename}");
+	            assert!(source.spoiler());
+	            source.set_spoiler(false);
 	            let api_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
 	            let storage = TcpListener::bind("127.0.0.1:0").await.unwrap();
 	            let mut api = api();
@@ -997,13 +1031,13 @@ mod tests {
 	                    "mobile_network_type":"unknown","content":"","nonce":"synthetic-upload","tts":false,"flags":0,
 	                    "allowed_mentions":{"parse":[],"users":[],"roles":[],"replied_user":true},
 	                    "message_reference":{"message_id":"2","channel_id":"1"},
-	                    "attachments":[{"id":"0","filename":filename,"uploaded_filename":"synthetic-upload/0/file.txt"},{"id":"1","filename":filename,"uploaded_filename":"synthetic-upload/1/file.txt"}],
+	                    "attachments":[{"id":"0","filename":filename,"uploaded_filename":"synthetic-upload/0/file.txt"},{"id":"1","filename":filename,"uploaded_filename":"synthetic-upload/1/file.txt","is_spoiler":true}],
 	                }));
-	                respond(&mut socket, "200 OK", r#"{"id":"3","channel_id":"1","author":{"id":"4","username":"Synthetic"},"nonce":"synthetic-upload"}"#).await;
+	                respond(&mut socket, "200 OK", r#"{"id":"3","channel_id":"1","author":{"id":"4","username":"Synthetic"},"nonce":"synthetic-upload","attachments":[{"id":"5","filename":"synthetic.txt","flags":0},{"id":"6","filename":"synthetic.txt","flags":8}]}"#).await;
 	            });
 	            let (progress, status) = watch::channel(Status::Preparing);
 	            let (_cancel, cancelled) = watch::channel(false);
-	            assert!(matches!(api.upload_messages(command(), vec![source.clone(), source], progress, cancelled, None).await, Event::SendResult { result: Ok(message), .. } if message.id == model::Id(3)));
+	            assert!(matches!(api.upload_messages(command(), vec![source, spoiler], progress, cancelled, None).await, Event::SendResult { result: Ok(message), .. } if message.id == model::Id(3) && message.attachments.iter().map(|file| file.spoiler).eq([false, true])));
 	            assert_eq!(*status.borrow(), Status::Finished);
 	            server.await.unwrap();
 	        }).await.unwrap();

@@ -76,6 +76,8 @@ pub(crate) fn body_id() -> egui::Id {
 pub struct Staged<'a> {
 	pub files: &'a [(String, u64)],
 	pub textures: &'a [Option<egui::TextureHandle>],
+	pub spoilers: &'a [bool],
+	pub toggle_spoiler: &'a mut Option<usize>,
 	/// Set to ask the desktop shell for the native file chooser.
 	pub choose: &'a mut bool,
 	/// Set to the index of a card the user removed.
@@ -927,6 +929,22 @@ fn media_box(
 								tile.right_top() + egui::vec2(-26.0, 4.0),
 								egui::Vec2::splat(22.0),
 							);
+							let spoiler = staged.spoilers.get(index).copied().unwrap_or_default();
+							let toggle = remove.translate(egui::vec2(-24.0, 0.0));
+							let mut toggle_ui = ui.new_child(
+								egui::UiBuilder::new()
+									.id_salt(("spoiler", index))
+									.max_rect(toggle),
+							);
+							if staged.busy {
+								toggle_ui.disable();
+							}
+							let toggle_response =
+								crate::attachments::spoiler_toggle(&mut toggle_ui, 22.0, spoiler);
+							tray_focused |= toggle_response.has_focus();
+							if toggle_response.clicked() {
+								*staged.toggle_spoiler = Some(index);
+							}
 							let button = ui.interact(
 								remove,
 								tray_id.with(("remove", index)),
@@ -1042,6 +1060,10 @@ fn add_tile(ui: &mut egui::Ui, enabled: bool) -> egui::Response {
 /// One chosen file: its image, or its file-type icon.
 fn media_tile(ui: &egui::Ui, rect: egui::Rect, staged: &Staged<'_>, index: usize) {
 	let colors = design::palette(ui);
+	if staged.spoilers.get(index).copied().unwrap_or_default() {
+		crate::attachments::spoiler_cover(ui, rect);
+		return;
+	}
 	match staged.textures.get(index).and_then(Option::as_ref) {
 		Some(texture) => {
 			crate::emoji_picker::paint_cover(ui, rect, (texture.id(), texture.resolution()), 10);
@@ -2123,11 +2145,14 @@ mod tests {
 		choose: bool,
 		remove: Option<usize>,
 		clear: bool,
+		toggle_spoiler: Option<usize>,
 	}
 	fn staged(scratch: &mut Scratch) -> Staged<'_> {
 		Staged {
 			files: &[],
 			textures: &[],
+			spoilers: &[],
+			toggle_spoiler: &mut scratch.toggle_spoiler,
 			choose: &mut scratch.choose,
 			remove: &mut scratch.remove,
 			clear: &mut scratch.clear,
@@ -2181,6 +2206,8 @@ mod tests {
 					let mut staged = Staged {
 						files: &files,
 						textures: &textures,
+						spoilers: &[],
+						toggle_spoiler: &mut scratch.toggle_spoiler,
 						choose: &mut scratch.choose,
 						remove: &mut scratch.remove,
 						clear: &mut scratch.clear,

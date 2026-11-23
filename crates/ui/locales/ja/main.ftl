@@ -312,6 +312,9 @@ attachments-media-menu-unavailable-for-synthetic-attachments = 合成アタッ�
 # Context: open_original
 attachments-open-original-open-original = オリジナルを開く…
 # Context: pending_card
+attachments-mark-spoiler = 添付ファイルをネタバレとしてマーク
+attachments-remove-spoiler = ネタバレ指定を解除
+attachments-spoiler-label = ネタバレ
 attachments-pending-card-remove-attachment = 添付ファイルを削除する
 # Context: pending_viewer
 attachments-pending-viewer-full-size-unavailable = フルサイズのプレビューを表示できません

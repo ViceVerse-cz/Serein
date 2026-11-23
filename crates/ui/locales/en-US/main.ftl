@@ -315,6 +315,9 @@ attachments-media-menu-unavailable-for-synthetic-attachments = Unavailable for s
 # Context: open_original
 attachments-open-original-open-original = Open original…
 # Context: pending_card
+attachments-mark-spoiler = Mark attachment as spoiler
+attachments-remove-spoiler = Remove attachment spoiler
+attachments-spoiler-label = Spoiler
 attachments-pending-card-remove-attachment = Remove attachment
 # Context: pending_viewer
 attachments-pending-viewer-full-size-unavailable = Full-size preview unavailable
