@@ -3158,7 +3158,12 @@ impl TimelineView {
 			offset = Some(live_edge_offset);
 		}
 		// Jump to present glides back to the live edge instead of teleporting there.
-		if let Some((from, elapsed)) = &mut self.present_scroll {
+		if fresh_wheel && self.present_scroll.is_some() {
+			// Whether this wheel reaches the timeline is known only after layout. Hold the
+			// glide where it is shown, so a wheel that cancels it moves from that place.
+			offset = Some(self.scroll_offset);
+			ui.ctx().request_repaint();
+		} else if let Some((from, elapsed)) = &mut self.present_scroll {
 			*elapsed += ui.input(|input| input.stable_dt).clamp(1.0 / 240.0, 0.05);
 			let t = *elapsed / PRESENT_SCROLL_SECS;
 			if t >= 1.0 {
@@ -10111,6 +10116,7 @@ mod tests {
 			vec![egui::Event::PointerMoved(egui::pos2(150.0, 200.0))],
 		);
 		assert!(view.present_scroll.is_some() && view.following);
+		let shown = view.scroll_offset;
 		let interrupted = frame(
 			&mut view,
 			&mut state,
@@ -10126,6 +10132,11 @@ mod tests {
 			],
 		);
 		assert!(!view.following && view.present_scroll.is_none());
+		// An upward wheel moves up from the place shown, not from the glide's next step.
+		assert!(
+			interrupted <= shown,
+			"the wheel up moved down from {shown} to {interrupted}"
+		);
 		assert!(
 			interrupted < live_edge - 500.0,
 			"the wheel jumped to the live edge: {interrupted} vs {live_edge}"
