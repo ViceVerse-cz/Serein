@@ -301,6 +301,9 @@ on-by-default minimize-to-tray preference. The preference controls window Close:
 when enabled and registration is available, Close hides the window; otherwise
 Close follows ordinary exit checks. Turning the preference off or losing the
 tray host restores a hidden window. Normal taskbar/Dock minimizing is unchanged.
+On native Wayland under niri or Sway, which have no minimize and no hiding IPC Serein uses,
+Close exits through the same checks instead and the custom title bar has no Minimize button
+(user-reported on niri; no niri or Sway session has verified the fix).
 Show restores the window, and Quit follows the existing unsaved-work and download
 checks.
 

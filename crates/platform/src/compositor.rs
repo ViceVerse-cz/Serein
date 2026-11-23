@@ -112,6 +112,23 @@ impl Hider {
 	}
 }
 
+/// The running Wayland compositor has no minimized state, ignores `xdg_toplevel.set_minimized`
+/// and offers no IPC hide that [`Hider`] uses: niri and Sway. Hyprland also lacks minimize, but
+/// [`Hider`] parks windows there instead.
+#[cfg(target_os = "linux")]
+pub fn ignores_minimize() -> bool {
+	static IGNORES: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+	*IGNORES.get_or_init(|| {
+		let set = |name: &str| std::env::var_os(name).is_some_and(|value| !value.is_empty());
+		set("WAYLAND_DISPLAY") && (set("NIRI_SOCKET") || set("SWAYSOCK"))
+	})
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn ignores_minimize() -> bool {
+	false
+}
+
 #[cfg(target_os = "linux")]
 fn hyprland_socket() -> Option<std::path::PathBuf> {
 	let signature = std::env::var("HYPRLAND_INSTANCE_SIGNATURE").ok()?;

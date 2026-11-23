@@ -4,7 +4,7 @@
 //! (the cool Serein neutrals, deep black, blue-grey, or a gradient recolour). Gradient
 //! variants paint a backdrop under translucent surfaces; see [`paint_backdrop`].
 use egui::{Color32, FontFamily, FontId, RichText, Stroke, epaint::FontColorTransferFunction};
-use std::sync::atomic::{AtomicU8, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, Ordering};
 
 /// Tooltip text that is only formatted while the tooltip is actually shown.
 ///
@@ -158,6 +158,12 @@ impl Variant {
 }
 static VARIANT: AtomicU8 = AtomicU8::new(0);
 static PRIMARY_COLOR: AtomicU32 = AtomicU32::new(0);
+static MINIMIZE_AVAILABLE: AtomicBool = AtomicBool::new(true);
+
+/// Whether the window manager can minimize; the title bar drops its Minimize button otherwise.
+pub fn set_minimize_available(available: bool) {
+	MINIMIZE_AVAILABLE.store(available, Ordering::Relaxed);
+}
 
 pub fn primary_color() -> Option<[u8; 3]> {
 	let value = PRIMARY_COLOR.load(Ordering::Relaxed);
@@ -1558,15 +1564,17 @@ fn gtk_window_controls(ui: &mut egui::Ui) {
 		ui.ctx()
 			.send_viewport_cmd(egui::ViewportCommand::Maximized(!maximized));
 	}
-	let (minimize, rect, color) = button(ui, "Minimize");
-	let c = rect.center();
-	ui.painter().line_segment(
-		[c + egui::vec2(-4.0, 3.0), c + egui::vec2(4.0, 3.0)],
-		Stroke::new(1.6, color),
-	);
-	if minimize.clicked() {
-		ui.ctx()
-			.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+	if MINIMIZE_AVAILABLE.load(Ordering::Relaxed) {
+		let (minimize, rect, color) = button(ui, "Minimize");
+		let c = rect.center();
+		ui.painter().line_segment(
+			[c + egui::vec2(-4.0, 3.0), c + egui::vec2(4.0, 3.0)],
+			Stroke::new(1.6, color),
+		);
+		if minimize.clicked() {
+			ui.ctx()
+				.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+		}
 	}
 	ui.spacing_mut().item_spacing.x = saved_spacing;
 }
