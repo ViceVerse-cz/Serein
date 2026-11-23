@@ -3137,18 +3137,18 @@ impl TimelineView {
 		// Cancel Jump to Present before the live-edge snap. Snapping first would make
 		// this wheel start at the bottom instead of the glide's current place. Only a new
 		// gesture at the timeline cancels it: leftover smoothing and wheels over other panels
-		// also show up in the global delta.
-		let timeline_gesture = autoscroll_delta != 0.0
-			|| (wheel.y != 0.0
-				&& ui.rect_contains_pointer(area)
-				&& ui.input(|input| {
-					input
-						.raw
-						.events
-						.iter()
-						.any(|event| matches!(event, egui::Event::MouseWheel { .. }))
-				}));
-		if timeline_gesture && self.present_scroll.take().is_some() {
+		// also show up in the global delta. A wheel cancels it after layout, once a nested
+		// embed has taken what it scrolls.
+		let fresh_wheel = wheel.y != 0.0
+			&& ui.rect_contains_pointer(area)
+			&& ui.input(|input| {
+				input
+					.raw
+					.events
+					.iter()
+					.any(|event| matches!(event, egui::Event::MouseWheel { .. }))
+			});
+		if autoscroll_delta != 0.0 && self.present_scroll.take().is_some() {
 			self.following = false;
 			self.left_live_edge = true;
 			offset = None;
@@ -3208,6 +3208,7 @@ impl TimelineView {
 		// ScrollArea consumes wheel input while applying it; retain the viewing gesture.
 		let scroll_delta = wheel.y + autoscroll_delta;
 		let before_offset = offset.unwrap_or(self.scroll_offset);
+		let mut timeline_wheel = 0.0;
 		let allow_hover = !session.holding()
 			&& !ui.input(|input| input.is_scrolling())
 			&& ui.ctx().dragged_id().is_none();
@@ -5212,6 +5213,8 @@ impl TimelineView {
 			}
 			// Only the end of the conversation has extra space; it scrolls with the messages.
 			ui.add_space(end_padding);
+			// Nested embeds have consumed their wheel input; the rest moves the timeline.
+			timeline_wheel = ui.input(|input| input.smooth_scroll_delta().y);
 			viewport.min.y
 		});
 		self.scroll_offset = output.state.clamped_offset().y;
@@ -5265,7 +5268,7 @@ impl TimelineView {
 			.and_then(|channel| state.channel(channel))
 			.and_then(|channel| channel.last_message);
 		let scrolled_toward_bottom = ui.input(|input| {
-			(scroll_delta < 0.0
+			(timeline_wheel + autoscroll_delta < 0.0
 				&& (session.holding()
 					|| selection_scroll != 0.0
 					|| input
@@ -5300,6 +5303,10 @@ impl TimelineView {
 					ui.ctx().request_repaint();
 				}
 			}
+		}
+		if fresh_wheel && timeline_wheel != 0.0 && self.present_scroll.take().is_some() {
+			self.following = false;
+			self.left_live_edge = true;
 		}
 		let was_following = self.following;
 		let timeline_scrolled_up =
@@ -12411,6 +12418,119 @@ mod tests {
 				"opening onto loaded history walked the tail {arrived:?}, settled at {settled}"
 			);
 		}
+	}
+
+	#[test]
+	fn wheel_taken_by_an_embed_leaves_the_timeline_place_and_glide() {
+		let mut state = State {
+			selected: Some(Id(20)),
+			revision: 1,
+			demo: true,
+			..Default::default()
+		};
+		for id in 1..=40 {
+			let mut message = text_message(id);
+			if id == 40 {
+				// Taller than the card's 640-point bound, so the card scrolls on its own.
+				message.embeds = vec![model::Embed {
+					kind: "rich".into(),
+					description: Some(
+						(1..=80)
+							.map(|line| format!("Synthetic embed line {line}"))
+							.collect::<Vec<_>>()
+							.join("\n"),
+					),
+					..Default::default()
+				}];
+			}
+			state.timeline.insert(message, false, false).unwrap();
+		}
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let mut view = TimelineView::default();
+		let mut avatars = crate::avatars::Avatars::default();
+		let mut frame_number = 0;
+		let pointer = egui::pos2(300.0, 300.0);
+		let mut frame = |view: &mut TimelineView, state: &mut State, wheel: bool| {
+			frame_number += 1;
+			let mut events = vec![egui::Event::PointerMoved(pointer)];
+			if wheel {
+				events.push(egui::Event::MouseWheel {
+					unit: egui::MouseWheelUnit::Line,
+					delta: egui::vec2(0.0, -1.0),
+					modifiers: egui::Modifiers::NONE,
+					phase: egui::TouchPhase::Move,
+					source: egui::MouseWheelSource::Unknown,
+				});
+			}
+			let output = ctx.run_ui(
+				egui::RawInput {
+					focused: true,
+					time: Some(f64::from(frame_number) / 60.0),
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(900.0, 600.0),
+					)),
+					events,
+					..Default::default()
+				},
+				|ui| {
+					crate::scroll::apply_preferences(
+						ui.ctx(),
+						model::ReadingPreferences::default(),
+					);
+					view.show(
+						ui,
+						state,
+						&mut None,
+						&mut None,
+						(
+							&mut avatars,
+							&mut crate::profiles::ProfileSession::default(),
+						),
+						None,
+					)
+				},
+			);
+			output.drop_without_applying_deltas();
+			view.scroll_offset
+		};
+		for _ in 0..8 {
+			frame(&mut view, &mut state, false);
+		}
+		assert!(view.following);
+		// The reader parks just inside the bottom tolerance, with the embed under the pointer.
+		let near_bottom = view.scroll_offset - 1.5;
+		let (index, _, top) = visible_range(&view.rows, near_bottom, near_bottom);
+		view.following = false;
+		view.left_live_edge = true;
+		view.anchor = Some((view.rows[index].0, near_bottom - top));
+		view.revision = u64::MAX;
+		let parked = frame(&mut view, &mut state, false);
+		assert!(!view.following && (parked - near_bottom).abs() < 0.5);
+		frame(&mut view, &mut state, true);
+		let mut settled = parked;
+		for _ in 0..20 {
+			settled = frame(&mut view, &mut state, false);
+		}
+		assert!(
+			(settled - parked).abs() < 0.5,
+			"the embed should take the wheel, timeline moved {parked} to {settled}"
+		);
+		assert!(
+			!view.following && view.left_live_edge,
+			"scrolling only the embed resumed following"
+		);
+		// A Present glide keeps going when the embed takes the wheel.
+		view.left_live_edge = false;
+		view.present_scroll = Some((view.scroll_offset, 0.0));
+		frame(&mut view, &mut state, false);
+		assert!(view.present_scroll.is_some());
+		frame(&mut view, &mut state, true);
+		assert!(
+			view.present_scroll.is_some() && view.following,
+			"a wheel the embed took cancelled the glide"
+		);
 	}
 }
 
