@@ -1039,9 +1039,9 @@ fn install_stored(
 		return Err("Account extension cleanup is incomplete; reopen Extensions to retry".into());
 	}
 	if !directory.exists() && count_directories(&parent)? >= MAX_PER_SCOPE {
-		return Err(
-			"Disable an extension first; each scope allows eight installed extensions".into(),
-		);
+		return Err(format!(
+			"Disable an extension first; each scope allows {MAX_PER_SCOPE} installed extensions"
+		));
 	}
 	if stored.package.manifest.kind == ExtensionKind::Plugin
 		&& !is_proxy(&stored.package.manifest)
