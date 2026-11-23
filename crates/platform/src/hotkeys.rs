@@ -788,8 +788,7 @@ fn portal_trigger(chord: &KeyChord) -> Option<String> {
 }
 
 fn is_standalone_global_key(name: &str) -> bool {
-	name.starts_with("Numpad")
-		|| matches!(
+	matches!(
 		name,
 		"PageDown"
 			| "PageUp"
@@ -1007,15 +1006,13 @@ mod tests {
 	}
 
 	#[test]
-	fn keypad_keys_register_globally_without_modifiers() {
+	fn keypad_keys_are_polled_not_registered() {
 		for key in ["Numpad5", "NumpadMultiply", "NumpadDecimal"] {
-			assert!(native_hotkey(&KeyChord::new(key, 0)).is_some(), "{key}");
+			assert!(poll::supported(key), "{key}");
+			assert!(native_hotkey(&KeyChord::new(key, 0)).is_none(), "{key}");
 		}
-		assert_eq!(
-			native_hotkey(&KeyChord::new("NumpadEnter", 0)).is_none(),
-			cfg!(windows)
-		);
-		assert!(native_hotkey(&KeyChord::new("Num5", 0)).is_none());
+		// Windows cannot tell keypad Enter from main Enter.
+		assert_eq!(poll::supported("NumpadEnter"), !cfg!(windows));
 	}
 
 	#[test]

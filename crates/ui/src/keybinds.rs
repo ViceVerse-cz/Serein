@@ -571,26 +571,14 @@ pub(crate) fn pressed(input: &mut InputState, chord: &KeyChord) -> bool {
 		modifiers.matches_logically(wanted) && (wanted.alt || !modifiers.alt)
 	};
 	if let Some(button) = button_from_name(&chord.key) {
-<<<<<<< HEAD
 		return consume_button(input, button, modifiers_match);
-=======
-		let wanted = egui_modifiers(chord.modifiers);
-		consume_button(input, button, |modifiers| {
-			modifiers.matches_logically(wanted)
-		})
-	} else {
-		match key_name_to_egui(&chord.key) {
-			Some(key) if key.is_keypad() => consume_keypad(input, key, |modifiers| {
-				modifiers.matches_logically(egui_modifiers(chord.modifiers))
-			}),
-			Some(key) => input.consume_key(egui_modifiers(chord.modifiers), key),
-			None => false,
-		}
->>>>>>> 61c05fd6 (feat(keybinds): bind numpad keys; add GitHub OLED colour preset)
 	}
 	let Some(key) = key_name_to_egui(&chord.key) else {
 		return false;
 	};
+	if key.is_keypad() {
+		return consume_keypad(input, key, modifiers_match);
+	}
 	let matched = input.events.iter().any(|event| {
 		matches!(event, Event::Key { key: event_key, pressed: true, modifiers, .. }
 			if *event_key == key && modifiers_match(*modifiers))
@@ -621,11 +609,7 @@ pub(crate) fn pressed_exact(input: &mut InputState, chord: &KeyChord) -> bool {
 
 /// Removes this frame's presses of the keypad `key`, matched by position since
 /// its logical key is a digit or symbol shared with the main row.
-fn consume_keypad(
-	input: &mut InputState,
-	key: Key,
-	matches: impl Fn(Modifiers) -> bool,
-) -> bool {
+fn consume_keypad(input: &mut InputState, key: Key, matches: impl Fn(Modifiers) -> bool) -> bool {
 	let position = input.events.iter().position(|event| {
 		matches!(event, Event::Key { physical_key: Some(physical), pressed: true, repeat: false, modifiers, .. }
 			if *physical == key && matches(*modifiers))
