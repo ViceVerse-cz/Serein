@@ -5372,7 +5372,27 @@ impl TimelineView {
 				|| (at_bottom && !self.left_live_edge));
 		// A Present glide follows before it arrives. Messages below it are not seen until it
 		// lands, and a wheel can still cancel it short of them.
-		let arrived = self.following && self.present_scroll.is_none();
+		// Rows that measure differently from their estimates move the view next frame, so the
+		// latest message may not be painted yet. Reading waits until it is painted in a settled
+		// layout.
+		let settles = |heights: &BTreeMap<Id, (u64, f32)>, id: Id, key: u64, height: f32| {
+			heights
+				.get(&id)
+				.is_none_or(|(old_key, old)| *old_key != key || (*old - height).abs() > 1.0)
+		};
+		let reflowing = measurements.iter().any(|&(id, key, height)| {
+			!(id == OLDER && older_row) && settles(&self.heights, id, key, height)
+		});
+		let newest_painted = state
+			.timeline
+			.iter()
+			.next_back()
+			.is_none_or(|newest| measurements.iter().any(|&(id, ..)| id == newest.id));
+		let arrived = self.following
+			&& self.present_scroll.is_none()
+			&& at_bottom
+			&& newest_painted
+			&& !reflowing;
 		if arrived
 			&& self.at_current_latest
 			&& !state.history_targeted
@@ -5414,11 +5434,7 @@ impl TimelineView {
 				continue;
 			}
 			self.measured_rows.insert(id);
-			if self
-				.heights
-				.get(&id)
-				.is_none_or(|(old_key, old)| *old_key != key || (*old - height).abs() > 1.0)
-			{
+			if settles(&self.heights, id, key, height) {
 				self.heights.insert(id, (key, height));
 				reflow = true;
 			}
@@ -8990,6 +9006,7 @@ mod tests {
 			.insert(text_message(41), false, false)
 			.unwrap();
 		state.channels[0].last_message = Some(Id(41));
+		state.revision += 1;
 		for _ in 0..3 {
 			labels = banner_frame(&ctx, &mut view, &mut state, vec![], false);
 		}
@@ -10256,6 +10273,30 @@ mod tests {
 		frame(&mut view, &mut state, vec![]);
 		assert!(view.following);
 		assert_eq!(view.mark_read.take(), Some(Id(201)));
+		// A tall arrival measures taller than its estimate, so the frame that first lays it
+		// out moves the view afterwards. Reading it waits for the settled frame.
+		let mut tall = text_message(202);
+		tall.content = "Synthetic paragraph that wraps across the timeline width.\n".repeat(12);
+		state.timeline.insert(tall, false, false).unwrap();
+		state.channels = vec![channel(202)];
+		state.revision += 1;
+		// One pass per frame, so the reflowing pass is the one shown, not a discarded one.
+		ctx.options_mut(|options| options.max_passes = std::num::NonZeroUsize::MIN);
+		let mut reflowed = false;
+		for _ in 0..6 {
+			let reflows = view.reflow_frames;
+			frame(&mut view, &mut state, vec![]);
+			if view.reflow_frames > reflows {
+				reflowed = true;
+				assert!(
+					view.mark_read.is_none() && view.seen_latest != Some(Id(202)),
+					"read the arrival on a frame that still had to move to it"
+				);
+			}
+		}
+		assert!(reflowed, "the arrival should reflow");
+		assert!(view.following);
+		assert_eq!(view.mark_read.take(), Some(Id(202)));
 	}
 
 	fn message_texts(shape: &egui::Shape, labels: &mut Vec<(String, egui::Rect)>) {
