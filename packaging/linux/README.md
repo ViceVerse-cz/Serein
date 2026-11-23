@@ -67,8 +67,10 @@ cargo xtask package --format appimage # requires packaging/appimage/install-tool
 ```
 
 Arch packaging also accepts derivatives such as CachyOS and EndeavourOS when their
-`/etc/os-release` lists `arch` in `ID_LIKE`. Packages use the build host's installed
-dependency versions; this does not guarantee compatibility with other Arch derivatives.
+`/etc/os-release` lists `arch` in `ID_LIKE`. Packages depend on the owners of the
+linked libraries (or `libz.so` for compatible zlib providers), not the exact
+revisions installed on the builder. A derivative still needs libraries that
+provide the ABI used by the binary; removing a version pin does not supply it.
 
 `install-build-deps.sh` installs build dependencies as root on the explicitly
 supported CI distributions. It is intended for fresh build containers. On openSUSE
