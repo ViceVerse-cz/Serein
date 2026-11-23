@@ -4940,3 +4940,8 @@ moderation-confirm-ban = Banna
 ## crates/ui/src/interface_ui.rs
 # Context: interface_tree
 interface-ui-empty = Questo plugin non ha ancora nulla da mostrare.
+
+group-add-title = Aggiungi amici alla DM
+group-add-subtitle = Scegli un amico da aggiungere a questo gruppo.
+group-add-full = Questo gruppo ha raggiunto il limite di 10 persone.
+group-add-confirm = Aggiungi amico

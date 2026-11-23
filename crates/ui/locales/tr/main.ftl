@@ -4926,3 +4926,8 @@ moderation-confirm-ban = Yasakla
 ## crates/ui/src/interface_ui.rs
 # Context: interface_tree
 interface-ui-empty = Bu eklentinin henüz gösterecek bir şeyi yok.
+
+group-add-title = DM'e arkadaş ekle
+group-add-subtitle = Bu gruba eklemek için bir arkadaş seç.
+group-add-full = Bu grup 10 kişilik sınıra ulaştı.
+group-add-confirm = Arkadaş Ekle

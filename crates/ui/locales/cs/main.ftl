@@ -5068,3 +5068,8 @@ moderation-confirm-ban = Zabanovat
 ## crates/ui/src/interface_ui.rs
 # Context: interface_tree
 interface-ui-empty = Tento zásuvný modul zatím nemá co zobrazit.
+
+group-add-title = Přidat přátele do soukromé konverzace
+group-add-subtitle = Vyberte přítele, kterého chcete přidat do této skupiny.
+group-add-full = Tato skupina dosáhla limitu 10 osob.
+group-add-confirm = Přidat přítele

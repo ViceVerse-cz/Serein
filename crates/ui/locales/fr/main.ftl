@@ -4940,3 +4940,8 @@ moderation-confirm-ban = Bannir
 ## crates/ui/src/interface_ui.rs
 # Context: interface_tree
 interface-ui-empty = Ce module n'a encore rien à afficher.
+
+group-add-title = Ajouter des amis au DM
+group-add-subtitle = Choisissez un ami à ajouter à ce groupe.
+group-add-full = Ce groupe a atteint la limite de 10 personnes.
+group-add-confirm = Ajouter un ami

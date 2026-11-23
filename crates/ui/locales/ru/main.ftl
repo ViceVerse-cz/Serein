@@ -4950,3 +4950,8 @@ moderation-confirm-ban = Забанить
 ## crates/ui/src/interface_ui.rs
 # Context: interface_tree
 interface-ui-empty = Плагину пока нечего показать.
+
+group-add-title = Добавить друзей в ЛС
+group-add-subtitle = Выберите друга, которого нужно добавить в эту группу.
+group-add-full = Эта группа достигла лимита в 10 человек.
+group-add-confirm = Добавить друга
