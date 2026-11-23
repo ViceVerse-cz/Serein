@@ -105,7 +105,7 @@ impl Encoder {
 			let _ = rate(&codec, config.bit_rate);
 			let _ = codec.SetValue(
 				&CODECAPI_AVEncCommonBufferSize,
-				&VARIANT::from(buffer_bits(config.bit_rate)),
+				&VARIANT::from(buffer_bytes(config.bit_rate)),
 			);
 			let _ = codec.SetValue(
 				&CODECAPI_AVEncCommonQualityVsSpeed,
@@ -362,14 +362,17 @@ fn peak_bits(bitrate: u32) -> u32 {
 	bitrate.saturating_add(bitrate / 2)
 }
 
-/// Rate-control buffer: 250 ms at the mean rate. Advisory; AMD's MFT ignores it, so the
-/// encoder cannot bound a single IDR and only rare keyframes keep bursts infrequent.
-fn buffer_bits(bitrate: u32) -> u32 {
-	bitrate / 4
+/// Rate-control (HRD) buffer: 250 ms at the mean rate. H.264 takes this in bytes, not bits.
+/// Advisory; AMD's MFT ignores it, so the encoder cannot bound a single IDR and only rare
+/// keyframes keep bursts infrequent.
+fn buffer_bytes(bitrate: u32) -> u32 {
+	bitrate / 32
 }
 
-/// Mean and peak rate; only a rejected mean counts as failure. An encoder that ignores the
-/// peak keeps its own bound.
+/// Mean and peak rate; only a rejected mean counts as failure. A rejected peak write keeps
+/// the encoder's previous peak, which after a live change can stay above the new mean's
+/// 1.5x: the mean still follows congestion, while reopening for the peak alone would cost an
+/// IDR per rate change. AMD's MFT accepts a live peak and reads it back.
 unsafe fn rate(codec: &ICodecAPI, bitrate: u32) -> windows::core::Result<()> {
 	unsafe {
 		codec.SetValue(&CODECAPI_AVEncCommonMeanBitRate, &VARIANT::from(bitrate))?;
