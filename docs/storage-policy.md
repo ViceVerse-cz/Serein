@@ -861,6 +861,11 @@ no audio is retained. Preview levels remain session-only.
 
 Loaded thread navigation shares the 4,000-entry account navigation and 4 MiB normalized navigation budgets. Incoming thread syncs additionally cap combined parent/thread entries at 4,000 and normalized snapshot metadata at 2 MiB; wire JSON remains capped at 4 MiB. Removed-member arrays are capped at 4,000 and are discarded after checking the owner. Navigation/member lists are session-only; selected thread messages/drafts reuse existing account history/draft storage. Actual accepted thread removals enqueue the existing account-wide history clear, preserving drafts; ignored, empty-scope and rename-only events do not clear disk history. This coarse invalidation trades refetch cost for simpler deletion, without new tables or workers.
 
+Draft undo snapshots stay in memory for the active composer. They use egui's
+bounded undo stack and are discarded when the conversation or session changes.
+Undo can restore submitted text to the draft without changing the pending or
+sent message. Ordinary draft persistence applies after the user restores text.
+
 The owner explicitly withdrew the no-storage policy on 2026-09-09. Local files, SQLite, saved drafts, settings and caches are permitted. The implementation persists **history with embeds, attachments and mentioned users; avatar/server-icon/banner/preview images; drafts; appearance; reading/layout preferences; and the login token**. Normal window size and supported outer position are retained in the bounded device-local app_preferences singleton.
 
 | Data | Location / bound | Removal |

@@ -80,6 +80,15 @@ impl TextEditState {
         *self.undoer.lock() = undoer;
     }
 
+    /// Save the current text and selection as an explicit undo point.
+    pub fn checkpoint_undo(&self, text: &str) {
+        let cursor = self
+            .cursor
+            .char_range()
+            .unwrap_or_else(|| CCursorRange::one(CCursor::end_of_str(text)));
+        self.undoer.lock().add_undo(&(cursor, text.to_owned()));
+    }
+
     pub fn clear_undoer(&mut self) {
         self.set_undoer(TextEditUndoer::default());
     }
