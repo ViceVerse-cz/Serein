@@ -334,6 +334,59 @@ pub trait App {
     fn repaint_on_device_event(&mut self, _event: &winit::event::DeviceEvent) -> Option<bool> {
         None
     }
+
+    /// Present the root viewport's last painted shapes again, instead of running a pass.
+    ///
+    /// eframe calls this when a frame was asked for with a [`PaintOnlyRequester`] and nothing
+    /// has asked for a ui pass since the last one: no event egui repaints for, and no
+    /// [`egui::Context::request_repaint`] that has come due. Change what the textures of the
+    /// last pass show (upload the next video frame to a native texture, say) and return
+    /// `true`: eframe then paints the shapes of the last pass again and presents them. No
+    /// [`Self::logic`], no [`Self::ui`], no layout and no tessellation runs, and no input is
+    /// consumed. Return `false` when the ui itself has to change; eframe then runs a normal
+    /// pass instead.
+    ///
+    /// Only what the shapes sample may change: a texture keeps its id and its place. eframe
+    /// has the shapes only while [`Self::keep_paint`] returns `true`.
+    ///
+    /// Only the native `wgpu` backend paints this way; elsewhere a request is a normal repaint.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn paint_only(&mut self, _ctx: &egui::Context, _frame: &mut Frame) -> bool {
+        false
+    }
+
+    /// Whether eframe keeps the shapes of the root viewport's last painted pass, so that
+    /// [`Self::paint_only`] can present them again.
+    ///
+    /// eframe asks after each pass it paints. The kept shapes are one frame's meshes; return
+    /// `false` while nothing asks for paint-only frames, so they are freed.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn keep_paint(&self) -> bool {
+        false
+    }
+}
+
+/// Asks eframe for a frame of the root viewport that only paints: see [`App::paint_only`].
+///
+/// Get it from [`Frame::paint_only_requester`]. It is cheap to clone and can be used from
+/// any thread, like [`egui::Context::request_repaint`].
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Clone)]
+pub struct PaintOnlyRequester(pub(crate) std::sync::Arc<dyn Fn() + Send + Sync>);
+
+#[cfg(not(target_arch = "wasm32"))]
+impl PaintOnlyRequester {
+    /// Ask for one paint-only frame. Requests made before that frame is painted are merged.
+    pub fn request(&self) {
+        (self.0)();
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl core::fmt::Debug for PaintOnlyRequester {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("PaintOnlyRequester").finish_non_exhaustive()
+    }
 }
 
 /// Options controlling the behavior of a native window.
@@ -794,6 +847,10 @@ pub struct Frame {
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) activation_token: Option<String>,
 
+    /// See [`Self::paint_only_requester`].
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) paint_only_requester: Option<PaintOnlyRequester>,
+
     /// See [`Self::embedded_views`].
     pub(crate) embedded_views: crate::EmbeddedViews,
 }
@@ -838,6 +895,8 @@ impl Frame {
             window: None,
             #[cfg(not(target_arch = "wasm32"))]
             activation_token: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            paint_only_requester: None,
             storage: None,
             #[cfg(feature = "wgpu_no_default_features")]
             wgpu_render_state: None,
@@ -851,6 +910,14 @@ impl Frame {
     /// placed the views that the platform draws, such as web views.
     pub fn embedded_views(&self) -> &crate::EmbeddedViews {
         &self.embedded_views
+    }
+
+    /// A handle that asks for paint-only frames: see [`App::paint_only`].
+    ///
+    /// `None` where no backend paints that way (anything but native `wgpu`).
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn paint_only_requester(&self) -> Option<PaintOnlyRequester> {
+        self.paint_only_requester.clone()
     }
 
     /// True if you are in a web environment.

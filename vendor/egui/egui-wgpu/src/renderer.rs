@@ -247,6 +247,9 @@ pub struct Renderer {
 
     uniform_buffer: wgpu::Buffer,
     previous_uniform_buffer_content: UniformBuffer,
+
+    /// Counts the calls to [`Self::update_buffers`].
+    buffers_generation: u64,
     uniform_bind_group: wgpu::BindGroup,
     texture_bind_group_layout: wgpu::BindGroupLayout,
 
@@ -538,6 +541,7 @@ impl Renderer {
             uniform_buffer,
             // Buffers on wgpu are zero initialized, so this is indeed its current state!
             previous_uniform_buffer_content: UniformBuffer::zeroed(),
+            buffers_generation: 0,
             uniform_bind_group,
             texture_bind_group_layout,
             texture_flag_buffers,
@@ -1018,6 +1022,13 @@ impl Renderer {
         *user_texture_binding = bind_group;
     }
 
+    /// A number that changes with every [`Self::update_buffers`]. While it stays the same,
+    /// the vertex and index buffers hold what the last call uploaded, and [`Self::render`]
+    /// can draw those primitives again.
+    pub fn buffers_generation(&self) -> u64 {
+        self.buffers_generation
+    }
+
     /// Uploads the uniform, vertex and index data used by the renderer.
     /// Should be called before [`Self::render`].
     ///
@@ -1031,6 +1042,8 @@ impl Renderer {
         screen_descriptor: &ScreenDescriptor,
     ) -> Vec<wgpu::CommandBuffer> {
         profiling::function_scope!();
+
+        self.buffers_generation += 1;
 
         let screen_size_in_points = screen_descriptor.screen_size_in_points();
 

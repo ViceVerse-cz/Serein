@@ -21,7 +21,7 @@ mod apple;
 #[cfg(target_os = "macos")]
 mod mp4;
 #[cfg(target_os = "macos")]
-pub use apple::Decoder;
+pub use apple::{Decoder, Surface};
 
 /// Hardware-backed decoding of one live H.264 elementary stream (camera or Go Live).
 /// Windows uses the Media Foundation decoder with a DXGI device manager when available,
@@ -100,8 +100,20 @@ pub struct Info {
 }
 
 pub enum Sample {
-	Video { pts: f64, picture: Picture },
-	Audio { pts: f64, frames: Vec<[f32; 2]> },
+	Video {
+		pts: f64,
+		picture: Picture,
+	},
+	/// A picture left on the decoder's surface; only after [`Decoder::surfaces`] asked.
+	#[cfg(target_os = "macos")]
+	Surface {
+		pts: f64,
+		surface: Surface,
+	},
+	Audio {
+		pts: f64,
+		frames: Vec<[f32; 2]>,
+	},
 }
 
 // These backends read tracks independently. Linux must yield when a sibling pipeline

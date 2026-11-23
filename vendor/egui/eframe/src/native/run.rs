@@ -7,7 +7,7 @@ use winit::{
     window::WindowId,
 };
 
-use ahash::HashMap;
+use ahash::{HashMap, HashSet};
 
 use super::winit_integration::{UserEvent, WinitApp};
 use crate::{
@@ -92,6 +92,13 @@ struct WinitAppWrapper<T: WinitApp> {
     /// Windows we asked to redraw, and when to give up waiting for their `RedrawRequested`.
     windows_redraw_deadlines: HashMap<WindowId, Instant>,
 
+    /// Windows we asked to redraw because a ui pass is due, as opposed to
+    /// [`Self::windows_paint_only`]. Their next `RedrawRequested` runs a full pass.
+    windows_ui_redraw: HashSet<WindowId>,
+
+    /// Windows asked to paint their last shapes again: see [`crate::App::paint_only`].
+    windows_paint_only: HashSet<WindowId>,
+
     winit_app: T,
     return_result: Result<(), crate::Error>,
     run_and_return: bool,
@@ -102,6 +109,8 @@ impl<T: WinitApp> WinitAppWrapper<T> {
         Self {
             windows_next_repaint_times: HashMap::default(),
             windows_redraw_deadlines: HashMap::default(),
+            windows_ui_redraw: HashSet::default(),
+            windows_paint_only: HashSet::default(),
             winit_app,
             return_result: Ok(()),
             run_and_return,
@@ -230,6 +239,7 @@ impl<T: WinitApp> WinitAppWrapper<T> {
                         // busy-loops a whole CPU core.
                         // See https://github.com/emilk/egui/issues/8326.
                         window.request_redraw();
+                        self.windows_ui_redraw.insert(*window_id);
                         self.windows_redraw_deadlines
                             .entry(*window_id)
                             .or_insert(now + MISSED_REDRAW_TIMEOUT);
@@ -348,6 +358,7 @@ impl<T: WinitApp> ApplicationHandler<UserEvent> for WinitAppWrapper<T> {
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: UserEvent) {
         profiling::function_scope!(match &event {
             UserEvent::RequestRepaint { .. } => "UserEvent::RequestRepaint",
+            UserEvent::PaintOnly { .. } => "UserEvent::PaintOnly",
             #[cfg(feature = "accesskit")]
             UserEvent::AccessKitActionRequest(_) => "UserEvent::AccessKitActionRequest",
         });
@@ -389,6 +400,20 @@ impl<T: WinitApp> ApplicationHandler<UserEvent> for WinitAppWrapper<T> {
                         Ok(EventResult::Wait) // old request - we've already repainted
                     }
                 }
+                UserEvent::PaintOnly { viewport_id } => {
+                    // No redraw deadline: a window the windowing system won't let paint
+                    // (hidden, occluded) has nothing to show the new picture on, and
+                    // unlike a ui repaint there is no logic waiting to run.
+                    if let Some(window_id) = self.winit_app.window_id_from_viewport_id(viewport_id)
+                        && let Some(window) = self.winit_app.window(window_id)
+                        && !is_invisible_or_minimized(&window)
+                    {
+                        log::trace!("UserEvent::PaintOnly: request_redraw for {window_id:?}");
+                        self.windows_paint_only.insert(window_id);
+                        window.request_redraw();
+                    }
+                    Ok(EventResult::Wait)
+                }
                 #[cfg(feature = "accesskit")]
                 UserEvent::AccessKitActionRequest(request) => {
                     self.winit_app.on_accesskit_event(request)
@@ -425,8 +450,17 @@ impl<T: WinitApp> ApplicationHandler<UserEvent> for WinitAppWrapper<T> {
             let event_result = match event {
                 winit::event::WindowEvent::RedrawRequested => {
                     self.windows_redraw_deadlines.remove(&window_id);
-                    self.winit_app
-                        .run_ui_and_paint(event_loop, window_id, PassMode::Full)
+                    // Painting the last shapes again is enough only if that is all that was
+                    // asked for: a redraw we requested for a ui pass, or one the windowing
+                    // system came up with by itself, runs the ui as always.
+                    let ui_redraw = self.windows_ui_redraw.remove(&window_id);
+                    let paint_only = self.windows_paint_only.remove(&window_id);
+                    let mode = if paint_only && !ui_redraw {
+                        PassMode::PaintOnly
+                    } else {
+                        PassMode::Full
+                    };
+                    self.winit_app.run_ui_and_paint(event_loop, window_id, mode)
                 }
                 _ => self.winit_app.window_event(event_loop, window_id, event),
             };

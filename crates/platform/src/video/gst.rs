@@ -44,7 +44,13 @@ pub struct Decoder {
 	audio_done: bool,
 	/// Presentation time of the last picture handed out; decoders may repeat a frame at EOS.
 	last_video_pts: f64,
+	/// Plane buffers of pictures the caller is done with: see [`Decoder::recycle`].
+	spare: Vec<Vec<u8>>,
 }
+
+/// Returned plane buffers kept for the next pictures; more than the caller holds at once
+/// would only be memory.
+const MAX_SPARE: usize = 2;
 
 impl Drop for Decoder {
 	fn drop(&mut self) {
@@ -241,6 +247,7 @@ impl Decoder {
 			video_done: false,
 			audio_done: !has_audio,
 			last_video_pts: f64::NEG_INFINITY,
+			spare: Vec::new(),
 		})
 	}
 
@@ -295,8 +302,21 @@ impl Decoder {
 		self.last_video_pts = pts;
 		Ok(Poll::Ready(Some(Sample::Video {
 			pts: self.last_video_pts,
-			picture: picture(&sample, super::check_dimensions)?,
+			picture: picture_into(
+				&sample,
+				super::check_dimensions,
+				self.spare.pop().unwrap_or_default(),
+			)?,
 		})))
+	}
+
+	/// Takes back a picture the caller has shown, so the next one is packed into its
+	/// buffer. A fresh multi-megabyte buffer per frame is paged in by the kernel every
+	/// time; a reused one is not.
+	pub fn recycle(&mut self, picture: Picture) {
+		if self.spare.len() < MAX_SPARE {
+			self.spare.push(picture.data);
+		}
 	}
 
 	pub fn poll_audio(&mut self) -> Result<Poll<Option<Sample>>, &'static str> {
@@ -569,6 +589,15 @@ pub(super) fn picture(
 	sample: &gst::Sample,
 	check_dimensions: fn(u32, u32) -> Result<(), &'static str>,
 ) -> Result<Picture, &'static str> {
+	picture_into(sample, check_dimensions, Vec::new())
+}
+
+/// [`picture`], packed into `data`'s allocation; whatever it held is discarded.
+fn picture_into(
+	sample: &gst::Sample,
+	check_dimensions: fn(u32, u32) -> Result<(), &'static str>,
+	mut data: Vec<u8>,
+) -> Result<Picture, &'static str> {
 	let caps = sample.caps().ok_or(INVALID)?;
 	let info = gst_video::VideoInfo::from_caps(caps).map_err(|_| INVALID)?;
 	let (width, height) = (info.width(), info.height());
@@ -606,7 +635,8 @@ pub(super) fn picture(
 		Layout::Nv12 => &[(w, h), (chroma_w * 2, chroma_h)],
 		_ => &[(w, h), (chroma_w, chroma_h), (chroma_w, chroma_h)],
 	};
-	let mut data = Vec::with_capacity(len);
+	data.clear();
+	data.reserve_exact(len);
 	for (plane, &(row_bytes, rows)) in planes.iter().enumerate() {
 		let stride = frame
 			.plane_stride()

@@ -14,14 +14,40 @@ struct Update {
 	state: VideoState,
 	position: f64,
 	duration: f64,
-	frame: Option<platform::video::Picture>,
+	frame: Option<crate::gpu_video::Frame>,
+	/// The picture the ui showed last, on its way back to the worker, which reuses its
+	/// buffer where the decoder can and frees it off the ui thread otherwise.
+	spent: Option<crate::gpu_video::Frame>,
 }
 struct Session {
 	cancelled: Arc<AtomicBool>,
 	paused: Arc<AtomicBool>,
 	volume: Arc<AtomicU32>,
 	seek: Arc<AtomicU64>,
+	/// The ui drew the seek bar and timestamp in its last pass, so position ticks need a
+	/// ui pass; while they are hidden only new pictures ask for a frame.
+	position_shown: AtomicBool,
 	update: Mutex<Update>,
+}
+/// How the player thread asks for a frame.
+#[derive(Clone)]
+struct Wake {
+	ctx: eframe::egui::Context,
+	picture: Option<eframe::PaintOnlyRequester>,
+}
+impl Wake {
+	/// The ui has to change: playback state, or a position readout that is on screen.
+	fn ui(&self) {
+		self.ctx.request_repaint();
+	}
+	/// Only the picture changed. The renderer presents it over the last pass's shapes
+	/// without running the ui, where it can; otherwise this is an ordinary repaint.
+	fn picture(&self) {
+		match &self.picture {
+			Some(picture) => picture.request(),
+			None => self.ctx.request_repaint(),
+		}
+	}
 }
 impl Session {
 	fn new(volume: f32) -> Self {
@@ -30,6 +56,7 @@ impl Session {
 			paused: Arc::new(AtomicBool::new(false)),
 			volume: Arc::new(AtomicU32::new(volume.to_bits())),
 			seek: Arc::new(AtomicU64::new(u64::MAX)),
+			position_shown: AtomicBool::new(true),
 			update: Mutex::new(Update {
 				state: VideoState::Loading,
 				..Default::default()
@@ -70,6 +97,10 @@ pub struct Video {
 	poster_cancelled: Arc<AtomicBool>,
 	/// GPU texture of the playing attachment.
 	texture: crate::gpu_video::VideoTexture,
+	/// Asks the renderer for a frame that only presents a new picture.
+	presenter: Option<eframe::PaintOnlyRequester>,
+	/// The playback worker, parked between pictures; commands wake it.
+	worker: Option<std::thread::Thread>,
 }
 
 /// In-flight poster ceiling; excess requests retry while still visible.
@@ -78,10 +109,61 @@ impl Video {
 	pub fn stop(&mut self) {
 		if let Some(session) = self.session.take() {
 			session.cancelled.store(true, Ordering::Release);
+			self.wake_worker();
 		}
 		self.texture = Default::default();
 		if let Some(requests) = &self.requests {
 			requests.send_replace(None);
+		}
+	}
+	fn wake_worker(&self) {
+		if let Some(worker) = &self.worker {
+			worker.unpark();
+		}
+	}
+	/// Hands over the renderer's paint-only handle once it exists; `None` keeps full repaints.
+	pub fn set_presenter(&mut self, presenter: Option<eframe::PaintOnlyRequester>) {
+		if self.presenter.is_none() {
+			self.presenter = presenter;
+		}
+	}
+	/// A session keeps the last pass's shapes for [`Self::paint_only`].
+	pub fn active(&self) -> bool {
+		self.session.is_some()
+	}
+	/// Tells the worker whether the ui pass that just ran drew the playback position.
+	pub fn sync(&self, player: &VideoUi) {
+		if let Some(session) = &self.session {
+			session
+				.position_shown
+				.store(player.position_shown(), Ordering::Release);
+		}
+	}
+	/// Shows the worker's newest picture in the texture the last ui pass drew, without a
+	/// ui pass. `false` when the ui has to run instead: the playback state changed, or the
+	/// picture needs a texture of another size.
+	pub fn paint_only(&mut self, player: &VideoUi, ctx: &eframe::egui::Context) -> bool {
+		let Some(session) = &self.session else {
+			return false;
+		};
+		let Ok(mut update) = session.update.lock() else {
+			return false;
+		};
+		if player.active.is_none() || update.state != player.state {
+			return false;
+		}
+		match &update.frame {
+			None => true,
+			Some(frame) if !self.texture.fits(frame) => false,
+			Some(_) => {
+				let frame = update.frame.take().expect("frame checked");
+				drop(update);
+				let shown = self.texture.show(ctx, "inline-video", &frame).is_some();
+				if let Ok(mut update) = session.update.try_lock() {
+					update.spent = Some(frame);
+				}
+				shown
+			}
 		}
 	}
 	/// Session boundary: abandons queued and in-flight posters so none of their downloads
@@ -119,11 +201,15 @@ impl Video {
 			player.duration = update.duration;
 			let frame = update.frame.take();
 			drop(update);
-			if let Some(picture) = frame
+			if let Some(frame) = frame
 				&& player.active.is_some()
-				&& let Some(texture) = self.texture.upload(ctx, "inline-video", picture.borrow())
 			{
-				player.show_frame(texture);
+				if let Some(texture) = self.texture.show(ctx, "inline-video", &frame) {
+					player.show_frame(texture);
+				}
+				if let Ok(mut update) = session.update.try_lock() {
+					update.spent = Some(frame);
+				}
 			}
 		}
 	}
@@ -146,6 +232,7 @@ impl Video {
 			VideoCommand::Pause(paused) => {
 				if let Some(s) = &self.session {
 					s.paused.store(paused, Ordering::Release);
+					self.wake_worker();
 				}
 			}
 			VideoCommand::Volume(volume) => {
@@ -162,6 +249,7 @@ impl Video {
 				{
 					s.seek
 						.store((seconds.clamp(0., 7200.) * 1000.) as u64, Ordering::Release);
+					self.wake_worker();
 				}
 			}
 		}
@@ -188,15 +276,18 @@ impl Video {
 		if self.requests.is_none() {
 			let (sender, mut receiver) = tokio::sync::watch::channel::<Option<Request>>(None);
 			let runtime = runtime.clone();
-			let ctx = ctx.clone();
-			std::thread::Builder::new()
+			let wake = Wake {
+				ctx: ctx.clone(),
+				picture: self.presenter.clone(),
+			};
+			let worker = std::thread::Builder::new()
 				.name("serein-attachment-video".into())
 				.spawn(move || {
 					while runtime.block_on(receiver.changed()).is_ok() {
 						let Some(request) = receiver.borrow_and_update().clone() else {
 							continue;
 						};
-						let result = play(&request, &runtime, &ctx);
+						let result = play(&request, &runtime, &wake);
 						platform::memory::release_freed_memory();
 						if let Err(error) = result
 							&& !request.session.cancelled.load(Ordering::Acquire)
@@ -204,11 +295,12 @@ impl Video {
 							if let Ok(mut update) = request.session.update.lock() {
 								update.state = VideoState::Failed(error);
 							}
-							ctx.request_repaint();
+							wake.ui();
 						}
 					}
 				})
 				.map_err(|_| "Could not start video worker")?;
+			self.worker = Some(worker.thread().clone());
 			self.requests = Some(sender);
 		}
 		let requests = self.requests.as_ref().expect("worker created");
@@ -427,7 +519,7 @@ impl Drop for Video {
 fn play(
 	request: &Request,
 	runtime: &tokio::runtime::Handle,
-	ctx: &eframe::egui::Context,
+	wake: &Wake,
 ) -> Result<(), &'static str> {
 	use platform::video::Decoder;
 	let session = &request.session;
@@ -437,7 +529,7 @@ fn play(
 		session.cancelled.clone(),
 		runtime.clone(),
 	)?;
-	let result = Decoder::open(source).and_then(|decoder| play_decoded(decoder, session, ctx));
+	let result = Decoder::open(source).and_then(|decoder| play_decoded(decoder, session, wake));
 	#[cfg(target_os = "macos")]
 	let result = match result {
 		Err(error) if fallback::eligible(error) && !session.cancelled.load(Ordering::Acquire) => {
@@ -450,7 +542,7 @@ fn play(
 			} else {
 				0.
 			};
-			ctx.request_repaint();
+			wake.ui();
 			let source = source::source(
 				request.url.clone(),
 				request.size,
@@ -465,7 +557,7 @@ fn play(
 				Ordering::AcqRel,
 				Ordering::Acquire,
 			);
-			play_decoded(decoder, session, ctx)
+			play_decoded(decoder, session, wake)
 		}
 		result => result,
 	};
@@ -476,11 +568,36 @@ fn play(
 	result
 }
 
+/// Beyond this gap the playback clock jumps to the audio device's position instead of
+/// being pulled toward it.
+const CLOCK_SNAP: f64 = 0.1;
+/// Share of the gap to the audio device's position closed per second.
+const CLOCK_PULL: f64 = 4.0;
+/// Longest sleep with every queue full: the audio ring holds a second, so refilling it
+/// this often is ample, and a finished clip is noticed this soon.
+const IDLE_WAIT: f64 = 0.05;
+/// Pictures are handed over this long before they are due: the renderer shows them at
+/// its next refresh.
+const PICTURE_LEAD: f64 = 0.01;
+
+/// The playback clock after `elapsed` seconds: `wall` has already advanced by them and is
+/// pulled toward the audio `device`'s position. `hold` (paused, or waiting for a first
+/// picture) and gaps beyond [`CLOCK_SNAP`] take the device's position as it is.
+fn steer(wall: f64, device: f64, elapsed: f64, hold: bool) -> f64 {
+	let gap = device - wall;
+	if hold || gap.abs() > CLOCK_SNAP {
+		device
+	} else {
+		wall + gap * (elapsed * CLOCK_PULL).min(1.0)
+	}
+}
+
 fn play_decoded(
 	mut decoder: platform::video::Decoder,
 	session: &Session,
-	ctx: &eframe::egui::Context,
+	wake: &Wake,
 ) -> Result<(), &'static str> {
+	use crate::gpu_video::Frame;
 	use platform::video::Sample;
 	use std::{
 		collections::VecDeque,
@@ -488,6 +605,9 @@ fn play_decoded(
 		time::{Duration, Instant},
 	};
 	let info = decoder.info();
+	// The GPU samples VideoToolbox's own surfaces; no plane is copied through memory.
+	#[cfg(target_os = "macos")]
+	decoder.surfaces(crate::gpu_video::installed());
 	let mut target = 0.;
 	let mut seeking = false;
 	'seek: loop {
@@ -542,7 +662,7 @@ fn play_decoded(
 					update.state = VideoState::Loading;
 					update.position = target;
 				}
-				ctx.request_repaint();
+				wake.ui();
 				continue 'seek;
 			}
 			if failed.load(Ordering::Acquire) {
@@ -561,8 +681,12 @@ fn play_decoded(
 				&& pending_audio.is_none()
 				&& position.load(Ordering::Acquire) >= queued_audio;
 			let current = if output.is_some() && !audio_drained {
-				wall = audio_position;
-				audio_position
+				// The device reports its position a buffer at a time, in steps of about
+				// 10 ms. Showing pictures by those steps puts 60 fps frames a refresh early
+				// or late, so the wall clock runs between the steps and is pulled toward the
+				// device, which keeps the two from drifting apart.
+				wall = steer(wall, audio_position, elapsed, paused || preview_needed);
+				wall
 			} else {
 				wall
 			};
@@ -573,15 +697,18 @@ fn play_decoded(
 			let mut frame = None;
 			while frames
 				.front()
-				.is_some_and(|(pts, _)| *pts <= current + 0.01 || preview_needed)
+				.is_some_and(|(pts, _)| *pts <= current + PICTURE_LEAD || preview_needed)
 			{
 				let (_, picture) = frames.pop_front().expect("front exists");
 				frame = Some(picture);
 				preview_needed = false;
 			}
 			let finished = video_ended && audio_drained && frames.is_empty();
-			let mut changed = false;
+			let (mut changed, mut moved) = (false, false);
+			let pictured = frame.is_some();
+			let mut spent = None;
 			if let Ok(mut update) = session.update.lock() {
+				spent = update.spent.take();
 				let state = if finished {
 					VideoState::Ended
 				} else if paused {
@@ -593,9 +720,8 @@ fn play_decoded(
 				} else {
 					VideoState::Playing
 				};
-				changed = update.state != state
-					|| (update.position * 10.) as u64 != (current.min(info.duration) * 10.) as u64
-					|| frame.is_some();
+				changed = update.state != state;
+				moved = (update.position * 10.) as u64 != (current.min(info.duration) * 10.) as u64;
 				update.state = state;
 				update.position = current.min(info.duration);
 				update.duration = info.duration;
@@ -603,15 +729,24 @@ fn play_decoded(
 					update.frame = frame;
 				}
 			}
-			if changed {
-				ctx.request_repaint();
+			if changed || (moved && session.position_shown.load(Ordering::Acquire)) {
+				wake.ui();
+			} else if pictured {
+				wake.picture();
 			}
+			#[cfg(target_os = "linux")]
+			if let Some(Frame::Packed(picture)) = spent {
+				decoder.recycle(picture);
+			}
+			#[cfg(not(target_os = "linux"))]
+			drop(spent);
 			if finished {
 				return Ok(());
 			}
 			if paused && !preview_needed {
 				last_progress = now;
-				std::thread::sleep(Duration::from_millis(20));
+				// Resume, seek and stop unpark the worker.
+				std::thread::park_timeout(Duration::from_millis(250));
 				continue;
 			}
 			if now.duration_since(last_progress) > Duration::from_secs(15) {
@@ -664,10 +799,19 @@ fn play_decoded(
 			// audio packet and one second of PCM.
 			if !video_ended && frames.len() < 2 {
 				let read_started = Instant::now();
-				let sample = decoder.poll_video()?;
+				let sample = match decoder.poll_video()? {
+					Ready(Some(Sample::Video { pts, picture })) => {
+						Ready(Some((pts, Frame::Packed(picture))))
+					}
+					#[cfg(target_os = "macos")]
+					Ready(Some(Sample::Surface { pts, surface })) => Ready(Some((pts, Frame::Surface(surface)))),
+					Ready(Some(Sample::Audio { .. })) => return Err("Unexpected video track"),
+					Ready(None) => Ready(None),
+					Pending => Pending,
+				};
 				decoded |= sample.is_ready();
 				match sample {
-					Ready(Some(Sample::Video { pts, picture })) => {
+					Ready(Some((pts, picture))) => {
 						if pts >= target - 0.01 {
 							seek_preview = None;
 							frames.push_back((pts, picture));
@@ -682,7 +826,6 @@ fn play_decoded(
 						}
 					}
 					Pending => {}
-					_ => return Err("Unexpected video track"),
 				}
 				// Freeze the silent/finished-audio clock across a blocking buffer refill.
 				if (output.is_none() || audio_drained)
@@ -692,9 +835,50 @@ fn play_decoded(
 				}
 			}
 			if !decoded {
-				std::thread::sleep(Duration::from_millis(5));
+				// With both queues full the next thing to do is hand over the next picture,
+				// so sleep until it is due (commands unpark the worker). A decoder that has
+				// nothing ready yet is asked again shortly.
+				let queued =
+					(video_ended || frames.len() >= 2) && (audio_ended || pending_audio.is_some());
+				let wait = if queued {
+					frames
+						.front()
+						.map_or(IDLE_WAIT, |(pts, _)| pts - PICTURE_LEAD - current)
+						.clamp(0.001, IDLE_WAIT)
+				} else {
+					0.005
+				};
+				std::thread::park_timeout(Duration::from_secs_f64(wait));
 			}
 		}
+	}
+}
+
+#[cfg(test)]
+mod clock_tests {
+	use super::*;
+	/// The audio device reports its position in buffer-sized steps and runs slightly off
+	/// the wall clock. The playback clock must advance evenly between those steps (60 fps
+	/// pictures are scheduled by it), stay with the device over time, and jump only when
+	/// the device does.
+	#[test]
+	fn clock_runs_evenly_between_device_steps_and_follows_drift() {
+		const TICK: f64 = 1.0 / 60.0;
+		// 512 frames at 48 kHz per step; the device runs 0.1% fast.
+		let device = |time: f64| (time * 1.001 / (512.0 / 48_000.0)).floor() * (512.0 / 48_000.0);
+		let mut wall = 0.0;
+		for tick in 1..=3_600 {
+			let time = f64::from(tick) * TICK;
+			let next = steer(wall + TICK, device(time), TICK, false);
+			let step = next - wall;
+			assert!((step - TICK).abs() < 0.002, "uneven step {step} at {time}");
+			wall = next;
+		}
+		// A minute in, the device is 60 ms ahead of the wall clock; the playback clock is with it.
+		assert!((wall - device(60.0)).abs() < 0.012, "{wall}");
+		// A seek or a stall moves the device far away at once, and the clock goes with it.
+		assert_eq!(steer(wall, wall + 5.0, TICK, false), wall + 5.0);
+		assert_eq!(steer(wall, 1.0, TICK, true), 1.0);
 	}
 }
 

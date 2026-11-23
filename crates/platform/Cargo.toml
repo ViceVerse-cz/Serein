@@ -65,8 +65,13 @@ objc2-user-notifications = { version = "=0.3.2", default-features = false, featu
 block2 = "=0.6.2"
 objc2-video-toolbox = { version = "=0.3.2", default-features = false, features = ["std", "bitflags", "objc2", "objc2-core-media", "objc2-core-video", "VTBase", "VTErrors", "VTSession", "VTDecompressionSession", "VTDecompressionProperties", "VTPixelTransferSession"] }
 objc2-core-media = { version = "=0.3.2", default-features = false, features = ["std", "bitflags", "objc2", "objc2-core-video", "CMBase", "CMTime", "CMAttachment", "CMBlockBuffer", "CMFormatDescription", "CMSampleBuffer"] }
-objc2-core-video = { version = "=0.3.2", default-features = false, features = ["std", "bitflags", "objc2", "CVBase", "CVBuffer", "CVImageBuffer", "CVPixelBuffer", "CVReturn"] }
+objc2-core-video = { version = "=0.3.2", default-features = false, features = ["std", "bitflags", "objc2", "objc2-io-surface", "CVBase", "CVBuffer", "CVImageBuffer", "CVPixelBuffer", "CVPixelBufferIOSurface", "CVReturn"] }
 objc2-core-foundation = { version = "=0.3.2", default-features = false, features = ["std", "CFBase", "CFArray", "CFDictionary", "CFNumber", "CFString"] }
+# Decoded video surfaces become textures of the renderer's Metal device without a copy.
+# wgpu and objc2-metal are the versions eframe's renderer already uses.
+wgpu = { version = "=30.0.1", default-features = false, features = ["std", "metal"] }
+objc2-metal = { version = "=0.3.2", default-features = false, features = ["std", "objc2-io-surface", "MTLAllocation", "MTLDevice", "MTLPixelFormat", "MTLResource", "MTLTexture"] }
+objc2-io-surface = { version = "=0.3.2", default-features = false, features = ["std", "objc2", "objc2-core-foundation", "IOSurfaceRef"] }
 
 [target.'cfg(target_os = "linux")'.dependencies.gstreamer]
 version = "=0.25.3"

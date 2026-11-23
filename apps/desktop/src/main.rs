@@ -6164,9 +6164,18 @@ impl eframe::App for Desktop {
 		}
 	}
 	/// One UI frame: pumps workers, expires challenges, renders and drains commands.
-	fn logic(&mut self, ctx: &egui::Context, _: &mut eframe::Frame) {
+	/// A playing attachment's next picture goes into the texture the last pass drew and
+	/// that pass's shapes are presented again: no layout or tessellation per video frame.
+	fn paint_only(&mut self, ctx: &egui::Context, _: &mut eframe::Frame) -> bool {
+		self.video.paint_only(self.messaging.video(), ctx)
+	}
+	fn keep_paint(&self) -> bool {
+		self.video.active()
+	}
+	fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
 		// Last frame's shapes are painted; video textures retired since then can go.
 		gpu_video::collect();
+		self.video.set_presenter(frame.paint_only_requester());
 		// `raw_input_hook` samples placements before the pass begins, where a requested repaint
 		// can be dropped when the pass starts, so the frame that saves a resting one is asked here.
 		// Every pass asks: a discarded pass's request would arrive stale and be ignored.
@@ -7075,6 +7084,7 @@ impl eframe::App for Desktop {
 					self.fixture_only || self.state.demo,
 				);
 			}
+			self.video.sync(player);
 			// Posters download attachments too, so they follow the playback session gate.
 			if !self.state.demo && self.state.auth != AuthState::Authenticated {
 				player.poster_queue.clear();

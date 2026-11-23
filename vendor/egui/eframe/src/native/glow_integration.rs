@@ -673,6 +673,13 @@ impl GlowWinitRunning<'_> {
     ) -> Result<EventResult> {
         profiling::function_scope!();
 
+        // Only the wgpu backend keeps a pass's shapes to paint them again.
+        let mode = if mode == PassMode::PaintOnly {
+            PassMode::Full
+        } else {
+            mode
+        };
+
         let Some(viewport_id) = self
             .glutin
             .borrow()

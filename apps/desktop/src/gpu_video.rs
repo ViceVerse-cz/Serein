@@ -15,6 +15,31 @@ pub fn install(state: &egui_wgpu::RenderState) {
 	CONVERTER.get_or_init(|| Converter::new(state));
 }
 
+/// Whether pictures are converted on the GPU; without it every frame is converted in memory.
+#[cfg(target_os = "macos")]
+pub fn installed() -> bool {
+	CONVERTER.get().is_some()
+}
+
+/// A decoded picture on its way to the screen.
+pub enum Frame {
+	/// Planes packed in memory, uploaded to the GPU.
+	Packed(Picture),
+	/// The decoder's own surface, which the GPU samples in place.
+	#[cfg(target_os = "macos")]
+	Surface(platform::video::Surface),
+}
+
+impl Frame {
+	fn display_size(&self) -> Option<(u32, u32)> {
+		match self {
+			Self::Packed(picture) => picture.is_valid().then(|| picture.display_size()),
+			#[cfg(target_os = "macos")]
+			Self::Surface(surface) => Some(surface.display_size()),
+		}
+	}
+}
+
 /// Frees textures retired since the last call. Call once at the start of each frame: a
 /// texture dropped during a frame may still be referenced by that frame's queued shapes,
 /// so its egui registration outlives the paint and is removed one frame later.
@@ -224,6 +249,101 @@ impl Converter {
 		})
 	}
 
+	fn params(&self) -> wgpu::Buffer {
+		self.device.create_buffer(&wgpu::BufferDescriptor {
+			label: Some("video-yuv"),
+			size: 64,
+			usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+			mapped_at_creation: false,
+		})
+	}
+
+	/// Binds the luma plane and the two chroma bindings (the same view twice for NV12).
+	fn bind(&self, params: &wgpu::Buffer, planes: [&wgpu::Texture; 3]) -> wgpu::BindGroup {
+		let views =
+			planes.map(|texture| texture.create_view(&wgpu::TextureViewDescriptor::default()));
+		self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+			label: Some("video-yuv"),
+			layout: &self.layout,
+			entries: &[
+				wgpu::BindGroupEntry {
+					binding: 0,
+					resource: params.as_entire_binding(),
+				},
+				wgpu::BindGroupEntry {
+					binding: 1,
+					resource: wgpu::BindingResource::Sampler(&self.sampler),
+				},
+				wgpu::BindGroupEntry {
+					binding: 2,
+					resource: wgpu::BindingResource::TextureView(&views[0]),
+				},
+				wgpu::BindGroupEntry {
+					binding: 3,
+					resource: wgpu::BindingResource::TextureView(&views[1]),
+				},
+				wgpu::BindGroupEntry {
+					binding: 4,
+					resource: wgpu::BindingResource::TextureView(&views[2]),
+				},
+			],
+		})
+	}
+
+	/// One render pass: the bound planes, converted and rotated, into `output`.
+	#[allow(clippy::too_many_arguments)]
+	fn convert(
+		&self,
+		name: &str,
+		output: &wgpu::Texture,
+		layout: Layout,
+		params: &wgpu::Buffer,
+		bind_group: &wgpu::BindGroup,
+		color: platform::video::Color,
+		rotation: u16,
+	) {
+		let mut bytes = [0_u8; 64];
+		for (slot, value) in bytes
+			.as_chunks_mut::<4>()
+			.0
+			.iter_mut()
+			.zip(color.coefficients().into_iter().flatten())
+		{
+			*slot = value.to_le_bytes();
+		}
+		bytes[48..52].copy_from_slice(&u32::from(rotation).to_le_bytes());
+		self.queue.write_buffer(params, 0, &bytes);
+		let view = output.create_view(&wgpu::TextureViewDescriptor::default());
+		let mut encoder = self
+			.device
+			.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some(name) });
+		{
+			let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+				label: Some(name),
+				color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+					view: &view,
+					depth_slice: None,
+					resolve_target: None,
+					ops: wgpu::Operations {
+						load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+						store: wgpu::StoreOp::Store,
+					},
+				})],
+				depth_stencil_attachment: None,
+				timestamp_writes: None,
+				occlusion_query_set: None,
+				multiview_mask: None,
+			});
+			pass.set_pipeline(match layout {
+				Layout::Nv12 => &self.nv12,
+				_ => &self.i420,
+			});
+			pass.set_bind_group(0, bind_group, &[]);
+			pass.draw(0..3, 0..1);
+		}
+		self.queue.submit([encoder.finish()]);
+	}
+
 	fn write(&self, texture: &wgpu::Texture, data: &[u8], row_bytes: u32) {
 		let size = texture.size();
 		self.queue.write_texture(
@@ -259,6 +379,9 @@ struct Gpu {
 	id: egui::TextureId,
 	output: wgpu::Texture,
 	planes: Option<Planes>,
+	/// Conversion parameters for decoder surfaces, which bring their own plane textures.
+	#[cfg(target_os = "macos")]
+	surface_params: Option<wgpu::Buffer>,
 }
 
 impl Drop for Gpu {
@@ -284,6 +407,112 @@ impl VideoTexture {
 			(None, None) => return None,
 		};
 		Some(egui::load::SizedTexture::new(id, self.size))
+	}
+
+	/// Whether showing `frame` keeps the texture already on screen: same id, same size.
+	/// Only then can the shapes that draw it be presented again without a ui pass.
+	pub fn fits(&self, frame: &Frame) -> bool {
+		frame.display_size().is_some_and(|size| {
+			self.gpu
+				.as_ref()
+				.is_some_and(|gpu| (gpu.output.width(), gpu.output.height()) == size)
+		})
+	}
+
+	/// Shows `frame`; returns the texture to paint, or `None` for an invalid picture.
+	pub fn show(
+		&mut self,
+		ctx: &egui::Context,
+		name: &str,
+		frame: &Frame,
+	) -> Option<egui::load::SizedTexture> {
+		match frame {
+			Frame::Packed(picture) => self.upload(ctx, name, picture.borrow()),
+			#[cfg(target_os = "macos")]
+			Frame::Surface(surface) => {
+				if let Some(converter) = CONVERTER.get()
+					&& self.sample_surface(converter, name, surface)
+				{
+					let (width, height) = surface.display_size();
+					self.size = egui::vec2(width as f32, height as f32);
+					return self.texture();
+				}
+				// Not a Metal renderer, or it refused the surface: copy the planes instead.
+				let picture = surface.to_picture().ok()?;
+				self.upload(ctx, name, picture.borrow())
+			}
+		}
+	}
+
+	/// Converts a decoder surface straight from its own planes: nothing is copied.
+	#[cfg(target_os = "macos")]
+	fn sample_surface(
+		&mut self,
+		converter: &Arc<Converter>,
+		name: &str,
+		surface: &platform::video::Surface,
+	) -> bool {
+		let Some([luma, chroma]) = surface.textures(&converter.device) else {
+			return false;
+		};
+		self.output(converter, name, surface.display_size());
+		let Some(gpu) = &mut self.gpu else {
+			return false;
+		};
+		// Packed planes of an earlier picture are not needed while surfaces arrive.
+		gpu.planes = None;
+		let params = gpu.surface_params.get_or_insert_with(|| converter.params());
+		let bind_group = converter.bind(params, [&luma, &chroma, &chroma]);
+		converter.convert(
+			name,
+			&gpu.output,
+			Layout::Nv12,
+			params,
+			&bind_group,
+			surface.color(),
+			surface.rotation(),
+		);
+		true
+	}
+
+	/// Makes the RGBA output `display` pixels large, keeping the egui texture id.
+	fn output(&mut self, converter: &Arc<Converter>, name: &str, display: (u32, u32)) {
+		if self
+			.gpu
+			.as_ref()
+			.is_some_and(|gpu| (gpu.output.width(), gpu.output.height()) == display)
+		{
+			return;
+		}
+		let output = converter.texture(name, display, wgpu::TextureFormat::Rgba8Unorm, true);
+		let view = output.create_view(&wgpu::TextureViewDescriptor::default());
+		let mut renderer = converter.renderer.write();
+		match &mut self.gpu {
+			Some(gpu) => {
+				renderer.update_egui_texture_from_wgpu_texture(
+					&converter.device,
+					&view,
+					wgpu::FilterMode::Linear,
+					gpu.id,
+				);
+				gpu.output = output;
+			}
+			None => {
+				let id = renderer.register_native_texture(
+					&converter.device,
+					&view,
+					wgpu::FilterMode::Linear,
+				);
+				self.gpu = Some(Gpu {
+					converter: converter.clone(),
+					id,
+					output,
+					planes: None,
+					#[cfg(target_os = "macos")]
+					surface_params: None,
+				});
+			}
+		}
 	}
 
 	/// Shows `picture`; returns the texture to paint, or `None` for an invalid picture.
@@ -318,40 +547,7 @@ impl VideoTexture {
 	}
 
 	fn upload_gpu(&mut self, converter: &Arc<Converter>, name: &str, picture: &Picture<&[u8]>) {
-		let display = picture.display_size();
-		let resized = self
-			.gpu
-			.as_ref()
-			.is_none_or(|gpu| (gpu.output.width(), gpu.output.height()) != display);
-		if resized {
-			let output = converter.texture(name, display, wgpu::TextureFormat::Rgba8Unorm, true);
-			let view = output.create_view(&wgpu::TextureViewDescriptor::default());
-			let mut renderer = converter.renderer.write();
-			match &mut self.gpu {
-				Some(gpu) => {
-					renderer.update_egui_texture_from_wgpu_texture(
-						&converter.device,
-						&view,
-						wgpu::FilterMode::Linear,
-						gpu.id,
-					);
-					gpu.output = output;
-				}
-				None => {
-					let id = renderer.register_native_texture(
-						&converter.device,
-						&view,
-						wgpu::FilterMode::Linear,
-					);
-					self.gpu = Some(Gpu {
-						converter: converter.clone(),
-						id,
-						output,
-						planes: None,
-					});
-				}
-			}
-		}
+		self.output(converter, name, picture.display_size());
 		let Some(gpu) = &mut self.gpu else {
 			return;
 		};
@@ -383,48 +579,15 @@ impl VideoTexture {
 				converter.write(&planes.chroma[1], cr, chroma_width);
 			}
 		}
-		let mut params = [0_u8; 64];
-		for (slot, value) in params
-			.as_chunks_mut::<4>()
-			.0
-			.iter_mut()
-			.zip(picture.color.coefficients().into_iter().flatten())
-		{
-			*slot = value.to_le_bytes();
-		}
-		params[48..52].copy_from_slice(&u32::from(picture.rotation).to_le_bytes());
-		converter.queue.write_buffer(&planes.params, 0, &params);
-		let view = gpu
-			.output
-			.create_view(&wgpu::TextureViewDescriptor::default());
-		let mut encoder = converter
-			.device
-			.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some(name) });
-		{
-			let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-				label: Some(name),
-				color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-					view: &view,
-					depth_slice: None,
-					resolve_target: None,
-					ops: wgpu::Operations {
-						load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-						store: wgpu::StoreOp::Store,
-					},
-				})],
-				depth_stencil_attachment: None,
-				timestamp_writes: None,
-				occlusion_query_set: None,
-				multiview_mask: None,
-			});
-			pass.set_pipeline(match picture.layout {
-				Layout::Nv12 => &converter.nv12,
-				_ => &converter.i420,
-			});
-			pass.set_bind_group(0, &planes.bind_group, &[]);
-			pass.draw(0..3, 0..1);
-		}
-		converter.queue.submit([encoder.finish()]);
+		converter.convert(
+			name,
+			&gpu.output,
+			picture.layout,
+			&planes.params,
+			&planes.bind_group,
+			picture.color,
+			picture.rotation,
+		);
 	}
 }
 
@@ -446,42 +609,8 @@ fn planes(converter: &Converter, layout: Layout, size: (u32, u32)) -> Planes {
 			converter.texture("video-cr", chroma_size, wgpu::TextureFormat::R8Unorm, false),
 		],
 	};
-	let params = converter.device.create_buffer(&wgpu::BufferDescriptor {
-		label: Some("video-yuv"),
-		size: 64,
-		usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-		mapped_at_creation: false,
-	});
-	let views = [&luma, &chroma[0], &chroma[1]]
-		.map(|texture| texture.create_view(&wgpu::TextureViewDescriptor::default()));
-	let bind_group = converter
-		.device
-		.create_bind_group(&wgpu::BindGroupDescriptor {
-			label: Some("video-yuv"),
-			layout: &converter.layout,
-			entries: &[
-				wgpu::BindGroupEntry {
-					binding: 0,
-					resource: params.as_entire_binding(),
-				},
-				wgpu::BindGroupEntry {
-					binding: 1,
-					resource: wgpu::BindingResource::Sampler(&converter.sampler),
-				},
-				wgpu::BindGroupEntry {
-					binding: 2,
-					resource: wgpu::BindingResource::TextureView(&views[0]),
-				},
-				wgpu::BindGroupEntry {
-					binding: 3,
-					resource: wgpu::BindingResource::TextureView(&views[1]),
-				},
-				wgpu::BindGroupEntry {
-					binding: 4,
-					resource: wgpu::BindingResource::TextureView(&views[2]),
-				},
-			],
-		});
+	let params = converter.params();
+	let bind_group = converter.bind(&params, [&luma, &chroma[0], &chroma[1]]);
 	Planes {
 		layout,
 		size,
