@@ -77,21 +77,20 @@ pub fn apply_preferences(ctx: &egui::Context, preferences: model::ReadingPrefere
 		})
 	});
 
+	let has_any_wheel = ctx.input(|input| {
+		input
+			.raw
+			.events
+			.iter()
+			.any(|event| matches!(event, egui::Event::MouseWheel { .. }))
+	});
 	if has_high_res_event {
 		state.last_active = Some(time);
 	} else if let Some(last) = state.last_active
 		&& time - last < 0.35
+		&& has_any_wheel
 	{
-		let has_any_wheel = ctx.input(|input| {
-			input
-				.raw
-				.events
-				.iter()
-				.any(|event| matches!(event, egui::Event::MouseWheel { .. }))
-		});
-		if has_any_wheel {
-			state.last_active = Some(time);
-		}
+		state.last_active = Some(time);
 	}
 
 	let is_scrolling = ctx.input(|i| i.is_scrolling());
@@ -102,9 +101,12 @@ pub fn apply_preferences(ctx: &egui::Context, preferences: model::ReadingPrefere
 	}
 	let touchpad_active = state.last_active.is_some_and(|last| time - last < 0.35)
 		|| state.accumulator.length() > 0.5;
-	let queue_draining = state
-		.last_active
-		.is_some_and(|last| time - last >= 0.35 && is_scrolling);
+	// egui keeps smoothing the old gesture after the marker expires. A new wheel event can
+	// already report `is_scrolling()`, so it starts its own action instead of draining.
+	let queue_draining = !has_any_wheel
+		&& state
+			.last_active
+			.is_some_and(|last| time - last >= 0.35 && is_scrolling);
 
 	if state.last_active.is_some() && !touchpad_active && !queue_draining {
 		state.last_active = None;
@@ -702,6 +704,34 @@ mod tests {
 		})
 		.drop_without_applying_deltas();
 		assert_eq!(delta.y, 0.0);
+
+		// The app idles past the touchpad marker, then a mouse notch arrives. egui already
+		// counts it as scrolling, but it is a new action and keeps its smoothing.
+		let notch = egui::RawInput {
+			time: Some(0.6),
+			screen_rect: Some(egui::Rect::from_min_size(
+				egui::Pos2::ZERO,
+				egui::vec2(900.0, 600.0),
+			)),
+			events: vec![egui::Event::MouseWheel {
+				unit: egui::MouseWheelUnit::Line,
+				delta: egui::vec2(0.0, 1.0),
+				modifiers: egui::Modifiers::NONE,
+				phase: egui::TouchPhase::Move,
+				source: egui::MouseWheelSource::Unknown,
+			}],
+			..Default::default()
+		};
+		ctx.run_ui(notch, |ui| {
+			apply_preferences(ui.ctx(), model::ReadingPreferences::default());
+			delta = ui.input(|i| i.smooth_scroll_delta());
+		})
+		.drop_without_applying_deltas();
+		assert!(
+			delta.y > 0.0 && delta.y < 120.0,
+			"the notch must be smoothed, moved {}",
+			delta.y
+		);
 	}
 
 	#[test]
