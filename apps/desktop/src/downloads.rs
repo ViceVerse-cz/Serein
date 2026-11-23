@@ -15,6 +15,10 @@ use tokio::sync::{Notify, watch};
 const MAX_BYTES: u64 = 100 * 1024 * 1024;
 const MAX_EMBED_BYTES: u64 = 16 * 1024 * 1024;
 const DOWNLOAD_EDGE: u32 = 2048;
+/// A filtered network resets some fresh connections. Nothing reaches the destination before a
+/// response arrives, so a bounded request retry is safe and usually lands on a clean connection.
+const DOWNLOAD_ATTEMPTS: u32 = 3;
+const RETRY_DELAY: Duration = Duration::from_millis(150);
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum Status {
 	#[default]
@@ -521,6 +525,40 @@ impl Drop for Partial<'_> {
 /// supersedes metadata size; otherwise metadata size is used. Chunks are streamed through a
 /// temporary `.partial` sibling file and committed atomically once the exact expected byte
 /// count is verified.
+/// Requests the attachment, retrying a connection the network dropped before any byte reached the
+/// destination. A fresh connection is what a filtered network resets, so a retry is not a duplicate.
+async fn request(
+	client: &wreq::Client,
+	url: &url::Url,
+	cancelled: &AtomicBool,
+	wake_cancel: &Notify,
+) -> Result<wreq::Response, &'static str> {
+	let mut attempt = 0;
+	loop {
+		attempt += 1;
+		if cancelled.load(Ordering::Acquire) {
+			return Err("Cancelled");
+		}
+		let sent = tokio::select! {
+			biased;
+			_ = wake_cancel.notified() => return Err("Cancelled"),
+			response = client_core::fingerprint::discord_request(client.get(url.as_str()), url.as_str()).header(wreq::header::ACCEPT_ENCODING, "identity").send() => response,
+		};
+		match sent {
+			Ok(response) => return Ok(response),
+			Err(_) if attempt < DOWNLOAD_ATTEMPTS => {
+				// The retry opens a new connection; a reset connection is never reused.
+				tokio::select! {
+					biased;
+					_ = wake_cancel.notified() => return Err("Cancelled"),
+					_ = tokio::time::sleep(RETRY_DELAY) => {}
+				}
+			}
+			Err(_) => return Err("Attachment download failed"),
+		}
+	}
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn download(
 	client: &wreq::Client,
@@ -545,11 +583,7 @@ async fn download(
 	if cancelled.load(Ordering::Acquire) {
 		return Err("Cancelled");
 	}
-	let response = tokio::select! {
-		biased;
-		_ = wake_cancel.notified() => return Err("Cancelled"),
-		response = client_core::fingerprint::discord_request(client.get(url.as_str()), url.as_str()).header(wreq::header::ACCEPT_ENCODING, "identity").send() => response.map_err(|_| "Attachment download failed")?,
-	};
+	let response = request(client, &url, cancelled, wake_cancel).await?;
 	if response.status() != wreq::StatusCode::OK {
 		return Err("Attachment unavailable; reload the conversation and try again");
 	}
@@ -1451,6 +1485,73 @@ mod tests {
 		assert!(!destination.exists());
 		assert_eq!(fs::read_dir(&root).unwrap().count(), 0);
 
+		let _ = fs::remove_dir_all(&root);
+	}
+
+	/// A filtered network resets fresh connections; one dropped request must not lose the save.
+	#[tokio::test]
+	async fn a_reset_request_is_retried_before_the_download_fails() {
+		let root =
+			std::env::temp_dir().join(format!("serein-download-retry-{}", std::process::id()));
+		fs::create_dir_all(&root).unwrap();
+		let destination = root.join("retried.bin");
+		let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+		let url = url::Url::parse(&format!(
+			"http://{}/retried",
+			listener.local_addr().unwrap()
+		))
+		.unwrap();
+		let content = b"synthetic retried attachment bytes".to_vec();
+		let body = content.clone();
+		let server = tokio::spawn(async move {
+			// The first connection dies after its request, as a filtered network drops a fresh
+			// TLS handshake; only the retried connection is answered.
+			let (mut first, _) = listener.accept().await.unwrap();
+			let mut request = [0u8; 4096];
+			let _ = first.read(&mut request).await.unwrap();
+			drop(first);
+			let (mut second, _) = listener.accept().await.unwrap();
+			let mut request = [0u8; 4096];
+			let _ = second.read(&mut request).await.unwrap();
+			second
+				.write_all(
+					format!(
+						"HTTP/1.1 200 OK
+Content-Type: application/octet-stream
+Content-Length: {}
+Connection: close
+
+",
+						body.len()
+					)
+					.as_bytes(),
+				)
+				.await
+				.unwrap();
+			second.write_all(&body).await.unwrap();
+		});
+		let client = wreq::Client::builder()
+			.no_proxy()
+			.redirect(wreq::redirect::Policy::none())
+			.timeout(Duration::from_secs(5))
+			.build()
+			.unwrap();
+		let cancelled = AtomicBool::new(false);
+		let wake = Notify::new();
+		download(
+			&client,
+			url,
+			&destination,
+			content.len() as u64,
+			false,
+			&cancelled,
+			&wake,
+			&|_| {},
+		)
+		.await
+		.unwrap();
+		server.await.unwrap();
+		assert_eq!(fs::read(&destination).unwrap(), content);
 		let _ = fs::remove_dir_all(&root);
 	}
 }
