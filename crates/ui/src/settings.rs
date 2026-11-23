@@ -151,7 +151,7 @@ impl Page {
 				"appearance customization font typography import ttf otf primary accent hex window effects transparency blur gradient names cosmetics decorations theme dark light system mode zoom scale layout sidebar width people members member list reset colour color preset"
 			}
 			Self::Chat => {
-				"chat messages media reading animate animated gifs autoplay hide image links confirm confirmation external browser smooth scrolling scroll speed motion trackpad wheel hidden channels channel list reset emoji emojis nitro fake suggestions autocomplete locked emoticons chat box automatically convert"
+				"chat messages media reading animate animated gifs autoplay hide image links confirm confirmation external browser smooth scrolling scroll speed motion trackpad wheel hidden channels channel list reset emoji emojis nitro fake suggestions autocomplete locked emoticons chat box automatically convert typing indicator silent privacy nickname friend server display name"
 			}
 			Self::MessagingPermissions => {
 				"messaging permissions spam filters direct messages dm friend requests personalized connected games"
@@ -1201,6 +1201,57 @@ impl MessagingUi {
 		});
 		design::group(
 			ui,
+			&crate::i18n::translate("settings-silent-typing"),
+			|ui| {
+				design::switch(
+					ui,
+					"settings-silent-typing-enabled",
+					Some("settings-silent-typing-enabled-description"),
+					&mut self.silent_typing.enabled,
+				);
+				design::card_divider(ui);
+				design::switch(
+					ui,
+					"settings-silent-typing-default-hidden",
+					Some("settings-silent-typing-default-hidden-description"),
+					&mut self.silent_typing.default_hidden,
+				);
+				design::hint(
+					ui,
+					&crate::i18n::translate("settings-silent-typing-locations-description"),
+				);
+				let response = design::input(
+					ui,
+					egui::TextEdit::singleline(&mut self.silent_typing_locations).hint_text(
+						crate::i18n::translate("settings-silent-typing-locations-hint"),
+					),
+				);
+				if response.changed() {
+					let mut candidate = self.silent_typing.clone();
+					self.silent_typing_locations_error =
+						!candidate.set_locations_text(&self.silent_typing_locations);
+					if !self.silent_typing_locations_error {
+						self.silent_typing = candidate;
+					}
+				}
+				if self.silent_typing_locations_error {
+					design::hint(
+						ui,
+						&crate::i18n::translate("settings-silent-typing-locations-rejected"),
+					);
+				}
+			},
+		);
+		design::group(ui, &crate::i18n::translate("settings-name-display"), |ui| {
+			design::switch(
+				ui,
+				"settings-prefer-friend-nickname",
+				Some("settings-prefer-friend-nickname-description"),
+				&mut self.prefer_friend_nickname,
+			);
+		});
+		design::group(
+			ui,
 			&crate::i18n::translate("settings-chat-settings-channel-list"),
 			|ui| {
 				design::switch(
@@ -1982,5 +2033,59 @@ mod keybind_tests {
 				assert!(view.settings.query.is_empty());
 			}
 		}
+	}
+
+	/// A rejected edit keeps the active list and says so; the next valid edit clears the notice.
+	#[test]
+	fn rejected_location_edit_keeps_the_active_list_and_reports_it() {
+		let ctx = egui::Context::default();
+		let mut view = MessagingUi::default();
+		view.silent_typing.locations = vec![model::Id(10)];
+		view.silent_typing_locations = "10".into();
+
+		// A rejected edit leaves both the active list and the displayed text untouched.
+		let mut rejected = view.silent_typing.clone();
+		assert!(!rejected.set_locations_text("123456789012345678, typo"));
+		view.silent_typing_locations_error = true;
+		assert_eq!(view.silent_typing.locations, vec![model::Id(10)]);
+		assert_eq!(view.silent_typing_locations, "10");
+
+		// The rendered settings page states that the previous list remains active.
+		let mut labels = Vec::new();
+		let output = ctx.run_ui(
+			egui::RawInput {
+				screen_rect: Some(egui::Rect::from_min_size(
+					egui::Pos2::ZERO,
+					egui::vec2(720.0, 1400.0),
+				)),
+				focused: true,
+				..Default::default()
+			},
+			|ui| {
+				view.chat_settings(ui, false);
+			},
+		);
+		for shape in &output.shapes {
+			if let egui::Shape::Text(text) = &shape.shape {
+				labels.push(text.galley.job.text.clone());
+			}
+		}
+		output.drop_without_applying_deltas();
+		assert!(
+			labels.iter().any(|label| label
+				== &crate::i18n::translate("settings-silent-typing-locations-rejected"))
+		);
+
+		// A valid edit applies and clears the notice.
+		view.silent_typing_locations = "20,30".into();
+		let mut candidate = view.silent_typing.clone();
+		view.silent_typing_locations_error =
+			!candidate.set_locations_text(&view.silent_typing_locations);
+		assert!(!view.silent_typing_locations_error);
+		view.silent_typing = candidate;
+		assert_eq!(
+			view.silent_typing.locations,
+			vec![model::Id(20), model::Id(30)]
+		);
 	}
 }

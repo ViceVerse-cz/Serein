@@ -1721,6 +1721,76 @@ fn history_freshness_does_not_disable_authorized_sending() {
 }
 
 #[test]
+fn a_friend_nickname_applies_only_to_message_rendering() {
+	let mut state = state();
+	let mut message = state.timeline.get(Id(100)).unwrap().clone();
+	message.author.id = Id(3);
+	message.author.name = "Synthetic friend".into();
+	message.author_nick = Some("Server nick".into());
+	state
+		.apply_user_action(crate::user_actions::Event::Friends(Some(vec![(
+			message.author.clone(),
+			"synthetic.handle".into(),
+		)])))
+		.unwrap();
+	state
+		.apply_user_action(crate::user_actions::Event::Nickname {
+			user: message.author.id,
+			text: "Private name".into(),
+		})
+		.unwrap();
+	// Rendering prefers the nickname only once the owner turns the preference on.
+	assert_eq!(state.message_render_name(&message), "Server nick");
+	state.set_prefer_friend_nickname(true);
+	assert_eq!(state.message_render_name(&message), "Private name");
+	// The shared resolver is unchanged, so typing pills and notification senders keep the
+	// names they showed before this preference existed.
+	assert_eq!(state.message_author_name(&message), "Server nick");
+	message.author.webhook = true;
+	assert_eq!(state.message_render_name(&message), "Synthetic friend");
+	assert_eq!(state.message_author_name(&message), "Synthetic friend");
+	message.author.webhook = false;
+
+	// A later friend snapshot that omits this user ends the friendship, so the private
+	// nickname must stop applying instead of outliving it.
+	state
+		.apply_user_action(crate::user_actions::Event::Friends(Some(Vec::new())))
+		.unwrap();
+	assert_eq!(state.friend_nickname(message.author.id), None);
+	assert_eq!(state.message_render_name(&message), "Server nick");
+
+	// The same holds when the friendship becomes unknown: that empties the friend set but
+	// cannot prune the nickname, so applying it would name a user who is no longer a friend.
+	state
+		.apply_user_action(crate::user_actions::Event::Friends(Some(vec![(
+			message.author.clone(),
+			"synthetic.handle".into(),
+		)])))
+		.unwrap();
+	state
+		.apply_user_action(crate::user_actions::Event::Nickname {
+			user: message.author.id,
+			text: "Private name".into(),
+		})
+		.unwrap();
+	assert_eq!(state.message_render_name(&message), "Private name");
+	state
+		.apply_user_action(crate::user_actions::Event::Friends(None))
+		.unwrap();
+	assert_eq!(
+		state.friend_nickname(message.author.id),
+		Some("Private name")
+	);
+	assert_eq!(
+		state.message_render_name(&message),
+		"Server nick",
+		"an unknown friendship never applies a retained nickname"
+	);
+	// The shared resolver ignores the preference entirely, so it never sees the nickname.
+	assert_eq!(state.message_author_name(&message), "Server nick");
+}
+
+#[test]
 fn optimistic_edits_and_pins_roll_back_without_overwriting_newer_content() {
 	let mut state = state();
 	let original = state.timeline.get(Id(100)).unwrap().content.clone();

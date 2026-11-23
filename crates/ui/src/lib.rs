@@ -291,6 +291,14 @@ pub struct MessagingUi {
 	pub language: i18n::Language,
 	forwarding: forwarding::ForwardDialog,
 	pub convert_emoticons: bool,
+	/// Device preference: suppress this account's outbound typing indicators where configured.
+	pub silent_typing: model::SilentTyping,
+	/// Editable comma-separated channel/guild IDs backing `silent_typing`.
+	pub silent_typing_locations: String,
+	/// The last edit was rejected, so the field no longer matches the active exception list.
+	pub silent_typing_locations_error: bool,
+	/// Device preference: a confirmed friend's private nickname wins over a server nickname.
+	pub prefer_friend_nickname: bool,
 	/// Device preference: request a conversation's page while the pointer rests on it.
 	pub preload_on_hover: bool,
 	preload: preload::Preload,
@@ -4654,8 +4662,11 @@ impl MessagingUi {
                                 self.draft_changes.push(channel);
                                 // Tell the conversation, as the official client does.
                                 if edit.changed()
-                                    && let Some(command) =
-                                        state.prepare_typing(channel, std::time::Instant::now())
+                                    && let Some(command) = state.prepare_typing(
+                                        channel,
+                                        std::time::Instant::now(),
+                                        &self.silent_typing,
+                                    )
                                 {
                                     commands.push(command);
                                 }
@@ -5224,6 +5235,7 @@ impl MessagingUi {
 			state.user.as_ref().map(|user| user.id),
 			state.selected,
 		);
+		state.set_prefer_friend_nickname(self.prefer_friend_nickname);
 		self.avatars.cosmetics = self.cosmetics;
 		name_styles::set_enabled(self.cosmetics.name_styles);
 		role_names::set_gradients(!self.cosmetics.solid_names);

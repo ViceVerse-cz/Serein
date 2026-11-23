@@ -56,6 +56,8 @@ impl Settings {
 			convert_emoticons: ui.convert_emoticons,
 			hide_blocked_messages: ui.hide_blocked_messages,
 			hide_ignored_messages: ui.hide_ignored_messages,
+			silent_typing: ui.silent_typing.clone(),
+			prefer_friend_nickname: ui.prefer_friend_nickname,
 			preload_on_hover: ui.preload_on_hover,
 			auto_idle: ui.auto_idle,
 			hide_title_bar: ui.hide_title_bar,
@@ -113,6 +115,10 @@ impl Settings {
 		ui.convert_emoticons = value.convert_emoticons;
 		ui.hide_blocked_messages = value.hide_blocked_messages;
 		ui.hide_ignored_messages = value.hide_ignored_messages;
+		ui.silent_typing = value.silent_typing.clone();
+		ui.silent_typing_locations = value.silent_typing.locations_text();
+		ui.silent_typing_locations_error = false;
+		ui.prefer_friend_nickname = value.prefer_friend_nickname;
 		ui.preload_on_hover = value.preload_on_hover;
 		ui.auto_idle = value.auto_idle;
 		ui.hide_title_bar = value.hide_title_bar;
@@ -729,6 +735,34 @@ mod tests {
 		settings.observe(&ui);
 		assert!(settings.current.hide_blocked_messages);
 		assert!(!settings.current.hide_ignored_messages);
+		assert!(settings.state.dirty);
+	}
+
+	#[test]
+	fn silent_typing_and_friend_nickname_restore_and_track_user_changes() {
+		let mut settings = Settings {
+			loaded: true,
+			..Default::default()
+		};
+		settings.current.silent_typing = model::SilentTyping {
+			enabled: true,
+			default_hidden: true,
+			locations: vec![model::Id(20), model::Id(10)],
+		};
+		settings.current.prefer_friend_nickname = true;
+		let mut ui = ui::MessagingUi::default();
+		settings.apply(&mut ui);
+		assert_eq!(ui.silent_typing, settings.current.silent_typing);
+		assert_eq!(ui.silent_typing_locations, "20,10");
+		assert!(ui.prefer_friend_nickname);
+		settings.observe(&ui);
+		assert!(!settings.state.dirty);
+
+		ui.silent_typing.enabled = false;
+		ui.prefer_friend_nickname = false;
+		settings.observe(&ui);
+		assert!(!settings.current.silent_typing.enabled);
+		assert!(!settings.current.prefer_friend_nickname);
 		assert!(settings.state.dirty);
 	}
 
