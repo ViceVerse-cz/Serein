@@ -5467,7 +5467,7 @@ impl TimelineView {
 		// Idle layout still never drains history merely to fill the viewport.
 		self.load_older = output.state.clamped_offset().y < 160.0
 			&& ui.input(|i| {
-				scroll_delta > 0.0
+				timeline_wheel + autoscroll_delta > 0.0
 					&& (session.holding()
 						|| selection_scroll != 0.0
 						|| i.pointer
@@ -12480,20 +12480,21 @@ mod tests {
 			demo: true,
 			..Default::default()
 		};
+		// Taller than the card's 640-point bound, so the card scrolls on its own.
+		let tall_embed = model::Embed {
+			kind: "rich".into(),
+			description: Some(
+				(1..=80)
+					.map(|line| format!("Synthetic embed line {line}"))
+					.collect::<Vec<_>>()
+					.join("\n"),
+			),
+			..Default::default()
+		};
 		for id in 1..=40 {
 			let mut message = text_message(id);
 			if id == 40 {
-				// Taller than the card's 640-point bound, so the card scrolls on its own.
-				message.embeds = vec![model::Embed {
-					kind: "rich".into(),
-					description: Some(
-						(1..=80)
-							.map(|line| format!("Synthetic embed line {line}"))
-							.collect::<Vec<_>>()
-							.join("\n"),
-					),
-					..Default::default()
-				}];
+				message.embeds = vec![tall_embed.clone()];
 			}
 			state.timeline.insert(message, false, false).unwrap();
 		}
@@ -12503,13 +12504,13 @@ mod tests {
 		let mut avatars = crate::avatars::Avatars::default();
 		let mut frame_number = 0;
 		let pointer = egui::pos2(300.0, 300.0);
-		let mut frame = |view: &mut TimelineView, state: &mut State, wheel: bool| {
+		let mut frame = |view: &mut TimelineView, state: &mut State, lines: f32| {
 			frame_number += 1;
 			let mut events = vec![egui::Event::PointerMoved(pointer)];
-			if wheel {
+			if lines != 0.0 {
 				events.push(egui::Event::MouseWheel {
 					unit: egui::MouseWheelUnit::Line,
-					delta: egui::vec2(0.0, -1.0),
+					delta: egui::vec2(0.0, lines),
 					modifiers: egui::Modifiers::NONE,
 					phase: egui::TouchPhase::Move,
 					source: egui::MouseWheelSource::Unknown,
@@ -12548,7 +12549,7 @@ mod tests {
 			view.scroll_offset
 		};
 		for _ in 0..8 {
-			frame(&mut view, &mut state, false);
+			frame(&mut view, &mut state, 0.0);
 		}
 		assert!(view.following);
 		// The reader parks just inside the bottom tolerance, with the embed under the pointer.
@@ -12558,12 +12559,12 @@ mod tests {
 		view.left_live_edge = true;
 		view.anchor = Some((view.rows[index].0, near_bottom - top));
 		view.revision = u64::MAX;
-		let parked = frame(&mut view, &mut state, false);
+		let parked = frame(&mut view, &mut state, 0.0);
 		assert!(!view.following && (parked - near_bottom).abs() < 0.5);
-		frame(&mut view, &mut state, true);
+		frame(&mut view, &mut state, -1.0);
 		let mut settled = parked;
 		for _ in 0..20 {
-			settled = frame(&mut view, &mut state, false);
+			settled = frame(&mut view, &mut state, 0.0);
 		}
 		assert!(
 			(settled - parked).abs() < 0.5,
@@ -12576,12 +12577,70 @@ mod tests {
 		// A Present glide keeps going when the embed takes the wheel.
 		view.left_live_edge = false;
 		view.present_scroll = Some((view.scroll_offset, 0.0));
-		frame(&mut view, &mut state, false);
+		frame(&mut view, &mut state, 0.0);
 		assert!(view.present_scroll.is_some());
-		frame(&mut view, &mut state, true);
+		frame(&mut view, &mut state, -1.0);
 		assert!(
 			view.present_scroll.is_some() && view.following,
 			"a wheel the embed took cancelled the glide"
+		);
+		// Near the top, a wheel up that the embed takes does not ask for older history.
+		let mut state = State {
+			auth: client_core::auth::AuthState::Authenticated,
+			gateway_connected: true,
+			freshness: model::Freshness::Fresh,
+			selected: Some(Id(20)),
+			channels: vec![model::Channel {
+				id: Id(20),
+				guild: None,
+				parent_id: None,
+				position: 0,
+				name: "Synthetic history conversation".into(),
+				kind: 1,
+				recipients: vec![],
+				member_list_id: None,
+				tags: None,
+				message_count: None,
+				icon: None,
+				user_limit: None,
+				slowmode: 0,
+				last_message: Some(Id(4)),
+			}],
+			revision: 1,
+			..Default::default()
+		};
+		let mut tall = text_message(1);
+		tall.embeds = vec![tall_embed];
+		state.timeline.insert(tall, false, false).unwrap();
+		for id in 2..=4 {
+			state
+				.timeline
+				.insert(text_message(id), false, false)
+				.unwrap();
+		}
+		let mut view = TimelineView::default();
+		for _ in 0..8 {
+			frame(&mut view, &mut state, 0.0);
+		}
+		let first = view.rows.iter().position(|(id, _)| *id == Id(1)).unwrap();
+		view.following = false;
+		view.left_live_edge = true;
+		view.anchor = Some((view.rows[first].0, 0.0));
+		view.revision = u64::MAX;
+		for _ in 0..4 {
+			frame(&mut view, &mut state, 0.0);
+		}
+		assert!(view.scroll_offset < 160.0 && state.can_load_older());
+		// Scroll the card down first, so it has room to take the wheel up.
+		frame(&mut view, &mut state, -1.0);
+		for _ in 0..20 {
+			frame(&mut view, &mut state, 0.0);
+		}
+		assert!(!view.load_older);
+		frame(&mut view, &mut state, 1.0);
+		assert!(
+			!view.load_older,
+			"a wheel the embed took requested older history"
 		);
 	}
 }
