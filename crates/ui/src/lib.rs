@@ -5428,6 +5428,7 @@ impl MessagingUi {
 		}
 		self.timeline.audio.seen = false;
 		self.timeline.video.seen = false;
+		self.timeline.video.position_shown = false;
 		let side = self.drain_side_press();
 		let mut commands = Vec::new();
 		commands.extend(cosmetics_refresh);

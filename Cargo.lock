@@ -4787,6 +4787,7 @@ dependencies = [
  "block2 0.6.2",
  "objc2 0.6.5",
  "objc2-foundation 0.3.2",
+ "objc2-io-surface",
 ]
 
 [[package]]
@@ -5444,6 +5445,8 @@ dependencies = [
  "objc2-core-media",
  "objc2-core-video",
  "objc2-foundation 0.3.2",
+ "objc2-io-surface",
+ "objc2-metal 0.3.2",
  "objc2-user-notifications 0.3.2",
  "objc2-video-toolbox",
  "objc2-web-kit",
@@ -5458,6 +5461,7 @@ dependencies = [
  "wayland-client",
  "wayland-protocols",
  "webkit6",
+ "wgpu",
  "windows 0.61.3",
  "windows-core 0.61.2",
  "winit",

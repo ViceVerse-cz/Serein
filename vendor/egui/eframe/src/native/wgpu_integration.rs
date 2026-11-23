@@ -69,6 +69,18 @@ struct WgpuWinitRunning<'app> {
     shared: Rc<RefCell<SharedState>>,
 
     pending_deltas: TexturesDelta,
+
+    /// The root viewport's last painted pass, while [`App::keep_paint`] asks for it.
+    kept_paint: Option<KeptPaint>,
+}
+
+/// What [`App::paint_only`] presents again.
+struct KeptPaint {
+    clipped_primitives: Vec<egui::ClippedPrimitive>,
+    pixels_per_point: f32,
+
+    /// The window's size in physical pixels when the shapes were made.
+    size: winit::dpi::PhysicalSize<u32>,
 }
 
 impl Drop for WgpuWinitRunning<'_> {
@@ -289,7 +301,7 @@ impl<'app> WgpuWinitApp<'app> {
 
         let wgpu_render_state = painter.render_state();
 
-        let integration = EpiIntegration::new(
+        let mut integration = EpiIntegration::new(
             egui_ctx.clone(),
             &window,
             &self.app_name,
@@ -301,6 +313,20 @@ impl<'app> WgpuWinitApp<'app> {
             None,
             wgpu_render_state.clone(),
         );
+
+        {
+            let event_loop_proxy = Arc::clone(&self.repaint_proxy);
+            integration.frame.paint_only_requester =
+                Some(crate::PaintOnlyRequester(Arc::new(move |delay| {
+                    event_loop_proxy
+                        .lock()
+                        .send_event(UserEvent::PaintOnly {
+                            viewport_id: ViewportId::ROOT,
+                            when: Instant::now() + delay,
+                        })
+                        .ok();
+                })));
+        }
 
         {
             let event_loop_proxy = Arc::clone(&self.repaint_proxy);
@@ -424,6 +450,7 @@ impl<'app> WgpuWinitApp<'app> {
             app,
             shared,
             pending_deltas: Default::default(),
+            kept_paint: None,
         }))
     }
 }
@@ -656,6 +683,15 @@ impl WgpuWinitRunning<'_> {
             return Ok(EventResult::Wait);
         };
 
+        let mode = if mode == PassMode::PaintOnly {
+            if self.paint_only(viewport_id) {
+                return Ok(EventResult::Wait);
+            }
+            PassMode::Full
+        } else {
+            mode
+        };
+
         profiling::finish_frame!();
 
         let Self {
@@ -663,6 +699,7 @@ impl WgpuWinitRunning<'_> {
             integration,
             shared,
             pending_deltas,
+            kept_paint,
         } = self;
 
         let mut frame_timer = crate::stopwatch::Stopwatch::new();
@@ -849,8 +886,19 @@ impl WgpuWinitRunning<'_> {
 
         egui_winit.handle_platform_output_with_event_loop(window, event_loop, platform_output);
 
+        // Any pass can free textures or start the shared glyph atlas over, also one of
+        // another viewport, so the root's kept shapes end with it. Only the root's own
+        // pass keeps new ones.
+        *kept_paint = None;
+
         let vsync_secs = if is_visible {
             let clipped_primitives = egui_ctx.tessellate(shapes, pixels_per_point);
+
+            // A texture freed by this pass is freed right after it is painted, so its
+            // shapes cannot be painted a second time.
+            let keep_paint = viewport_id == ViewportId::ROOT
+                && pending_deltas.free.is_empty()
+                && app.keep_paint();
 
             let mut screenshot_commands = vec![];
             viewport.actions_requested.retain(|cmd| {
@@ -907,6 +955,14 @@ impl WgpuWinitRunning<'_> {
                 window.set_visible(true);
             }
 
+            if keep_paint {
+                *kept_paint = Some(KeptPaint {
+                    clipped_primitives,
+                    pixels_per_point,
+                    size: window.inner_size(),
+                });
+            }
+
             vsync_secs
         } else {
             0.0
@@ -948,6 +1004,83 @@ impl WgpuWinitRunning<'_> {
         } else {
             Ok(EventResult::Wait)
         }
+    }
+
+    /// Paints the kept shapes of the root viewport again: see [`App::paint_only`].
+    ///
+    /// Returns `false`, having painted nothing, when a full pass is needed instead.
+    fn paint_only(&mut self, viewport_id: ViewportId) -> bool {
+        profiling::function_scope!();
+
+        let Self {
+            app,
+            integration,
+            shared,
+            pending_deltas,
+            kept_paint,
+        } = self;
+
+        let Some(kept_paint) = kept_paint.as_ref() else {
+            return false;
+        };
+
+        if viewport_id != ViewportId::ROOT || !pending_deltas.is_empty() {
+            return false;
+        }
+
+        {
+            let shared = shared.borrow();
+            let Some(viewport) = shared.viewports.get(&viewport_id) else {
+                return false;
+            };
+            let Some(window) = &viewport.window else {
+                return false;
+            };
+            // Anything that changes how the shapes land on the surface, or that a pass
+            // would answer, takes a full pass. A resize also arrives as an event that
+            // asks for one; the size is compared in case the two get out of step.
+            if !viewport.info.visible().unwrap_or(true)
+                || !viewport.actions_requested.is_empty()
+                || window.inner_size() != kept_paint.size
+            {
+                return false;
+            }
+        }
+
+        // The app is free to use the context here, so no borrow of `shared` is held.
+        if !app.paint_only(&integration.egui_ctx, &mut integration.frame) {
+            return false;
+        }
+
+        let mut shared = shared.borrow_mut();
+        let SharedState {
+            egui_ctx,
+            viewports,
+            painter,
+            ..
+        } = &mut *shared;
+        let Some(window) = viewports
+            .get(&viewport_id)
+            .and_then(|viewport| viewport.window.as_ref())
+        else {
+            return false;
+        };
+
+        painter.paint_again(
+            viewport_id,
+            kept_paint.pixels_per_point,
+            app.clear_color(&egui_ctx.global_style().visuals),
+            &kept_paint.clipped_primitives,
+            window,
+        );
+
+        // Long playback may run no full pass at all, and periodic saving must not wait
+        // for one.
+        let window = Arc::clone(window);
+        drop(shared);
+        integration.maybe_autosave(app.as_mut(), Some(&window));
+
+        true
     }
 
     fn on_window_event(

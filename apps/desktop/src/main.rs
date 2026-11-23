@@ -6164,9 +6164,28 @@ impl eframe::App for Desktop {
 		}
 	}
 	/// One UI frame: pumps workers, expires challenges, renders and drains commands.
-	fn logic(&mut self, ctx: &egui::Context, _: &mut eframe::Frame) {
+	/// A playing attachment's next picture goes into the texture the last pass drew and
+	/// that pass's shapes are presented again: no layout or tessellation per video frame.
+	fn paint_only(&mut self, ctx: &egui::Context, _: &mut eframe::Frame) -> bool {
+		// The demo's pending automatic pause is decided in the ui pass.
+		self.demo_video_autoplay.is_none()
+			&& self.video.paint_only(self.messaging.video(), ctx)
+			&& self.voice.paint_only(ctx)
+	}
+	fn keep_paint(&self) -> bool {
+		self.video.active() || self.voice.shows_video()
+	}
+	fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
 		// Last frame's shapes are painted; video textures retired since then can go.
 		gpu_video::collect();
+		// `--demo-full-repaints` keeps a repaint per picture, to measure against.
+		static FULL_REPAINTS: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+		let full_repaints = cfg!(feature = "demo")
+			&& *FULL_REPAINTS
+				.get_or_init(|| std::env::args().any(|arg| arg == "--demo-full-repaints"));
+		let presenter = frame.paint_only_requester().filter(|_| !full_repaints);
+		self.video.set_presenter(presenter.clone());
+		self.voice.set_presenter(presenter);
 		// `raw_input_hook` samples placements before the pass begins, where a requested repaint
 		// can be dropped when the pass starts, so the frame that saves a resting one is asked here.
 		// Every pass asks: a discarded pass's request would arrive stale and be ignored.
@@ -7075,6 +7094,7 @@ impl eframe::App for Desktop {
 					self.fixture_only || self.state.demo,
 				);
 			}
+			self.video.sync(player);
 			// Posters download attachments too, so they follow the playback session gate.
 			if !self.state.demo && self.state.auth != AuthState::Authenticated {
 				player.poster_queue.clear();
