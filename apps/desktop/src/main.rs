@@ -624,6 +624,13 @@ fn main() -> eframe::Result {
 		},
 		persist_window: false,
 		persistence_path: None,
+		#[cfg(target_os = "linux")]
+		event_loop_builder: Some(Box::new(|builder| {
+			// winit 0.30 does not implement file drag-and-drop on Wayland; prefer X11/XWayland when DISPLAY is available.
+			if std::env::var_os("DISPLAY").is_some() {
+				winit::platform::x11::EventLoopBuilderExtX11::with_x11(builder);
+			}
+		})),
 		..Default::default()
 	};
 	let result = eframe::run_native(
