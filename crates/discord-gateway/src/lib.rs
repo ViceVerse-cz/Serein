@@ -2569,7 +2569,7 @@ async fn run_session(
 									"GUILD_CREATE" => {
 										member_diagnostics.record("guild refresh received");
 										let permissions=owner_id.map(|owner|permissions::guild(packet.d.get().as_bytes(),owner)).transpose().map_err(|_|Failure::ProtocolAt("Gateway guild refresh: invalid permission metadata"))?;
-										let mut guild: GuildDto = decode(packet.d.get().as_bytes()).map_err(|_| Failure::ProtocolAt("Gateway guild refresh: unsupported guild payload"))?;
+										let mut guild: GuildDto = decode_gateway(packet.d.get().as_bytes()).map_err(|_| Failure::ProtocolAt("Gateway guild refresh: unsupported guild payload"))?;
 										if guild.channels.len() + calls.allowed.len() > MAX_NAV { return Err(Failure::Capacity); }
 										if !known_guilds.contains(&guild.id) {
 											if known_guilds.len() >= MAX_NAV { return Err(Failure::Capacity); }

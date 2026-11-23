@@ -1,6 +1,6 @@
 //! Minimal, session-only permission metadata. No member directory is retained.
 use crate::{
-	DecodeError, Timestamp, decode,
+	DecodeError, Timestamp, decode, decode_gateway,
 	lossy::{Lossy, Slots, null_default},
 };
 use model::{Id, Patch, permissions as p};
@@ -491,7 +491,7 @@ pub(crate) fn diagnose_ready_fields(guilds: &[u8], merged: Option<&[u8]>, user: 
 	"guilds: permissions exceed an account-wide safety bound".into()
 }
 pub fn guild(bytes: &[u8], user: Id) -> Result<p::Snapshot, DecodeError> {
-	checked_snapshot([Ok((decode(bytes)?, Vec::new()))], user)
+	checked_snapshot([Ok((decode_gateway(bytes)?, Vec::new()))], user)
 }
 pub fn role(bytes: &[u8]) -> Result<(Id, p::Role), DecodeError> {
 	#[derive(Deserialize)]

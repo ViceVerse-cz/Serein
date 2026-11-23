@@ -27,7 +27,7 @@ const MAX_PACKAGE: usize = 16 * 1024 * 1024;
 const MAX_RECORD: usize = MAX_PACKAGE + 64 * 1024;
 const MAX_CATALOG: usize = 1024 * 1024;
 const MAX_STORAGE: usize = 1024 * 1024;
-const MAX_PER_SCOPE: usize = 8;
+const MAX_PER_SCOPE: usize = 40;
 const MAX_ACCOUNTS: usize = 8;
 const MAX_QUEUE: usize = 4;
 
