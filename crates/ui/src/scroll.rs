@@ -13,6 +13,9 @@ struct TouchpadState {
 	origin: Option<Pos2>,
 	/// The frame that last took a smoothed step. A discarded pass reruns the frame.
 	stepped_frame: Option<u64>,
+	/// The frame whose step drew on movement queued by earlier frames, with that frame's own
+	/// new movement. The step can empty the queue and still carry the old swipe.
+	carried: Option<(u64, egui::Vec2)>,
 }
 
 /// How far the pointer may drift before queued movement stops belonging to its scroll area.
@@ -146,6 +149,8 @@ pub fn apply_preferences(ctx: &egui::Context, preferences: model::ReadingPrefere
 		{
 			state.accumulator.x = 0.0;
 		}
+		state.carried = (state.accumulator != egui::Vec2::ZERO)
+			.then_some((ctx.cumulative_frame_nr(), incoming));
 		state.accumulator += incoming;
 		// Smoothing spreads one gesture across frames, so the queue is bounded.
 		// With smoothing off the whole event is delivered below and must not be clipped.
@@ -217,16 +222,19 @@ pub fn apply_preferences(ctx: &egui::Context, preferences: model::ReadingPrefere
 }
 
 /// Drops a queued swipe and this frame's step from it, so a scroll area that replaces the
-/// one under a resting pointer does not receive the old swipe's remaining movement.
+/// one under a resting pointer does not receive the old swipe's remaining movement. This
+/// frame's own new movement stays queued for the new scroll area.
 pub fn drop_queued_swipe(ctx: &egui::Context) {
 	let key = egui::Id::unique(TOUCHPAD_STATE_KEY);
+	let frame = ctx.cumulative_frame_nr();
 	let Some(mut state) = ctx.data(|d| d.get_temp::<TouchpadState>(key)) else {
 		return;
 	};
-	if state.accumulator == egui::Vec2::ZERO {
+	let Some((_, fresh)) = state.carried.filter(|(carried, _)| *carried == frame) else {
 		return;
-	}
-	state.accumulator = egui::Vec2::ZERO;
+	};
+	state.accumulator = fresh;
+	state.carried = None;
 	ctx.data_mut(|d| d.insert_temp(key, state));
 	ctx.input_mut(|input| input.smooth_scroll_delta = egui::Vec2::ZERO);
 }
@@ -1051,6 +1059,47 @@ mod tests {
 		] {
 			queued_swipe_stops_after(interrupt, switch, expected);
 		}
+
+		// The frame that drains the last queued step can also switch channels.
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let key = egui::Id::unique(TOUCHPAD_STATE_KEY);
+		let mut events = vec![egui::Event::MouseWheel {
+			unit: egui::MouseWheelUnit::Line,
+			delta: egui::vec2(0.0, 10.25),
+			modifiers: egui::Modifiers::NONE,
+			phase: egui::TouchPhase::Move,
+			source: egui::MouseWheelSource::Unknown,
+		}];
+		let mut last_step = None;
+		for frame in 0..60 {
+			let raw = egui::RawInput {
+				time: Some(0.1 + f64::from(frame) / 60.0),
+				screen_rect: Some(egui::Rect::from_min_size(
+					egui::Pos2::ZERO,
+					egui::vec2(900.0, 600.0),
+				)),
+				events: std::mem::take(&mut events),
+				..Default::default()
+			};
+			ctx.run_ui(raw, |ui| {
+				apply_preferences(ui.ctx(), model::ReadingPreferences::default());
+				let drained = ui.ctx().data(|d| {
+					d.get_temp::<TouchpadState>(key)
+						.is_some_and(|state| state.accumulator == egui::Vec2::ZERO)
+				});
+				let step = ui.input(|i| i.smooth_scroll_delta());
+				if frame > 0 && drained && step != egui::Vec2::ZERO {
+					drop_queued_swipe(ui.ctx());
+					last_step = Some(ui.input(|i| i.smooth_scroll_delta()));
+				}
+			})
+			.drop_without_applying_deltas();
+			if last_step.is_some() {
+				break;
+			}
+		}
+		assert_eq!(last_step, Some(egui::Vec2::ZERO));
 	}
 
 	fn queued_swipe_stops_after(interrupt: Vec<egui::Event>, switch: bool, expected: egui::Vec2) {
