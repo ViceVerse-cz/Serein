@@ -2566,6 +2566,8 @@ impl TimelineView {
 		let width = ui.available_width();
 		let channel_changed = self.channel != state.selected;
 		if channel_changed {
+			// A keyboard switch leaves the pointer resting where the old timeline was.
+			crate::scroll::drop_queued_swipe(ui.ctx());
 			if let Some(previous) = self.channel {
 				let cursor = if self.following {
 					client_core::ReadingCursor {

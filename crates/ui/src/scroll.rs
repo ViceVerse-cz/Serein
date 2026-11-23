@@ -216,6 +216,21 @@ pub fn apply_preferences(ctx: &egui::Context, preferences: model::ReadingPrefere
 	});
 }
 
+/// Drops a queued swipe and this frame's step from it, so a scroll area that replaces the
+/// one under a resting pointer does not receive the old swipe's remaining movement.
+pub fn drop_queued_swipe(ctx: &egui::Context) {
+	let key = egui::Id::unique(TOUCHPAD_STATE_KEY);
+	let Some(mut state) = ctx.data(|d| d.get_temp::<TouchpadState>(key)) else {
+		return;
+	};
+	if state.accumulator == egui::Vec2::ZERO {
+		return;
+	}
+	state.accumulator = egui::Vec2::ZERO;
+	ctx.data_mut(|d| d.insert_temp(key, state));
+	ctx.input_mut(|input| input.smooth_scroll_delta = egui::Vec2::ZERO);
+}
+
 fn instant_wheel_delta(
 	events: &[egui::Event],
 	options: egui::InputOptions,
@@ -1026,20 +1041,22 @@ mod tests {
 				source: egui::MouseWheelSource::Unknown,
 			},
 		];
-		for (interrupt, expected) in [
-			(zoom_start, egui::Vec2::ZERO),
-			(cancel, egui::Vec2::ZERO),
-			(moved_then_cancelled, egui::Vec2::ZERO),
-			(elsewhere, egui::vec2(0.0, 10.0)),
+		for (interrupt, switch, expected) in [
+			(zoom_start, false, egui::Vec2::ZERO),
+			(cancel, false, egui::Vec2::ZERO),
+			(moved_then_cancelled, false, egui::Vec2::ZERO),
+			(elsewhere, false, egui::vec2(0.0, 10.0)),
+			// A keyboard channel switch replaces the timeline under a resting pointer.
+			(Vec::new(), true, egui::Vec2::ZERO),
 		] {
-			queued_swipe_stops_after(interrupt, expected);
+			queued_swipe_stops_after(interrupt, switch, expected);
 		}
 	}
 
-	fn queued_swipe_stops_after(interrupt: Vec<egui::Event>, expected: egui::Vec2) {
+	fn queued_swipe_stops_after(interrupt: Vec<egui::Event>, switch: bool, expected: egui::Vec2) {
 		let ctx = egui::Context::default();
 		crate::design::apply(&ctx);
-		let frame = |time: f64, events: Vec<egui::Event>| {
+		let frame = |time: f64, events: Vec<egui::Event>, switch: bool| {
 			let raw = egui::RawInput {
 				time: Some(time),
 				screen_rect: Some(egui::Rect::from_min_size(
@@ -1052,6 +1069,9 @@ mod tests {
 			let mut delta = egui::Vec2::ZERO;
 			ctx.run_ui(raw, |ui| {
 				apply_preferences(ui.ctx(), model::ReadingPreferences::default());
+				if switch {
+					drop_queued_swipe(ui.ctx());
+				}
 				delta = ui.input(|i| i.smooth_scroll_delta());
 			})
 			.drop_without_applying_deltas();
@@ -1066,14 +1086,15 @@ mod tests {
 				phase: egui::TouchPhase::Move,
 				source: egui::MouseWheelSource::Unknown,
 			}],
+			false,
 		);
 		assert!(
 			swipe.y > 0.0 && swipe.y < 1_230.0,
 			"the swipe must leave a queue, moved {}",
 			swipe.y
 		);
-		assert_eq!(frame(0.12, interrupt), expected);
-		let idle = frame(0.14, vec![]);
+		assert_eq!(frame(0.12, interrupt, switch), expected);
+		let idle = frame(0.14, vec![], false);
 		assert_eq!(idle, egui::Vec2::ZERO);
 	}
 }
