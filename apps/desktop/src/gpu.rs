@@ -9,15 +9,11 @@
 //! device the window cannot use. A saved graphics API takes priority among presentable
 //! adapters; the automatic candidates remain available if that API loses its driver.
 
-use eframe::wgpu;
+use eframe::{egui_wgpu::WgpuSetup, wgpu};
 use model::{GpuPreference, GraphicsApi};
 
 /// Apply rendering preferences while preserving eframe's device requirements.
-pub fn setup(
-	preference: GpuPreference,
-	api: GraphicsApi,
-	_transparency: bool,
-) -> eframe::egui_wgpu::WgpuSetupCreateNew {
+pub fn setup(preference: GpuPreference, api: GraphicsApi, _transparency: bool) -> WgpuSetup {
 	let mut setup = eframe::egui_wgpu::WgpuSetupCreateNew::without_display_handle();
 	let environment = wgpu::Backends::from_env();
 	let (backends, preferred) =
@@ -47,7 +43,66 @@ pub fn setup(
 		configure_memory(adapter.get_info().backend, &mut descriptor);
 		descriptor
 	});
+	#[cfg(target_os = "windows")]
+	if windows_eco_dx12(preference, api, environment, backends) {
+		if let Some(existing) = pollster::block_on(eco_dx12_setup(setup.clone())) {
+			return WgpuSetup::Existing(existing);
+		}
+		eprintln!("[Serein] Windows Eco DX12 startup unavailable; trying the compatibility path");
+	}
+	WgpuSetup::CreateNew(setup)
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn windows_eco_dx12(
+	preference: GpuPreference,
+	api: GraphicsApi,
+	environment: Option<wgpu::Backends>,
+	backends: wgpu::Backends,
+) -> bool {
+	preference == GpuPreference::PowerSaving
+		&& matches!(api, GraphicsApi::Automatic | GraphicsApi::DirectX12)
+		&& environment.is_none()
+		&& backends.contains(wgpu::Backends::DX12)
+}
+
+#[cfg(target_os = "windows")]
+async fn eco_dx12_setup(
+	mut setup: eframe::egui_wgpu::WgpuSetupCreateNew,
+) -> Option<eframe::egui_wgpu::WgpuSetupExisting> {
+	// Initializing a combined DX12/GL instance can load the discrete driver's OpenGL
+	// implementation before adapter selection. Only initialize DX12 for this attempt.
+	setup.instance_descriptor.backends = wgpu::Backends::DX12;
 	setup
+		.instance_descriptor
+		.backend_options
+		.dx12
+		.minimum_power_adapter_only = true;
+	let instance = wgpu::Instance::new(setup.instance_descriptor);
+	let adapter = instance
+		.request_adapter(&wgpu::RequestAdapterOptions {
+			power_preference: wgpu::PowerPreference::LowPower,
+			..Default::default()
+		})
+		.await
+		.ok()?;
+	let descriptor = (setup.device_descriptor)(&adapter);
+	if !adapter.features().contains(descriptor.required_features)
+		|| !descriptor.required_limits.check_limits(&adapter.limits())
+	{
+		return None;
+	}
+	let (device, queue) = adapter.request_device(&descriptor).await.ok()?;
+	eprintln!(
+		"[Serein] GPU adapter: {} (Windows Eco startup)",
+		describe(&adapter.get_info())
+	);
+	Some(eframe::egui_wgpu::WgpuSetupExisting {
+		instance,
+		adapter,
+		device,
+		queue,
+	})
 }
 
 fn backend(api: GraphicsApi) -> Option<wgpu::Backend> {
@@ -212,6 +267,44 @@ fn select(
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn windows_eco_preflight_preserves_explicit_backends_and_diagnostics() {
+		let dx12 = wgpu::Backends::DX12;
+		let gl = wgpu::Backends::GL;
+		for api in [GraphicsApi::Automatic, GraphicsApi::DirectX12] {
+			assert!(windows_eco_dx12(
+				GpuPreference::PowerSaving,
+				api,
+				None,
+				dx12 | gl
+			));
+		}
+		assert!(!windows_eco_dx12(
+			GpuPreference::PowerSaving,
+			GraphicsApi::OpenGl,
+			None,
+			dx12 | gl
+		));
+		assert!(!windows_eco_dx12(
+			GpuPreference::PowerSaving,
+			GraphicsApi::Automatic,
+			Some(dx12),
+			dx12
+		));
+		assert!(!windows_eco_dx12(
+			GpuPreference::PowerSaving,
+			GraphicsApi::Automatic,
+			None,
+			gl
+		));
+		assert!(!windows_eco_dx12(
+			GpuPreference::HighPerformance,
+			GraphicsApi::Automatic,
+			None,
+			dx12
+		));
+	}
 
 	#[test]
 	fn saved_api_selection_honors_override_and_recovers_missing_backends() {

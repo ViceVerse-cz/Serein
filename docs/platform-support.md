@@ -65,6 +65,13 @@ still printed to stderr. When only a software rasterizer is left, the client log
 names the `WGPU_BACKEND=gl` override, which forces the OpenGL driver; when that software
 adapter is already an OpenGL one, it suggests installing the GPU driver instead.
 
+On Windows, Power Saving (Eco) with Automatic or DirectX 12 first tries the
+minimum-power hardware adapter reported by DXGI 1.6. Serein creates the DX12
+renderer for that adapter before initializing OpenGL or probing the remaining
+adapters. If the probe cannot open a suitable device, startup uses the compatibility
+path above. Explicit non-DX12 APIs and WGPU_BACKEND overrides keep their existing
+behavior. Windows still controls how the desktop compositor presents the window.
+
 Windows turns off winit's undecorated drop-shadow hack after the window exists, including
 after title-bar changes. egui-winit enables that hack for custom chrome. While restored it
 adds one pixel to `WM_NCCALCSIZE` top and bottom. Maximizing skips the shift, which is why

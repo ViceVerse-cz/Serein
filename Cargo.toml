@@ -227,6 +227,9 @@ opt-level = 3
 opt-level = 3
 
 [patch.crates-io]
+# Limit Windows Eco startup probes before wgpu opens a DirectX device on each adapter.
+wgpu-hal = { path = "vendor/wgpu-hal" }
+wgpu-types = { path = "vendor/wgpu-types" }
 # Align Direct3D interfaces with wgpu-hal; see vendor/gpu-allocator/SEREIN-PATCH.md.
 gpu-allocator = { path = "vendor/gpu-allocator" }
 # Replace an affected SHAKE dependency while retaining the compatible HPKE API.

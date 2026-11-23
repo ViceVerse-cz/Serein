@@ -221,14 +221,14 @@ impl RenderState {
 
         // This is always an empty list on web.
         #[cfg(not(target_arch = "wasm32"))]
-        let available_adapters = {
-            let backends = if let WgpuSetup::CreateNew(create_new) = &config.wgpu_setup {
-                create_new.instance_descriptor.backends
-            } else {
-                wgpu::Backends::all()
-            };
-
-            instance.enumerate_adapters(backends).await
+        let available_adapters = match &config.wgpu_setup {
+            WgpuSetup::CreateNew(create_new) => {
+                instance
+                    .enumerate_adapters(create_new.instance_descriptor.backends)
+                    .await
+            }
+            // An existing setup already selected its device. Enumerating can open other GPUs.
+            WgpuSetup::Existing(existing) => vec![existing.adapter.clone()],
         };
 
         let (instance, adapter, device, queue) = match config.wgpu_setup.clone() {

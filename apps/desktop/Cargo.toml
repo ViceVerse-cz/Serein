@@ -67,6 +67,7 @@ arboard = { version = "=3.7.0", features = ["wayland-data-control"] }
 cpal = { version = "=0.18.2", default-features = false, features = ["pulseaudio"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
+pollster = "=1.0.1"
 # Already built for eframe; maximizes the hidden startup window without flashing it.
 egui-winit.workspace = true
 

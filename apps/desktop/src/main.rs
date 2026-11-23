@@ -610,11 +610,7 @@ fn main() -> eframe::Result {
 		},
 		renderer: eframe::Renderer::Wgpu,
 		wgpu_options: eframe::egui_wgpu::WgpuConfiguration {
-			wgpu_setup: eframe::egui_wgpu::WgpuSetup::CreateNew(gpu::setup(
-				gpu_preference,
-				graphics_api,
-				transparency_available,
-			)),
+			wgpu_setup: gpu::setup(gpu_preference, graphics_api, transparency_available),
 			// Keep cursor-driven redraws synchronized even where AutoVsync selects FifoRelaxed.
 			surface: eframe::egui_wgpu::SurfaceConfig {
 				present_mode: eframe::wgpu::PresentMode::Fifo,
