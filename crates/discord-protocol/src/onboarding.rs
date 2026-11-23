@@ -1,7 +1,7 @@
 //! Rules screening and onboarding for the current user. Unofficial user endpoints, documented by
 //! discord-userdoccers (resources/guild: member verification, join requests, onboarding).
 use crate::{
-	DecodeError, decode,
+	DecodeError, decode, decode_gateway,
 	lossy::{Lossy, Slots, null_default},
 	permissions::List,
 };
@@ -138,7 +138,7 @@ pub fn ready(guilds: &[u8], merged: Option<&[u8]>, user: Id) -> Vec<GuildGate> {
 }
 /// GUILD_CREATE and GUILD_UPDATE; a payload without members only refreshes features.
 pub fn guild(bytes: &[u8], user: Id) -> Option<GuildGate> {
-	decode::<Guild>(bytes).ok()?.gate(Vec::new(), user)
+	decode_gateway::<Guild>(bytes).ok()?.gate(Vec::new(), user)
 }
 /// GUILD_MEMBER_UPDATE for the current user.
 pub fn member(bytes: &[u8], user: Id) -> Option<GuildGate> {
@@ -459,5 +459,16 @@ mod tests {
 			join_request(br#"{"application_status":"SUBMITTED"}"#).unwrap(),
 			Outcome::Submitted
 		);
+	}
+
+	#[test]
+	fn guild_gate_decodes_over_four_mib_payload() {
+		let pad = "x".repeat(crate::MAX_WIRE + 1024);
+		let payload = format!(
+			r#"{{"id":"1","features":["GUILD_ONBOARDING"],"members":[{{"user":{{"id":"9"}},"pending":true,"flags":0}}],"padding":"{pad}"}}"#
+		);
+		let gate = guild(payload.as_bytes(), Id(9)).expect("gate should decode above MAX_WIRE");
+		assert_eq!(gate.guild, Id(1));
+		assert_eq!(gate.member.map(|m| m.pending), Some(true));
 	}
 }
