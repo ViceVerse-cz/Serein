@@ -45,6 +45,7 @@ requests are squashed from the PR head that was reviewed; all of them are unmerg
 | 0025 | Serein | `epaint` | Laying out a multi-paragraph job one paragraph at a time keeps an empty first section, which carries `Label`'s wrap indentation, so text continuing a line after an inline widget (a heading after a channel chip) is no longer painted over that line. |
 | 0026 | Serein | `epaint` | The glyph atlas starts over once it outgrows 16 MiB, described below. |
 | 0027 | Serein | `egui` | Opt-in `SelectionOrder` keeps a label selection whose ends scroll out of a virtualized list, described below. |
+| 0028 | Serein | egui | Exposes an explicit TextEdit undo checkpoint for the message composer. |
 
 ## Serein patch: RTL shaping metadata
 

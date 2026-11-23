@@ -1,0 +1,40 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Serein contributors <serein@users.noreply.github.com>
+Subject: [PATCH] Serein: expose a text edit undo checkpoint
+
+The message composer can now save its text and selection after each editing
+pass and reuse the native undo and redo engine. An explicit new checkpoint
+invalidates the redo stack, just like a change detected by the automatic undoer.
+---
+diff --git a/crates/egui/src/util/undoer.rs b/crates/egui/src/util/undoer.rs
+index b5b73789..4d34067e 100644
+--- a/crates/egui/src/util/undoer.rs
++++ b/crates/egui/src/util/undoer.rs
+@@ -163,6 +163,7 @@ where
+     /// Add an undo point if, and only if, there has been a change since the latest undo point.
+     pub fn add_undo(&mut self, current_state: &State) {
+         if self.undos.back() != Some(current_state) {
++            self.redos.clear();
+             self.undos.push_back(current_state.clone());
+         }
+         while self.undos.len() > self.settings.max_undos {
+diff --git a/crates/egui/src/widgets/text_edit/state.rs b/crates/egui/src/widgets/text_edit/state.rs
+index 255b7bdb..99b337d1 100644
+--- a/crates/egui/src/widgets/text_edit/state.rs
++++ b/crates/egui/src/widgets/text_edit/state.rs
+@@ -80,6 +80,15 @@ impl TextEditState {
+         *self.undoer.lock() = undoer;
+     }
+
++    /// Save the current text and selection as an explicit undo point.
++    pub fn checkpoint_undo(&self, text: &str) {
++        let cursor = self
++            .cursor
++            .char_range()
++            .unwrap_or_else(|| CCursorRange::one(CCursor::end_of_str(text)));
++        self.undoer.lock().add_undo(&(cursor, text.to_owned()));
++    }
++
+     pub fn clear_undoer(&mut self) {
+         self.set_undoer(TextEditUndoer::default());
+     }
