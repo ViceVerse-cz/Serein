@@ -781,8 +781,17 @@ impl MessagingUi {
 						egui::vec2(ui.available_width(), 28.0),
 						egui::Layout::left_to_right(egui::Align::Center),
 						|ui| {
+							let galley = crate::role_names::galley(
+								ui,
+								name,
+								egui::TextStyle::Body.resolve(ui.style()),
+								None,
+								colors.chat,
+								name_color,
+								ui.available_width(),
+							);
 							ui.add(
-								egui::Label::new(RichText::new(name).color(name_color))
+								egui::Label::new(galley)
 									.truncate()
 									.show_tooltip_when_elided(false)
 									.selectable(false),
@@ -4721,11 +4730,15 @@ fn name_badge(
 	let font = egui::FontId::new(13.0, design::medium_family(ui.ctx()));
 	let icon_width = if icon.is_some() { 20.0 } else { 0.0 };
 	// One line, truncated with an ellipsis; the tile hover text carries the full name.
-	let mut job = egui::text::LayoutJob::simple_singleline(name.to_owned(), font, STAGE_TEXT);
-	job.wrap.max_width = (rect.width() * 0.6 - icon_width).max(20.0);
-	job.wrap.max_rows = 1;
-	job.wrap.break_anywhere = true;
-	let galley = ui.painter().layout_job(job);
+	let galley = crate::role_names::galley(
+		ui,
+		name,
+		font,
+		None,
+		egui::Color32::BLACK,
+		STAGE_TEXT,
+		(rect.width() * 0.6 - icon_width).max(20.0),
+	);
 	let badge = egui::Rect::from_min_size(
 		rect.left_bottom() + egui::vec2(8.0, -8.0 - 24.0),
 		egui::vec2(galley.size().x + 16.0 + icon_width, 24.0),
