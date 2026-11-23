@@ -704,6 +704,9 @@ impl Painter {
                     SurfaceErrorAction::SkipFrame => {}
                 }
                 if !capture {
+                    // The encoder and the callbacks' command buffers are dropped unsubmitted,
+                    // so the next repeat paint must upload and prepare again.
+                    self.buffers_of = None;
                     return vsync_sec;
                 }
                 None

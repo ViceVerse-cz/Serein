@@ -570,7 +570,7 @@ index 1d8118eb..a45c4533 100644
  
          let uniform_buffer_content = UniformBuffer {
 diff --git a/crates/egui-wgpu/src/winit.rs b/crates/egui-wgpu/src/winit.rs
-index e746b17e..60cd45e8 100644
+index e746b17e..218987e9 100644
 --- a/crates/egui-wgpu/src/winit.rs
 +++ b/crates/egui-wgpu/src/winit.rs
 @@ -38,6 +38,11 @@ pub struct Painter {
@@ -687,3 +687,13 @@ index e746b17e..60cd45e8 100644
          };
  
          if surface_state.needs_reconfigure {
+@@ -632,6 +704,9 @@ impl Painter {
+                     SurfaceErrorAction::SkipFrame => {}
+                 }
+                 if !capture {
++                    // The encoder and the callbacks' command buffers are dropped unsubmitted,
++                    // so the next repeat paint must upload and prepare again.
++                    self.buffers_of = None;
+                     return vsync_sec;
+                 }
+                 None
