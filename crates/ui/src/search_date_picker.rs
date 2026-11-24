@@ -108,8 +108,8 @@ impl Row {
 	}
 
 	fn show(&mut self, ui: &mut egui::Ui, today: Date, only_kind: bool) -> (bool, bool) {
-		let previous = (self.kind, self.date);
-		let remove = ui
+		let previous_kind = self.kind;
+		let (remove, selected_date) = ui
 			.horizontal(|ui| {
 				let kind_width = (ui.available_width() * 0.32).clamp(84.0, 140.0);
 				ui.add_enabled_ui(!only_kind, |ui| {
@@ -129,18 +129,27 @@ impl Row {
 						});
 				});
 				let width = ui.available_width() - 32.0 - ui.spacing().item_spacing.x;
-				self.date_button(ui, width, today);
-				icons::button(ui, icons::Icon::Trash, 32.0, "search-date-remove").clicked()
+				let selected_date = self.date_button(ui, width, today);
+				let remove =
+					icons::button(ui, icons::Icon::Trash, 32.0, "search-date-remove").clicked();
+				(remove, selected_date)
 			})
 			.inner;
-		let changed = (self.kind, self.date) != previous;
+		(remove, self.apply_edit(previous_kind, selected_date))
+	}
+
+	fn apply_edit(&mut self, previous_kind: Kind, selected_date: Option<Date>) -> bool {
+		if let Some(date) = selected_date {
+			self.date = date;
+		}
+		let changed = self.kind != previous_kind || selected_date.is_some();
 		if changed {
 			self.cursor = None;
 		}
-		(remove, changed)
+		changed
 	}
 
-	fn date_button(&mut self, ui: &mut egui::Ui, width: f32, today: Date) {
+	fn date_button(&mut self, ui: &mut egui::Ui, width: f32, today: Date) -> Option<Date> {
 		let label = crate::local_time::short_date(self.date);
 		let colors = design::palette(ui);
 		let height = design::SELECT_HEIGHT;
@@ -150,7 +159,7 @@ impl Row {
 		response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &label));
 		if !ui.is_rect_visible(rect) {
 			egui::Popup::close_id(ui.ctx(), popup_id);
-			return;
+			return None;
 		}
 		let active = response.has_focus() || egui::Popup::is_id_open(ui.ctx(), popup_id);
 		let (fill, border) = if active {
@@ -199,10 +208,10 @@ impl Row {
 			)
 			.show(|ui| self.calendar(ui, today))
 			.and_then(|popup| popup.inner);
-		if let Some(date) = selected {
-			self.date = date;
+		if selected.is_some() {
 			response.request_focus();
 		}
+		selected
 	}
 
 	fn calendar(&mut self, ui: &mut egui::Ui, today: Date) -> Option<Date> {
@@ -420,6 +429,22 @@ impl Dates {
 
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn reselecting_a_displayed_date_replaces_an_exact_cursor() {
+		use super::{Dates, Kind, day_start, parse_date};
+
+		let date = parse_date("2024-02-29").unwrap();
+		let midnight = day_start(date).unwrap();
+		let next_midnight = day_start(date.next_day().unwrap()).unwrap();
+		let noon = u64::midpoint(midnight, next_midnight);
+		let mut dates = Dates::from_query(&format!("after_id:{noon}"));
+
+		assert!(!dates.0[0].apply_edit(Kind::After, None));
+		assert_eq!(dates.bounds().unwrap()[0], ("after_id", Some(noon)));
+		assert!(dates.0[0].apply_edit(Kind::After, Some(date)));
+		assert_eq!(dates.bounds().unwrap()[0], ("after_id", Some(midnight)));
+	}
+
 	#[test]
 	fn calendar_shows_only_weeks_that_contain_days_in_the_month() {
 		for (month, weeks) in [("2026-02-01", 4), ("2026-11-01", 5), ("2026-08-01", 6)] {
