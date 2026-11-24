@@ -23,6 +23,14 @@ Resizing the DM or group call stage keeps a conversation following the newest me
 anchored above its composer on every frame. Reading older messages retains the existing
 scroll position instead of forcing the conversation back to the newest message.
 
+The **Pop out** control in an active call's stage moves its participant tiles, watched stream
+and call controls into one separate native window. The main conversation remains available;
+**Bring back** or closing the call window restores the stage. The window also closes when
+the call ends or the account changes. This first version does not move chat into the call
+window, save its placement, open automatically, or open a window per stream. The fullscreen
+stage action remains in the main window only. Use `--demo --demo-voice-video` for an offline
+preview; native window behavior and live call/video continuity require manual verification.
+
 Guild voice channels have a chat icon with a **Show chat / Hide chat** tooltip in the channel header.
 Chat uses the existing message timeline, composer, drafts and permission checks without
 requiring a voice connection. Wide windows place chat beside the stage; narrow windows

@@ -40,6 +40,72 @@ pub struct VoiceRosterRow<'a> {
 }
 
 impl MessagingUi {
+	/// Close a detached stage when its call or account is no longer the one that opened it.
+	pub(super) fn retain_voice_popout(&mut self, state: &State) {
+		if self
+			.voice_popout
+			.is_some_and(|(generation, channel, request)| {
+				generation != state.generation
+					|| !state.voice.active.as_ref().is_some_and(|call| {
+						call.channel == channel
+							&& call.request == request
+							&& call.phase != Phase::Failed
+					})
+			}) {
+			self.voice_popout = None;
+		}
+	}
+
+	/// Render the active stage in one native window, using the same tiles and controls as the dock.
+	pub fn show_voice_popout(&mut self, ctx: &egui::Context, state: &mut State) -> Vec<Command> {
+		self.retain_voice_popout(state);
+		let Some((_, channel, _)) = self.voice_popout else {
+			return Vec::new();
+		};
+		let mut commands = Vec::new();
+		ctx.show_viewport_immediate(
+			egui::ViewportId::from_hash_of("serein-voice-popout"),
+			egui::ViewportBuilder::default()
+				.with_title("Call — Serein")
+				.with_inner_size([800.0, 520.0])
+				.with_min_inner_size([480.0, 320.0]),
+			|ui, class| {
+				if class == egui::ViewportClass::EmbeddedWindow {
+					ui.label("A separate call window is unavailable on this display.");
+					self.voice_popout = None;
+					ui.ctx().request_repaint_of(egui::ViewportId::ROOT);
+					return;
+				}
+				if ui.input(|input| input.viewport().close_requested()) {
+					self.voice_popout = None;
+					ui.ctx().request_repaint_of(egui::ViewportId::ROOT);
+					return;
+				}
+				egui::CentralPanel::default()
+					.frame(egui::Frame::NONE)
+					.show(ui, |ui| {
+						self.voice_channel(ui, state, channel, &mut commands)
+					});
+			},
+		);
+		commands
+	}
+
+	/// A detached stage needs full root passes to repaint its native child on video updates.
+	pub fn voice_popout_open(&self) -> bool {
+		self.voice_popout.is_some()
+	}
+
+	/// The dock stays accessible for returning a detached call while browsing other channels.
+	fn docked_popout_placeholder(&mut self, ui: &mut egui::Ui) {
+		ui.vertical_centered(|ui| {
+			ui.label("Call is in another window");
+			if ui.button("Bring back").clicked() {
+				self.voice_popout = None;
+			}
+		});
+	}
+
 	pub(super) fn exit_voice_fullscreen(&mut self) {
 		if let Some((_, ctx, previous, focus)) = self.voice_fullscreen.take() {
 			self.voice_fullscreen_request = Some(previous);
@@ -1145,6 +1211,14 @@ impl MessagingUi {
 		channel: Id,
 		commands: &mut Vec<Command>,
 	) {
+		if self
+			.voice_popout
+			.is_some_and(|(_, popped, _)| popped == channel)
+			&& ui.ctx().viewport_id() == egui::ViewportId::ROOT
+		{
+			self.docked_popout_placeholder(ui);
+			return;
+		}
 		let connected = state
 			.voice
 			.active
@@ -3527,10 +3601,16 @@ impl MessagingUi {
 		// share/more) before anything overlaps; mute, camera and hang-up always stay.
 		let actions = 2.0 * 48.0;
 		let essential = 2.0 * 48.0 + BAR_GAP + HANG_UP;
-		let side = [watched.is_some(), focused, screen_focused]
-			.iter()
-			.filter(|shown| **shown)
-			.count() as f32
+		let in_popout = ui.ctx().viewport_id() != egui::ViewportId::ROOT;
+		let side = [
+			watched.is_some(),
+			focused,
+			screen_focused && !in_popout,
+			true,
+		]
+		.iter()
+		.filter(|shown| **shown)
+		.count() as f32
 			* 44.0;
 		let side_shown = bar.width() - 2.0 * STAGE_MARGIN >= essential + BAR_GAP + side;
 		let side = if side_shown { side } else { 0.0 };
@@ -3732,7 +3812,26 @@ impl MessagingUi {
 				.layout(egui::Layout::right_to_left(egui::Align::Center)),
 		);
 		view.spacing_mut().item_spacing.x = 4.0;
-		if screen_focused && side_shown {
+		if side_shown {
+			let popout = control(
+				&mut view,
+				crate::icons::Icon::External,
+				40.0,
+				true,
+				STAGE_TEXT,
+				if in_popout { "Bring back" } else { "Pop out" },
+				if in_popout {
+					"Move the call back to the main window"
+				} else {
+					"Show the call in a separate window"
+				},
+			);
+			if popout.clicked() {
+				self.voice_popout =
+					(!in_popout).then_some((state.generation, channel, call.request));
+			}
+		}
+		if screen_focused && !in_popout && side_shown {
 			let fullscreen = fullscreen_control(&mut view, STAGE_TEXT);
 			if fullscreen.clicked() {
 				let previous = view.input(|input| input.viewport().fullscreen.unwrap_or(false));
@@ -3889,6 +3988,15 @@ impl MessagingUi {
 		commands: &mut Vec<Command>,
 		header: Option<(bool, bool, bool)>,
 	) {
+		if self.dm_call_stage(state).is_some_and(|channel| {
+			self.voice_popout
+				.is_some_and(|(_, popped, _)| popped == channel)
+		}) {
+			egui::Panel::top("dm-call-in-another-window")
+				.show_separator_line(false)
+				.show(ui, |ui| self.docked_popout_placeholder(ui));
+			return;
+		}
 		let colors = design::palette(ui);
 		let selected = state.selected;
 		if let Some(channel) = state
@@ -5386,6 +5494,29 @@ fn user_limit_pill(ui: &egui::Ui, right: egui::Pos2, people: usize, limit: u16) 
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn detached_call_survives_navigation_but_not_a_new_call_attempt() {
+		let mut state = test_support::voice_demo_state();
+		let call = state.voice.active.as_ref().expect("fixture has a call");
+		let (channel, request) = (call.channel, call.request);
+		let mut view = MessagingUi {
+			voice_popout: Some((state.generation, channel, request)),
+			..Default::default()
+		};
+		state.selected = None;
+		view.retain_voice_popout(&state);
+		assert!(
+			view.voice_popout.is_some(),
+			"browsing must not dock the call"
+		);
+		state.voice.active.as_mut().unwrap().request += 1;
+		view.retain_voice_popout(&state);
+		assert!(
+			view.voice_popout.is_none(),
+			"another call attempt must dock it"
+		);
+	}
 
 	#[test]
 	fn profile_join_opens_its_channel_only_once_a_switch_starts_the_join() {

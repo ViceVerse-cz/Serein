@@ -6166,7 +6166,8 @@ impl eframe::App for Desktop {
 	/// that pass's shapes are presented again: no layout or tessellation per video frame.
 	fn paint_only(&mut self, ctx: &egui::Context, _: &mut eframe::Frame) -> bool {
 		// The demo's pending automatic pause is decided in the ui pass.
-		self.demo_video_autoplay.is_none()
+		!self.messaging.voice_popout_open()
+			&& self.demo_video_autoplay.is_none()
 			&& self.video.paint_only(self.messaging.video(), ctx)
 			&& self.voice.paint_only(ctx)
 	}
@@ -7008,6 +7009,7 @@ impl eframe::App for Desktop {
 				self.messaging.notification_sound_status = "Could not save device notification settings. Changes apply only until restart.";
 			}
 			let mut commands = self.messaging.show(ui, &mut self.state);
+			commands.extend(self.messaging.show_voice_popout(&ctx, &mut self.state));
 			interface_size = self.messaging.plugin_interface_size();
 			self.extensions.cancel_stale_message_events(&self.state);
 			self.choose_interaction_files(&ctx);

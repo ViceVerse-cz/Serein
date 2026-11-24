@@ -543,6 +543,8 @@ pub struct MessagingUi {
 	voice_stream_muted: bool,
 	/// Enlarged stage tile; cleared when it stops showing video or on Escape.
 	pub voice_focus: Option<voice::StageFocus>,
+	/// One call stage in a native child window (account generation, channel, call attempt).
+	voice_popout: Option<(u64, Id, u64)>,
 	/// Screen share currently owning the client surface, its prior window mode and focus target.
 	voice_fullscreen: Option<(voice::StageFocus, egui::Context, bool, egui::Id)>,
 	/// Native window transition for the desktop to apply after this UI frame.
@@ -5341,6 +5343,7 @@ impl MessagingUi {
 	/// Draws one frame of the signed-in client and returns the commands it produced for the
 	/// service layer.
 	pub fn show(&mut self, ui: &mut egui::Ui, state: &mut State) -> Vec<Command> {
+		self.retain_voice_popout(state);
 		self.clear_inactive_composer_undo(ui.ctx(), state.generation, state.selected);
 		interface_tweaks::publish(ui.ctx(), &self.interface_tweaks);
 		rtl::scope(
@@ -6055,7 +6058,11 @@ impl MessagingUi {
 					return;
 				}
 				// In a DM call the header moves onto the call stage, shown while hovered.
-				let header_in_call = !search_open && self.dm_call_stage(state).is_some();
+				let header_in_call = !search_open
+					&& self.dm_call_stage(state).is_some_and(|channel| {
+						self.voice_popout
+							.is_none_or(|(_, popped, _)| popped != channel)
+					});
 				if !search_open && !header_in_call && dm_recipient.is_none() {
 					self.channel_header(
 						ui,
