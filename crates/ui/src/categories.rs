@@ -795,6 +795,34 @@ impl MessagingUi {
 				egui::ScrollArea::vertical().auto_shrink([false, false]),
 			)
 			.show_rows(ui, row_height, row_count, |ui, range| {
+				let dragging = if dm_list {
+					egui::DragAndDrop::payload::<PinnedDmDrag>(ui.ctx())
+						.is_some_and(|drag| drag.generation == state.generation)
+				} else {
+					egui::DragAndDrop::payload::<ChannelDrag>(ui.ctx()).is_some()
+				};
+				let viewport = ui.clip_rect();
+				if dragging
+					&& let Some(pointer) = ui.ctx().pointer_hover_pos()
+					&& viewport.contains(pointer)
+				{
+					let edge = 28.0_f32.min(viewport.height() / 2.0);
+					let delta = if pointer.y < viewport.top() + edge {
+						8.0
+					} else if pointer.y > viewport.bottom() - edge {
+						-8.0
+					} else {
+						0.0
+					};
+					if delta != 0.0 {
+						ui.scroll_with_delta_animation(
+							egui::vec2(0.0, delta),
+							egui::style::ScrollAnimation::none(),
+						);
+						ui.ctx()
+							.request_repaint_after(std::time::Duration::from_millis(16));
+					}
+				}
 				for index in range {
 					let Some(mut index) = index.checked_sub(banner_rows) else {
 						ui.allocate_exact_size(
@@ -1623,23 +1651,6 @@ impl MessagingUi {
 				));
 			}
 		}
-		if (egui::DragAndDrop::payload::<ChannelDrag>(ui.ctx()).is_some()
-			|| egui::DragAndDrop::payload::<PinnedDmDrag>(ui.ctx()).is_some())
-			&& let Some(pointer) = ui.ctx().pointer_hover_pos()
-		{
-			let direction = if pointer.y < output.inner_rect.top() + 28.0 {
-				1.0
-			} else if pointer.y > output.inner_rect.bottom() - 28.0 {
-				-1.0
-			} else {
-				0.0
-			};
-			if direction != 0.0 {
-				ui.scroll_with_delta(egui::vec2(0.0, direction * 8.0));
-				ui.ctx()
-					.request_repaint_after(std::time::Duration::from_millis(16));
-			}
-		}
 		if let Some(guild) = self.guild {
 			let content_bottom =
 				output.inner_rect.top() - output.state.unclamped_offset().y + output.content_size.y;
@@ -2229,6 +2240,44 @@ mod tests {
 			_ => None,
 		});
 		assert!(shown_pins.eq([Id(22), Id(29)]));
+
+		for id in 50..75 {
+			let mut dm = channel(id, 3, 0, None);
+			dm.guild = None;
+			state.channels.push(dm);
+			view.channel_preferences.pinned.push(Id(id));
+		}
+		state.invalidate_navigation();
+		frame(&mut view, &mut state, vec![]);
+		let (viewport, start) = view.channel_list_view.unwrap();
+		egui::DragAndDrop::set_payload(
+			&ctx,
+			PinnedDmDrag {
+				channel: Id(22),
+				generation: state.generation,
+			},
+		);
+		let bottom = egui::pos2(viewport.center().x, viewport.bottom() - 8.0);
+		frame(
+			&mut view,
+			&mut state,
+			vec![egui::Event::PointerMoved(bottom)],
+		);
+		frame(
+			&mut view,
+			&mut state,
+			vec![egui::Event::PointerMoved(viewport.center())],
+		);
+		let down = view.channel_list_view.unwrap().1;
+		assert!(down > start);
+		let top = egui::pos2(viewport.center().x, viewport.top() + 8.0);
+		frame(&mut view, &mut state, vec![egui::Event::PointerMoved(top)]);
+		frame(
+			&mut view,
+			&mut state,
+			vec![egui::Event::PointerMoved(viewport.center())],
+		);
+		assert!(view.channel_list_view.unwrap().1 < down);
 	}
 
 	#[test]
