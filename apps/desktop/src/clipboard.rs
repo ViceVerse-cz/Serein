@@ -142,23 +142,22 @@ fn resolve(
 	image: Option<std::sync::Arc<egui::ColorImage>>,
 	system: impl FnOnce() -> Result<Option<Result<Read, &'static str>>, &'static str>,
 ) -> Result<Read, &'static str> {
-	if let Some(text) = text {
-		return supplied_text(text);
-	}
-	if let Some(image) = image {
-		return supplied_image(image);
+	if let Some(content) = supplied_content(text, image) {
+		return content;
 	}
 	system()?.unwrap_or(Err("Copy a file, image, or text before pasting"))
 }
 
+/// The key delivers an image beside text only when the text is a lone file path (a
+/// screenshot tool's saved path, vendored egui patch 0030), so the image is the paste.
 fn supplied_content(
 	text: Option<String>,
 	image: Option<std::sync::Arc<egui::ColorImage>>,
 ) -> Option<Result<Read, &'static str>> {
-	if let Some(text) = text {
-		return Some(supplied_text(text));
+	if let Some(image) = image {
+		return Some(supplied_image(image));
 	}
-	image.map(supplied_image)
+	text.map(supplied_text)
 }
 
 fn supplied_image(image: std::sync::Arc<egui::ColorImage>) -> Result<Read, &'static str> {
@@ -281,6 +280,18 @@ mod tests {
 			panic!("Expected the delivered link")
 		};
 		assert_eq!(text, "https://example.com/link");
+
+		// A screenshot path delivered beside its image pastes the image, not the path.
+		let shot = std::sync::Arc::new(eframe::egui::ColorImage::filled(
+			[1, 1],
+			eframe::egui::Color32::RED,
+		));
+		let super::Read::Content(super::Content::File(files)) =
+			super::resolve(Some("/tmp/shot.png".into()), Some(shot), stale_image).unwrap()
+		else {
+			panic!("Expected the delivered screenshot")
+		};
+		assert_eq!(files[0].filename(), "pasted-image.png");
 
 		// Without delivered text the system image is the paste, as before.
 		let super::Read::Content(super::Content::File(files)) =

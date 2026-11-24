@@ -47,6 +47,7 @@ requests are squashed from the PR head that was reviewed; all of them are unmerg
 | 0027 | Serein | `egui` | Opt-in `SelectionOrder` keeps a label selection whose ends scroll out of a virtualized list, described below. |
 | 0028 | Serein | egui | Exposes an explicit TextEdit undo checkpoint for the message composer. |
 | 0029 | Serein | `eframe`, `egui-wgpu` | Paint-only frames: the root viewport's last pass is presented again without running the ui, described below. |
+| 0030 | Serein | `egui-winit` | A pasted lone file path also sends the image copied beside it, described under image paste below. |
 
 ## Serein patch: RTL shaping metadata
 
@@ -169,6 +170,12 @@ On Wayland, `Clipboard::get_image` first reads `image/png` through the patched s
 `vendor/smithay-clipboard/SEREIN-PATCH.md`. Empty clipboard text counts as absent so image paste
 can fall back, and image copies log success only on success. Other platform input behavior is
 inherited from the pinned upstream revision.
+
+Patch 0030: some screenshot tools (DankMaterialShell on niri) offer the saved file's path as
+text beside `image/png`. When the pasted text is one absolute path or `file://` URI for the
+current OS, paste also sends `Event::PasteImage` if the clipboard holds an image, so Serein's
+composer attaches the screenshot instead of the path. Other text never triggers an image read,
+so rich copies that carry a bitmap (spreadsheet cells) still paste as text.
 
 ## Updating
 

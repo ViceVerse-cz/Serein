@@ -1,0 +1,73 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: x <x@x>
+Date: Sat, 21 Nov 2026 12:00:00 -0500
+Subject: [PATCH] Serein: attach the image copied beside a pasted file path
+
+Screenshot tools such as DankMaterialShell offer the saved file's path as text beside image/png. Paste read text first and only read an image when there was no text, so apps received only the path. When the pasted text is one absolute path or file:// URI for this OS, also send Event::PasteImage when the clipboard holds an image. Other text pastes never read an image.
+---
+ crates/egui-winit/src/lib.rs | 38 ++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 39 insertions(+)
+
+diff --git a/crates/egui-winit/src/lib.rs b/crates/egui-winit/src/lib.rs
+index bd87a1e..6306791 100644
+--- a/crates/egui-winit/src/lib.rs
++++ b/crates/egui-winit/src/lib.rs
+@@ -1179,9 +1179,18 @@ impl State {
+                 } else if is_paste_command(self.modifiers, active_key) {
+                     if let Some(contents) = self.clipboard.get().filter(|text| !text.is_empty()) {
+                         let contents = contents.replace("\r\n", "\n");
++                        // Serein: screenshot tools (DMS on niri) offer the saved file's path as
++                        // text beside the image; send the image too so an app can attach it.
++                        // Only for a lone path, so rich copies (spreadsheet cells) stay text.
++                        let file_reference = is_file_reference(&contents);
+                         if !contents.is_empty() {
+                             self.egui_input.events.push(egui::Event::Paste(contents));
+                         }
++                        if file_reference && let Some(image) = self.clipboard.get_image() {
++                            self.egui_input
++                                .events
++                                .push(egui::Event::PasteImage(std::sync::Arc::new(image)));
++                        }
+                     } else if let Some(image) = self.clipboard.get_image() {
+                         // No usable text on the clipboard (e.g. an image was copied with
+                         // mspaint/Snipping Tool, which never puts a text representation
+@@ -1597,6 +1606,36 @@ fn is_paste_command(modifiers: egui::Modifiers, keycode: egui::Key) -> bool {
+         || (cfg!(target_os = "windows") && modifiers.shift && keycode == egui::Key::Insert)
+ }
+ 
++/// Serein: whether pasted text is one absolute path or `file://` URI for this OS.
++fn is_file_reference(text: &str) -> bool {
++    let text = text.trim_end();
++    !text.is_empty()
++        && !text.contains(['\n', '\t'])
++        && (text.starts_with("file://") || std::path::Path::new(text).is_absolute())
++}
++
++#[cfg(test)]
++mod paste_tests {
++    use super::is_file_reference;
++
++    /// Regression: a screenshot path pasted beside its image must not stop the image paste,
++    /// while ordinary, multi-line and multi-cell text must not trigger an image read.
++    #[test]
++    fn only_a_lone_file_path_or_uri_counts_as_a_file_reference() {
++        assert!(is_file_reference("file:///tmp/shot.png"));
++        assert!(is_file_reference("file:///tmp/shot.png\n"));
++        #[cfg(unix)]
++        assert!(is_file_reference("/home/a/Pictures/shot 1.png"));
++        #[cfg(windows)]
++        assert!(is_file_reference(r"C:\Users\a\Pictures\shot.png"));
++        assert!(!is_file_reference("look at this"));
++        assert!(!is_file_reference("shot.png"));
++        assert!(!is_file_reference("/tmp/a.png\n/tmp/b.png"));
++        assert!(!is_file_reference("file:///tmp/shot.png\tcaption"));
++        assert!(!is_file_reference(""));
++    }
++}
++
+ fn translate_mouse_button(button: winit::event::MouseButton) -> Option<egui::PointerButton> {
+     match button {
+         winit::event::MouseButton::Left => Some(egui::PointerButton::Primary),
+-- 
+2.50.1
+
