@@ -2392,6 +2392,16 @@ screen-source-list-no-screens-or-windows-are-available-yet = No screens or windo
 search-filters-choices-any = Any
 # Context: show
 search-filters-show-add-date = +  Add date
+search-date-heading = Date
+search-date-help = When the message was sent
+search-date-before = Before
+search-date-after = After
+search-date-during = During
+search-date-remove = Remove date
+search-date-previous-month = Previous month
+search-date-next-month = Next month
+search-date-invalid = Choose a date after January 1, 2015.
+search-date-invalid-range = After must be earlier than Before.
 # Context: show
 search-filters-show-any = Any
 # Context: show

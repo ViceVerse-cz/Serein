@@ -1,3 +1,4 @@
+use super::date_picker::{self, Dates};
 use crate::{avatars::Avatars, design, dialog, icons};
 use client_core::State;
 use egui::RichText;
@@ -105,12 +106,10 @@ pub fn suggestion_row(ui: &mut egui::Ui, key: &str, title: &str, detail: &str) -
 
 pub struct Draft {
 	query: String,
-	before: String,
-	after: String,
+	dates: Dates,
 	from_search: String,
 	mentions_search: String,
 	in_search: String,
-	date_open: bool,
 	error: Option<&'static str>,
 }
 
@@ -302,10 +301,13 @@ pub fn wire(query: &str, state: &State, labels: &Labels) -> Result<String, &'sta
 			"in" if guild(state).is_some() => channel_id(value, state, labels)
 				.map(|id| format!("in:{id}"))
 				.ok_or("Choose a channel from the suggestions.")?,
-			"before" | "after" => super::date_id(value)
-				.ok()
-				.flatten()
+			"before" | "after" => date_picker::parse_date(value)
+				.and_then(date_picker::day_start)
 				.map(|id| format!("{key}_id:{id}"))
+				.ok_or("Enter dates as YYYY-MM-DD, after January 1, 2015.")?,
+			"during" => date_picker::parse_date(value)
+				.and_then(date_picker::during_bounds)
+				.map(|(after, before)| format!("after_id:{after} before_id:{before}"))
 				.ok_or("Enter dates as YYYY-MM-DD, after January 1, 2015.")?,
 			_ => token.to_owned(),
 		};
@@ -319,19 +321,23 @@ pub fn wire(query: &str, state: &State, labels: &Labels) -> Result<String, &'sta
 	})
 }
 
-fn snowflake_date(value: &str) -> Option<String> {
-	let id = value.parse::<u64>().ok()?;
-	let instant =
-		time::OffsetDateTime::from_unix_timestamp((((id >> 22) + 1_420_070_400_000) / 1000) as i64)
-			.ok()?;
-	Some(instant.date().to_string())
-}
-
 /// The query the field shows: IDs and cursors become names and dates.
 pub fn display(query: &str, state: &State, labels: &mut Labels) -> String {
 	let mut changed = false;
 	let mut tokens = Vec::new();
+	let during = date_picker::during_date(query);
+	let mut emitted_during = false;
 	for token in query.split_whitespace() {
+		if let Some(date) = during
+			&& date_picker::is_bound(token)
+		{
+			if !emitted_during {
+				tokens.push(format!("during:{date}"));
+				emitted_during = true;
+			}
+			changed = true;
+			continue;
+		}
 		let next = token.split_once(':').and_then(|(key, value)| match key {
 			"from" | "mentions" => {
 				let id = numeric(value)?;
@@ -356,7 +362,7 @@ pub fn display(query: &str, state: &State, labels: &mut Labels) -> String {
 			"before_id" | "after_id" => Some(format!(
 				"{}:{}",
 				key.trim_end_matches("_id"),
-				snowflake_date(value)?
+				date_picker::date_at(value.parse().ok()?)?
 			)),
 			_ => None,
 		});
@@ -418,6 +424,7 @@ const FILTER_KEYS: &[&str] = &[
 	"has",
 	"before",
 	"after",
+	"during",
 	"before_id",
 	"after_id",
 	"author_type",
@@ -699,30 +706,9 @@ fn choices(
 impl Draft {
 	pub fn new(query: &str) -> Self {
 		let query = without_partial(query);
-		let date = |key| {
-			query
-				.split_whitespace()
-				.find_map(|token| {
-					let (k, value) = token.split_once(':')?;
-					if k != key {
-						return None;
-					}
-					let id = value.parse::<u64>().ok()?;
-					let instant = time::OffsetDateTime::from_unix_timestamp(
-						(((id >> 22) + 1_420_070_400_000) / 1000) as i64,
-					)
-					.ok()?;
-					Some(instant.date().to_string())
-				})
-				.unwrap_or_default()
-		};
-		let before = date("before_id");
-		let after = date("after_id");
 		Self {
 			query: query.to_owned(),
-			date_open: !before.is_empty() || !after.is_empty(),
-			before,
-			after,
+			dates: Dates::from_query(query),
 			from_search: String::new(),
 			mentions_search: String::new(),
 			in_search: String::new(),
@@ -798,42 +784,9 @@ impl Draft {
 						state.demo,
 					);
 					ui.add_space(22.0);
-					heading(ui, "Date", "When the message was sent");
-					if !self.date_open {
-						if ui
-							.add_sized(
-								[ui.available_width(), 42.0],
-								egui::Button::new(crate::i18n::translate(
-									"search-filters-show-add-date",
-								)),
-							)
-							.clicked()
-						{
-							self.date_open = true;
-						}
-					} else {
-						for (label, date) in
-							[("After", &mut self.after), ("Before", &mut self.before)]
-						{
-							ui.label(label);
-							ui.add(
-								egui::TextEdit::singleline(date)
-									.align(egui::Align2::LEFT_CENTER)
-									.hint_text(crate::i18n::translate(
-										"search-filters-show-yyyy-mm-dd",
-									))
-									.char_limit(10)
-									.desired_width(f32::INFINITY),
-							);
-						}
-						if ui
-							.button(crate::i18n::translate("search-filters-show-remove-dates"))
-							.clicked()
-						{
-							self.after.clear();
-							self.before.clear();
-							self.date_open = false;
-						}
+					heading(ui, "search-date-heading", "search-date-help");
+					if self.dates.show(ui) {
+						self.error = None;
 					}
 					ui.add_space(22.0);
 					heading(
@@ -907,9 +860,7 @@ impl Draft {
 						self.query = model::search_terms(&self.query)
 							.map(|(content, _)| content)
 							.unwrap_or_default();
-						self.before.clear();
-						self.after.clear();
-						self.date_open = false;
+						self.dates = Dates::default();
 						self.error = None;
 					}
 				});
@@ -923,20 +874,13 @@ impl Draft {
 	}
 
 	fn applied(&self) -> Result<String, &'static str> {
-		let after = super::date_id(&self.after)
-			.map_err(|_| "Enter dates as YYYY-MM-DD, after January 1, 2015.")?;
-		let before = super::date_id(&self.before)
-			.map_err(|_| "Enter dates as YYYY-MM-DD, after January 1, 2015.")?;
-		if after.zip(before).is_some_and(|(a, b)| a >= b) {
-			return Err("After must be earlier than Before.");
-		}
 		let mut query = self
 			.query
 			.split_whitespace()
-			.filter(|token| !token.starts_with("after_id:") && !token.starts_with("before_id:"))
+			.filter(|token| !date_picker::is_bound(token))
 			.collect::<Vec<_>>()
 			.join(" ");
-		for (key, id) in [("after_id", after), ("before_id", before)] {
+		for (key, id) in self.dates.bounds()? {
 			if let Some(id) = id {
 				if !query.is_empty() {
 					query.push(' ');
@@ -960,5 +904,42 @@ mod tests {
 		assert_eq!(super::without_partial("cats has:ima"), "cats");
 		assert_eq!(super::without_partial("cats from:Rob"), "cats");
 		assert_eq!(super::Draft::new("has:image").query, "has:image");
+	}
+
+	#[test]
+	fn during_includes_midnight_and_round_trips_through_the_search_field_and_draft() {
+		let state = super::State::default();
+		let mut labels = super::Labels::default();
+		let query = "hello during:2024-02-29 has:image";
+		let wire = super::wire(query, &state, &labels).unwrap();
+		let (_, terms) = model::search_terms(&wire).unwrap();
+		let midnight =
+			super::date_picker::day_start(super::date_picker::parse_date("2024-02-29").unwrap())
+				.unwrap();
+		let next =
+			super::date_picker::day_start(super::date_picker::parse_date("2024-03-01").unwrap())
+				.unwrap();
+		assert!(terms.contains(&("min_id", (midnight - 1).to_string())));
+		assert!(terms.contains(&("max_id", next.to_string())));
+		assert_eq!(super::display(&wire, &state, &mut labels), query);
+		let applied = super::Draft::new(&wire).applied().unwrap();
+		let (_, applied_terms) = model::search_terms(&applied).unwrap();
+		for term in terms {
+			assert!(applied_terms.contains(&term));
+		}
+	}
+
+	#[test]
+	fn adjacent_explicit_bounds_keep_their_types_and_reversed_ranges_fail() {
+		let state = super::State::default();
+		let mut labels = super::Labels::default();
+		for (query, valid) in [
+			("after:2024-02-29 before:2024-03-01", true),
+			("after:2024-03-01 before:2024-02-29", false),
+		] {
+			let wire = super::wire(query, &state, &labels).unwrap();
+			assert_eq!(super::display(&wire, &state, &mut labels), query);
+			assert_eq!(super::Draft::new(&wire).applied().is_ok(), valid);
+		}
 	}
 }
