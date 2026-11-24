@@ -1610,7 +1610,7 @@ fn is_paste_command(modifiers: egui::Modifiers, keycode: egui::Key) -> bool {
 fn is_file_reference(text: &str) -> bool {
     let text = text.trim_end();
     !text.is_empty()
-        && !text.contains('\n')
+        && !text.contains(['\n', '\t'])
         && (text.starts_with("file://") || std::path::Path::new(text).is_absolute())
 }
 
@@ -1619,7 +1619,7 @@ mod paste_tests {
     use super::is_file_reference;
 
     /// Regression: a screenshot path pasted beside its image must not stop the image paste,
-    /// while ordinary and multi-line text must not trigger an image read.
+    /// while ordinary, multi-line and multi-cell text must not trigger an image read.
     #[test]
     fn only_a_lone_file_path_or_uri_counts_as_a_file_reference() {
         assert!(is_file_reference("file:///tmp/shot.png"));
@@ -1631,6 +1631,7 @@ mod paste_tests {
         assert!(!is_file_reference("look at this"));
         assert!(!is_file_reference("shot.png"));
         assert!(!is_file_reference("/tmp/a.png\n/tmp/b.png"));
+        assert!(!is_file_reference("file:///tmp/shot.png\tcaption"));
         assert!(!is_file_reference(""));
     }
 }
