@@ -268,21 +268,63 @@ pub struct MentionSource<'a> {
 	pub channel: Id,
 }
 
-fn member(state: &State, channel: Id, id: Id) -> Option<&model::Member> {
-	state
-		.members
-		.as_ref()
-		.filter(|list| list.channel == channel)
-		.and_then(|list| {
-			list.slots
-				.iter()
-				.flatten()
-				.filter_map(|slot| match slot {
-					model::MemberSlot::Person(m) => Some(m),
-					_ => None,
-				})
-				.find(|member| member.user.id == id)
+fn member_in(list: &model::MemberList, id: Id) -> Option<&model::Member> {
+	list.slots
+		.iter()
+		.flatten()
+		.filter_map(|slot| match slot {
+			model::MemberSlot::Person(member) => Some(member),
+			_ => None,
 		})
+		.find(|member| member.user.id == id)
+}
+
+fn member(state: &State, channel: Id, id: Id) -> Option<&model::Member> {
+	let list = state.members.as_ref()?;
+	if list.channel == channel {
+		return member_in(list, id);
+	}
+	// The member window is loaded for one channel, but a nickname belongs to the whole guild:
+	// a mention in a sibling channel must still resolve it.
+	let guild = state.channels.iter().find(|c| c.id == channel)?.guild?;
+	if list.guild != Some(guild) {
+		return None;
+	}
+	member_in(list, id)
+}
+
+/// Server nickname known for this user, independent of which member window is loaded.
+fn nickname<'a>(state: &'a State, channel: Id, id: Id) -> Option<&'a str> {
+	let plain = |nick: &&'a str| !nick.is_empty();
+	if let Some(nick) = member(state, channel, id)
+		.and_then(|member| member.nick.as_deref())
+		.filter(plain)
+	{
+		return Some(nick);
+	}
+	let search = &state.member_search[0];
+	if state.can_view(channel)
+		&& search
+			.request
+			.as_ref()
+			.is_some_and(|request| request.channel == channel)
+		&& let Some(nick) = search
+			.rows
+			.iter()
+			.find(|member| member.user.id == id)
+			.and_then(|member| member.nick.as_deref())
+			.filter(plain)
+	{
+		return Some(nick);
+	}
+	// The channel's own history carries the author's server nickname with the message.
+	state
+		.timeline
+		.iter()
+		.rev()
+		.filter(|message| message.channel == channel && message.author.id == id)
+		.find_map(|message| message.author_nick.as_deref())
+		.filter(plain)
 }
 
 pub fn find_user<'a>(
@@ -333,9 +375,7 @@ pub fn find_user<'a>(
 
 pub fn mention_label(id: Id, mentions: &[User], source: Option<&MentionSource<'_>>) -> String {
 	if let Some(source) = source
-		&& let Some(nick) = member(source.state, source.channel, id)
-			.and_then(|member| member.nick.as_deref())
-			.filter(|nick| !nick.is_empty())
+		&& let Some(nick) = nickname(source.state, source.channel, id)
 	{
 		return format!("@{nick}");
 	}
@@ -2178,6 +2218,68 @@ mod tests {
 				code: ":thumbsup:"
 			}
 		)));
+	}
+
+	#[test]
+	fn mentions_use_the_guild_nickname_beyond_the_loaded_member_window() {
+		let mut state = test_support::demo_state();
+		state.demo = false;
+		let channel = state.selected.unwrap();
+		let guild = state.channel(channel).unwrap().guild;
+		let other = state
+			.channels
+			.iter()
+			.find(|c| c.guild == guild && c.id != channel)
+			.map(|c| c.id)
+			.expect("a sibling guild channel");
+		let person = |id: Id, name: &str| {
+			let mut user = test_support::message(1, Id(1)).author;
+			user.id = id;
+			user.name = name.to_owned();
+			user
+		};
+		let member = |id: Id, nick: Option<&str>| model::Member {
+			user: person(id, &format!("Display{id}")),
+			roles: vec![],
+			nick: nick.map(str::to_owned),
+			status: None,
+			custom_status: None,
+			activities: vec![],
+			clients: Default::default(),
+		};
+		let nicknamed = Id(30101);
+		// The window loaded for a sibling channel still names this guild's members.
+		state.members = Some(model::MemberList {
+			guild,
+			channel: other,
+			request: 1,
+			start: 0,
+			total: 1,
+			lazy: false,
+			freshness: model::Freshness::Fresh,
+			groups: vec![],
+			ranges: vec![],
+			slots: vec![Some(model::MemberSlot::Person(member(
+				nicknamed,
+				Some("Server Nick"),
+			)))],
+		});
+		let source = MentionSource {
+			state: &state,
+			channel,
+		};
+		assert_eq!(mention_label(nicknamed, &[], Some(&source)), "@Server Nick");
+		// A user in no loaded window keeps the nickname carried by its own message.
+		let author = Id(30202);
+		let mut message = test_support::message(700, channel);
+		message.author = person(author, "DisplayAuthor");
+		message.author_nick = Some("History Nick".into());
+		state.timeline.insert(message, false, false).unwrap();
+		let source = MentionSource {
+			state: &state,
+			channel,
+		};
+		assert_eq!(mention_label(author, &[], Some(&source)), "@History Nick");
 	}
 }
 
