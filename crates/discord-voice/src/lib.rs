@@ -9,6 +9,7 @@ mod jitter;
 mod mixer;
 mod presentation;
 pub mod screen;
+pub mod soundboard;
 mod stream_audio_receive;
 mod stream_playout;
 mod stream_sync;
@@ -79,6 +80,8 @@ pub enum Status {
 	Latency(Option<std::time::Duration>),
 	/// Latest active user IDs, zero-padded to the 64-participant limit.
 	Speaking(Box<[u64; 64]>),
+	/// Sound being played into the call, cleared when it ends or is stopped.
+	Soundboard(Option<u64>),
 }
 
 #[cfg(test)]

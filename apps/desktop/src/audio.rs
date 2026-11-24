@@ -576,6 +576,63 @@ pub(super) fn decode_stream(
 	Ok(())
 }
 
+/// Decode one local sound into the call's 48 kHz mono PCM, bounded to the soundboard length.
+pub(crate) fn decode_sound(
+	path: &std::path::Path,
+	current: &impl Fn() -> bool,
+) -> Result<Vec<f32>, &'static str> {
+	const SECONDS: usize = 60;
+	// Interleaved input up to stereo at 96 kHz for the same bounded duration.
+	const INPUT_LIMIT: usize = SECONDS * 96_000 * 2;
+	const OUTPUT_LIMIT: usize = SECONDS * 48_000;
+	let file = std::fs::File::open(path).map_err(|_| "Could not open that sound")?;
+	let mut interleaved = Vec::new();
+	let mut rate = 0;
+	let mut channels = 0;
+	decode_stream(
+		Box::new(file),
+		current,
+		&mut |samples, source_channels, source_rate, _| {
+			rate = source_rate;
+			channels = source_channels;
+			if interleaved.len() + samples.len() > INPUT_LIMIT {
+				return Err("That sound is longer than 60 seconds");
+			}
+			interleaved.extend_from_slice(samples);
+			Ok(())
+		},
+	)?;
+	if channels == 0 || rate == 0 || interleaved.is_empty() {
+		return Err("That file has no playable audio");
+	}
+	let frames = interleaved.len() / channels;
+	if rate == 48_000 && channels == 1 {
+		interleaved.truncate(frames.min(OUTPUT_LIMIT));
+		return Ok(interleaved);
+	}
+	let mono: Vec<f32> = interleaved
+		.chunks_exact(channels)
+		.map(|frame| frame.iter().sum::<f32>() / channels as f32)
+		.collect();
+	// Linear resampling keeps the soundboard's own decode small and allocation bounded; the call
+	// already carries the microphone through the same fallback for non-48 kHz devices.
+	let length = ((frames as u64 * 48_000 / u64::from(rate)) as usize).min(OUTPUT_LIMIT);
+	let mut output = Vec::with_capacity(length);
+	let step = f64::from(rate) / 48_000.0;
+	for index in 0..length {
+		let at = index as f64 * step;
+		let first = at as usize;
+		let weight = (at - first as f64) as f32;
+		let current = mono.get(first).copied().unwrap_or(0.0);
+		let next = mono.get(first + 1).copied().unwrap_or(current);
+		output.push(current + (next - current) * weight);
+	}
+	if output.is_empty() {
+		return Err("That file has no playable audio");
+	}
+	Ok(output)
+}
+
 // Skip metadata without decoding attacker-provided tag lengths/artwork. Compact in-place:
 // only bounded PCM fmt/data chunks reach the WAV demuxer; ID3 parsing is disabled entirely.
 fn prepare_media(bytes: &mut Vec<u8>) -> Result<(), &'static str> {

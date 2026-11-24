@@ -120,6 +120,18 @@ pub fn attachment_source(
 	}
 }
 
+/// One local audio file for the session soundboard. Blocking on purpose: the in-call popup has
+/// no window handle, and a native modal dialog already owns the interaction.
+pub fn pick_audio_file() -> Option<PathBuf> {
+	rfd::FileDialog::new()
+		.set_title("Choose a sound")
+		.add_filter(
+			"Audio",
+			&["mp3", "wav", "ogg", "oga", "flac", "m4a", "aac", "opus"],
+		)
+		.pick_file()
+}
+
 pub fn attachment_destination(
 	parent: Arc<winit::window::Window>,
 	filename: &str,

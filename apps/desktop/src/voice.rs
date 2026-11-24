@@ -10,6 +10,9 @@ use discord_voice::{
 };
 use eframe::egui;
 use model::{Id, notification_preferences::Sound};
+
+/// Sounds this session keeps; each is bounded by the decoder to a minute of 48 kHz mono.
+const MAX_SOUNDS: usize = 16;
 use std::{
 	sync::{Arc, OnceLock, mpsc},
 	time::{Duration, Instant},
@@ -139,6 +142,7 @@ impl Pending {
 }
 enum Notice {
 	TransportReady(u64),
+	Soundboard(Option<u64>),
 	CameraAvailable(bool),
 	WaitingForPeer,
 	Progress(Phase),
@@ -168,6 +172,8 @@ struct Live {
 	audio: Audio,
 	controls: watch::Sender<Controls>,
 	events: mpsc::Receiver<Notice>,
+	/// Sounds queued for this call's outgoing audio.
+	sound: mpsc::SyncSender<discord_voice::soundboard::Message>,
 	// Terminal errors must survive a full progress queue; retain the first safe reason.
 	failure: Arc<OnceLock<&'static str>>,
 	speakers: watch::Receiver<[u64; 64]>,
@@ -362,6 +368,11 @@ struct Rejoin {
 	departure_confirmed: bool,
 }
 
+/// One decoded sound kept for this session.
+struct Clip {
+	id: u64,
+	samples: std::sync::Arc<[f32]>,
+}
 #[derive(Default)]
 pub struct Voice {
 	camera_test: Option<CameraTest>,
@@ -388,6 +399,9 @@ pub struct Voice {
 	/// Media dropped and a rejoin is scheduled: the main gateway may have died with it, so the
 	/// app should confirm that socket before the rejoin depends on it.
 	pub gateway_check: bool,
+	/// Session soundboard clips decoded on this device.
+	sounds: Vec<Clip>,
+	next_sound: u64,
 }
 impl Voice {
 	/// Hands over the renderer's paint-only handle once it exists; `None` keeps full repaints.
@@ -1017,6 +1031,77 @@ impl Voice {
 			),
 		}
 	}
+	/// Session soundboard: the popup lists names, the decoded samples stay here.
+	fn poll_soundboard(&mut self, ui: &mut ui::MessagingUi, ctx: &egui::Context) {
+		let Some(request) = ui.soundboard_request.take() else {
+			return;
+		};
+		match request {
+			ui::SoundboardRequest::Add => {
+				if self.sounds.len() >= MAX_SOUNDS {
+					ui.soundboard_status = "Remove a sound before adding another";
+					return;
+				}
+				let Some(path) = platform::save::pick_audio_file() else {
+					return;
+				};
+				match crate::audio::decode_sound(&path, &|| true) {
+					Ok(samples) => {
+						let name: String = path
+							.file_stem()
+							.and_then(|name| name.to_str())
+							.unwrap_or("Sound")
+							.chars()
+							.take(48)
+							.collect();
+						let id = self.next_sound;
+						self.next_sound += 1;
+						ui.soundboard.push(ui::SoundClip {
+							id,
+							name,
+							seconds: samples.len() as f32 / 48_000.0,
+						});
+						self.sounds.push(Clip {
+							id,
+							samples: samples.into(),
+						});
+						ui.soundboard_status = "";
+					}
+					Err(error) => ui.soundboard_status = error,
+				}
+			}
+			ui::SoundboardRequest::Play(id) => {
+				let Some(sound) = self.sounds.iter().find(|sound| sound.id == id) else {
+					return;
+				};
+				let message = discord_voice::soundboard::Message::Play {
+					id,
+					samples: sound.samples.clone(),
+				};
+				if !self.send_sound(message) {
+					ui.soundboard_status = "Join a call to play sounds";
+				}
+			}
+			ui::SoundboardRequest::Stop => {
+				self.send_sound(discord_voice::soundboard::Message::Stop);
+			}
+			ui::SoundboardRequest::Forget(id) => {
+				self.sounds.retain(|sound| sound.id != id);
+				ui.soundboard.retain(|clip| clip.id != id);
+				if ui.soundboard_playing == Some(id) {
+					self.send_sound(discord_voice::soundboard::Message::Stop);
+					ui.soundboard_playing = None;
+				}
+			}
+		}
+		ctx.request_repaint();
+	}
+	/// Queue one soundboard message; false when no call is live to play it.
+	fn send_sound(&self, message: discord_voice::soundboard::Message) -> bool {
+		self.live
+			.as_ref()
+			.is_some_and(|live| live.sound.try_send(message).is_ok())
+	}
 	pub fn poll(
 		&mut self,
 		runtime: &Runtime,
@@ -1025,6 +1110,7 @@ impl Voice {
 		ctx: &egui::Context,
 	) -> Option<Command> {
 		self.reap();
+		self.poll_soundboard(ui, ctx);
 		if !state.demo {
 			ui.voice_latency = ui::VoiceLatency::default();
 		}
@@ -1309,6 +1395,7 @@ impl Voice {
 					}
 					// Notices wake the UI; only the current device configuration can be ready.
 					Notice::DeviceReady | Notice::RemoteAudio => {}
+					Notice::Soundboard(id) => ui.soundboard_playing = id,
 				}
 			}
 			if live.negotiation.is_none() && live.waiting_for_peer {
@@ -1940,6 +2027,7 @@ impl Voice {
 		let (camera_frames, camera_receive) =
 			mpsc::sync_channel(discord_voice::camera_video::MAX_QUEUED_FRAMES);
 		let (stream_audio, stream_audio_receive) = mpsc::sync_channel(8);
+		let (sound, sound_receive) = mpsc::sync_channel(8);
 		let (playback, playback_receive) = mpsc::sync_channel(8);
 		let (send, events) = mpsc::sync_channel(8);
 		let failure = Arc::new(OnceLock::new());
@@ -2042,6 +2130,7 @@ impl Voice {
 				},
 				Some(sink),
 				Some(stream_audio_receive),
+				Some(sound_receive),
 				move |event| {
 					let notice = match event {
 						Status::TransportReady => Notice::TransportReady(negotiation_revision),
@@ -2057,6 +2146,7 @@ impl Voice {
 							Notice::MediaReady(privacy_code)
 						}
 						Status::RemoteAudio => Notice::RemoteAudio,
+						Status::Soundboard(id) => Notice::Soundboard(id),
 						Status::Latency(sample) => {
 							if let Some(sample) = sample {
 								latency_send.send_modify(|latency| latency.push(sample));
@@ -2099,6 +2189,7 @@ impl Voice {
 			cues: CallCues::default(),
 			audio,
 			controls,
+			sound,
 			events,
 			failure,
 			speakers,

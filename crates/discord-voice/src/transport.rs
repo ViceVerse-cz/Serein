@@ -356,6 +356,7 @@ pub async fn run(
 		camera,
 		remote_video,
 		stream_audio,
+		None,
 		emit,
 		Identity::generate(),
 	)
@@ -371,6 +372,7 @@ pub async fn run_with_identity(
 	camera: Option<Receiver<crate::camera_video::Frame>>,
 	remote_video: Option<VideoSink>,
 	stream_audio: Option<Receiver<crate::PlaybackFrame>>,
+	sounds: Option<Receiver<crate::soundboard::Message>>,
 	emit: impl Fn(Status) -> Result<(), ()> + Send + 'static,
 	identity: Arc<Identity>,
 ) -> Result<(), &'static str> {
@@ -384,6 +386,7 @@ pub async fn run_with_identity(
 			camera,
 			remote_video,
 			stream_audio,
+			sounds,
 			emit,
 			identity,
 			url,
@@ -401,6 +404,7 @@ async fn run_inner(
 	camera: Option<Receiver<crate::camera_video::Frame>>,
 	remote_video: Option<VideoSink>,
 	stream_audio: Option<Receiver<crate::PlaybackFrame>>,
+	sounds: Option<Receiver<crate::soundboard::Message>>,
 	emit: impl Fn(Status) -> Result<(), ()>,
 	identity: Arc<Identity>,
 	url: String,
@@ -413,6 +417,8 @@ async fn run_inner(
 	};
 	let mut receivers = Receivers::default();
 	let mut watch = VideoWatch::new();
+	let mut soundboard = sounds.map(crate::soundboard::Player::new);
+	let mut sounding = None;
 	let mut metrics = crate::diagnostics::Metrics::new(crate::diagnostics::Scope::Transport);
 	emit(Status::Connecting).map_err(|_| "Call interface closed")?;
 	let config = WebSocketConfig::default()
@@ -713,13 +719,20 @@ async fn run_inner(
 					   local_activity=if (enabled || waiting) && !control.muted && !control.deafened && !stalled {
 						   crate::activity::hold_at(latest.as_ref().map_or(0.0, |frame| frame.iter().filter(|s| s.is_finite()).map(|s| s*s).sum()),local_activity,control.activity_threshold_db)
 					   } else {0};
+					   // Session sounds share the microphone's encoder and 20 ms clock; a sound keeps the
+					   // outgoing stream alive while the microphone is muted, but never while deafened.
+					   let (sound,sound_id)=soundboard.as_mut().map_or((None,None),crate::soundboard::Player::tick);
+					   if sound_id != sounding {sounding = sound_id; emit(Status::Soundboard(sound_id)).map_err(|_|"Call interface closed")?;}
+					   let sounding = sound.is_some() && !control.deafened;
 					   let active=enabled && !control.muted && !control.deafened && latest.is_some();
-					   if active && !speaking {json_send(&mut ws,json!({"op":5,"d":{"speaking":1,"delay":0,"ssrc":ssrc}})).await?;speaking=true;}
-					   if !active && speaking && silence==0 {silence=5;}
-					   if enabled && (active || silence>0) {
+					   let active_now = active || sounding;
+					   if active_now && !speaking {json_send(&mut ws,json!({"op":5,"d":{"speaking":1,"delay":0,"ssrc":ssrc}})).await?;speaking=true;}
+					   if !active_now && speaking && silence==0 {silence=5;}
+					   if enabled && (active_now || silence>0) {
 						   let start = metrics.start();
-						   let data=if active {
-							   let frame=latest.unwrap();
+						   let data=if active_now {
+							   let mut frame=latest.unwrap_or([0.0; 960]);
+							   if let Some(sound)=&sound {crate::soundboard::add(&mut frame,sound);}
 							   for (sample, pair) in frame.iter().zip(stereo.as_chunks_mut::<2>().0) {
 								   let sample = if sample.is_finite() {sample.clamp(-1.0,1.0)} else {0.0};
 								   pair[0] = sample;
@@ -734,8 +747,8 @@ async fn run_inner(
 						   metrics.finish(crate::diagnostics::Stage::Encode, start);
 						   if let Some(socket)=&udp {udp_failures.send(socket,&wire,"Voice UDP send failed")?;}
 						   sequence=sequence.wrapping_add(1);
-						   if !active && silence==0 {json_send(&mut ws,json!({"op":5,"d":{"speaking":0,"delay":0,"ssrc":ssrc}})).await?;speaking=false;}
-						   if active {silence=0;}
+						   if !active_now && silence==0 {json_send(&mut ws,json!({"op":5,"d":{"speaking":0,"delay":0,"ssrc":ssrc}})).await?;speaking=false;}
+						   if active_now {silence=0;}
 					   }
 					   timestamp=timestamp.wrapping_add(960);
 					   let mut drops = 0;
@@ -744,7 +757,8 @@ async fn run_inner(
 						   let start = metrics.start();
 						   let (frame,remote_audio)=mixer.pop_with_volumes(&control.user_volumes);
 		let extra=stream_audio.as_ref().and_then(|aux|stream_playout.next(aux,control.stream_volume,true,stalled));
-		let frame=crate::PlaybackFrame::mix(frame,extra);
+		let mut frame=crate::PlaybackFrame::mix(frame,extra);
+		if let Some(sound)=&sound {match &mut frame {Some(frame)=>{crate::soundboard::add(&mut frame.samples,sound);} None=>{frame=Some((*sound).into());}}}
 						   metrics.finish(crate::diagnostics::Stage::Mix, start);
 						   if let Some(frame)=frame {drops = u64::from(playback.try_send(frame).is_err());}
 						   if !heard && remote_audio {heard=true;emit(Status::RemoteAudio).map_err(|_|"Call interface closed")?;}
@@ -3215,6 +3229,7 @@ mod tests {
 			Some(camera_rx),
 			None,
 			None,
+			None,
 			move |status| match status {
 				Status::Latency(sample) => latency_tx.try_send(sample).map_err(|_| ()),
 				status => status_tx.try_send(status).map_err(|_| ()),
@@ -3251,6 +3266,7 @@ mod tests {
 			loop {
 				tokio::select! {
 					status = status_rx.recv() => match status.unwrap() {
+						Status::Soundboard(_) => {}
 						Status::Ready { .. } => {
 							ready += 1;
 							if ready == 2 {
@@ -3476,6 +3492,7 @@ mod tests {
 			playback,
 			control_rx,
 			Some(camera_rx),
+			None,
 			None,
 			None,
 			move |status| status_tx.try_send(status).map_err(|_| ()),
