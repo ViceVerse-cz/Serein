@@ -255,6 +255,19 @@ fn user_matches(user: &User, typed: &str) -> bool {
 		|| (!typed.starts_with('@') && (name.contains(typed) || label(&name).contains(typed)))
 }
 
+fn exact_username_match(user: &User, typed: &str) -> bool {
+	if typed.is_empty() {
+		return false;
+	}
+	if typed.contains('#') {
+		user_handle(user).is_some_and(|handle| handle[1..].to_lowercase() == typed)
+	} else {
+		user.username
+			.as_deref()
+			.is_some_and(|username| label(username).to_lowercase() == typed)
+	}
+}
+
 pub fn matching_users<'a>(users: &[&'a User], typed: &str) -> Vec<&'a User> {
 	let mut matching: Vec<_> = users
 		.iter()
@@ -263,15 +276,7 @@ pub fn matching_users<'a>(users: &[&'a User], typed: &str) -> Vec<&'a User> {
 		.collect();
 	if !typed.is_empty() {
 		let typed = typed.trim_start_matches('@');
-		matching.sort_by_key(|user| {
-			!if typed.contains('#') {
-				user_handle(user).is_some_and(|handle| handle[1..].to_lowercase() == typed)
-			} else {
-				user.username
-					.as_deref()
-					.is_some_and(|username| label(username).to_lowercase() == typed)
-			}
-		});
+		matching.sort_by_key(|user| !exact_username_match(user, typed));
 	}
 	matching
 }
@@ -351,21 +356,20 @@ fn user_id(value: &str, state: &State, labels: &Labels) -> Option<Id> {
 			let value = value.to_lowercase();
 			let users = users(state);
 			let username = value.trim_start_matches('@');
-			users
+			let mut exact = users
 				.iter()
-				.find_map(|user| {
-					let handle = user_handle(user)?;
-					(handle[1..].to_lowercase() == username).then_some(user.id)
-				})
-				.or_else(|| {
-					if value.starts_with('@') {
-						return None;
-					}
-					users
-						.into_iter()
-						.find(|user| label(&user.name).to_lowercase() == value)
-						.map(|user| user.id)
-				})
+				.filter(|user| exact_username_match(user, username));
+			if let Some(user) = exact.next() {
+				// A bare legacy username can belong to more than one account.
+				return exact.next().is_none().then_some(user.id);
+			}
+			if value.starts_with('@') {
+				return None;
+			}
+			users
+				.into_iter()
+				.find(|user| label(&user.name).to_lowercase() == value)
+				.map(|user| user.id)
 		})
 }
 
@@ -1109,6 +1113,42 @@ mod tests {
 		let shown = super::display(query, &state, &mut labels);
 		assert_eq!(shown, "from:2 mentions:@robin");
 		assert_eq!(super::wire(&shown, &state, &labels).unwrap(), query);
+	}
+
+	#[test]
+	fn wire_resolves_legacy_usernames_before_matching_display_names() {
+		let channel = model::Id(20);
+		let mut state = super::State::default();
+		let mut legacy = test_support::message(1001, channel);
+		legacy.author.id = model::Id(2);
+		legacy.author.username = Some("alice".into());
+		legacy.author.discriminator = 1234;
+		let mut display_match = test_support::message(1002, channel);
+		display_match.author.id = model::Id(3);
+		display_match.author.username = Some("another".into());
+		display_match.author.name = "Alice".into();
+		state.timeline.insert(legacy.clone(), true, false).unwrap();
+		state.timeline.insert(display_match, true, false).unwrap();
+		let labels = super::Labels::default();
+		assert_eq!(
+			super::wire("from:alice weather mentions:@Alice#1234", &state, &labels).unwrap(),
+			"from:2 weather mentions:2"
+		);
+		legacy.id = model::Id(1003);
+		legacy.author.id = model::Id(4);
+		legacy.author.discriminator = 5678;
+		state.timeline.insert(legacy, true, false).unwrap();
+		assert!(super::wire("from:alice weather", &state, &labels).is_err());
+		assert_eq!(
+			super::wire("from:alice#5678 mentions:2", &state, &labels).unwrap(),
+			"from:4 mentions:2"
+		);
+		let mut labels = labels;
+		labels.remember("user", "Alice", model::Id(3), "from:Alice");
+		assert_eq!(
+			super::wire("from:Alice", &state, &labels).unwrap(),
+			"from:3"
+		);
 	}
 
 	#[test]
