@@ -115,7 +115,7 @@ pub struct Draft {
 
 pub fn users(state: &State) -> Vec<&User> {
 	let mut users = std::collections::BTreeMap::<Id, &User>::new();
-	for user in state
+	for (user, loaded_member) in state
 		.user
 		.iter()
 		.chain(
@@ -126,6 +126,7 @@ pub fn users(state: &State) -> Vec<&User> {
 				.flat_map(|c| &c.recipients),
 		)
 		.chain(state.timeline.iter().map(|m| &m.author))
+		.map(|user| (user, false))
 		.chain(state.members.iter().flat_map(|list| {
 			list.slots
 				.iter()
@@ -134,12 +135,12 @@ pub fn users(state: &State) -> Vec<&User> {
 					model::MemberSlot::Person(m) => Some(m),
 					_ => None,
 				})
-				.map(|member| &member.user)
+				.map(|member| (&member.user, true))
 		}))
 		.take(1500)
 	{
 		if let Some(entry) = users.get_mut(&user.id) {
-			if entry.username.is_none() && user.username.is_some() {
+			if user.username.is_some() && (loaded_member || entry.username.is_none()) {
 				*entry = user;
 			}
 		} else if users.len() < 100 {
@@ -282,14 +283,30 @@ pub struct Labels(Vec<(&'static str, String, Id)>);
 impl Labels {
 	const LIMIT: usize = 64;
 
-	pub fn remember(&mut self, kind: &'static str, label: &str, id: Id) {
+	pub fn remember(&mut self, kind: &'static str, label: &str, id: Id, query: &str) {
 		if kind == "user" && label.parse::<u64>().is_ok() {
 			return;
 		}
-		self.0
-			.retain(|(k, l, i)| *k != kind || (*i != id && !l.eq_ignore_ascii_case(label)));
+		let normalized = label.to_lowercase();
+		self.0.retain(|(k, l, i)| {
+			*k != kind || (l.to_lowercase() != normalized && (kind == "user" || *i != id))
+		});
 		if self.0.len() >= Self::LIMIT {
-			self.0.remove(0);
+			// Keep the aliases on the current query even when the recent-label cache is full.
+			let Some(index) = self.0.iter().position(|(kind, label, _)| {
+				let normalized = label.to_lowercase();
+				!query.split_whitespace().any(|token| {
+					token.split_once(':').is_some_and(|(key, value)| {
+						matches!(
+							(*kind, key),
+							("user", "from" | "mentions") | ("channel", "in")
+						) && value.to_lowercase() == normalized
+					})
+				})
+			}) else {
+				return;
+			};
+			self.0.remove(index);
 		}
 		self.0.push((kind, label.to_owned(), id));
 	}
@@ -443,7 +460,7 @@ pub fn display(query: &str, state: &State, labels: &mut Labels) -> String {
 				if name == value {
 					return None;
 				}
-				labels.remember("user", &name, id);
+				labels.remember("user", &name, id, query);
 				Some(format!("{key}:{name}"))
 			}
 			"in" => {
@@ -452,7 +469,7 @@ pub fn display(query: &str, state: &State, labels: &mut Labels) -> String {
 					.channel(id)
 					.map(|channel| label(&channel.name))
 					.or_else(|| labels.label("channel", id).map(str::to_owned))?;
-				labels.remember("channel", &name, id);
+				labels.remember("channel", &name, id, query);
 				Some(format!("in:{name}"))
 			}
 			"before_id" | "after_id" => Some(format!(
@@ -1000,13 +1017,13 @@ mod tests {
 		for id in 1..=100 {
 			let mut message = test_support::message(1000 + id, model::Id(20));
 			message.author.id = model::Id(id);
-			message.author.username = None;
+			message.author.username = (id == 2).then(|| "old_handle".into());
 			state.timeline.insert(message, true, false).unwrap();
 		}
-		let member = |id| {
+		let member = |id, username: &str| {
 			let mut user = test_support::message(1, model::Id(20)).author;
 			user.id = model::Id(id);
-			user.username = Some("robin".into());
+			user.username = Some(username.into());
 			Some(model::MemberSlot::Person(model::Member {
 				user,
 				roles: vec![],
@@ -1022,8 +1039,12 @@ mod tests {
 			channel: model::Id(20),
 			request: 0,
 			start: 0,
-			slots: vec![member(101), member(2)],
-			total: 2,
+			slots: vec![
+				member(101, "excluded"),
+				member(2, "robin"),
+				member(3, "quiet"),
+			],
+			total: 3,
 			lazy: false,
 			freshness: model::Freshness::Fresh,
 			groups: vec![],
@@ -1032,6 +1053,32 @@ mod tests {
 		let users = super::users(&state);
 		assert_eq!(users.len(), 100);
 		assert_eq!(super::matching_users(&users, "@robin")[0].id, model::Id(2));
+		assert_eq!(super::matching_users(&users, "@quiet")[0].id, model::Id(3));
+		assert!(super::matching_users(&users, "@old_handle").is_empty());
+	}
+
+	#[test]
+	fn remembering_a_handle_keeps_the_current_queries_original_account() {
+		let channel = model::Id(20);
+		let mut state = super::State::default();
+		for (id, username) in [(2, "quiet"), (3, "robin")] {
+			let mut message = test_support::message(1000 + id, channel);
+			message.author.id = model::Id(id);
+			message.author.username = Some(username.into());
+			state.timeline.insert(message, true, false).unwrap();
+		}
+		let mut labels = super::Labels::default();
+		labels.remember("user", "Robin", model::Id(2), "");
+		for id in 100..100 + (super::Labels::LIMIT as u64 - 1) {
+			labels.remember("user", &format!("@user_{id}"), model::Id(id), "");
+		}
+		let query = "from:rOBIN mentions:@quiet";
+		labels.remember("user", "@quiet", model::Id(2), query);
+		assert_eq!(
+			super::wire(query, &state, &labels).unwrap(),
+			"from:2 mentions:2"
+		);
+		assert_eq!(labels.0.len(), super::Labels::LIMIT);
 	}
 
 	#[test]

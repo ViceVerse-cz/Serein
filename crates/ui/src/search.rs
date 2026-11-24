@@ -568,6 +568,7 @@ impl SearchUi {
 											if key == "in" { "channel" } else { "user" },
 											&label,
 											id,
+											&query,
 										);
 										self.query = query;
 										self.filters_open = false;
@@ -2372,14 +2373,14 @@ mod tests {
 			.clone();
 		original.name = "123".into();
 		let mut labels = filters::Labels::default();
-		labels.remember("channel", "123", original.id);
+		labels.remember("channel", "123", original.id, "");
 		let other_old = state
 			.channels
 			.iter()
 			.find(|entry| entry.guild == original.guild && entry.id != original.id)
 			.unwrap()
 			.id;
-		labels.remember("channel", "old-only", other_old);
+		labels.remember("channel", "old-only", other_old, "");
 		let mut selected = original.clone();
 		selected.id = Id(800);
 		selected.guild = Some(Id(700));
@@ -2431,7 +2432,7 @@ mod tests {
 		state.selected = Some(target.id);
 		state.channels.push(target);
 		let mut labels = filters::Labels::default();
-		labels.remember("channel", "123", original.id);
+		labels.remember("channel", "123", original.id, "");
 		for denied_history in [false, true] {
 			state
 				.channels
