@@ -513,6 +513,7 @@ mod tests {
 
 	fn state() -> State {
 		let user = User {
+			username: None,
 			primary_guild: None,
 			cosmetics: None,
 			id: Id(2),
@@ -685,6 +686,7 @@ mod tests {
 			Event::Ready {
 				permissions: model::permissions::Snapshot::default(),
 				user: User {
+					username: None,
 					primary_guild: None,
 					cosmetics: None,
 					id: Id(999),
@@ -1274,6 +1276,7 @@ mod tests {
 					discriminator: 0,
 					kind: Default::default(),
 					webhook: false,
+					username: None,
 					primary_guild: None,
 					cosmetics: None,
 				},

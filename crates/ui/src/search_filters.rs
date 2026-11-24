@@ -138,7 +138,10 @@ pub fn users(state: &State) -> Vec<&User> {
 		}))
 		.take(1500)
 	{
-		users.entry(user.id).or_insert(user);
+		let entry = users.entry(user.id).or_insert(user);
+		if entry.username.is_none() && user.username.is_some() {
+			*entry = user;
+		}
 		if users.len() >= 100 {
 			break;
 		}
@@ -216,6 +219,34 @@ pub fn label(name: &str) -> String {
 		.collect()
 }
 
+fn user_handle(user: &User) -> Option<String> {
+	let username = label(user.username.as_deref()?);
+	if username.is_empty() {
+		return None;
+	}
+	Some(if user.discriminator == 0 {
+		format!("@{username}")
+	} else {
+		format!("@{username}#{:04}", user.discriminator)
+	})
+}
+
+pub fn user_label(user: &User) -> String {
+	user_handle(user).unwrap_or_else(|| label(&user.name))
+}
+
+/// The caller lowercases the input once for the whole suggestion list.
+pub fn user_matches(user: &User, typed: &str) -> bool {
+	let username_matches = user_handle(user).is_some_and(|handle| {
+		handle[1..]
+			.to_lowercase()
+			.contains(typed.trim_start_matches('@'))
+	});
+	let name = user.name.to_lowercase();
+	username_matches
+		|| (!typed.starts_with('@') && (name.contains(typed) || label(&name).contains(typed)))
+}
+
 /// Names picked from suggestions, so the field can show `from:name` while search sends IDs.
 #[derive(Default)]
 pub struct Labels(Vec<(&'static str, String, Id)>);
@@ -256,10 +287,23 @@ fn user_id(value: &str, state: &State, labels: &Labels) -> Option<Id> {
 		.or_else(|| labels.id("user", value))
 		.or_else(|| {
 			let value = value.to_lowercase();
-			users(state)
-				.into_iter()
-				.find(|user| label(&user.name).to_lowercase() == value)
-				.map(|user| user.id)
+			let users = users(state);
+			let username = value.trim_start_matches('@');
+			users
+				.iter()
+				.find_map(|user| {
+					let handle = user_handle(user)?;
+					(handle[1..].to_lowercase() == username).then_some(user.id)
+				})
+				.or_else(|| {
+					if value.starts_with('@') {
+						return None;
+					}
+					users
+						.into_iter()
+						.find(|user| label(&user.name).to_lowercase() == value)
+						.map(|user| user.id)
+				})
 		})
 }
 
@@ -345,7 +389,7 @@ pub fn display(query: &str, state: &State, labels: &mut Labels) -> String {
 					users(state)
 						.into_iter()
 						.find(|user| user.id == id)
-						.map(|user| label(&user.name))
+						.map(user_label)
 				})?;
 				labels.remember("user", &name, id);
 				Some(format!("{key}:{name}"))
@@ -480,6 +524,10 @@ pub fn user_row(
 	selected: bool,
 ) -> egui::Response {
 	let colors = design::palette(ui);
+	let title = match user_handle(user) {
+		Some(handle) => std::borrow::Cow::Owned(format!("{}  {handle}", user.name)),
+		None => std::borrow::Cow::Borrowed(user.name.as_str()),
+	};
 	let (rect, response) =
 		ui.allocate_exact_size(egui::vec2(ui.available_width(), 36.0), egui::Sense::click());
 	if selected || response.hovered() || response.has_focus() {
@@ -494,7 +542,7 @@ pub fn user_row(
 				let avatar = avatars.show(ui, user, 24.0, demo);
 				ui.add(
 					egui::Label::new(
-						design::semibold(ui, &user.name, 14.0).color(colors.text_strong),
+						design::semibold(ui, title.as_ref(), 14.0).color(colors.text_strong),
 					)
 					.truncate()
 					.selectable(false),
@@ -503,7 +551,7 @@ pub fn user_row(
 			},
 		)
 		.inner;
-	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &user.name));
+	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, title.as_ref()));
 	response.union(avatar)
 }
 
@@ -589,11 +637,9 @@ fn user_picker(
 						"search-filters-user-picker-search-users",
 					)),
 			);
+			let typed = needle.to_lowercase();
 			let mut count = 0;
-			for user in users
-				.iter()
-				.filter(|user| user.name.to_lowercase().contains(&needle.to_lowercase()))
-			{
+			for user in users.iter().filter(|user| user_matches(user, &typed)) {
 				count += 1;
 				let id = user.id.to_string();
 				if user_row(ui, user, avatars, demo, selected(query, key, &id)).clicked() {
@@ -897,6 +943,31 @@ impl Draft {
 
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn username_search_resolves_to_the_correct_account_id() {
+		let mut state = test_support::demo_state();
+		let user = state.user.as_mut().unwrap();
+		user.username = Some("quiet-robin".into());
+		let id = user.id;
+		assert!(super::user_matches(user, "@quiet"));
+		assert!(super::user_matches(user, "synthetic"));
+		assert!(!super::user_matches(user, "@synthetic"));
+		let mut labels = super::Labels::default();
+		for typed in [
+			"from:@Quiet-Robin",
+			"from:quiet-robin",
+			"mentions:@quiet-robin",
+		] {
+			let filter = typed.split_once(':').unwrap().0;
+			let wire = super::wire(typed, &state, &labels).unwrap();
+			assert_eq!(wire, format!("{filter}:{id}"));
+			assert_eq!(
+				super::display(&wire, &state, &mut labels),
+				format!("{filter}:@quiet-robin")
+			);
+		}
+	}
+
 	/// "More filters" keeps a finished trailing `has:` and drops one still being typed.
 	#[test]
 	fn a_finished_has_filter_survives_and_a_partial_one_does_not() {

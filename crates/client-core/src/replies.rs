@@ -552,6 +552,7 @@ mod tests {
 			id: Id(id),
 			channel: Id(1),
 			author: User {
+				username: None,
 				primary_guild: None,
 				cosmetics: None,
 				id: Id(9),
@@ -1655,6 +1656,7 @@ mod tests {
 							name: "Synthetic".into(),
 							avatar: None,
 							discriminator: 0,
+							username: None,
 							primary_guild: None,
 							cosmetics: None,
 						},

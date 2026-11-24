@@ -337,6 +337,7 @@ mod tests {
 			channel: Id(1),
 			kind: 0,
 			author: User {
+				username: None,
 				primary_guild: None,
 				cosmetics: None,
 				id: Id(9),

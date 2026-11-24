@@ -1056,6 +1056,7 @@ mod navigation_tests {
 			id: Id(id),
 			channel: Id(1),
 			author: User {
+				username: None,
 				primary_guild: None,
 				cosmetics: None,
 				id: Id(9),
@@ -1996,6 +1997,7 @@ mod navigation_tests {
 
 		let mut incoming = message(502);
 		incoming.author = model::User {
+			username: None,
 			primary_guild: None,
 			cosmetics: None,
 			id: Id(999),

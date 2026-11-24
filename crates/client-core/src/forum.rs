@@ -703,6 +703,7 @@ mod tests {
 			auth: AuthState::Authenticated,
 			gateway_connected: true,
 			user: Some(model::User {
+				username: None,
 				primary_guild: None,
 				cosmetics: None,
 				id: Id(2),

@@ -309,6 +309,7 @@ mod tests {
 			id: Id(id),
 			channel,
 			author: model::User {
+				username: None,
 				primary_guild: None,
 				cosmetics: None,
 				id: Id(2),
@@ -349,6 +350,7 @@ mod tests {
 			freshness: Freshness::Fresh,
 			selected: Some(Id(10)),
 			user: Some(model::User {
+				username: None,
 				primary_guild: None,
 				cosmetics: None,
 				id: Id(2),

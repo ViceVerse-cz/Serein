@@ -1353,6 +1353,7 @@ impl State {
 									name: "Unknown user".into(),
 									avatar: None,
 									discriminator: 0,
+									username: None,
 									primary_guild: None,
 									cosmetics: None,
 									webhook: false,
@@ -2853,6 +2854,7 @@ mod tests {
 	/// Synthetic authenticated state for user-action tests.
 	fn state() -> State {
 		let user = |id| model::User {
+			username: None,
 			primary_guild: None,
 			cosmetics: None,
 			id: Id(id),

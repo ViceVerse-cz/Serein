@@ -284,6 +284,7 @@ mod tests {
 			webhook: false,
 			avatar: None,
 			discriminator: 0,
+			username: None,
 			primary_guild: None,
 			cosmetics: None,
 		};

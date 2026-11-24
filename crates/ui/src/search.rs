@@ -466,7 +466,7 @@ impl SearchUi {
 								let users = filters::users(state);
 								let channels = filters::channels(state);
 								// (label, id) per suggestion; users and channels share the list.
-								let matching: Vec<(String, Id)> = if key == "in" {
+								let mut matching: Vec<(String, Id)> = if key == "in" {
 									channels
 										.iter()
 										.filter(|channel| {
@@ -480,14 +480,18 @@ impl SearchUi {
 								} else {
 									users
 										.iter()
-										.filter(|user| {
-											filters::label(&user.name)
-												.to_lowercase()
-												.contains(&typed)
-										})
-										.map(|user| (filters::label(&user.name), user.id))
+										.filter(|user| filters::user_matches(user, &typed))
+										.map(|user| (filters::user_label(user), user.id))
 										.collect()
 								};
+								if key != "in" && !typed.is_empty() {
+									let typed = typed.trim_start_matches('@');
+									matching.sort_by_key(|(label, _)| {
+										!label
+											.strip_prefix('@')
+											.is_some_and(|handle| handle.to_lowercase() == typed)
+									});
+								}
 								ui.label(
 									design::semibold(
 										ui,
@@ -2613,6 +2617,7 @@ mod tests {
 							name: "Synthetic".into(),
 							avatar: None,
 							discriminator: 0,
+							username: None,
 							primary_guild: None,
 							cosmetics: None,
 						},
@@ -2909,6 +2914,7 @@ mod tests {
 			name: "Mentioned".into(),
 			avatar: None,
 			discriminator: 0,
+			username: None,
 			primary_guild: None,
 			cosmetics: None,
 		};

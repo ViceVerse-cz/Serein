@@ -5101,6 +5101,7 @@ pub fn synthetic(user: &User, guild: Option<Id>) -> model::UserProfile {
 					webhook: false,
 					kind: Default::default(),
 					discriminator: 0,
+					username: None,
 					primary_guild: None,
 					cosmetics: None,
 				}]
