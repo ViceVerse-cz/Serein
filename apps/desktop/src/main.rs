@@ -3332,15 +3332,13 @@ impl Desktop {
 				Command::Cut => Some(egui::Event::Cut),
 				Command::Copy => Some(egui::Event::Copy),
 				Command::Paste => {
-					// Like eframe's Cmd+V: the text, then the key release the composer also
-					// reads to paste files and images.
-					if let Ok(text) = arboard::Clipboard::new().and_then(|mut c| c.get_text())
-						&& !text.is_empty()
-					{
-						let text = text.replace("\r\n", "\n");
-						ctx.input_mut(|input| input.events.push(egui::Event::Paste(text)));
-					}
-					Some(key(egui::Key::V, egui::Modifiers::NONE, false))
+					// The same path as Ctrl+V: egui-winit reads the clipboard when it
+					// serves the request and delivers `Event::Paste`/`PasteImage` to the
+					// next frame. Reading arboard here, like earlier versions, could use
+					// a stale XWayland-bridge view of the selection, and a synthetic key
+					// release would race that delivered event by one frame.
+					ctx.send_viewport_cmd(egui::ViewportCommand::RequestPaste);
+					None
 				}
 				Command::ZoomIn => {
 					egui::gui_zoom::zoom_in(ctx);

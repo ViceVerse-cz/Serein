@@ -1356,7 +1356,7 @@ impl MessagingUi {
 				let has_paste = input.events.iter().any(|event| {
 					matches!(event, egui::Event::Paste(_) | egui::Event::PasteImage(_))
 				});
-				if has_paste || shortcut || menu {
+				if has_paste || shortcut {
 					requested = true;
 					self.paste_key_handled = true;
 					input.events.retain_mut(|event| match event {
@@ -1377,6 +1377,17 @@ impl MessagingUi {
 					});
 				}
 			});
+			if menu && !requested {
+				// The menu click itself carries no clipboard data, so read like the key
+				// shortcut does: the platform delivers `Event::Paste`/`PasteImage` to the
+				// next frame, and `has_paste` above starts the request from that fresh
+				// view. Requesting immediately instead would read arboard's own backend,
+				// which on Wayland without data-control is the XWayland bridge and can
+				// serve an image this client copied before newer content took the
+				// selection.
+				ctx.send_viewport_cmd(egui::ViewportCommand::RequestPaste);
+				self.paste_key_handled = false;
+			}
 			if requested {
 				if request
 					.text
@@ -6984,7 +6995,9 @@ mod composer_tests {
 		let ctx = egui::Context::default();
 		let mut state = edit_state();
 		let mut view = MessagingUi::default();
+		let paste_commanded = std::cell::Cell::new(false);
 		let frame = |view: &mut MessagingUi, state: &mut State, events| {
+			paste_commanded.set(false);
 			let output = ctx.run_ui(
 				egui::RawInput {
 					screen_rect: Some(egui::Rect::from_min_size(
@@ -7014,6 +7027,12 @@ mod composer_tests {
 				.shapes
 				.iter()
 				.for_each(|shape| walk(&shape.shape, &mut labels));
+			paste_commanded.set(output.viewport_output.values().any(|viewport| {
+				viewport
+					.commands
+					.iter()
+					.any(|command| matches!(command, egui::ViewportCommand::RequestPaste))
+			}));
 			output.drop_without_applying_deltas();
 			labels
 		};
@@ -7060,13 +7079,26 @@ mod composer_tests {
 			&mut state,
 			click(paste.center(), egui::PointerButton::Primary),
 		);
+		// The menu click carries no clipboard data: the view asks the platform for a
+		// paste instead of reading arboard's own, possibly stale, view of the selection.
 		frame(&mut view, &mut state, vec![]);
+		assert!(
+			paste_commanded.get(),
+			"menu paste requests a platform paste"
+		);
+		assert!(view.attachment_paste_requested.is_none());
+		frame(
+			&mut view,
+			&mut state,
+			vec![egui::Event::Paste("https://example.com/link".into())],
+		);
 		let request = view
 			.attachment_paste_requested
 			.take()
-			.expect("menu paste reads the system clipboard");
+			.expect("the delivered clipboard text starts the paste");
 		assert_eq!(request.target, composer);
-		assert!(request.text.is_none() && request.image.is_none());
+		assert_eq!(request.text.as_deref(), Some("https://example.com/link"));
+		assert!(request.image.is_none());
 		for (editing, cut_all) in [(false, false), (false, true), (true, false)] {
 			state = edit_state();
 			view = MessagingUi::default();
@@ -7193,9 +7225,13 @@ mod composer_tests {
 			.unwrap();
 		assert_eq!(range.sorted_cursors().map(|cursor| cursor.index.0), [0, 5]);
 		menu_click(&mut view, &mut state, "Paste");
-		let request = view.attachment_paste_requested.take().unwrap();
+		assert!(
+			paste_commanded.get(),
+			"menu paste requests a platform paste"
+		);
+		assert!(view.attachment_paste_requested.is_none());
 		view.upload_busy = false;
-		view.pasted_text = Some((channel, request.target, "pasted".into()));
+		view.pasted_text = Some((channel, composer, "pasted".into()));
 		frame(&mut view, &mut state, vec![]);
 		assert_eq!(state.drafts.get(&channel).unwrap(), "pasted");
 	}
