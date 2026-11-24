@@ -76,6 +76,9 @@ pub struct VideoUi {
 	pub poster_queue: Vec<Attachment>,
 	/// Keyboard focus rested on an overlay control last frame, so keep the overlay visible.
 	controls_focused: bool,
+	/// The seek bar and timestamp were drawn this pass. While they are hidden a playing
+	/// video changes nothing but its picture, which the desktop presents without a ui pass.
+	pub(crate) position_shown: bool,
 	/// Volume to restore when the mute button is pressed again.
 	unmuted_volume: Option<f32>,
 	/// Keep the viewport's previous mode so leaving playback restores the window.
@@ -103,6 +106,7 @@ impl Default for VideoUi {
 			poster_seen: HashSet::new(),
 			poster_queue: Vec::new(),
 			controls_focused: false,
+			position_shown: false,
 			unmuted_volume: None,
 			fullscreen: None,
 			fullscreen_request: None,
@@ -128,6 +132,10 @@ impl VideoUi {
 			ctx.memory_mut(|memory| memory.request_focus(focus));
 			ctx.request_repaint();
 		}
+	}
+	/// Whether the last ui pass drew the playback position.
+	pub fn position_shown(&self) -> bool {
+		self.position_shown
 	}
 	pub fn take_fullscreen_request(&mut self) -> Option<bool> {
 		self.fullscreen_request.take()
@@ -778,6 +786,7 @@ impl VideoUi {
 			}
 		}
 		self.controls_focused = controls_focused;
+		self.position_shown |= show_controls;
 		// Download/open controls stay visible regardless of load state, unlike the bottom bar.
 		// Added last so Tab order still reaches the playback controls first.
 		let overlay = egui::Rect::from_min_size(

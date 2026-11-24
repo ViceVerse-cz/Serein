@@ -1,4 +1,5 @@
-use crate::{DiscordApi, Failure};
+use crate::{DiscordApi, Extras, Failure};
+use client_core::fingerprint::MessageContext;
 use client_core::group_actions::Action;
 use model::{ChannelPatch, Patch};
 use wreq::Method;
@@ -13,10 +14,35 @@ impl DiscordApi {
 			return Err(Failure::Protocol);
 		}
 		let channel = action.channel();
+		// Normal-account route observed in discord.py-self. The documented OAuth
+		// route uses a gdm.join token and has a different request body.
+		if let Action::AddRecipient { user, .. } = action {
+			let body = self
+				.request_with_content(
+					Method::PUT,
+					&format!("/channels/{channel}/recipients/{user}"),
+					None,
+					1024,
+					Extras {
+						context: Some(MessageContext::AddFriendsToDm),
+						..Default::default()
+					},
+				)
+				.await
+				.map_err(|failure| {
+					if failure == Failure::Capacity {
+						Failure::Ambiguous
+					} else {
+						failure
+					}
+				})?;
+			return body.is_empty().then_some(None).ok_or(Failure::Ambiguous);
+		}
 		let leaving = matches!(action, Action::Leave(_));
 		let renaming = matches!(&action, Action::Edit { name: Some(_), .. });
 		let payload = match action {
 			Action::Leave(_) => None,
+			Action::AddRecipient { .. } => unreachable!(),
 			Action::Edit { name, icon, .. } => {
 				let mut body = serde_json::json!({});
 				if let Some(name) = name {
@@ -173,6 +199,39 @@ mod tests {
 				true,
 			),
 			(Action::Leave(Id(10)), "DELETE", None, 500, r#"{}"#, false),
+			(
+				Action::AddRecipient {
+					channel: Id(10),
+					user: Id(22),
+				},
+				"PUT",
+				None,
+				204,
+				"",
+				true,
+			),
+			(
+				Action::AddRecipient {
+					channel: Id(10),
+					user: Id(22),
+				},
+				"PUT",
+				None,
+				403,
+				"{}",
+				false,
+			),
+			(
+				Action::AddRecipient {
+					channel: Id(10),
+					user: Id(22),
+				},
+				"PUT",
+				None,
+				200,
+				"{}",
+				false,
+			),
 		] {
 			let server = async {
 				let (mut socket, _) = listener.accept().await.unwrap();
@@ -196,9 +255,21 @@ mod tests {
 						if bytes.len() < end + 4 + len {
 							continue;
 						}
-						assert!(
-							headers.starts_with(&format!("{method} /channels/10 HTTP/1.1\r\n"))
-						);
+						if method == "PUT" {
+							assert!(
+								headers.starts_with("PUT /channels/10/recipients/22 HTTP/1.1\r\n")
+							);
+							assert!(headers.lines().any(|header| {
+								header.split_once(": ").is_some_and(|(name, value)| {
+									name.eq_ignore_ascii_case("x-context-properties")
+										&& value == "eyJsb2NhdGlvbiI6IkFkZCBGcmllbmRzIHRvIERNIn0="
+								})
+							}));
+						} else {
+							assert!(
+								headers.starts_with(&format!("{method} /channels/10 HTTP/1.1\r\n"))
+							);
+						}
 						assert_eq!(
 							if len == 0 {
 								None

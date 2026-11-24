@@ -480,6 +480,14 @@ budget, not a source-resolution rejection. Windows requests resized Media Founda
 macOS scales into a bounded VideoToolbox pixel buffer, and Linux scales after applying rotation and
 before queuing decoded video. The original attachment is unchanged.
 
+On macOS a picture that needs no scaling stays on VideoToolbox's own IOSurface and the Metal
+renderer samples it in place; a scaled picture, a software decoder's plain buffer or a
+non-Metal renderer copies the planes as before. Linux and Windows copy every picture. A
+playing attachment, a watched stream and remote cameras present each new picture over the
+last ui pass's shapes without running the ui again (wgpu renderer; unverified on Windows),
+until input, a state change or a visible seek bar asks for a pass. Stream and camera pictures
+are still copied on every platform.
+
 Codec profiles, hardware capabilities, the 100 MiB encoded attachment limit and the two-hour
 duration limit still apply. Supporting a source does not promise native-resolution rendering
 or a particular frame rate. Live screen sharing has its separate existing limits.
@@ -497,8 +505,7 @@ downscaling path. AAC track timestamps need not use the audio sample rate
 as their timescale. Missing FFmpeg or conversion failures appear in the video card. Linux and Windows
 continue to use their installed native codecs. This optional fallback is not bundled
 in release packages; actual codec coverage depends on the local FFmpeg build.
-Windows passes MPEG-4/MOV and WebM/Matroska attachments to Media Foundation; a recognized
-container can still fail when its video or audio codec is not installed.
+Windows passes MPEG-4/MOV and WebM/Matroska attachments to Media Foundation, and Linux passes them to GStreamer's `decodebin`; a recognized container can still fail when its video or audio codec is not installed.
 
 ## HEIC still images
 

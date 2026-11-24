@@ -374,12 +374,12 @@ pub fn super_properties() -> String {
 	base64(properties().as_bytes())
 }
 
-/// Where in the interface a message create started. Unofficial: the web client's request
-/// helper sends its `context` option as `X-Context-Properties`.
+/// Where in the messaging interface a write started. The normal-account context is unofficial.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MessageContext {
 	ChatInput,
 	Forwarding,
+	AddFriendsToDm,
 }
 
 /// `X-Context-Properties` header value: standard base64 of `{"location":"…"}`.
@@ -387,6 +387,7 @@ pub fn context_properties(context: MessageContext) -> String {
 	let location = match context {
 		MessageContext::ChatInput => "chat_input",
 		MessageContext::Forwarding => "forwarding",
+		MessageContext::AddFriendsToDm => "Add Friends to DM",
 	};
 	base64(format!("{{\"location\":\"{location}\"}}").as_bytes())
 }

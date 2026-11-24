@@ -865,7 +865,7 @@ impl State {
 		}
 		self.open_dm(user.id, false)
 	}
-	fn dm_target_allowed(&self, user: Id, friend_only: bool) -> bool {
+	pub(crate) fn dm_target_allowed(&self, user: Id, friend_only: bool) -> bool {
 		user.0 != 0
 			&& self.user.as_ref().is_some_and(|owner| owner.id != user)
 			&& self.user_blocked(user) == Some(false)

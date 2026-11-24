@@ -314,6 +314,9 @@ attachments-media-menu-unavailable-for-synthetic-attachments = Nedostupné pro s
 # Context: open_original
 attachments-open-original-open-original = Otevřít originál…
 # Context: pending_card
+attachments-mark-spoiler = Označit přílohu jako spoiler
+attachments-remove-spoiler = Zrušit označení spoileru
+attachments-spoiler-label = Spoiler
 attachments-pending-card-remove-attachment = Odstraňte přílohu
 # Context: pending_viewer
 attachments-pending-viewer-full-size-unavailable = Náhled v plné velikosti není k dispozici
@@ -5068,3 +5071,8 @@ moderation-confirm-ban = Zabanovat
 ## crates/ui/src/interface_ui.rs
 # Context: interface_tree
 interface-ui-empty = Tento zásuvný modul zatím nemá co zobrazit.
+
+group-add-title = Přidat přátele do soukromé konverzace
+group-add-subtitle = Vyberte přítele, kterého chcete přidat do této skupiny.
+group-add-full = Tato skupina dosáhla limitu 10 osob.
+group-add-confirm = Přidat přítele

@@ -38,6 +38,11 @@ pub struct Painter {
     depth_texture_view: ViewportIdMap<wgpu::TextureView>,
     msaa_texture_view: ViewportIdMap<wgpu::TextureView>,
     surfaces: ViewportIdMap<SurfaceState>,
+
+    /// The viewport whose primitives this painter last uploaded, the renderer's
+    /// [`Renderer::buffers_generation`] right after, and the surface size in pixels the
+    /// upload was made for. See [`Self::paint_again`].
+    buffers_of: Option<(ViewportId, u64, [u32; 2])>,
 }
 
 impl Painter {
@@ -74,6 +79,8 @@ impl Painter {
             depth_texture_view: Default::default(),
             surfaces: Default::default(),
             msaa_texture_view: Default::default(),
+
+            buffers_of: None,
         }
     }
 
@@ -502,6 +509,59 @@ impl Painter {
         capture_data: Vec<egui::ScreenshotCallback>,
         window: &Arc<winit::window::Window>,
     ) -> f32 {
+        self.paint(
+            viewport_id,
+            pixels_per_point,
+            clear_color,
+            clipped_primitives,
+            textures_delta,
+            capture_data,
+            window,
+            false,
+        )
+    }
+
+    /// Paints and presents the primitives `viewport_id` painted last, once more.
+    ///
+    /// `clipped_primitives` must be exactly what the last
+    /// [`Self::paint_and_update_textures`] of this viewport was given, at the same
+    /// `pixels_per_point`. Nothing is uploaded when the renderer's buffers still hold them,
+    /// and then no [`crate::CallbackTrait::prepare`] runs either: only what the textures
+    /// show can differ from the last paint.
+    ///
+    /// Returns how many seconds it took to wait for vsync.
+    pub fn paint_again(
+        &mut self,
+        viewport_id: ViewportId,
+        pixels_per_point: f32,
+        clear_color: [f32; 4],
+        clipped_primitives: &[epaint::ClippedPrimitive],
+        window: &Arc<winit::window::Window>,
+    ) -> f32 {
+        self.paint(
+            viewport_id,
+            pixels_per_point,
+            clear_color,
+            clipped_primitives,
+            &mut epaint::textures::TexturesDelta::default(),
+            vec![],
+            window,
+            true,
+        )
+    }
+
+    #[expect(clippy::too_many_arguments)]
+    fn paint(
+        &mut self,
+        viewport_id: ViewportId,
+        pixels_per_point: f32,
+        clear_color: [f32; 4],
+        clipped_primitives: &[epaint::ClippedPrimitive],
+        textures_delta: &mut epaint::textures::TexturesDelta,
+        capture_data: Vec<egui::ScreenshotCallback>,
+        window: &Arc<winit::window::Window>,
+        same_primitives: bool,
+    ) -> f32 {
         profiling::function_scope!();
 
         /// Guard to ensure that commands are always submitted to the renderer queue
@@ -582,13 +642,25 @@ impl Painter {
                 }
             }
 
-            renderer.update_buffers(
-                &render_state.device,
-                &render_state.queue,
-                &mut encoder,
-                clipped_primitives,
-                &screen_descriptor,
-            )
+            // Painting a viewport's last primitives again needs no upload, as long as
+            // nothing else has uploaded into the renderer's buffers since and the surface
+            // (whose size the uploaded uniforms carry) is as large as it was.
+            let size = screen_descriptor.size_in_pixels;
+            if same_primitives
+                && self.buffers_of == Some((viewport_id, renderer.buffers_generation(), size))
+            {
+                Vec::new()
+            } else {
+                let user_cmd_bufs = renderer.update_buffers(
+                    &render_state.device,
+                    &render_state.queue,
+                    &mut encoder,
+                    clipped_primitives,
+                    &screen_descriptor,
+                );
+                self.buffers_of = Some((viewport_id, renderer.buffers_generation(), size));
+                user_cmd_bufs
+            }
         };
 
         if surface_state.needs_reconfigure {
@@ -632,6 +704,9 @@ impl Painter {
                     SurfaceErrorAction::SkipFrame => {}
                 }
                 if !capture {
+                    // The encoder and the callbacks' command buffers are dropped unsubmitted,
+                    // so the next repeat paint must upload and prepare again.
+                    self.buffers_of = None;
                     return vsync_sec;
                 }
                 None

@@ -53,7 +53,7 @@ pub(super) fn source(
 		return Err(INVALID);
 		#[cfg(feature = "demo")]
 		{
-			let bytes = include_bytes!("../../tests/fixtures/video.mov");
+			let bytes = demo_bytes();
 			if bytes.is_empty() || bytes.len() > MAX_BYTES {
 				return Err(INVALID);
 			}
@@ -67,6 +67,32 @@ pub(super) fn source(
 		position: 0,
 		cache: VecDeque::new(),
 	}))
+}
+
+/// The demo attachment: the bundled fixture, or the local file named by
+/// `--demo-video-file=<path>` so playback can be measured on a real-sized clip.
+#[cfg(feature = "demo")]
+fn demo_bytes() -> &'static [u8] {
+	static BYTES: std::sync::OnceLock<&'static [u8]> = std::sync::OnceLock::new();
+	BYTES.get_or_init(|| {
+		// One byte past the limit is enough to tell an oversized file without loading it.
+		let read = |path: &str| {
+			let mut bytes = Vec::new();
+			std::fs::File::open(path)
+				.ok()?
+				.take(MAX_BYTES as u64 + 1)
+				.read_to_end(&mut bytes)
+				.ok()?;
+			(bytes.len() <= MAX_BYTES).then_some(bytes)
+		};
+		std::env::args()
+			.find_map(|arg| arg.strip_prefix("--demo-video-file=").map(read))
+			.flatten()
+			.map_or(
+				include_bytes!("../../tests/fixtures/video.mov").as_slice(),
+				|bytes| bytes.leak(),
+			)
+	})
 }
 
 enum Input {

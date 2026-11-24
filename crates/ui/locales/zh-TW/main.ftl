@@ -312,6 +312,9 @@ attachments-media-menu-unavailable-for-synthetic-attachments = 合成附件無�
 # Context: open_original
 attachments-open-original-open-original = 開啟原始檔案…
 # Context: pending_card
+attachments-mark-spoiler = 將附件標記為暴雷內容
+attachments-remove-spoiler = 取消附件的暴雷標記
+attachments-spoiler-label = 暴雷內容
 attachments-pending-card-remove-attachment = 移除附件
 # Context: pending_viewer
 attachments-pending-viewer-full-size-unavailable = 無法顯示原尺寸預覽
@@ -5037,3 +5040,8 @@ moderation-confirm-ban = 停權
 ## crates/ui/src/interface_ui.rs
 # Context: interface_tree
 interface-ui-empty = 此擴充功能目前沒有可顯示的內容。
+
+group-add-title = 新增朋友到私訊
+group-add-subtitle = 選擇要新增到此群組的朋友。
+group-add-full = 此群組已達 10 人上限。
+group-add-confirm = 新增朋友

@@ -106,6 +106,10 @@ pub enum PassMode {
     /// Used when the window was asked to redraw, but the windowing system hasn't let it
     /// (e.g. a Wayland compositor withholding frame callbacks from a hidden window).
     LogicOnly,
+
+    /// Paint the shapes of the last pass again if [`crate::App::paint_only`] agrees to;
+    /// otherwise this is [`Self::Full`].
+    PaintOnly,
 }
 
 /// Create an egui context, restoring it from storage if possible.
@@ -151,6 +155,15 @@ pub enum UserEvent {
 
         /// What the cumulative pass number was when the repaint was _requested_.
         cumulative_pass_nr: u64,
+    },
+
+    /// A frame that only paints is requested: see [`crate::App::paint_only`].
+    PaintOnly {
+        /// What to paint again.
+        viewport_id: ViewportId,
+
+        /// When to paint it.
+        when: Instant,
     },
 
     /// A request related to [`accesskit`](https://accesskit.dev/).

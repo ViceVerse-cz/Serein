@@ -315,6 +315,9 @@ attachments-media-menu-unavailable-for-synthetic-attachments = 테스트용 첨�
 # Context: open_original
 attachments-open-original-open-original = 원본 열기…
 # Context: pending_card
+attachments-mark-spoiler = 첨부 파일을 스포일러로 표시
+attachments-remove-spoiler = 첨부 파일의 스포일러 표시 해제
+attachments-spoiler-label = 스포일러
 attachments-pending-card-remove-attachment = 첨부 파일 제거
 # Context: pending_viewer
 attachments-pending-viewer-full-size-unavailable = 전체 크기 미리보기를 사용할 수 없음
@@ -2268,6 +2271,12 @@ reading-chat-reading-settings-scrolling = 스크롤
 # Context: chat_reading_settings
 reading-chat-reading-settings-scrolling-speed = 스크롤 속도
 # Context: chat_reading_settings
+reading-chat-reading-settings-show-server-tags = 채팅에 서버 태그 표시
+# Context: chat_reading_settings
+reading-chat-reading-settings-show-server-tags-description = 메시지에서 이름 옆에 사용자가 착용한 서버 태그를 표시합니다.
+# Context: chat_reading_settings
+reading-chat-reading-settings-show-server-tags-hidden-everywhere = 외관 › 서버 태그가 꺼져 있어 사용할 수 없습니다.
+# Context: chat_reading_settings
 reading-chat-reading-settings-smooth-scrolling = 부드러운 스크롤
 # Context: chat_reading_settings
 reading-chat-reading-settings-compact-message-spacing = 간결한 메시지
@@ -2345,6 +2354,27 @@ screen-source-list-no-screens-or-windows-are-available-yet = 아직 사용 가�
 search-filters-choices-any = 모두
 # Context: show
 search-filters-show-add-date = + 날짜 추가
+search-date-heading = 날짜
+search-date-help = 메시지를 보낸 날짜
+search-date-before = 이전
+search-date-after = 이후
+search-date-during = 해당 날짜
+search-date-remove = 날짜 삭제
+search-date-previous-month = 이전 달
+search-date-next-month = 다음 달
+search-date-invalid = 2015년 1월 1일 이후의 날짜를 선택하세요.
+search-date-invalid-range = 시작 날짜는 종료 날짜보다 앞서야 합니다.
+search-date-month-year = { $year }년 { $count }월
+search-date-weekday =
+    { $count ->
+        [0] 일
+        [1] 월
+        [2] 화
+        [3] 수
+        [4] 목
+        [5] 금
+        *[6] 토
+    }
 # Context: show
 search-filters-show-any = 모두
 # Context: show
@@ -5005,7 +5035,7 @@ settings-cosmetics-all-description = 아래 항목을 모두 한 번에 설정�
 settings-cosmetics-gradient-names = 그라데이션 이름
 settings-cosmetics-gradient-names-description = 여러 색상을 혼합한 역할 및 Nitro 이름입니다. 끄면 첫 번째 색상으로 표시합니다.
 settings-cosmetics-clan-tags = 서버 태그
-settings-cosmetics-clan-tags-description = 이름 옆에 표시하는 서버 태그입니다.
+settings-cosmetics-clan-tags-description = 프로필, 멤버 목록, 메시지에서 이름 옆에 사용자가 착용한 서버 태그입니다.
 main-sign-in-rate-limited-detail = Discord가 로그인 요청을 제한하고 있습니다. 잠시 기다린 후 다시 시도하세요. 그 전에 재시도하면 대기 시간이 더 길어질 수 있습니다.
 
 # Avatar badge while someone is typing.
@@ -5196,3 +5226,8 @@ native-login-web-open = Discord 로그인 페이지 열기
 ## crates/ui/src/interface_ui.rs
 # Context: interface_tree
 interface-ui-empty = 이 플러그인은 아직 표시할 항목이 없습니다.
+
+group-add-title = DM에 친구 추가
+group-add-subtitle = 이 그룹에 추가할 친구를 선택하세요.
+group-add-full = 이 그룹은 최대 인원인 10명에 도달했습니다.
+group-add-confirm = 친구 추가

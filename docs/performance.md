@@ -2085,3 +2085,63 @@ copying the player's decode and palette loops (rustc 1.99.1), 25 frames of 160×
 
 Single runs on a shared desktop. Texture upload, GPU time, frame latency and whole-process CPU
 were not instrumented and are not claimed; other screens pay nothing for the feature.
+
+## Inline video without a ui pass per frame — November 23, 2026
+
+Before this change every decoded picture of a playing attachment asked egui for a repaint:
+the whole ui was laid out, tessellated and uploaded again 30–60 times a second to change
+one texture, and VideoToolbox's GPU surfaces were copied to memory and uploaded back. Now:
+
+- A new picture asks for a paint-only frame (egui fork patch 0029): the picture goes into
+  the texture the last pass drew, and that pass's meshes are presented again without logic,
+  ui, layout, tessellation or a vertex upload. Input, state changes and a visible seek bar
+  still get ordinary passes.
+- On macOS the converter samples the decoder's IOSurface planes in place
+  (`platform::video::Surface`); no plane passes through memory. Linux reuses the plane
+  buffer of the picture shown last instead of allocating one per frame.
+- The player sleeps until the next picture is due instead of polling every 5 ms, and runs
+  its clock between the audio device's position steps instead of jumping with them.
+
+Baseline `8b2c993b` (main) and the changed tree, Rust 1.100.0 on macOS and 1.99.1 on Linux,
+release builds with thin LTO and 16 codegen units (not the shipped fat-LTO profile).
+`--demo --demo-video-playing --demo-video-file=<clip>` played a generated 90 s 1080p60
+H.264 clip (`testsrc2`, libx264 veryfast, 6 Mbps, AAC) in the synthetic channel, controls
+hidden. After 8–10 s, 20 s of user plus system time over all threads, alternating builds
+three times. Percentages are of one core.
+
+| Workload | Before | After | Delta |
+| --- | ---: | ---: | ---: |
+| macOS M5 Pro (Metal, 2240×1520 window), process CPU | 27.1 / 27.2 / 27.3% | 16.1 / 15.7 / 16.5% | −41% |
+| macOS same runs, RSS | 244–247 MiB | 234 MiB | −10 to −13 MiB |
+| macOS same runs, `footprint` | 355–361 MB | 349–351 MB | −4 to −12 MB |
+| macOS, time between pictures handed to the renderer (300-frame windows) | 16.67 ms ± 5.9, max 27.1 | 16.67 ms ± 1.4, max 20.4 | −76% deviation |
+| Asahi Linux (M1, Vulkan, headless labwc 1920×1080), process CPU | 105.4 / 97.0 / 97.2% | 80.4 / 80.9 / 81.3% | −19% |
+| Asahi same runs, main and render threads | 31.0 / 29.5 / 29.2% | 12.8 / 13.0 / 13.0% | −57% |
+| Asahi same runs, `openh264dec` streaming thread | 62–64% | 62–63% | unchanged |
+
+Watched streams and remote cameras take the same paint-only path; a stream's queued pictures
+ask for their frame at their presentation deadline. No real stream was used. The demo flag
+`--demo-call-stream-live` feeds generated 1080p60 pictures, stamped 80 ms ahead, through the
+stream's own queue and wake-ups, and `--demo-full-repaints` turns the paint-only handle off
+in the same binary for comparison (two alternating 15 s runs on the Asahi machine):
+
+| Workload | Repaint per picture | Paint-only | Delta |
+| --- | ---: | ---: | ---: |
+| Synthetic 1080p60 stream, main and render threads | 29.4 / 29.5% | 14.1 / 13.8% | −53% |
+| Same runs, pictures shown through a paint-only frame | 0 | about 296 of 300 per 5 s | |
+
+The generator itself costs another 20% of a core in both columns and is not app work.
+
+The Linux runs used the same clip without its audio track, because the SSH session has no
+audio output device. No picture was dropped in any macOS pacing window. Single macOS runs
+while building the change put the steps at roughly 25% (baseline), 20% (paint-only frames),
+18% (decoder surfaces) and 13% (no mesh upload on a paint-only frame); those came from a
+different session than the table and are an attribution, not a second measurement.
+
+The synthetic channel is almost empty, so the ui pass that no longer runs is small here; a
+busy channel was not measured. Windows was neither built nor measured: it gets paint-only
+frames and the player changes but still copies planes. On Linux the decoder dominates when
+no hardware decoder is installed. Real calls and streams were not run: the stream numbers
+come from the synthetic source only, and stream and camera pictures are still copied on
+every platform. Package size was not measured. `video::gst::tests::native_mov_decodes_audio_video_and_seeks` fails
+on the Asahi machine ("no frame after seek") with and without this change.

@@ -673,6 +673,20 @@ keyframes use an unsigned `VT_UI4` value, as required by
 [`CODECAPI_AVEncVideoForceKeyFrame`](https://learn.microsoft.com/en-us/windows/win32/medfound/codecapi-avencvideoforcekeyframe).
 An encoder that rejects a differently typed control causes software fallback.
 
+Rate control is peak-constrained VBR (peak 1.5× the mean, a 250 ms buffer, a
+quality-leaning speed preset), not CBR. On an RX 6800 XT, AMD's MFT in CBR padded
+every picture to exactly bitrate ÷ fps with filler NAL units, ignored the buffer size,
+and sent a periodic IDR of about 240 KB at the 720p30 4 Mbps preset. That is roughly
+half a second of the target rate in one picture. Without RTX every reported loss
+forces a keyframe (at most every 500 ms), so oversized IDRs on a link already full of
+filler can keep the pacer busy with IDRs. That matches a user report of about 5 fps
+with block artifacts on that card; the live effect is unverified. The same synthetic 720p30 desktop
+now averages about 0.7 Mbps with no filler. Screen sharing refreshes with a periodic
+IDR only every 10 seconds; viewers request keyframes on join and on loss. The camera
+keeps its periodic IDR cadence. Encoders that reject a control keep their defaults.
+`cargo test --release -p discord-voice hardware_encoder_sends_no_filler -- --ignored`
+checks the local hardware encoder for filler data and unrequested IDRs.
+
 The MFT's [`cbSize`](https://learn.microsoft.com/en-us/windows/win32/api/mftransform/ns-mftransform-mft_output_stream_info)
 is its minimum output-buffer capacity, not the compressed sample length. Caller-owned
 output allocations may use up to the larger of one bounded 32-bit raw picture and

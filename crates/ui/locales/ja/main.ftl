@@ -312,6 +312,9 @@ attachments-media-menu-unavailable-for-synthetic-attachments = 合成アタッ�
 # Context: open_original
 attachments-open-original-open-original = オリジナルを開く…
 # Context: pending_card
+attachments-mark-spoiler = 添付ファイルをネタバレとしてマーク
+attachments-remove-spoiler = ネタバレ指定を解除
+attachments-spoiler-label = ネタバレ
 attachments-pending-card-remove-attachment = 添付ファイルを削除する
 # Context: pending_viewer
 attachments-pending-viewer-full-size-unavailable = フルサイズのプレビューを表示できません
@@ -4923,3 +4926,8 @@ moderation-confirm-ban = BAN
 ## crates/ui/src/interface_ui.rs
 # Context: interface_tree
 interface-ui-empty = このプラグインにはまだ表示するものがありません。
+
+group-add-title = DMに友達を追加
+group-add-subtitle = このグループに追加する友達を選んでください。
+group-add-full = このグループは上限の10人に達しています。
+group-add-confirm = 友達を追加

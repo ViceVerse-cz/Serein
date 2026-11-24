@@ -44,7 +44,13 @@ pub struct Decoder {
 	audio_done: bool,
 	/// Presentation time of the last picture handed out; decoders may repeat a frame at EOS.
 	last_video_pts: f64,
+	/// Plane buffers of pictures the caller is done with: see [`Decoder::recycle`].
+	spare: Vec<Vec<u8>>,
 }
+
+/// Returned plane buffers kept for the next pictures; more than the caller holds at once
+/// would only be memory.
+const MAX_SPARE: usize = 2;
 
 impl Drop for Decoder {
 	fn drop(&mut self) {
@@ -80,12 +86,13 @@ impl Decoder {
 		source.seek(SeekFrom::Start(0)).map_err(|_| INVALID)?;
 		let mut header = [0_u8; 8];
 		source.read_exact(&mut header).map_err(|_| INVALID)?;
-		// Same container gate as the other platforms: only MPEG-4/QuickTime attachments.
-		if length < 8
-			|| !matches!(
-				&header[4..],
-				b"ftyp" | b"moov" | b"mdat" | b"free" | b"skip" | b"wide"
-			) {
+		// Admit MPEG-4/QuickTime and WebM/Matroska, matching the Windows decoder.
+		let mp4 = matches!(
+			&header[4..],
+			b"ftyp" | b"moov" | b"mdat" | b"free" | b"skip" | b"wide"
+		);
+		let ebml = header[..4] == [0x1a, 0x45, 0xdf, 0xa3];
+		if length < 8 || (!mp4 && !ebml) {
 			return Err(UNSUPPORTED);
 		}
 		gst::init().map_err(|_| UNSUPPORTED)?;
@@ -240,6 +247,7 @@ impl Decoder {
 			video_done: false,
 			audio_done: !has_audio,
 			last_video_pts: f64::NEG_INFINITY,
+			spare: Vec::new(),
 		})
 	}
 
@@ -294,8 +302,21 @@ impl Decoder {
 		self.last_video_pts = pts;
 		Ok(Poll::Ready(Some(Sample::Video {
 			pts: self.last_video_pts,
-			picture: picture(&sample, super::check_dimensions)?,
+			picture: picture_into(
+				&sample,
+				super::check_dimensions,
+				self.spare.pop().unwrap_or_default(),
+			)?,
 		})))
+	}
+
+	/// Takes back a picture the caller has shown, so the next one is packed into its
+	/// buffer. A fresh multi-megabyte buffer per frame is paged in by the kernel every
+	/// time; a reused one is not.
+	pub fn recycle(&mut self, picture: Picture) {
+		if self.spare.len() < MAX_SPARE {
+			self.spare.push(picture.data);
+		}
 	}
 
 	pub fn poll_audio(&mut self) -> Result<Poll<Option<Sample>>, &'static str> {
@@ -568,6 +589,15 @@ pub(super) fn picture(
 	sample: &gst::Sample,
 	check_dimensions: fn(u32, u32) -> Result<(), &'static str>,
 ) -> Result<Picture, &'static str> {
+	picture_into(sample, check_dimensions, Vec::new())
+}
+
+/// [`picture`], packed into `data`'s allocation; whatever it held is discarded.
+fn picture_into(
+	sample: &gst::Sample,
+	check_dimensions: fn(u32, u32) -> Result<(), &'static str>,
+	mut data: Vec<u8>,
+) -> Result<Picture, &'static str> {
 	let caps = sample.caps().ok_or(INVALID)?;
 	let info = gst_video::VideoInfo::from_caps(caps).map_err(|_| INVALID)?;
 	let (width, height) = (info.width(), info.height());
@@ -605,7 +635,8 @@ pub(super) fn picture(
 		Layout::Nv12 => &[(w, h), (chroma_w * 2, chroma_h)],
 		_ => &[(w, h), (chroma_w, chroma_h), (chroma_w, chroma_h)],
 	};
-	let mut data = Vec::with_capacity(len);
+	data.clear();
+	data.reserve_exact(len);
 	for (plane, &(row_bytes, rows)) in planes.iter().enumerate() {
 		let stride = frame
 			.plane_stride()
@@ -895,5 +926,24 @@ mod tests {
 		let decoded = picture(&sample, super::super::check_dimensions).unwrap();
 		assert_eq!((decoded.width, decoded.height), (1920, 3840));
 		assert!(decoded.is_valid());
+	}
+
+	#[test]
+	fn webm_attachment_decodes_and_seeks() {
+		let bytes = include_bytes!("../../../../apps/desktop/tests/fixtures/video.webm");
+		let mut decoder = Decoder::open(Box::new(std::io::Cursor::new(bytes.as_slice()))).unwrap();
+		assert_eq!((decoder.info().width, decoder.info().height), (320, 180));
+		let Some(Sample::Video { picture, .. }) =
+			wait_for_sample(&mut decoder, Decoder::poll_video)
+		else {
+			panic!("no frame");
+		};
+		assert!(picture.is_valid());
+		decoder.seek(1.0).unwrap();
+		let Some(Sample::Video { pts, .. }) = wait_for_sample(&mut decoder, Decoder::poll_video)
+		else {
+			panic!("no frame after seek");
+		};
+		assert!((0.9..1.2).contains(&pts), "{pts}");
 	}
 }

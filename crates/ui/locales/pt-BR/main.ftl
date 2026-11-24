@@ -311,6 +311,9 @@ attachments-media-menu-unavailable-for-synthetic-attachments = Indisponível par
 # Context: open_original
 attachments-open-original-open-original = Abra o original…
 # Context: pending_card
+attachments-mark-spoiler = Marcar anexo como spoiler
+attachments-remove-spoiler = Remover marcação de spoiler
+attachments-spoiler-label = Spoiler
 attachments-pending-card-remove-attachment = Remover anexo
 # Context: pending_viewer
 attachments-pending-viewer-full-size-unavailable = Prévia em tamanho original indisponível
@@ -4940,3 +4943,8 @@ moderation-confirm-ban = Banir
 ## crates/ui/src/interface_ui.rs
 # Context: interface_tree
 interface-ui-empty = Este plug-in ainda não tem nada para mostrar.
+
+group-add-title = Adicionar amigos à DM
+group-add-subtitle = Escolha um amigo para adicionar a este grupo.
+group-add-full = Este grupo atingiu o limite de 10 pessoas.
+group-add-confirm = Adicionar amigo

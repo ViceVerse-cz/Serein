@@ -15,14 +15,16 @@ pub enum OutputConfigPreference {
 
 /// Select only F32/I16/I32/U16, 1–8 channels and 8–192 kHz. Never opens a stream.
 /// Windows always retains the native shared-mode default, avoiding converted WASAPI
-/// formats that some drivers advertise but reject when opening a stream.
+/// formats that some drivers advertise but reject when opening a stream. On macOS,
+/// keep the active device format so voice playback does not change the Bluetooth clock.
 pub fn output_config(
 	device: &cpal::Device,
 	preference: OutputConfigPreference,
 ) -> Result<SupportedStreamConfig, &'static str> {
 	select_output_config(
 		preference,
-		cfg!(target_os = "windows"),
+		cfg!(target_os = "windows")
+			|| (cfg!(target_os = "macos") && preference == OutputConfigPreference::Voice),
 		|| {
 			device
 				.default_output_config()
@@ -204,7 +206,7 @@ mod tests {
 	}
 
 	#[test]
-	fn windows_native_mix_never_uses_advertised_converted_formats() {
+	fn native_mix_never_requests_an_advertised_rate() {
 		for preference in [Voice, Notification] {
 			let choose = |default| {
 				select_output_config(
@@ -212,18 +214,18 @@ mod tests {
 					true,
 					|| default,
 					|| -> Result<std::iter::Empty<SupportedStreamConfigRange>, &'static str> {
-						panic!("WASAPI enumeration must not run")
+						panic!("native mix enumeration must not run")
 					},
 				)
 			};
-			let native = choose(Ok(default_config(6, 44_100, SampleFormat::F32))).unwrap();
+			let native = choose(Ok(default_config(2, 24_000, SampleFormat::F32))).unwrap();
 			assert_eq!(
 				(
 					native.channels(),
 					native.sample_rate(),
 					native.sample_format()
 				),
-				(6, 44_100, SampleFormat::F32)
+				(2, 24_000, SampleFormat::F32)
 			);
 			assert!(choose(Ok(default_config(2, 48_000, SampleFormat::I24))).is_err());
 			assert_eq!(choose(Err("no native mix")).unwrap_err(), "no native mix");

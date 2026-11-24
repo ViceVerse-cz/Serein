@@ -49,6 +49,9 @@ class NativePackageTest(unittest.TestCase):
                     artifact, = staged.glob("*.pkg.tar.*")
                     metadata = packaging.output("bsdtar", "-xOf", str(artifact), ".PKGINFO")
                     self.assertIn("depend = gst-plugins-good", metadata.splitlines())
+                    # /bin/true links libc; the builder's installed glibc version is not an ABI floor.
+                    self.assertIn("depend = glibc", metadata.splitlines())
+                    self.assertNotIn("depend = glibc>=", metadata)
                     version = next(line.removeprefix("pkgver = ") for line in metadata.splitlines()
                                    if line.startswith("pkgver = "))
                     self.assertEqual(packaging.output("vercmp", version, "0.1.0-1"), "-1")

@@ -380,6 +380,8 @@ pub struct Voice {
 	camera_scan: Option<mpsc::Receiver<Result<discord_voice::camera::DeviceList, &'static str>>>,
 	/// Remote camera textures behind `ui.voice_remote_video`, by user.
 	remote_textures: Vec<(Id, crate::gpu_video::VideoTexture)>,
+	/// Asks the renderer for a frame that only presents a new picture.
+	presenter: Option<eframe::PaintOnlyRequester>,
 	/// A joined call failed; the next poll plays the leave cue a hangup would.
 	leave_cue: bool,
 	rejoin: Option<Rejoin>,
@@ -388,6 +390,52 @@ pub struct Voice {
 	pub gateway_check: bool,
 }
 impl Voice {
+	/// Hands over the renderer's paint-only handle once it exists; `None` keeps full repaints.
+	pub fn set_presenter(&mut self, presenter: Option<eframe::PaintOnlyRequester>) {
+		if self.presenter.is_none() {
+			self.presenter = presenter.clone();
+		}
+		self.watch.set_presenter(presenter);
+	}
+	/// A watched stream or a remote camera is on screen: keep the last pass's shapes for
+	/// [`Self::paint_only`].
+	pub fn shows_video(&self) -> bool {
+		self.watch.live() || !self.remote_textures.is_empty()
+	}
+	/// Shows new stream and camera pictures in the textures the last ui pass drew, without
+	/// a ui pass. `false` when the ui has to run instead: a camera with no texture yet, or
+	/// a picture of another size.
+	pub fn paint_only(&mut self, ctx: &egui::Context) -> bool {
+		if !self.watch.paint_only(ctx) {
+			return false;
+		}
+		let Some(live) = &self.live else {
+			return true;
+		};
+		// The decoder holds the lock only while it copies a picture in; its own wake follows.
+		let Ok(mut slot) = live.remote_video.try_lock() else {
+			return true;
+		};
+		let textures = &mut self.remote_textures;
+		let fits = slot.iter().all(|(user, picture, dirty)| {
+			!*dirty
+				|| textures
+					.iter()
+					.any(|(id, texture)| id.0 == *user && texture.fits_picture(&picture.borrow()))
+		});
+		if !fits {
+			return false;
+		}
+		for (user, picture, dirty) in slot.iter_mut() {
+			if std::mem::take(dirty)
+				&& let Some((_, texture)) = textures.iter_mut().find(|(id, _)| id.0 == *user)
+			{
+				let name = format!("remote-camera-{user}");
+				texture.upload(ctx, &name, picture.borrow());
+			}
+		}
+		true
+	}
 	pub fn stop(&mut self) {
 		self.camera_test = None;
 		self.mic_preview = None;
@@ -1936,13 +1984,13 @@ impl Voice {
 		let remote_video: Arc<std::sync::Mutex<RemotePictures>> =
 			Arc::new(std::sync::Mutex::new(Vec::new()));
 		let pictures = remote_video.clone();
-		let picture_wake = ctx.clone();
+		let picture_wake = crate::gpu_video::Wake::new(ctx, self.presenter.clone());
 		let sink: discord_voice::VideoSink = Arc::new(move |frame: discord_voice::RemoteFrame| {
 			if pictures
 				.lock()
 				.is_ok_and(|mut pictures| store_remote_frame(&mut pictures, frame))
 			{
-				picture_wake.request_repaint();
+				picture_wake.picture();
 			}
 		});
 		audio.set_controls(listen_only || ui.voice_push_to_talk, false);

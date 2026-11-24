@@ -312,6 +312,9 @@ attachments-media-menu-unavailable-for-synthetic-attachments = Недоступ�
 # Context: open_original
 attachments-open-original-open-original = Открыть оригинал…
 # Context: pending_card
+attachments-mark-spoiler = Пометить вложение как спойлер
+attachments-remove-spoiler = Снять пометку спойлера
+attachments-spoiler-label = Спойлер
 attachments-pending-card-remove-attachment = Удалить вложение
 # Context: pending_viewer
 attachments-pending-viewer-full-size-unavailable = Полноразмерный просмотр недоступен
@@ -4950,3 +4953,8 @@ moderation-confirm-ban = Забанить
 ## crates/ui/src/interface_ui.rs
 # Context: interface_tree
 interface-ui-empty = Плагину пока нечего показать.
+
+group-add-title = Добавить друзей в ЛС
+group-add-subtitle = Выберите друга, которого нужно добавить в эту группу.
+group-add-full = Эта группа достигла лимита в 10 человек.
+group-add-confirm = Добавить друга

@@ -312,6 +312,9 @@ attachments-media-menu-unavailable-for-synthetic-attachments = Sentetik ataşman
 # Context: open_original
 attachments-open-original-open-original = Orijinali aç…
 # Context: pending_card
+attachments-mark-spoiler = Eki spoiler olarak işaretle
+attachments-remove-spoiler = Spoiler işaretini kaldır
+attachments-spoiler-label = Spoiler
 attachments-pending-card-remove-attachment = Eki kaldır
 # Context: pending_viewer
 attachments-pending-viewer-full-size-unavailable = Tam boyutlu önizleme kullanılamıyor
@@ -4926,3 +4929,8 @@ moderation-confirm-ban = Yasakla
 ## crates/ui/src/interface_ui.rs
 # Context: interface_tree
 interface-ui-empty = Bu eklentinin henüz gösterecek bir şeyi yok.
+
+group-add-title = DM'e arkadaş ekle
+group-add-subtitle = Bu gruba eklemek için bir arkadaş seç.
+group-add-full = Bu grup 10 kişilik sınıra ulaştı.
+group-add-confirm = Arkadaş Ekle

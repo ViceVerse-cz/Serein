@@ -312,6 +312,9 @@ attachments-media-menu-unavailable-for-synthetic-attachments = 合成附件无�
 # Context: open_original
 attachments-open-original-open-original = 打开原始文件…
 # Context: pending_card
+attachments-mark-spoiler = 将附件标记为剧透
+attachments-remove-spoiler = 取消附件剧透标记
+attachments-spoiler-label = 剧透
 attachments-pending-card-remove-attachment = 移除附件
 # Context: pending_viewer
 attachments-pending-viewer-full-size-unavailable = 无法显示原尺寸预览
@@ -5037,3 +5040,8 @@ moderation-confirm-ban = 封禁
 ## crates/ui/src/interface_ui.rs
 # Context: interface_tree
 interface-ui-empty = 此插件暂时没有可显示的内容。
+
+group-add-title = 添加朋友到私信
+group-add-subtitle = 选择要添加到此群组的朋友。
+group-add-full = 此群组已达到 10 人上限。
+group-add-confirm = 添加朋友

@@ -163,6 +163,7 @@ where
     /// Add an undo point if, and only if, there has been a change since the latest undo point.
     pub fn add_undo(&mut self, current_state: &State) {
         if self.undos.back() != Some(current_state) {
+            self.redos.clear();
             self.undos.push_back(current_state.clone());
         }
         while self.undos.len() > self.settings.max_undos {

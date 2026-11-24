@@ -755,6 +755,21 @@ Offline HTTP, reducer, image-boundary and egui interaction tests cover these
 paths. The demo includes a synthetic group. No live group was edited, left, or
 muted, and normal-account service interoperability remains unverified.
 
+### Add friends to an existing group DM
+
+The conversation header opens a friend picker for the selected group. It adds one
+friend per confirmed request. The picker excludes the signed-in account and
+current recipients, and disables additions when the group reaches ten people.
+Discord documents the [Add Friends to DM control and group size](https://support.discord.com/hc/en-us/articles/223657667-Group-Chat-and-Calls).
+
+The normal-account client route is unofficial. Serein sends an empty
+PUT to /channels/{channel}/recipients/{user} with the Add Friends to DM request
+context, as observed in [discord.py-self](https://github.com/dolfies/discord.py-self/blob/master/discord/http.py).
+The documented OAuth route requires a recipient token with the gdm.join scope.
+Serein uses the active account session and sends no OAuth recipient token.
+An empty success response confirms the write. A newer recipient event or group
+snapshot takes precedence over the local result. Verification is offline.
+
 ## Embed image galleries — September 11, 2026
 
 Consecutive same-URL image embeds now share one native card: two columns, with a
@@ -1283,7 +1298,7 @@ Loaded threads (September 10): READY guild thread arrays follow the original [di
 
 Serein is unofficial and not endorsed by Discord. No normal-user live session has been tested. Technical compatibility does not imply approval. Discord forbids normal-account automation outside its OAuth2/bot API and warns of account termination ([policy](https://support.discord.com/hc/en-us/articles/115002192352-Automated-User-Accounts-Self-Bots)); its [terms](https://discord.com/terms) also apply.
 
-Server identity tags (September 19): Discord's documented [User object](https://docs.discord.com/developers/resources/user#user-object) may include `primary_guild` with an enabled identity, guild ID, tag and badge hash. Serein retains a valid identity from ordinary user payloads for profile cards, server-channel and thread member rows, and one-to-one DM rows. Profile cards can therefore show it before the unofficial extended-profile request completes or when that request fails; a completed extended profile remains authoritative, including removal of a stale tag. The older duplicated `clan` shape is accepted only as a bounded fallback. Normal-account delivery remains live-unverified.
+Server identity tags (September 19): Discord's documented [User object](https://docs.discord.com/developers/resources/user#user-object) may include `primary_guild` with an enabled identity, guild ID, tag and badge hash. Serein retains a valid identity from ordinary user payloads for profile cards, server-channel and thread member rows, one-to-one DM rows and, since November 2026, message author headers (cozy and compact; Settings › Chat can leave them out of messages). Cached history is stored without the identity, so restored rows show tags only after the message author is seen in a fresh payload. Profile cards can therefore show it before the unofficial extended-profile request completes or when that request fails; a completed extended profile remains authoritative, including removal of a stale tag. The older duplicated `clan` shape is accepted only as a bounded fallback. Normal-account delivery remains live-unverified.
 
 | Capability | Credential / evidence | Classification | Serein status / fallback |
 |---|---|---|---|
@@ -1299,7 +1314,7 @@ Server identity tags (September 19): Discord's documented [User object](https://
 | People / member pane | Normal session; [discord.py-self Gateway](https://github.com/dolfies/discord.py-self/blob/master/discord/gateway.py), [member-list identity](https://github.com/dolfies/discord.py-self/blob/master/discord/abc.py), [wire types](https://github.com/dolfies/discord.py-self/blob/master/discord/types/gateway.py) | Unofficial and unstable | On-demand opcode 37 with the required guild typing subscription, first 100 list positions, typed incremental operations, identity/request filtering and 15-second timeout; list identity resolves from current bounded permission metadata rather than the initial channel snapshot; DM recipients from READY. Missing metadata or unsupported replies show unavailable; live-unverified |
 | Profile pictures | [Discord image formatting](https://docs.discord.com/developers/reference#image-formatting), [User resource](https://docs.discord.com/developers/resources/user#user-object) | Documented CDN paths and user metadata; normal-session acquisition unofficial | Static PNGs, credential-free requests, account-isolated disk cache, bounded decode/textures, fallback initials; offline transport/cache tests only |
 | User mentions | [Message formatting](https://docs.discord.com/developers/reference#message-formatting) | Documented syntax; normal-user notification behavior unverified | Local @ autocomplete, clickable names/profile cards, exact user allowlists, bounded SQLite metadata; tests and limits |
-| User profile cards | Normal session `/users/{id}/profile`; documented [User object](https://docs.discord.com/developers/resources/user#user-object); [public implementation](https://github.com/dolfies/discord.py-self/blob/master/discord/http.py) | Base server identity shape documented; extended route and normal-session delivery unofficial/live-unverified | Anchored popout with banner/avatar/bio/pronouns/badge artwork/server tag/theme colors/connections/mutual servers and retained presence/custom status, cancellable requests and visible failures. Bounded base-user identity supplies compact badge/tag chips in profile, member and direct-message rows while the extended profile is unavailable; badge CDN paths are observed, not documented; evidence |
+| User profile cards | Normal session `/users/{id}/profile`; documented [User object](https://docs.discord.com/developers/resources/user#user-object); [public implementation](https://github.com/dolfies/discord.py-self/blob/master/discord/http.py) | Base server identity shape documented; extended route and normal-session delivery unofficial/live-unverified | Anchored popout with banner/avatar/bio/pronouns/badge artwork/server tag/theme colors/connections/mutual servers and retained presence/custom status, cancellable requests and visible failures. Bounded base-user identity supplies compact badge/tag chips in profile, member, direct-message and message-header rows while the extended profile is unavailable; badge CDN paths are observed, not documented; evidence |
 | History, send, edit, delete, replies | Normal session; [message resource](https://docs.discord.com/developers/resources/message) and Abaddon | Documented bot-facing resource; user compatibility unofficial | Experimental text adapter; owner permissions remain server-authoritative |
 | Realtime, resume | Normal session; [Gateway](https://docs.discord.com/developers/events/gateway), Abaddon Identify/READY | Documented lifecycle; normal-user Identify and dispatch differences unofficial | Bounded JSON transport; incompatible snapshots fail. The Gateway address is the fixed `wss://gateway.discord.gg` (unofficial: the web client's page config), not a `GET /gateway` answer, and READY supplies the account identity instead of `GET /users/@me` |
 | Rate limits | Credential-specific response headers/body; [rate limits](https://docs.discord.com/developers/topics/rate-limits) | Documented; do not assume bot quotas | Conservative shared cooldown; a message send rejected with a JSON 429 and a finite positive retry_after stays pending and is resent with its nonce after the service's wait, at most 30 times, with the official client's "sending too quickly" notice. No other write is retried. Idempotent reads wait out up to two short JSON 429 responses. An HTML or plain-text 429 (a Cloudflare block page, unofficial) never changes host and is never automatically retried, including by the outer message queue: it starts the shared cooldown from `Retry-After`, the reset header or a 60-second default and stops the connection with a non-retryable block reason. Missing or invalid JSON retry_after also prevents automatic resend. Account codes 40002 and 40004 stop authenticated traffic; 40003 and 50007 hold back the relevant writes; see "Flagging-risk corrections" below |
@@ -2946,6 +2961,16 @@ claim of exact official-client picker parity. Synthetic tests cover composer key
 routing, offset/calendar validation, stale insertion and budget rejection, plus body
 and preview rendering. Native screenshots and an owner-authorized live test could not
 be captured in this development session: computer use exposed no native applications.
+
+## Spoilers on staged attachments
+
+The composer and forum attachment trays offer a per-file spoiler toggle, following
+[Discord's attachment guidance](https://support.discord.com/hc/en-us/articles/360022320632-Spoiler-Tags).
+Discord's [documented attachment object](https://docs.discord.com/developers/resources/message#attachment-object)
+sets `IS_SPOILER` from `is_spoiler: true` in message attachment metadata. Serein
+uses that field after staging the bytes. Legacy `SPOILER_` names start marked.
+Clearing that mark removes the prefix from the outgoing filename while preserving
+the source file. Offline fixtures verify the request. Live delivery is unverified.
 
 ## Public Catbox attachment links (October 2, 2026)
 

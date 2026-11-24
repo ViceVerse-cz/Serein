@@ -315,6 +315,9 @@ attachments-media-menu-unavailable-for-synthetic-attachments = Unavailable for s
 # Context: open_original
 attachments-open-original-open-original = Open original…
 # Context: pending_card
+attachments-mark-spoiler = Mark attachment as spoiler
+attachments-remove-spoiler = Remove attachment spoiler
+attachments-spoiler-label = Spoiler
 attachments-pending-card-remove-attachment = Remove attachment
 # Context: pending_viewer
 attachments-pending-viewer-full-size-unavailable = Full-size preview unavailable
@@ -2306,6 +2309,12 @@ reading-chat-reading-settings-scrolling = Scrolling
 # Context: chat_reading_settings
 reading-chat-reading-settings-scrolling-speed = Scrolling speed
 # Context: chat_reading_settings
+reading-chat-reading-settings-show-server-tags = Show server tags in chat
+# Context: chat_reading_settings
+reading-chat-reading-settings-show-server-tags-description = Show the server tag a person wears beside their name in messages.
+# Context: chat_reading_settings
+reading-chat-reading-settings-show-server-tags-hidden-everywhere = Off because Appearance › Server tags is off.
+# Context: chat_reading_settings
 reading-chat-reading-settings-smooth-scrolling = Smooth scrolling
 # Context: chat_reading_settings
 reading-chat-reading-settings-compact-message-spacing = Compact messages
@@ -2383,6 +2392,41 @@ screen-source-list-no-screens-or-windows-are-available-yet = No screens or windo
 search-filters-choices-any = Any
 # Context: show
 search-filters-show-add-date = +  Add date
+search-date-heading = Date
+search-date-help = When the message was sent
+search-date-before = Before
+search-date-after = After
+search-date-during = During
+search-date-remove = Remove date
+search-date-previous-month = Previous month
+search-date-next-month = Next month
+search-date-invalid = Choose a date after January 1, 2015.
+search-date-invalid-range = After must be earlier than Before.
+search-date-month-year =
+    { $count ->
+        [1] January { $year }
+        [2] February { $year }
+        [3] March { $year }
+        [4] April { $year }
+        [5] May { $year }
+        [6] June { $year }
+        [7] July { $year }
+        [8] August { $year }
+        [9] September { $year }
+        [10] October { $year }
+        [11] November { $year }
+        *[12] December { $year }
+    }
+search-date-weekday =
+    { $count ->
+        [0] Su
+        [1] Mo
+        [2] Tu
+        [3] We
+        [4] Th
+        [5] Fr
+        *[6] Sa
+    }
 # Context: show
 search-filters-show-any = Any
 # Context: show
@@ -5069,7 +5113,7 @@ settings-cosmetics-all-description = Everything below at once. Turning it off al
 settings-cosmetics-gradient-names = Gradient names
 settings-cosmetics-gradient-names-description = Role and Nitro names that blend several colours. Off paints them in their first colour.
 settings-cosmetics-clan-tags = Server tags
-settings-cosmetics-clan-tags-description = The server tag a person wears beside their name.
+settings-cosmetics-clan-tags-description = The server tag a person wears beside their name in profiles, member lists and messages.
 main-sign-in-rate-limited-detail = Discord is rate limiting this sign-in. Wait before trying again. Another attempt before that can make the wait longer.
 
 # Avatar badge while someone is typing.
@@ -5220,3 +5264,8 @@ native-login-web-open = Open Discord's login page
 ## crates/ui/src/interface_ui.rs
 # Context: interface_tree
 interface-ui-empty = This plugin has nothing to show yet.
+
+group-add-title = Add Friends to DM
+group-add-subtitle = Choose a friend to add to this group.
+group-add-full = This group has reached the 10-person limit.
+group-add-confirm = Add Friend

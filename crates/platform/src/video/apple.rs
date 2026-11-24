@@ -8,7 +8,9 @@ use super::{
 	mp4::{self, AudioCodec, Movie, SampleEntry, VideoCodec},
 	picture::pack_plane,
 };
-use objc2_core_foundation::{CFArray, CFDictionary, CFNumber, CFRetained, CFString};
+use objc2_core_foundation::{
+	CFArray, CFBoolean, CFDictionary, CFNumber, CFRetained, CFString, CFType, kCFBooleanTrue,
+};
 use objc2_core_media::{
 	CMBlockBuffer, CMFormatDescription, CMSampleBuffer, CMSampleTimingInfo, CMTime, CMTimeFlags,
 	CMVideoFormatDescriptionCreateFromH264ParameterSets,
@@ -17,13 +19,17 @@ use objc2_core_media::{
 use objc2_core_video::{
 	CVImageBuffer, CVPixelBuffer, CVPixelBufferCreate, CVPixelBufferGetBaseAddressOfPlane,
 	CVPixelBufferGetBytesPerRowOfPlane, CVPixelBufferGetHeight, CVPixelBufferGetHeightOfPlane,
-	CVPixelBufferGetPixelFormatType, CVPixelBufferGetPlaneCount, CVPixelBufferGetWidth,
-	CVPixelBufferGetWidthOfPlane, CVPixelBufferLockBaseAddress, CVPixelBufferLockFlags,
-	CVPixelBufferUnlockBaseAddress, kCVImageBufferYCbCrMatrix_ITU_R_601_4,
+	CVPixelBufferGetIOSurface, CVPixelBufferGetPixelFormatType, CVPixelBufferGetPlaneCount,
+	CVPixelBufferGetWidth, CVPixelBufferGetWidthOfPlane, CVPixelBufferLockBaseAddress,
+	CVPixelBufferLockFlags, CVPixelBufferUnlockBaseAddress, kCVImageBufferYCbCrMatrix_ITU_R_601_4,
 	kCVImageBufferYCbCrMatrix_ITU_R_709_2, kCVImageBufferYCbCrMatrix_ITU_R_2020,
 	kCVImageBufferYCbCrMatrix_SMPTE_240M_1995, kCVImageBufferYCbCrMatrixKey,
+	kCVPixelBufferIOSurfacePropertiesKey, kCVPixelBufferMetalCompatibilityKey,
 	kCVPixelBufferPixelFormatTypeKey, kCVPixelFormatType_420YpCbCr8BiPlanarFullRange,
 	kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+};
+use objc2_metal::{
+	MTLDevice, MTLPixelFormat, MTLTextureDescriptor, MTLTextureType, MTLTextureUsage,
 };
 use objc2_video_toolbox::{
 	VTDecodeFrameFlags, VTDecodeInfoFlags, VTDecompressionOutputCallbackRecord,
@@ -53,7 +59,158 @@ const MAX_AUDIO_FRAMES: usize = 4096;
 struct Decoded {
 	/// Presentation time in video track ticks.
 	pts: i64,
-	picture: Picture,
+	picture: Held,
+}
+
+/// A decoded picture as the output callback keeps it.
+enum Held {
+	Packed(Picture),
+	Surface(Surface),
+}
+
+/// A decoded picture left on the decoder's own surface: bi-planar 4:2:0 in an IOSurface
+/// that a Metal renderer samples in place, so the planes are never copied through memory.
+/// Ask a [`Decoder`] for these with [`Decoder::surfaces`].
+#[derive(Clone)]
+pub struct Surface {
+	pixels: CFRetained<CVPixelBuffer>,
+	width: u32,
+	height: u32,
+	color: Color,
+	rotation: u16,
+}
+// SAFETY: Core Video counts references atomically, and this type only reads the buffer.
+// The decoder does not write a buffer again while a reference to it is held: its pool
+// reuses a buffer only once every reference is gone.
+unsafe impl Send for Surface {}
+// SAFETY: As above; every method takes `&self` and only reads.
+unsafe impl Sync for Surface {}
+
+impl Surface {
+	/// Keeps `image` if it is a bounded NV12 picture backed by an IOSurface.
+	fn new(image: &CVImageBuffer, rotation: u16) -> Option<Self> {
+		let (width, height, color) = nv12_layout(image, super::check_dimensions).ok()?;
+		CVPixelBufferGetIOSurface(Some(image))?;
+		Some(Self {
+			// SAFETY: `image` is a live Core Video buffer; this takes its own reference.
+			pixels: unsafe { CFRetained::retain(NonNull::from(image)) },
+			width,
+			height,
+			color,
+			rotation,
+		})
+	}
+
+	/// Coded size of the luma plane; the chroma plane is half of it, rounded up.
+	pub fn size(&self) -> (u32, u32) {
+		(self.width, self.height)
+	}
+
+	/// Size on screen, after [`Self::rotation`].
+	pub fn display_size(&self) -> (u32, u32) {
+		if matches!(self.rotation, 90 | 270) {
+			(self.height, self.width)
+		} else {
+			(self.width, self.height)
+		}
+	}
+
+	pub fn color(&self) -> Color {
+		self.color
+	}
+
+	/// Clockwise quarter turns the display applies: 0, 90, 180 or 270.
+	pub fn rotation(&self) -> u16 {
+		self.rotation
+	}
+
+	/// Copies the planes into memory, for anything that cannot sample the surface.
+	pub fn to_picture(&self) -> Result<Picture, &'static str> {
+		// SAFETY: `pixels` is a live pixel buffer; the copy locks it and checks every bound.
+		let mut picture = unsafe { copy_nv12(&self.pixels, super::check_dimensions) }?;
+		picture.rotation = self.rotation;
+		Ok(picture)
+	}
+
+	/// The luma (`R8Unorm`) and chroma (`Rg8Unorm`) planes as textures of `device` that
+	/// alias the surface. `None` when `device` is not a Metal device or refuses the
+	/// surface; [`Self::to_picture`] is the way out then. Each texture keeps the surface
+	/// alive until the device has finished every command that reads it.
+	pub fn textures(&self, device: &wgpu::Device) -> Option<[wgpu::Texture; 2]> {
+		let surface = CVPixelBufferGetIOSurface(Some(&self.pixels))?;
+		// SAFETY: The raw Metal device is used only to create textures, which leaves
+		// every invariant wgpu keeps about its device untouched.
+		let hal = unsafe { device.as_hal::<wgpu::hal::api::Metal>() }?;
+		let chroma = (self.width.div_ceil(2), self.height.div_ceil(2));
+		let plane = |index: usize, size: (u32, u32), raw_format, format| {
+			// SAFETY: A plain 2D descriptor with a format and size the surface plane has.
+			let descriptor = unsafe {
+				MTLTextureDescriptor::texture2DDescriptorWithPixelFormat_width_height_mipmapped(
+					raw_format,
+					size.0 as usize,
+					size.1 as usize,
+					false,
+				)
+			};
+			descriptor.setUsage(MTLTextureUsage::ShaderRead);
+			let raw = hal.raw_device().newTextureWithDescriptor_iosurface_plane(
+				&descriptor,
+				&surface,
+				index,
+			)?;
+			let keep = self.clone();
+			// SAFETY: `raw` is a 2D texture with one layer and one mip level in `format`
+			// and `size`, exactly as described to wgpu here and below. It comes from this
+			// device, is fully written by the decoder, and is only ever sampled.
+			unsafe {
+				let texture = wgpu::hal::metal::Device::texture_from_raw(
+					raw,
+					format,
+					MTLTextureType::Type2D,
+					1,
+					1,
+					wgpu::hal::CopyExtent {
+						width: size.0,
+						height: size.1,
+						depth: 1,
+					},
+					Some(Box::new(move || drop(keep))),
+				);
+				Some(device.create_texture_from_hal::<wgpu::hal::api::Metal>(
+					texture,
+					&wgpu::TextureDescriptor {
+						label: Some("video-surface"),
+						size: wgpu::Extent3d {
+							width: size.0,
+							height: size.1,
+							depth_or_array_layers: 1,
+						},
+						mip_level_count: 1,
+						sample_count: 1,
+						dimension: wgpu::TextureDimension::D2,
+						format,
+						usage: wgpu::TextureUsages::TEXTURE_BINDING,
+						view_formats: &[],
+					},
+					wgpu::TextureUses::RESOURCE,
+				))
+			}
+		};
+		Some([
+			plane(
+				0,
+				(self.width, self.height),
+				MTLPixelFormat::R8Unorm,
+				wgpu::TextureFormat::R8Unorm,
+			)?,
+			plane(
+				1,
+				chroma,
+				MTLPixelFormat::RG8Unorm,
+				wgpu::TextureFormat::Rg8Unorm,
+			)?,
+		])
+	}
 }
 
 /// The decoders' native bi-planar 4:2:0 outputs; VideoToolbox picks the stream's own range,
@@ -67,6 +224,8 @@ pub(super) const NV12_FORMATS: [u32; 2] = [
 struct Output {
 	timescale: u32,
 	rotation: u32,
+	/// Hand pictures over as [`Surface`]s where the decoder's buffer allows it.
+	surfaces: bool,
 	frames: Vec<Decoded>,
 	scaler: Option<Scaler>,
 	error: Option<&'static str>,
@@ -160,6 +319,7 @@ impl Decoder {
 		let output = Arc::new(Mutex::new(Output {
 			timescale: movie.video.track.timescale,
 			rotation: movie.video.rotation,
+			surfaces: false,
 			frames: Vec::new(),
 			scaler: None,
 			error: None,
@@ -211,6 +371,15 @@ impl Decoder {
 		self.info
 	}
 
+	/// Asks for pictures as [`Sample::Surface`] instead of packed [`Sample::Video`]
+	/// planes. A picture the decoder cannot leave on a surface (one it had to scale, or a
+	/// software decoder's plain memory) still arrives packed.
+	pub fn surfaces(&mut self, enabled: bool) {
+		if let Ok(mut output) = self.output.lock() {
+			output.surfaces = enabled;
+		}
+	}
+
 	pub fn seek(&mut self, seconds: f64) -> Result<(), &'static str> {
 		if !seconds.is_finite() || seconds < 0.0 || seconds > self.info.duration {
 			return Err(INVALID);
@@ -246,9 +415,10 @@ impl Decoder {
 		loop {
 			if let Some(index) = self.ready_frame() {
 				let frame = self.reorder.swap_remove(index);
-				return Ok(Some(Sample::Video {
-					pts: self.movie.video.track.seconds(frame.pts),
-					picture: frame.picture,
+				let pts = self.movie.video.track.seconds(frame.pts);
+				return Ok(Some(match frame.picture {
+					Held::Packed(picture) => Sample::Video { pts, picture },
+					Held::Surface(surface) => Sample::Surface { pts, surface },
 				}));
 			}
 			if self.video_done {
@@ -497,9 +667,26 @@ pub(super) fn create_session(
 		.map(|format| CFNumber::new_i32(*format as i32))
 		.collect();
 	let formats = CFArray::from_retained_objects(&numbers);
-	// SAFETY: The static key is a valid CFString; the dictionary is a plain attribute map.
-	let attributes =
-		unsafe { CFDictionary::from_slices(&[kCVPixelBufferPixelFormatTypeKey], &[&*formats]) };
+	// Decoded buffers are asked to be IOSurfaces a Metal device can sample, which is what
+	// the hardware decoders produce anyway; `Surface` relies on it.
+	let surface_properties = CFDictionary::<CFString, CFType>::empty();
+	// SAFETY: The static keys are valid CFStrings and `kCFBooleanTrue` is a valid constant;
+	// the dictionary is a plain attribute map.
+	let attributes = unsafe {
+		let yes: &CFBoolean = kCFBooleanTrue.ok_or(UNSUPPORTED)?;
+		CFDictionary::<CFString, CFType>::from_slices(
+			&[
+				kCVPixelBufferPixelFormatTypeKey,
+				kCVPixelBufferIOSurfacePropertiesKey,
+				kCVPixelBufferMetalCompatibilityKey,
+			],
+			&[
+				formats.as_ref() as &CFType,
+				surface_properties.as_ref() as &CFType,
+				yes.as_ref() as &CFType,
+			],
+		)
+	};
 	let record = VTDecompressionOutputCallbackRecord {
 		decompressionOutputCallback: Some(callback),
 		decompressionOutputRefCon: refcon,
@@ -568,17 +755,42 @@ unsafe extern "C-unwind" fn output_frame(
 		(pts.value as f64 / f64::from(pts.timescale) * f64::from(output.timescale)).round() as i64
 	};
 	// SAFETY: VideoToolbox keeps the image buffer alive for the duration of the callback.
-	match unsafe { scaled_nv12(&mut output, &*image) } {
-		Ok(mut picture) => {
-			// The renderer applies the track rotation; the planes stay in coded orientation.
-			picture.rotation = output.rotation as u16;
-			output.frames.push(Decoded {
-				pts: ticks,
-				picture,
-			});
+	let image = unsafe { &*image };
+	// The renderer applies the track rotation; the planes stay in coded orientation.
+	let rotation = output.rotation as u16;
+	let picture = match unscaled_surface(&output, image, rotation) {
+		Some(surface) => {
+			output.scaler = None;
+			Ok(Held::Surface(surface))
 		}
+		// SAFETY: As above, `image` is live for the whole callback.
+		None => unsafe { scaled_nv12(&mut output, image) }.map(|mut picture| {
+			picture.rotation = rotation;
+			Held::Packed(picture)
+		}),
+	};
+	match picture {
+		Ok(picture) => output.frames.push(Decoded {
+			pts: ticks,
+			picture,
+		}),
 		Err(error) => output.error = Some(error),
 	}
+}
+
+/// The decoder's own buffer, when surfaces were asked for and the picture already fits the
+/// playback bound; a larger one goes through the scaler and is copied.
+fn unscaled_surface(output: &Output, image: &CVImageBuffer, rotation: u16) -> Option<Surface> {
+	if !output.surfaces {
+		return None;
+	}
+	let source = (
+		u32::try_from(CVPixelBufferGetWidth(image)).ok()?,
+		u32::try_from(CVPixelBufferGetHeight(image)).ok()?,
+	);
+	(super::playback_dimensions(source.0, source.1) == Ok(source))
+		.then(|| Surface::new(image, rotation))
+		.flatten()
 }
 
 /// Scale on the callback's native surface before copying into the bounded frame queue.
@@ -615,11 +827,11 @@ unsafe fn scaled_nv12(output: &mut Output, image: &CVImageBuffer) -> Result<Pict
 	unsafe { copy_nv12(&scaler.buffer, super::check_dimensions) }
 }
 
-/// Copy one bi-planar 4:2:0 picture into tightly packed NV12 after checking every bound.
-pub(super) unsafe fn copy_nv12(
+/// Checks that `pixels` is a bounded bi-planar 4:2:0 picture; returns its size and colour.
+fn nv12_layout(
 	pixels: &CVImageBuffer,
 	check_dimensions: fn(u32, u32) -> Result<(), &'static str>,
-) -> Result<Picture, &'static str> {
+) -> Result<(u32, u32, Color), &'static str> {
 	let width = CVPixelBufferGetWidth(pixels);
 	let height = CVPixelBufferGetHeight(pixels);
 	let (w, h) = (
@@ -661,6 +873,17 @@ pub(super) unsafe fn copy_nv12(
 		Some(matrix) => Color { matrix, full_range },
 		None => Color::untagged(h, full_range),
 	};
+	Ok((w, h, color))
+}
+
+/// Copy one bi-planar 4:2:0 picture into tightly packed NV12 after checking every bound.
+pub(super) unsafe fn copy_nv12(
+	pixels: &CVImageBuffer,
+	check_dimensions: fn(u32, u32) -> Result<(), &'static str>,
+) -> Result<Picture, &'static str> {
+	let (w, h, color) = nv12_layout(pixels, check_dimensions)?;
+	let (width, height) = (w as usize, h as usize);
+	let (chroma_width, chroma_height) = (width.div_ceil(2), height.div_ceil(2));
 	let len = Layout::Nv12.len(w, h).ok_or(INVALID)?;
 	if len > MAX_BYTES {
 		return Err(INVALID);
@@ -720,6 +943,30 @@ mod tests {
 	use super::*;
 	const FIXTURE: &[u8] = include_bytes!("../../../../apps/desktop/tests/fixtures/video.mov");
 
+	/// A decoder asked for surfaces hands over the same pictures at the same times as one
+	/// that packs them: the zero-copy path may not change what is shown.
+	#[test]
+	fn surfaces_carry_the_packed_pictures() {
+		let open = || Decoder::open(Box::new(std::io::Cursor::new(FIXTURE))).unwrap();
+		let (mut packed, mut surfaces) = (open(), open());
+		surfaces.surfaces(true);
+		for _ in 0..6 {
+			let Some(Sample::Video { pts, picture }) = packed.read_video().unwrap() else {
+				panic!("no packed picture");
+			};
+			let Some(Sample::Surface {
+				pts: surface_pts,
+				surface,
+			}) = surfaces.read_video().unwrap()
+			else {
+				panic!("no surface");
+			};
+			assert_eq!(surface_pts, pts);
+			assert_eq!(surface.display_size(), picture.display_size());
+			assert!(surface.to_picture().unwrap() == picture);
+		}
+	}
+
 	#[test]
 	fn native_mov_decodes_audio_video_and_seeks() {
 		let mut decoder = Decoder::open(Box::new(std::io::Cursor::new(FIXTURE))).unwrap();
@@ -753,6 +1000,7 @@ mod tests {
 						assert!(frames.iter().flatten().all(|sample| sample.is_finite()));
 						audio_frames += frames.len();
 					}
+					Sample::Surface { .. } => panic!("surfaces were not asked for"),
 				}
 			}
 		}
