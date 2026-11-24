@@ -2398,6 +2398,27 @@ screen-source-list-no-screens-or-windows-are-available-yet = Chưa có màn hìn
 search-filters-choices-any = bất kỳ
 # Context: show
 search-filters-show-add-date = + Thêm ngày
+search-date-heading = Ngày
+search-date-help = Ngày gửi tin nhắn
+search-date-before = Trước
+search-date-after = Sau
+search-date-during = Trong ngày
+search-date-remove = Xóa ngày
+search-date-previous-month = Tháng trước
+search-date-next-month = Tháng sau
+search-date-invalid = Chọn ngày sau ngày 1 tháng 1 năm 2015.
+search-date-invalid-range = Ngày bắt đầu phải trước ngày kết thúc.
+search-date-month-year = Tháng { $count }, { $year }
+search-date-weekday =
+    { $count ->
+        [0] CN
+        [1] T2
+        [2] T3
+        [3] T4
+        [4] T5
+        [5] T6
+        *[6] T7
+    }
 # Context: show
 search-filters-show-any = bất kỳ
 # Context: show

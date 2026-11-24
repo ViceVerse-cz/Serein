@@ -278,6 +278,17 @@ fn format_full(at: time::OffsetDateTime, twelve: bool, order: DateOrder) -> Stri
 	}
 }
 
+/// Compact date without converting a search boundary to a different day.
+pub(crate) fn short_date(date: time::Date) -> String {
+	let order = DateOrder::current();
+	if order == DateOrder::MonthDayYear {
+		let month = date.month().to_string();
+		format!("{} {}, {}", &month[..3], date.day(), date.year())
+	} else {
+		order.date(date)
+	}
+}
+
 /// Discord's calendar time: "Today at 2:05 PM", "Yesterday at 14:05", else "10/12/26, 5:37 PM".
 pub fn calendar(utc: time::OffsetDateTime) -> String {
 	let at = local(utc);

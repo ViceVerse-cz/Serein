@@ -2354,6 +2354,27 @@ screen-source-list-no-screens-or-windows-are-available-yet = 아직 사용 가�
 search-filters-choices-any = 모두
 # Context: show
 search-filters-show-add-date = + 날짜 추가
+search-date-heading = 날짜
+search-date-help = 메시지를 보낸 날짜
+search-date-before = 이전
+search-date-after = 이후
+search-date-during = 해당 날짜
+search-date-remove = 날짜 삭제
+search-date-previous-month = 이전 달
+search-date-next-month = 다음 달
+search-date-invalid = 2015년 1월 1일 이후의 날짜를 선택하세요.
+search-date-invalid-range = 시작 날짜는 종료 날짜보다 앞서야 합니다.
+search-date-month-year = { $year }년 { $count }월
+search-date-weekday =
+    { $count ->
+        [0] 일
+        [1] 월
+        [2] 화
+        [3] 수
+        [4] 목
+        [5] 금
+        *[6] 토
+    }
 # Context: show
 search-filters-show-any = 모두
 # Context: show

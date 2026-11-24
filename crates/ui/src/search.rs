@@ -6,23 +6,10 @@ use model::Id;
 /// Width of the results pane when the window is wide enough to keep the timeline readable.
 pub const PANE_WIDTH: f32 = 420.0;
 const FILTER_WIDTH: f32 = 444.0;
+#[path = "search_date_picker.rs"]
+mod date_picker;
 #[path = "search_filters.rs"]
 mod filters;
-
-fn date_id(value: &str) -> Result<Option<u64>, ()> {
-	if value.is_empty() {
-		return Ok(None);
-	}
-	let format =
-		time::format_description::parse_borrowed::<2>("[year]-[month]-[day]").map_err(|_| ())?;
-	let date = time::Date::parse(value, &format).map_err(|_| ())?;
-	let millis = date.midnight().assume_utc().unix_timestamp_nanos() / 1_000_000;
-	let delta = u64::try_from(millis - 1_420_070_400_000).map_err(|_| ())?;
-	if delta == 0 || delta > (u64::MAX >> 22) {
-		return Err(());
-	}
-	Ok(Some(delta << 22))
-}
 
 #[derive(Default)]
 pub struct SearchUi {
@@ -1117,8 +1104,16 @@ impl SearchUi {
 			|| self.wire(state).unwrap_or_default(),
 			|view| view.query.clone(),
 		);
-		let filter_count =
-			model::search_terms(&active_query).map_or(0, |(_, filters)| filters.len());
+		let filter_count = model::search_terms(&active_query).map_or(0, |(_, filters)| {
+			if date_picker::during_date(&active_query).is_some() {
+				1 + filters
+					.iter()
+					.filter(|(key, _)| !matches!(*key, "min_id" | "max_id"))
+					.count()
+			} else {
+				filters.len()
+			}
+		});
 		ui.allocate_ui_with_layout(
 			egui::vec2(ui.available_width(), CHIP_HEIGHT),
 			egui::Layout::left_to_right(egui::Align::Center),
