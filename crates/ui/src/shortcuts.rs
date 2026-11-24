@@ -1,5 +1,5 @@
 //! Device-local pinned and favorite channels as sidebar rosters. Menus record an `Intent`;
-//! `MessagingUi::apply_shortcut` is the only writer of `channel_preferences` in this crate.
+//! Shortcut edits update local preferences and invalidate the cached sidebar roster.
 use crate::MessagingUi;
 use client_core::State;
 use model::{Channel, ChannelPreferences, Id, PreferenceEdit, Shortcut};
@@ -179,6 +179,17 @@ impl<'a> ShortcutView<'a> {
 }
 
 impl MessagingUi {
+	pub(crate) fn reorder_pinned(&mut self, state: &State, source: Id, target: Id, after: bool) {
+		if self.shortcuts_available(state)
+			&& self
+				.channel_preferences
+				.reorder_pinned(source, target, after)
+		{
+			self.channel_preferences_changed = true;
+			self.channel_cache.invalidate();
+		}
+	}
+
 	/// Whether preferences are loaded (or the session is a demo) so a write would stick.
 	pub(crate) fn shortcuts_available(&self, state: &State) -> bool {
 		state.demo || self.channel_preferences_loaded

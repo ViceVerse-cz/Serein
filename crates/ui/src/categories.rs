@@ -61,6 +61,12 @@ struct CacheKey {
 struct ChannelDrag(Id);
 
 #[derive(Clone, Copy)]
+struct PinnedDmDrag {
+	channel: Id,
+	generation: u64,
+}
+
+#[derive(Clone, Copy)]
 struct DropRow {
 	id: Id,
 	kind: u8,
@@ -780,6 +786,7 @@ impl MessagingUi {
 		let previous_spacing = ui.spacing().item_spacing.y;
 		ui.spacing_mut().item_spacing.y = 0.0;
 		let mut drop_rows = Vec::new();
+		let mut pinned_rows = Vec::new();
 		let output = self
 			.scroll
 			.attach(
@@ -952,6 +959,9 @@ impl MessagingUi {
 						}
 						CachedRow::Channel(channel, slot, nested) => {
 							let channel = &state.channels[channel];
+							let draggable_pin = shortcuts_available
+								&& slot == Slot::Roster(Shortcut::Pinned)
+								&& state.can_view(channel.id);
 							let draggable = slot == Slot::Tree
 								&& !nested && !state.channel_action_pending()
 								&& state.can_manage_channel(channel.id);
@@ -1051,7 +1061,7 @@ impl MessagingUi {
 									ui.allocate_exact_size(
 										egui::vec2(ui.available_width(), row_height),
 										if enabled || channel.guild.is_some() {
-											if draggable {
+											if draggable || draggable_pin {
 												egui::Sense::click_and_drag()
 											} else {
 												egui::Sense::click()
@@ -1065,6 +1075,15 @@ impl MessagingUi {
 							let row = rect.shrink2(egui::vec2(0.0, 1.0));
 							if draggable && response.drag_started_by(egui::PointerButton::Primary) {
 								response.dnd_set_drag_payload(ChannelDrag(channel.id));
+							}
+							if draggable_pin {
+								pinned_rows.push((channel.id, rect));
+								if response.drag_started_by(egui::PointerButton::Primary) {
+									response.dnd_set_drag_payload(PinnedDmDrag {
+										channel: channel.id,
+										generation: state.generation,
+									});
+								}
 							}
 							if slot == Slot::Tree && !nested {
 								drop_rows.push(DropRow {
@@ -1545,6 +1564,24 @@ impl MessagingUi {
 				}
 			});
 		self.channel_list_view = Some((output.inner_rect, output.state.unclamped_offset().y));
+		if let Some(drag) = egui::DragAndDrop::payload::<PinnedDmDrag>(ui.ctx())
+			&& drag.generation == state.generation
+			&& let Some(pointer) = ui.ctx().pointer_hover_pos()
+			&& output.inner_rect.contains(pointer)
+			&& let Some(&(target, rect)) =
+				pinned_rows.iter().find(|(_, rect)| rect.contains(pointer))
+			&& drag.channel != target
+		{
+			let after = pointer.y >= rect.center().y;
+			let y = if after { rect.bottom() } else { rect.top() };
+			ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+			ui.painter()
+				.hline(rect.x_range(), y, (3.0, colors.positive));
+			if ui.input(|input| input.pointer.button_released(egui::PointerButton::Primary)) {
+				egui::DragAndDrop::take_payload::<PinnedDmDrag>(ui.ctx());
+				self.reorder_pinned(state, drag.channel, target, after);
+			}
+		}
 		if let Some(source) = egui::DragAndDrop::payload::<ChannelDrag>(ui.ctx())
 			&& let Some(pointer) = ui.ctx().pointer_hover_pos()
 			&& output.inner_rect.contains(pointer)
@@ -1586,7 +1623,8 @@ impl MessagingUi {
 				));
 			}
 		}
-		if egui::DragAndDrop::payload::<ChannelDrag>(ui.ctx()).is_some()
+		if (egui::DragAndDrop::payload::<ChannelDrag>(ui.ctx()).is_some()
+			|| egui::DragAndDrop::payload::<PinnedDmDrag>(ui.ctx()).is_some())
 			&& let Some(pointer) = ui.ctx().pointer_hover_pos()
 		{
 			let direction = if pointer.y < output.inner_rect.top() + 28.0 {
@@ -2126,6 +2164,74 @@ mod tests {
 	}
 
 	#[test]
+	fn dragging_a_pin_reorders_the_sidebar_and_marks_preferences_for_save() {
+		let mut state = test_support::demo_state();
+		let mut view = MessagingUi {
+			channel_preferences: model::ChannelPreferences {
+				pinned: vec![Id(29), Id(22)],
+				..Default::default()
+			},
+			..Default::default()
+		};
+		let ctx = egui::Context::default();
+		let frame = |view: &mut MessagingUi, state: &mut State, events| {
+			ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(360.0, 600.0),
+					)),
+					events,
+					..Default::default()
+				},
+				|ui| {
+					view.channel_list(ui, state);
+				},
+			)
+			.drop_without_applying_deltas();
+		};
+		frame(&mut view, &mut state, vec![]);
+		let scroll = view.channel_list_view.unwrap().0;
+		let position = |id, offset| {
+			let row = view.channel_cache.rows.iter().position(|row| {
+				matches!(row, CachedRow::Channel(index, Slot::Roster(Shortcut::Pinned), _) if state.channels[*index].id == id)
+			}).unwrap();
+			egui::pos2(scroll.center().x, scroll.top() + row as f32 * 44.0 + offset)
+		};
+		let source = position(Id(22), 24.0);
+		let target = position(Id(29), 10.0);
+		let button = |pos, pressed| egui::Event::PointerButton {
+			pos,
+			pressed,
+			button: egui::PointerButton::Primary,
+			modifiers: egui::Modifiers::NONE,
+		};
+		frame(
+			&mut view,
+			&mut state,
+			vec![egui::Event::PointerMoved(source)],
+		);
+		frame(&mut view, &mut state, vec![button(source, true)]);
+		frame(
+			&mut view,
+			&mut state,
+			vec![egui::Event::PointerMoved(target)],
+		);
+		assert!(egui::DragAndDrop::payload::<PinnedDmDrag>(&ctx).is_some());
+		frame(&mut view, &mut state, vec![button(target, false)]);
+		frame(&mut view, &mut state, vec![]);
+		assert_eq!(view.channel_preferences.pinned, [Id(22), Id(29)]);
+		assert!(view.channel_preferences_changed);
+		let shown_pins = view.channel_cache.rows.iter().filter_map(|row| match row {
+			CachedRow::Channel(index, Slot::Roster(Shortcut::Pinned), _) => {
+				Some(state.channels[*index].id)
+			}
+			_ => None,
+		});
+		assert!(shown_pins.eq([Id(22), Id(29)]));
+	}
+
+	#[test]
 	fn direct_and_group_messages_follow_activity_together() {
 		let mut state = test_support::demo_state();
 		state.channels.retain(|c| c.guild.is_some());
@@ -2226,6 +2332,23 @@ mod tests {
 		});
 		assert_eq!(order(&state), [30, 32, 35, 31, 34, 33]);
 		assert_eq!(state.selected, Some(Id(30)));
+		let mut prefs = model::ChannelPreferences {
+			pinned: vec![Id(30), Id(32), Id(34)],
+			..Default::default()
+		};
+		assert!(!prefs.reorder_pinned(Id(30), Id(35), true));
+		assert!(prefs.reorder_pinned(Id(30), Id(34), true));
+		assert!(!prefs.reorder_pinned(Id(30), Id(34), true));
+		assert!(prefs.reorder_pinned(Id(34), Id(32), false));
+		let roster = Roster::build(&state, &prefs, Scope::Home, true);
+		let ordered = rows(&state, Scope::Home, &roster, &BTreeSet::new(), true, false)
+			.into_iter()
+			.filter_map(|row| match row {
+				Row::Channel(channel, ..) => Some(channel.id.0),
+				_ => None,
+			})
+			.collect::<Vec<_>>();
+		assert_eq!(ordered, [34, 32, 30, 35, 31, 33]);
 		state.channels.retain(|c| c.guild.is_some());
 		assert!(order(&state).is_empty());
 	}
