@@ -466,7 +466,7 @@ impl SearchUi {
 								let users = filters::users(state);
 								let channels = filters::channels(state);
 								// (label, id) per suggestion; users and channels share the list.
-								let mut matching: Vec<(String, Id)> = if key == "in" {
+								let matching: Vec<(String, Id)> = if key == "in" {
 									channels
 										.iter()
 										.filter(|channel| {
@@ -478,20 +478,11 @@ impl SearchUi {
 										.map(|channel| (filters::label(&channel.name), channel.id))
 										.collect()
 								} else {
-									users
-										.iter()
-										.filter(|user| filters::user_matches(user, &typed))
+									filters::matching_users(&users, &typed)
+										.into_iter()
 										.map(|user| (filters::user_label(user), user.id))
 										.collect()
 								};
-								if key != "in" && !typed.is_empty() {
-									let typed = typed.trim_start_matches('@');
-									matching.sort_by_key(|(label, _)| {
-										!label
-											.strip_prefix('@')
-											.is_some_and(|handle| handle.to_lowercase() == typed)
-									});
-								}
 								ui.label(
 									design::semibold(
 										ui,
@@ -566,6 +557,11 @@ impl SearchUi {
 										}
 									});
 								if let Some((label, id)) = chosen {
+									let label = if key == "in" {
+										label
+									} else {
+										self.labels.user_token(label, id, &users)
+									};
 									let query = format!("{}{key}:{label} ", &self.query[..start]);
 									if model::valid_search_query(&query) {
 										self.labels.remember(
