@@ -1105,7 +1105,14 @@ impl SearchUi {
 			|view| view.query.clone(),
 		);
 		let filter_count = model::search_terms(&active_query).map_or(0, |(_, filters)| {
-			filters.len() - usize::from(date_picker::during_date(&active_query).is_some())
+			if date_picker::during_date(&active_query).is_some() {
+				1 + filters
+					.iter()
+					.filter(|(key, _)| !matches!(*key, "min_id" | "max_id"))
+					.count()
+			} else {
+				filters.len()
+			}
 		});
 		ui.allocate_ui_with_layout(
 			egui::vec2(ui.available_width(), CHIP_HEIGHT),

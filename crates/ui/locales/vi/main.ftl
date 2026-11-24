@@ -2408,6 +2408,17 @@ search-date-previous-month = Tháng trước
 search-date-next-month = Tháng sau
 search-date-invalid = Chọn ngày sau ngày 1 tháng 1 năm 2015.
 search-date-invalid-range = Ngày bắt đầu phải trước ngày kết thúc.
+search-date-month-year = Tháng { $count }, { $year }
+search-date-weekday =
+    { $count ->
+        [0] CN
+        [1] T2
+        [2] T3
+        [3] T4
+        [4] T5
+        [5] T6
+        *[6] T7
+    }
 # Context: show
 search-filters-show-any = bất kỳ
 # Context: show

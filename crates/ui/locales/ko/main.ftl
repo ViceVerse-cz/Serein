@@ -2364,6 +2364,17 @@ search-date-previous-month = 이전 달
 search-date-next-month = 다음 달
 search-date-invalid = 2015년 1월 1일 이후의 날짜를 선택하세요.
 search-date-invalid-range = 시작 날짜는 종료 날짜보다 앞서야 합니다.
+search-date-month-year = { $year }년 { $count }월
+search-date-weekday =
+    { $count ->
+        [0] 일
+        [1] 월
+        [2] 화
+        [3] 수
+        [4] 목
+        [5] 금
+        *[6] 토
+    }
 # Context: show
 search-filters-show-any = 모두
 # Context: show

@@ -1,5 +1,9 @@
 //! Calendar rows for the More Filters dialog, using the existing UTC search cursors.
-use crate::{design, i18n::translate, icons};
+use crate::{
+	design,
+	i18n::{translate, translate_count},
+	icons,
+};
 use time::{Date, Duration, Month, OffsetDateTime};
 
 const DISCORD_EPOCH_MS: i64 = 1_420_070_400_000;
@@ -26,28 +30,39 @@ pub(super) fn date_at(id: u64) -> Option<Date> {
 	)
 }
 
+/// A date token can stand in for an ID only at the exact start of that UTC day.
+pub(super) fn date_at_midnight(id: u64) -> Option<Date> {
+	let date = date_at(id)?;
+	(day_start(date) == Some(id)).then_some(date)
+}
+
 /// REST uses exclusive ID comparisons. Include midnight in the selected day.
 pub(super) fn during_bounds(date: Date) -> Option<(u64, u64)> {
 	Some((day_start(date)? - 1, day_start(date.next_day()?)?))
 }
 
-fn bound(query: &str, key: &str) -> Option<u64> {
-	query.split_whitespace().find_map(|token| {
-		let (name, value) = token.split_once(':')?;
-		(name == key).then(|| value.parse().ok()).flatten()
-	})
+fn effective_bounds(query: &str) -> (Option<u64>, Option<u64>) {
+	let mut after: Option<u64> = None;
+	let mut before: Option<u64> = None;
+	for (key, value) in query
+		.split_whitespace()
+		.filter_map(|token| token.split_once(':'))
+	{
+		match key {
+			"after_id" => after = after.into_iter().chain(value.parse::<u64>().ok()).max(),
+			"before_id" => before = before.into_iter().chain(value.parse::<u64>().ok()).min(),
+			_ => {}
+		}
+	}
+	(after, before)
 }
 
 /// Recognize the exact bounds emitted by During, including the inclusive midnight.
 pub(super) fn during_date(query: &str) -> Option<Date> {
-	let after = bound(query, "after_id")?;
-	let before = bound(query, "before_id")?;
+	let (after, before) = effective_bounds(query);
+	let (after, before) = (after?, before?);
 	let date = date_at(after.checked_add(1)?)?;
-	let bound_count = query
-		.split_whitespace()
-		.filter(|token| is_bound(token))
-		.count();
-	(bound_count == 2 && during_bounds(date) == Some((after, before))).then_some(date)
+	(during_bounds(date) == Some((after, before))).then_some(date)
 }
 
 pub(super) fn is_bound(token: &str) -> bool {
@@ -79,6 +94,7 @@ struct Row {
 	kind: Kind,
 	date: Date,
 	month: Date,
+	cursor: Option<u64>,
 }
 
 impl Row {
@@ -87,6 +103,7 @@ impl Row {
 			kind,
 			date,
 			month: month_start(date),
+			cursor: None,
 		}
 	}
 
@@ -116,7 +133,11 @@ impl Row {
 				icons::button(ui, icons::Icon::Trash, 32.0, "search-date-remove").clicked()
 			})
 			.inner;
-		(remove, (self.kind, self.date) != previous)
+		let changed = (self.kind, self.date) != previous;
+		if changed {
+			self.cursor = None;
+		}
+		(remove, changed)
 	}
 
 	fn date_button(&mut self, ui: &mut egui::Ui, width: f32, today: Date) {
@@ -192,7 +213,11 @@ impl Row {
 		let colors = design::palette(ui);
 		let month = self.month;
 		let earliest = earliest();
-		let title = format!("{} {}", month.month(), month.year());
+		let title = translate_count(
+			"search-date-month-year",
+			usize::from(u8::from(month.month())),
+			&[("year", &month.year().to_string())],
+		);
 		ui.horizontal(|ui| {
 			let previous = ui.add_enabled_ui(month > month_start(earliest), |ui| {
 				icons::button(
@@ -222,10 +247,11 @@ impl Row {
 			}
 		});
 		ui.horizontal(|ui| {
-			for weekday in ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"] {
+			for weekday in 0..7 {
+				let label = translate_count("search-date-weekday", weekday, &[]);
 				ui.add_sized(
 					[cell_width, 22.0],
-					egui::Label::new(egui::RichText::new(weekday).size(11.0).color(colors.muted)),
+					egui::Label::new(egui::RichText::new(label).size(11.0).color(colors.muted)),
 				);
 			}
 		});
@@ -311,16 +337,21 @@ impl Dates {
 		if let Some(date) = during_date(query) {
 			return Self(vec![Row::new(Kind::During, date)]);
 		}
+		let (after, before) = effective_bounds(query);
 		Self(
-			[(Kind::Before, "before_id"), (Kind::After, "after_id")]
+			[(Kind::Before, before), (Kind::After, after)]
 				.into_iter()
-				.filter_map(|(kind, key)| Some(Row::new(kind, date_at(bound(query, key)?)?)))
+				.filter_map(|(kind, cursor)| {
+					let mut row = Row::new(kind, date_at(cursor?)?);
+					row.cursor = cursor;
+					Some(row)
+				})
 				.collect(),
 		)
 	}
 
 	pub(super) fn show(&mut self, ui: &mut egui::Ui) -> bool {
-		let today = crate::local_time::now().date().max(earliest());
+		let today = OffsetDateTime::now_utc().date().max(earliest());
 		let only_kind = self.0.len() == 2;
 		let mut changed = false;
 		let mut removed = None;
@@ -367,8 +398,12 @@ impl Dates {
 		const INVALID: &str = "search-date-invalid";
 		for row in &self.0 {
 			match row.kind {
-				Kind::Before => before = Some(day_start(row.date).ok_or(INVALID)?),
-				Kind::After => after = Some(day_start(row.date).ok_or(INVALID)?),
+				Kind::Before => {
+					before = Some(row.cursor.or_else(|| day_start(row.date)).ok_or(INVALID)?)
+				}
+				Kind::After => {
+					after = Some(row.cursor.or_else(|| day_start(row.date)).ok_or(INVALID)?)
+				}
 				Kind::During => {
 					let (start, end) = during_bounds(row.date).ok_or(INVALID)?;
 					after = Some(start);

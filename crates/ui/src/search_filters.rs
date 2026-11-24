@@ -362,7 +362,7 @@ pub fn display(query: &str, state: &State, labels: &mut Labels) -> String {
 			"before_id" | "after_id" => Some(format!(
 				"{}:{}",
 				key.trim_end_matches("_id"),
-				date_picker::date_at(value.parse().ok()?)?
+				date_picker::date_at_midnight(value.parse().ok()?)?
 			)),
 			_ => None,
 		});
@@ -927,6 +927,29 @@ mod tests {
 		for term in terms {
 			assert!(applied_terms.contains(&term));
 		}
+
+		let mixed = "hello before:2024-03-10 during:2024-02-29 after:2024-02-28 has:image";
+		let mixed_wire = super::wire(mixed, &state, &labels).unwrap();
+		let displayed = super::display(&mixed_wire, &state, &mut labels);
+		assert_eq!(displayed, query);
+		assert_eq!(super::wire(&displayed, &state, &labels).unwrap(), wire);
+		assert_eq!(super::Draft::new(&mixed_wire).applied().unwrap(), applied);
+	}
+
+	#[test]
+	fn exact_cursors_survive_display_and_applying_filters() {
+		let state = super::State::default();
+		let mut labels = super::Labels::default();
+		let date = super::date_picker::parse_date("2024-02-29").unwrap();
+		let (start, end) = super::date_picker::during_bounds(date).unwrap();
+		let later = start + 100;
+		let query = format!("after_id:{start} before_id:{end} after_id:{later}");
+		let displayed = super::display(&query, &state, &mut labels);
+		assert_eq!(super::wire(&displayed, &state, &labels).unwrap(), query,);
+		assert_eq!(
+			super::Draft::new(&query).applied().unwrap(),
+			format!("after_id:{later} before_id:{end}"),
+		);
 	}
 
 	#[test]
