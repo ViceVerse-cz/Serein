@@ -46,6 +46,7 @@ enum CachedRow {
 struct CacheKey {
 	generation: u64,
 	revision: u64,
+	category_activity: u64,
 	gateway_connected: bool,
 	guild: Option<Id>,
 	selected: Option<Id>,
@@ -320,10 +321,7 @@ fn rows_at<'a>(
 			group.sort_unstable_by_key(|c| std::cmp::Reverse((state.channel_activity(c), c.id)));
 		}
 	}
-	let append = |channel: &'a Channel, slot: Slot, hidden: bool, rows: &mut Vec<Row<'a>>| {
-		if hidden {
-			return;
-		}
+	let append = |channel: &'a Channel, slot: Slot, rows: &mut Vec<Row<'a>>| {
 		rows.push(Row::Channel(channel, slot, false));
 		rows.extend(
 			threads
@@ -360,12 +358,12 @@ fn rows_at<'a>(
 	for section in roster.sections() {
 		rows.push(Row::Heading(section.heading));
 		for channel in &section.channels {
-			append(channel, Slot::Roster(section.kind), false, &mut rows);
+			append(channel, Slot::Roster(section.kind), &mut rows);
 		}
 	}
 	let mut tree = Vec::new();
 	for channel in groups.remove(&None).unwrap_or_default() {
-		append(channel, Slot::Tree, false, &mut tree);
+		append(channel, Slot::Tree, &mut tree);
 	}
 	for category in categories {
 		let children = groups.remove(&Some(category.id)).unwrap_or_default();
@@ -374,13 +372,17 @@ fn rows_at<'a>(
 			continue;
 		}
 		tree.push(Row::Category(category, count(&children)));
+		let collapsed = collapsed.contains(&category.id);
 		for channel in children {
-			append(
-				channel,
-				Slot::Tree,
-				collapsed.contains(&category.id),
-				&mut tree,
-			);
+			if !collapsed {
+				append(channel, Slot::Tree, &mut tree);
+			} else if matches!(channel.kind, 0 | 5 | 15 | 16)
+				&& state.can_view(channel.id)
+				&& !state.muted_for_guild_rail(channel)
+				&& crate::notifications::row_activity(state, channel, true).0
+			{
+				tree.push(Row::Channel(channel, Slot::Tree, false));
+			}
 		}
 	}
 	// Home keeps its heading even with no unpinned DMs: it carries the New Message action.
@@ -628,6 +630,13 @@ impl MessagingUi {
 		let key = CacheKey {
 			generation: state.generation,
 			revision: state.channel_list_revision(),
+			category_activity: if self.guild.is_some()
+				&& !self.channel_preferences.collapsed_categories.is_empty()
+			{
+				state.category_activity_revision()
+			} else {
+				0
+			},
 			gateway_connected: state.gateway_connected,
 			guild: self.guild,
 			selected: state.selected,
@@ -1868,6 +1877,83 @@ mod tests {
 			view.channel_cache.key != key,
 			"DM activity changes row order"
 		);
+	}
+
+	#[test]
+	fn collapsed_category_reveals_only_the_unread_channel_until_acknowledged() {
+		use client_core::{Envelope, Event, read_state};
+		let mut state = test_support::demo_state();
+		state.guilds[0].id = Id(100);
+		state.channels = vec![
+			channel(4, 4, 0, None),
+			channel(7, 0, 0, Some(Id(4))),
+			channel(9, 0, 1, Some(Id(4))),
+		];
+		state.invalidate_navigation();
+		state
+			.permissions
+			.replace(test_support::permission_snapshot(&state))
+			.unwrap();
+		let apply = |state: &mut State, event| {
+			state.apply(Envelope {
+				generation: state.generation,
+				event,
+			})
+		};
+		apply(
+			&mut state,
+			Event::ReadState(read_state::Event::Snapshot {
+				entries: Some(vec![(Id(7), Some(Id(1000)), 0), (Id(9), Some(Id(1000)), 0)]),
+				version: Some(2),
+				partial: false,
+			}),
+		);
+		let mut view = MessagingUi {
+			guild: Some(Id(100)),
+			channel_preferences: model::ChannelPreferences {
+				collapsed_categories: vec![Id(4)],
+				..Default::default()
+			},
+			..Default::default()
+		};
+		let ctx = egui::Context::default();
+		let frame = |view: &mut MessagingUi, state: &mut State| {
+			ctx.run_ui(egui::RawInput::default(), |ui| {
+				view.channel_list(ui, state);
+			})
+			.drop_without_applying_deltas();
+		};
+		frame(&mut view, &mut state);
+		assert!(view.channel_cache.order.is_empty());
+		apply(
+			&mut state,
+			Event::Message(test_support::message(1001, Id(7))),
+		);
+		frame(&mut view, &mut state);
+		assert_eq!(view.channel_cache.order, [Id(7)]);
+		let key = view.channel_cache.key;
+		apply(
+			&mut state,
+			Event::Message(test_support::message(1003, Id(7))),
+		);
+		frame(&mut view, &mut state);
+		assert!(
+			view.channel_cache.key == key,
+			"already-unread traffic keeps the row cache"
+		);
+		apply(
+			&mut state,
+			Event::ReadState(read_state::Event::Ack {
+				channel: Id(7),
+				message: Some(Id(1003)),
+				manual: false,
+				mention_count: Some(0),
+				version: Some(3),
+			}),
+		);
+		frame(&mut view, &mut state);
+		assert!(view.channel_cache.order.is_empty());
+		assert!(view.channel_preferences.category_collapsed(Id(4)));
 	}
 
 	#[test]

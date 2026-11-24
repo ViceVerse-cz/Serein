@@ -3867,6 +3867,8 @@ impl State {
 				Ok(())
 			}
 			Event::Message(mut m) => {
+				let channel = m.channel;
+				let category_unread_before = self.category_message_unread(channel);
 				if self.timeline.get(m.id).is_some_and(|old| {
 					old.edited_at
 						.is_none_or(|at| m.edited_at.is_some_and(|new| new >= at))
@@ -3906,7 +3908,7 @@ impl State {
 						.and_then(|old| old.reactions.clone());
 				}
 				self.confirm(&m);
-				if deletion.is_err() {
+				let result = if deletion.is_err() {
 					deletion
 				} else if self.selected == Some(m.channel)
                     && self.can_view(m.channel)
@@ -3918,7 +3920,11 @@ impl State {
 					self.timeline.insert(m, true, false)
 				} else {
 					Ok(())
+				};
+				if let Some(before) = category_unread_before {
+					self.refresh_category_activity(channel, before);
 				}
+				result
 			}
 			Event::Patch(mut p) => {
 				if !matches!(p.content, Patch::Absent)
