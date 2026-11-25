@@ -3214,6 +3214,7 @@ impl TimelineView {
 		let scroll_delta = wheel.y + autoscroll_delta;
 		let before_offset = offset.unwrap_or(self.scroll_offset);
 		let mut timeline_wheel = 0.0;
+		let mut pending_reflowing = false;
 		let newest_displayable = state
 			.timeline
 			.iter()
@@ -5224,6 +5225,7 @@ impl TimelineView {
 				});
 				let measured = response.response.rect.height();
 				if (measured - height).abs() > 1.0 {
+					pending_reflowing = true;
 					ui.ctx().request_discard("Pending message height settled");
 					ui.ctx().request_repaint();
 				}
@@ -5393,9 +5395,10 @@ impl TimelineView {
 				.get(&id)
 				.is_none_or(|(old_key, old)| *old_key != key || (*old - height).abs() > 1.0)
 		};
-		let reflowing = measurements.iter().any(|&(id, key, height)| {
-			!(id == OLDER && older_row) && settles(&self.heights, id, key, height)
-		});
+		let reflowing = pending_reflowing
+			|| measurements.iter().any(|&(id, key, height)| {
+				!(id == OLDER && older_row) && settles(&self.heights, id, key, height)
+			});
 		let arrived = self.following
 			&& self.present_scroll.is_none()
 			&& at_bottom
@@ -10305,6 +10308,37 @@ mod tests {
 		assert!(reflowed, "the arrival should reflow");
 		assert!(view.following);
 		assert_eq!(view.mark_read.take(), Some(Id(202)));
+		// A pending row that measures differently from its stored height discards its pass,
+		// so that pass may not start the automatic read either.
+		let nonce = String::from("synthetic-pending");
+		state.pending.push(client_core::Pending {
+			sticker: None,
+			channel: state.selected.unwrap(),
+			content: "Synthetic pending message".into(),
+			attachments: Vec::new(),
+			nonce: nonce.clone(),
+			delivery: model::Delivery::Sending,
+			confirmed: None,
+			reply: None,
+		});
+		for _ in 0..4 {
+			frame(&mut view, &mut state, vec![]);
+		}
+		let measured = view.pending_heights[&nonce];
+		view.pending_heights.insert(nonce, measured + 40.0);
+		view.mark_read = None;
+		view.auto_read_attempt = None;
+		frame(&mut view, &mut state, vec![]);
+		assert!(
+			view.mark_read.is_none(),
+			"read on a pass discarded for a pending row"
+		);
+		frame(&mut view, &mut state, vec![]);
+		assert_eq!(view.mark_read.take(), Some(Id(202)));
+		state.pending.clear();
+		for _ in 0..4 {
+			frame(&mut view, &mut state, vec![]);
+		}
 		// A downward wheel from within trailing overscan reaches the bottom after layout:
 		// the latest row is measured in overscan but clipped, so ACK waits for the next frame.
 		let above_bottom = (view.scroll_offset - 200.0).max(0.0);
