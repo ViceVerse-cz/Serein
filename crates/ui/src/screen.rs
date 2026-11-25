@@ -614,7 +614,7 @@ fn source_row(
 		ui.painter().rect_filled(preview_box, 4, colors.base);
 	}
 	if let Some(texture) = preview {
-		let size = texture.size_vec2();
+		let size = texture.resolution_vec2();
 		let scale = (preview_box.width() / size.x).min(preview_box.height() / size.y);
 		ui.painter().image(
 			texture.id(),
