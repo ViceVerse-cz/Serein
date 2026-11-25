@@ -51,6 +51,8 @@ pub struct Controls {
 	pub user_volumes: [(u64, u16); 64],
 	/// Watched stream playback percentage, independently muted with zero.
 	pub stream_volume: u16,
+	/// Session sounds may reach the outgoing stream; speaking permission and server mute clear it.
+	pub sound: bool,
 }
 impl Default for Controls {
 	fn default() -> Self {
@@ -62,6 +64,7 @@ impl Default for Controls {
 			deafened: false,
 			user_volumes: [(0, 100); 64],
 			stream_volume: 100,
+			sound: true,
 		}
 	}
 }

@@ -373,6 +373,9 @@ struct Clip {
 	id: u64,
 	samples: std::sync::Arc<[f32]>,
 }
+/// A sound decoding on a worker: its clip name and the one result it reports.
+type SoundDecode = (String, mpsc::Receiver<Result<Vec<f32>, &'static str>>);
+
 #[derive(Default)]
 pub struct Voice {
 	camera_test: Option<CameraTest>,
@@ -402,6 +405,8 @@ pub struct Voice {
 	/// Session soundboard clips decoded on this device.
 	sounds: Vec<Clip>,
 	next_sound: u64,
+	/// A sound decoding on a worker: its clip name and the one result it reports.
+	sound_decode: Option<SoundDecode>,
 }
 impl Voice {
 	/// Hands over the renderer's paint-only handle once it exists; `None` keeps full repaints.
@@ -1033,6 +1038,16 @@ impl Voice {
 	}
 	/// Session soundboard: the popup lists names, the decoded samples stay here.
 	fn poll_soundboard(&mut self, ui: &mut ui::MessagingUi, ctx: &egui::Context) {
+		// The popup owns the visible list; a session that cleared it (logout) owns no samples.
+		if self
+			.sounds
+			.iter()
+			.any(|sound| !ui.soundboard.iter().any(|clip| clip.id == sound.id))
+		{
+			self.sounds
+				.retain(|sound| ui.soundboard.iter().any(|clip| clip.id == sound.id));
+		}
+		self.poll_sound_decode(ui);
 		let Some(request) = ui.soundboard_request.take() else {
 			return;
 		};
@@ -1042,32 +1057,35 @@ impl Voice {
 					ui.soundboard_status = "Remove a sound before adding another";
 					return;
 				}
+				if self.sound_decode.is_some() {
+					ui.soundboard_status = "Still reading the sound you chose";
+					return;
+				}
 				let Some(path) = platform::save::pick_audio_file() else {
 					return;
 				};
-				match crate::audio::decode_sound(&path, &|| true) {
-					Ok(samples) => {
-						let name: String = path
-							.file_stem()
-							.and_then(|name| name.to_str())
-							.unwrap_or("Sound")
-							.chars()
-							.take(48)
-							.collect();
-						let id = self.next_sound;
-						self.next_sound += 1;
-						ui.soundboard.push(ui::SoundClip {
-							id,
-							name,
-							seconds: samples.len() as f32 / 48_000.0,
-						});
-						self.sounds.push(Clip {
-							id,
-							samples: samples.into(),
-						});
-						ui.soundboard_status = "";
+				let name: String = path
+					.file_stem()
+					.and_then(|name| name.to_str())
+					.unwrap_or("Sound")
+					.chars()
+					.take(48)
+					.collect();
+				// Reading and resampling a whole file must not block the call controls.
+				let (send, receive) = mpsc::sync_channel(1);
+				let wake = ctx.clone();
+				match std::thread::Builder::new()
+					.name("sound-decode".into())
+					.spawn(move || {
+						let decoded = crate::audio::decode_sound(&path, &|| true);
+						let _ = send.send(decoded);
+						wake.request_repaint();
+					}) {
+					Ok(_) => {
+						self.sound_decode = Some((name, receive));
+						ui.soundboard_status = "Reading that sound";
 					}
-					Err(error) => ui.soundboard_status = error,
+					Err(_) => ui.soundboard_status = "Could not start sound decoding",
 				}
 			}
 			ui::SoundboardRequest::Play(id) => {
@@ -1096,6 +1114,36 @@ impl Voice {
 		}
 		ctx.request_repaint();
 	}
+	/// A finished decode joins the session clips; the worker keeps the UI free meanwhile.
+	fn poll_sound_decode(&mut self, ui: &mut ui::MessagingUi) {
+		let Some((name, decode)) = &self.sound_decode else {
+			return;
+		};
+		let result = match decode.try_recv() {
+			Ok(result) => result,
+			Err(mpsc::TryRecvError::Empty) => return,
+			Err(mpsc::TryRecvError::Disconnected) => Err("Sound decoding stopped"),
+		};
+		let name = name.clone();
+		self.sound_decode = None;
+		match result {
+			Ok(samples) => {
+				let id = self.next_sound;
+				self.next_sound += 1;
+				ui.soundboard.push(ui::SoundClip {
+					id,
+					name,
+					seconds: samples.len() as f32 / 48_000.0,
+				});
+				self.sounds.push(Clip {
+					id,
+					samples: samples.into(),
+				});
+				ui.soundboard_status = "";
+			}
+			Err(error) => ui.soundboard_status = error,
+		}
+	}
 	/// Queue one soundboard message; false when no call is live to play it.
 	fn send_sound(&self, message: discord_voice::soundboard::Message) -> bool {
 		self.live
@@ -1111,6 +1159,10 @@ impl Voice {
 	) -> Option<Command> {
 		self.reap();
 		self.poll_soundboard(ui, ctx);
+		// A sound plays only through a live call; retiring or replacing the transport ends it.
+		if self.live.is_none() {
+			ui.soundboard_playing = None;
+		}
 		if !state.demo {
 			ui.voice_latency = ui::VoiceLatency::default();
 		}
@@ -1298,6 +1350,8 @@ impl Voice {
 		if let Some(live) = &mut self.live {
 			let call = state.voice.active.as_ref().expect("matching active call");
 			let deafened = call.deafened || call.server_deafened;
+			// A sound follows the speaking permission; a voluntary microphone mute keeps it.
+			let sound = state.can_speak(call.channel) && !call.server_muted;
 			let muted = call.muted
 				|| permission_mutes_microphone(
 					state,
@@ -1322,6 +1376,7 @@ impl Voice {
 			live.controls.send_if_modified(|control| {
 				if control.muted == muted
 					&& control.deafened == deafened
+					&& control.sound == sound
 					&& control.user_volumes == user_volumes
 					&& control.stream_volume == stream_volume
 					&& control.activity_threshold_db == activity_threshold_db
@@ -1330,6 +1385,7 @@ impl Voice {
 				} else {
 					control.muted = muted;
 					control.deafened = deafened;
+					control.sound = sound;
 					control.user_volumes = user_volumes;
 					control.stream_volume = stream_volume;
 					control.activity_threshold_db = activity_threshold_db;
@@ -2068,6 +2124,7 @@ impl Voice {
 			deafened: false,
 			user_volumes: ui.voice_user_volumes(),
 			stream_volume: ui.voice_stream_volume(),
+			sound: input_enabled,
 		});
 		let remote_video: Arc<std::sync::Mutex<RemotePictures>> =
 			Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -3220,6 +3277,7 @@ mod tests {
 		});
 		let transport = task.abort_handle();
 		let (controls, _control_events) = watch::channel(Controls::default());
+		let (sound, _sound) = mpsc::sync_channel(1);
 		let (_notices, events) = mpsc::sync_channel(8);
 		let (_speaking, speakers) = watch::channel([0; 64]);
 		let (_latency, latency) = watch::channel(ui::VoiceLatency::default());
@@ -3243,6 +3301,7 @@ mod tests {
 			identity: discord_voice::Identity::generate(),
 			audio,
 			controls,
+			sound,
 			events,
 			failure: Arc::new(OnceLock::new()),
 			speakers,

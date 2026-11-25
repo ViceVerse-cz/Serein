@@ -582,8 +582,6 @@ pub(crate) fn decode_sound(
 	current: &impl Fn() -> bool,
 ) -> Result<Vec<f32>, &'static str> {
 	const SECONDS: usize = 60;
-	// Interleaved input up to stereo at 96 kHz for the same bounded duration.
-	const INPUT_LIMIT: usize = SECONDS * 96_000 * 2;
 	const OUTPUT_LIMIT: usize = SECONDS * 48_000;
 	let file = std::fs::File::open(path).map_err(|_| "Could not open that sound")?;
 	let mut interleaved = Vec::new();
@@ -595,7 +593,10 @@ pub(crate) fn decode_sound(
 		&mut |samples, source_channels, source_rate, _| {
 			rate = source_rate;
 			channels = source_channels;
-			if interleaved.len() + samples.len() > INPUT_LIMIT {
+			// Bound the source duration at its own rate; a byte budget sized for 96 kHz stereo
+			// would decode minutes of a low-rate file only to drop them.
+			let limit = source_rate as usize * source_channels * SECONDS;
+			if interleaved.len() + samples.len() > limit {
 				return Err("That sound is longer than 60 seconds");
 			}
 			interleaved.extend_from_slice(samples);
@@ -1155,6 +1156,32 @@ mod tests {
 		metadata[4..8].copy_from_slice(&len.to_le_bytes());
 		assert_eq!(decode(metadata, &|| true).unwrap().samples.len(), 288000);
 	}
+
+	#[test]
+	fn sound_decoding_stops_at_the_soundboard_duration() {
+		// 90 seconds of 8 kHz mono fits a byte budget sized for 60 s of 96 kHz stereo.
+		let frames = 8_000 * 90;
+		let mut wav = Vec::with_capacity(44 + frames * 2);
+		wav.extend_from_slice(b"RIFF");
+		wav.extend_from_slice(&((36 + frames * 2) as u32).to_le_bytes());
+		wav.extend_from_slice(b"WAVEfmt ");
+		wav.extend_from_slice(&16u32.to_le_bytes());
+		wav.extend_from_slice(&1u16.to_le_bytes());
+		wav.extend_from_slice(&1u16.to_le_bytes());
+		wav.extend_from_slice(&8_000u32.to_le_bytes());
+		wav.extend_from_slice(&16_000u32.to_le_bytes());
+		wav.extend_from_slice(&2u16.to_le_bytes());
+		wav.extend_from_slice(&16u16.to_le_bytes());
+		wav.extend_from_slice(b"data");
+		wav.extend_from_slice(&((frames * 2) as u32).to_le_bytes());
+		wav.resize(44 + frames * 2, 0);
+		let path = std::env::temp_dir().join(format!("serein-sound-{}.wav", std::process::id()));
+		std::fs::write(&path, &wav).unwrap();
+		let decoded = decode_sound(&path, &|| true);
+		let _ = std::fs::remove_file(&path);
+		assert_eq!(decoded, Err("That sound is longer than 60 seconds"));
+	}
+
 	#[test]
 	fn callback_pause_seek_volume_end_and_generation_cancellation() {
 		let mut playback = Playback {

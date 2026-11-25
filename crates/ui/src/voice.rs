@@ -2723,7 +2723,7 @@ impl MessagingUi {
 				);
 			});
 		}
-		if active && !input {
+		if active && input {
 			ui.separator();
 			ui.label(design::medium(ui, "Soundboard", 15.0));
 			ui.label(
