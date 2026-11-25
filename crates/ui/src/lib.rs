@@ -395,6 +395,8 @@ pub struct MessagingUi {
 	/// An image cache partition the owner asked to empty; the desktop consumes it.
 	pub clear_image_cache: Option<model::CachePartition>,
 	pub hide_title_bar: bool,
+	/// Active graphics driver requires the native OS title bar for this launch (not persisted).
+	pub native_title_bar_required: bool,
 	pub hide_window_decorations: bool,
 	pub custom_title_bar: bool,
 	pub custom_font: fonts::Settings,
@@ -1495,6 +1497,7 @@ impl MessagingUi {
 			startup_graphics_api: self.startup_graphics_api,
 			available_graphics_apis: std::mem::take(&mut self.available_graphics_apis),
 			graphics_api_env_override: self.graphics_api_env_override,
+			native_title_bar_required: self.native_title_bar_required,
 			// G-SYNC belongs to the device, and the desktop hands its finding over only once.
 			gsync_detected: self.gsync_detected,
 			..Self::default()
@@ -4979,11 +4982,16 @@ impl MessagingUi {
 			.hline(line, y, egui::Stroke::new(1.0, colors.border));
 		ui.add_space(6.0);
 	}
+	/// Whether the native OS title bar is active for this session, either from the owner's
+	/// preference or because the active graphics driver requires it.
+	pub fn uses_native_title_bar(&self) -> bool {
+		self.hide_title_bar || self.native_title_bar_required
+	}
 	fn shows_title_bar(&self) -> bool {
 		if cfg!(target_os = "linux") {
 			self.uses_custom_title_bar()
 		} else {
-			!self.hide_title_bar
+			!self.uses_native_title_bar()
 		}
 	}
 	/// Linux only: Serein draws its own GTK 4 style header bar instead of the system one.

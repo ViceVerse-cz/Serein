@@ -951,8 +951,17 @@ impl MessagingUi {
 		#[cfg(any(target_os = "windows", target_os = "macos"))]
 		{
 			let label = language.text("general-hide-title-bar");
-			let description = language.text("general-hide-title-bar-description");
-			design::switch(ui, &label, Some(&description), &mut self.hide_title_bar);
+			let description = language.text(if self.native_title_bar_required {
+				"general-hide-title-bar-driver-required"
+			} else {
+				"general-hide-title-bar-description"
+			});
+			let mut shown = self.uses_native_title_bar();
+			ui.add_enabled_ui(!self.native_title_bar_required, |ui| {
+				if design::switch(ui, &label, Some(&description), &mut shown).changed() {
+					self.hide_title_bar = shown;
+				}
+			});
 			design::card_divider(ui);
 		}
 		ui.add_enabled_ui(self.tray_available, |ui| {

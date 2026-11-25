@@ -57,6 +57,7 @@ general-custom-title-bar = Custom title bar
 general-custom-title-bar-description = Replace the system title bar with Serein's own GTK 4 style header bar.
 general-hide-title-bar = Hide Serein title bar
 general-hide-title-bar-description = Use the system title bar and window buttons instead.
+general-hide-title-bar-driver-required = Required on Windows with Intel OpenGL so the window contents align with its frame.
 general-keep-menu-bar = Keep Serein in the menu bar
 general-keep-system-tray = Keep Serein in the system tray
 general-menu-bar-description = Closing the window keeps Serein in the menu bar. Quit from its menu to exit.
