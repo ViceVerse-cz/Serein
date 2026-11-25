@@ -357,8 +357,14 @@ fn nickname_with<'a>(
 			.iter()
 			.rev()
 			.filter(|message| message.channel == channel && message.author.id == id)
-			.find_map(|message| message.author_nick.as_deref())
-			.filter(|nick| !nick.is_empty()),
+			// Skip an empty nickname while scanning, so the newest named message wins, matching
+			// the picker's index instead of falling back to the display name.
+			.find_map(|message| {
+				message
+					.author_nick
+					.as_deref()
+					.filter(|nick| !nick.is_empty())
+			}),
 	}
 }
 
@@ -2327,6 +2333,31 @@ mod tests {
 			channel,
 		};
 		assert_eq!(mention_label(author, &[], Some(&source)), "@History Nick");
+	}
+
+	#[test]
+	fn an_empty_nickname_keeps_the_newest_named_message() {
+		let mut state = test_support::demo_state();
+		state.demo = false;
+		let channel = state.selected.unwrap();
+		let id = Id(30404);
+		let mut author = test_support::message(1, channel).author;
+		author.id = id;
+		author.name = "Display".into();
+		let mut older = test_support::message(50001, channel);
+		older.author = author.clone();
+		older.author_nick = Some("Server Nick".into());
+		state.timeline.insert(older, false, false).unwrap();
+		// A later message carrying an empty nickname must not hide the one before it.
+		let mut newer = test_support::message(50002, channel);
+		newer.author = author;
+		newer.author_nick = Some(String::new());
+		state.timeline.insert(newer, false, false).unwrap();
+		let source = MentionSource {
+			state: &state,
+			channel,
+		};
+		assert_eq!(mention_label(id, &[], Some(&source)), "@Server Nick");
 	}
 
 	#[test]
