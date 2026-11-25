@@ -42,6 +42,16 @@ pub struct VoiceRosterRow<'a> {
 impl MessagingUi {
 	/// Close a detached stage when its call or account is no longer the one that opened it.
 	pub(super) fn retain_voice_popout(&mut self, state: &State) {
+		if self.voice_focus_channel.is_some_and(|channel| {
+			state
+				.voice
+				.active
+				.as_ref()
+				.is_none_or(|call| call.channel != channel)
+		}) {
+			self.voice_focus = None;
+			self.voice_focus_channel = None;
+		}
 		if self
 			.voice_popout
 			.is_some_and(|(generation, channel, request)| {
@@ -94,6 +104,17 @@ impl MessagingUi {
 	/// A detached stage needs full root passes to repaint its native child on video updates.
 	pub fn voice_popout_open(&self) -> bool {
 		self.voice_popout.is_some()
+	}
+
+	/// Whether this call's stage is currently shown in the detached native viewport.
+	pub fn voice_popout_matches(&self, generation: u64, channel: Id, request: u64) -> bool {
+		self.voice_popout == Some((generation, channel, request))
+	}
+
+	fn stage_focus(&self, channel: Id) -> Option<StageFocus> {
+		(self.voice_focus_channel == Some(channel))
+			.then_some(self.voice_focus)
+			.flatten()
 	}
 
 	/// The dock stays accessible for returning a detached call while browsing other channels.
@@ -1185,6 +1206,7 @@ impl MessagingUi {
 					|| state.watch_stream(user).is_some()
 				{
 					self.voice_focus = Some(StageFocus::Stream(user));
+					self.voice_focus_channel = Some(channel);
 					open_stage = true;
 				} else {
 					state.status = "This stream is not available in the connected voice channel";
@@ -1235,7 +1257,8 @@ impl MessagingUi {
 		} else {
 			1.0
 		};
-		let full = connected && self.voice_focus.is_some() && !self.voice_focus_participants;
+		let full =
+			connected && self.stage_focus(channel).is_some() && !self.voice_focus_participants;
 		let body = if full {
 			rect
 		} else {
@@ -1384,17 +1407,22 @@ impl MessagingUi {
 		dm: bool,
 	) {
 		let tiles = self.stage_tiles(state, channel, entries);
-		if tiles.is_empty() {
-			return;
-		}
 		// Focus survives only while that tile still shows video; Escape restores the grid.
-		let focus = self.voice_focus.filter(|focus| {
+		let focus = self.stage_focus(channel).filter(|focus| {
 			tiles
 				.iter()
 				.any(|tile| tile.focus() == *focus && self.tile_has_video(state, channel, tile))
 		});
 		let focus = focus.filter(|_| !ui.input(|input| input.key_pressed(egui::Key::Escape)));
-		self.voice_focus = focus;
+		if self.voice_focus_channel == Some(channel) {
+			self.voice_focus = focus;
+			if focus.is_none() {
+				self.voice_focus_channel = None;
+			}
+		}
+		if tiles.is_empty() {
+			return;
+		}
 		// A live share turns the avatar-only DM stage into boxed tiles, as in Discord.
 		let video = tiles.iter().any(|tile| {
 			matches!(tile, Tile::Stream(_) | Tile::LocalScreen)
@@ -1485,7 +1513,8 @@ impl MessagingUi {
 			}
 		}
 		if let Some(focus) = toggle {
-			self.voice_focus = (self.voice_focus != Some(focus)).then_some(focus);
+			self.voice_focus = (self.stage_focus(channel) != Some(focus)).then_some(focus);
+			self.voice_focus_channel = self.voice_focus.map(|_| channel);
 		}
 	}
 
@@ -1926,6 +1955,7 @@ impl MessagingUi {
 			Some(Some(user)) => {
 				if state.watch_stream(user).is_some() {
 					self.voice_focus = Some(StageFocus::Stream(user));
+					self.voice_focus_channel = state.voice.active.as_ref().map(|call| call.channel);
 				}
 			}
 			Some(None) => state.stop_watching(),
@@ -3585,14 +3615,14 @@ impl MessagingUi {
 		let muted = self.voice_muted || deafened || !can_speak;
 		let controls = self.controls_enabled(state);
 		let voice_toggles = controls || state.demo;
-		let focused = self.voice_focus.is_some();
+		let focused = self.stage_focus(channel).is_some();
 		let screen_focused = matches!(
-			self.voice_focus,
+			self.stage_focus(channel),
 			Some(StageFocus::LocalScreen | StageFocus::Stream(_))
 		);
 		// Discord's call bar: microphone and camera with their device menus, then share and
 		// more, then the red action; view actions sit at the right edge.
-		let watched = match self.voice_focus {
+		let watched = match self.stage_focus(channel) {
 			Some(StageFocus::Stream(user)) if call.watching == Some(user) => Some(user),
 			_ => None,
 		};
@@ -3836,7 +3866,7 @@ impl MessagingUi {
 			if fullscreen.clicked() {
 				let previous = view.input(|input| input.viewport().fullscreen.unwrap_or(false));
 				self.voice_fullscreen = self
-					.voice_focus
+					.stage_focus(channel)
 					.map(|focus| (focus, view.ctx().clone(), previous, fullscreen.id));
 				self.voice_fullscreen_request = Some(true);
 			}
@@ -3886,6 +3916,7 @@ impl MessagingUi {
 		if stop_watching {
 			self.watch_request = Some(None);
 			self.voice_focus = None;
+			self.voice_focus_channel = None;
 		}
 		if camera_clicked && let Some(command) = state.set_call_camera(!camera) {
 			self.voice_camera_status = "";
@@ -3988,14 +4019,14 @@ impl MessagingUi {
 		commands: &mut Vec<Command>,
 		header: Option<(bool, bool, bool)>,
 	) {
-		if self.dm_call_stage(state).is_some_and(|channel| {
+		let detached = self.dm_call_stage(state).is_some_and(|channel| {
 			self.voice_popout
 				.is_some_and(|(_, popped, _)| popped == channel)
-		}) {
+		});
+		if detached {
 			egui::Panel::top("dm-call-in-another-window")
 				.show_separator_line(false)
 				.show(ui, |ui| self.docked_popout_placeholder(ui));
-			return;
 		}
 		let colors = design::palette(ui);
 		let selected = state.selected;
@@ -4003,7 +4034,7 @@ impl MessagingUi {
 			.voice
 			.active
 			.as_ref()
-			.filter(|call| call.guild.is_none() && Some(call.channel) == selected)
+			.filter(|call| !detached && call.guild.is_none() && Some(call.channel) == selected)
 			.map(|call| call.channel)
 		{
 			let stage = self.stage_shows_video(state, channel) || state.is_group_dm(channel);
@@ -4058,7 +4089,7 @@ impl MessagingUi {
 					};
 					// An enlarged video fills the whole stage under the hover chrome, like
 					// Discord; the grid keeps clear of the header and the call bar.
-					let body = if self.voice_focus.is_some() {
+					let body = if self.stage_focus(channel).is_some() {
 						egui::Rect::from_min_max(
 							rect.min,
 							egui::pos2(
@@ -4091,7 +4122,7 @@ impl MessagingUi {
 						true,
 					);
 					self.voice_chrome_hidden = 0.0;
-					if self.voice_focus.is_some() {
+					if self.stage_focus(channel).is_some() {
 						chrome_shade(ui, rect, 72.0, true, reveal);
 						chrome_shade(ui, rect, 96.0, false, reveal);
 					}
@@ -5516,6 +5547,83 @@ mod tests {
 			view.voice_popout.is_none(),
 			"another call attempt must dock it"
 		);
+	}
+
+	#[test]
+	fn detached_dm_stage_keeps_another_incoming_call_banner() {
+		let mut state = test_support::call_demo_state();
+		state.voice.incoming = Some(Id(25));
+		state
+			.channels
+			.iter_mut()
+			.find(|c| c.id == Id(25))
+			.unwrap()
+			.name = "Incoming synthetic DM".into();
+		let call = state.voice.active.as_ref().unwrap();
+		let mut view = MessagingUi {
+			voice_popout: Some((state.generation, call.channel, call.request)),
+			..Default::default()
+		};
+		let ctx = egui::Context::default();
+		let mut output = ctx.run_ui(
+			egui::RawInput {
+				screen_rect: Some(egui::Rect::from_min_size(
+					egui::Pos2::ZERO,
+					egui::vec2(900.0, 480.0),
+				)),
+				..Default::default()
+			},
+			|ui| view.call_bar(ui, &mut state, &mut Vec::new(), None),
+		);
+		output.textures_delta.clear();
+		fn collect_text(shape: &egui::Shape, text: &mut String) {
+			match shape {
+				egui::Shape::Text(shape) => text.push_str(&shape.galley.job.text),
+				egui::Shape::Vec(shapes) => {
+					for shape in shapes {
+						collect_text(shape, text);
+					}
+				}
+				_ => {}
+			}
+		}
+		let mut text = String::new();
+		for shape in &output.shapes {
+			collect_text(&shape.shape, &mut text);
+		}
+		assert!(text.contains("Incoming synthetic DM"), "{text}");
+	}
+
+	#[test]
+	fn rendering_another_voice_stage_does_not_clear_detached_focus() {
+		let state = test_support::voice_demo_state();
+		let mut view = MessagingUi {
+			voice_focus: Some(StageFocus::Stream(Id(3))),
+			voice_focus_channel: Some(Id(22)),
+			..Default::default()
+		};
+		let ctx = egui::Context::default();
+		let mut output = ctx.run_ui(
+			egui::RawInput {
+				screen_rect: Some(egui::Rect::from_min_size(
+					egui::Pos2::ZERO,
+					egui::vec2(800.0, 480.0),
+				)),
+				..Default::default()
+			},
+			|ui| {
+				view.participant_tiles(
+					ui,
+					&state,
+					Id(25),
+					&stage_participants(&state, Id(25)),
+					false,
+				)
+			},
+		);
+		output.textures_delta.clear();
+		assert_eq!(view.stage_focus(Id(22)), Some(StageFocus::Stream(Id(3))));
+		assert_eq!(view.stage_focus(Id(25)), None);
 	}
 
 	#[test]

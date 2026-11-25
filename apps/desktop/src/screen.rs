@@ -500,9 +500,12 @@ impl Screen {
 			self.share_cued = false;
 		}
 		if let Some(live) = &self.live {
-			let on_channel = state.selected == Some(live.context.channel);
-			let shown = on_channel
-				&& ctx.input(|input| input.focused && !input.viewport().minimized.unwrap_or(false));
+			let detached = ui.voice_popout_matches(
+				live.context.generation,
+				live.context.channel,
+				live.context.request,
+			);
+			let shown = preview_visible(ctx, state.selected, live.context.channel, detached);
 			live.worker.set_preview_visible(shown);
 			ui.screen.preview_paused = !shown;
 			if !shown {
@@ -625,9 +628,30 @@ impl Screen {
 	}
 }
 
+fn preview_visible(ctx: &egui::Context, selected: Option<Id>, channel: Id, detached: bool) -> bool {
+	let focused = |id| {
+		ctx.input_for(id, |input| {
+			input.focused && !input.viewport().minimized.unwrap_or(false)
+		})
+	};
+	(selected == Some(channel) && focused(egui::ViewportId::ROOT))
+		|| (detached && focused(egui::ViewportId::from_hash_of("serein-voice-popout")))
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn detached_preview_survives_navigation_and_root_focus_loss() {
+		let ctx = egui::Context::default();
+		let child = egui::ViewportId::from_hash_of("serein-voice-popout");
+		ctx.input_mut_for(child, |input| input.focused = true);
+		assert!(preview_visible(&ctx, Some(Id(23)), Id(22), true));
+		assert!(!preview_visible(&ctx, Some(Id(23)), Id(22), false));
+		ctx.input_mut_for(child, |input| input.focused = false);
+		assert!(!preview_visible(&ctx, Some(Id(23)), Id(22), true));
+	}
 
 	#[test]
 	fn waiting_dm_and_guild_calls_can_request_sharing_without_opening_capture() {

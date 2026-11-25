@@ -6257,7 +6257,12 @@ impl eframe::App for Desktop {
 		self.sync_fonts(ctx);
 		// Raw focus follows the window even while it is hidden and runs no UI pass.
 		self.hotkeys.set_activity(
-			ctx.input(|input| input.raw.focused),
+			ctx.input(|input| input.raw.focused)
+				|| (self.messaging.voice_popout_open()
+					&& ctx.input_for(
+						egui::ViewportId::from_hash_of("serein-voice-popout"),
+						|input| input.raw.focused,
+					)),
 			self.state.voice.active.is_some(),
 		);
 		self.hotkeys.sync(
