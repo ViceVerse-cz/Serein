@@ -240,9 +240,22 @@ impl ScreenUi {
 			.is_some_and(|source| source.id.sized_after_pick())
 	}
 
+	fn offered_quality(&self) -> impl Iterator<Item = Resolution> + use<> {
+		let (width, height, _) = self.geometry();
+		let limit_to_1080p = cfg!(target_os = "macos")
+			&& self
+				.sources
+				.iter()
+				.any(|source| source.id == SourceId::SystemPicker);
+		offered_resolutions(width, height, self.sized_after_pick()).filter(move |resolution| {
+			!limit_to_1080p
+				|| matches!(resolution, Resolution::Preset { height, .. } if *height <= 1080)
+		})
+	}
+
 	fn align_quality(&mut self) {
-		let (width, height, refresh) = self.geometry();
-		let offered: Vec<_> = offered_resolutions(width, height, self.sized_after_pick()).collect();
+		let (_, _, refresh) = self.geometry();
+		let offered: Vec<_> = self.offered_quality().collect();
 		if offered.is_empty() {
 			return;
 		}
@@ -265,6 +278,12 @@ impl ScreenUi {
 
 	fn settings(&self) -> Option<Settings> {
 		let source = self.selected_source()?;
+		if !self
+			.offered_quality()
+			.any(|resolution| resolution == self.resolution)
+		{
+			return None;
+		}
 		let (width, height) = picture(
 			self.resolution,
 			source.width,
@@ -413,7 +432,7 @@ impl ScreenUi {
 			self.request_source_access = true;
 		}
 		self.align_quality();
-		let (width, height, refresh) = self.geometry();
+		let (_, _, refresh) = self.geometry();
 		ui.add_space(14.0);
 		ui.label(crate::design::eyebrow(
 			ui,
@@ -423,7 +442,7 @@ impl ScreenUi {
 		ui.add_space(6.0);
 		ui.horizontal_wrapped(|ui| {
 			ui.spacing_mut().item_spacing = egui::vec2(6.0, 6.0);
-			for resolution in offered_resolutions(width, height, self.sized_after_pick()) {
+			for resolution in self.offered_quality() {
 				let label = match resolution {
 					Resolution::Source => "screen-body-source".to_owned(),
 					Resolution::Preset { height, .. } => format!("{height}p"),
@@ -784,8 +803,8 @@ mod tests {
 		let window = Source {
 			id: SourceId::Window(7),
 			name: "Notes".into(),
-			width: 0,
-			height: 0,
+			width: 1080,
+			height: 2400,
 			refresh_hz: 0,
 		};
 		let system = Source {
@@ -800,7 +819,12 @@ mod tests {
 		assert!(picker.settings().is_none());
 		picker.selected = Some(window.id);
 		picker.align_quality();
-		assert_eq!(picker.settings().unwrap().source, window.id);
+		let settings = picker.settings().unwrap();
+		assert_eq!(settings.source, window.id);
+		assert_eq!((settings.width, settings.height), (486, 1080));
+		picker.resolution = Resolution::Source;
+		assert!(picker.settings().is_none());
+		picker.align_quality();
 		picker.set_sources(vec![window, system.clone()]);
 		assert_eq!(picker.settings().unwrap().source, SourceId::Window(7));
 		picker.set_sources(vec![system]);

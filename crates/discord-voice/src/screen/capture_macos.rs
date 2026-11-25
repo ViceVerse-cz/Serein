@@ -65,8 +65,7 @@ pub(crate) fn sources(request_access: bool) -> Result<SourceList, &'static str> 
 			Ok(sources)
 		};
 	};
-	let has_system_picker = system_picker.is_some();
-	let limit = MAX_SOURCES - usize::from(has_system_picker);
+	let limit = MAX_SOURCES - usize::from(system_picker.is_some());
 
 	for display in snapshot.displays.into_iter().take(limit) {
 		let (Ok(width), Ok(height)) = (u32::try_from(display.width), u32::try_from(display.height))
@@ -79,8 +78,8 @@ pub(crate) fn sources(request_access: bool) -> Result<SourceList, &'static str> 
 		sources.items.push(Source {
 			id: SourceId::Display(u64::from(display.display_id)),
 			name: format!("Display {}", display.display_id),
-			width: if has_system_picker { 0 } else { width },
-			height: if has_system_picker { 0 } else { height },
+			width,
+			height,
 			refresh_hz: 0,
 		});
 	}
@@ -118,8 +117,8 @@ pub(crate) fn sources(request_access: bool) -> Result<SourceList, &'static str> 
 		sources.items.push(Source {
 			id: SourceId::Window(u64::from(window.window_id)),
 			name: bounded_name(name),
-			width: if has_system_picker { 0 } else { width },
-			height: if has_system_picker { 0 } else { height },
+			width,
+			height,
 			refresh_hz: 0,
 		});
 	}
