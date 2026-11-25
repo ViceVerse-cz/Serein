@@ -181,7 +181,7 @@ pub fn apply_preferences(ctx: &egui::Context, preferences: model::ReadingPrefere
 				state.accumulator = egui::Vec2::ZERO;
 				d
 			} else {
-				let frame_ratio = (dt_clamped / (1.0 / 60.0)).clamp(0.5, 1.5);
+				let frame_ratio = (dt_clamped / (1.0 / 60.0)).clamp(0.25, 1.5);
 				let max_step = (page_height * 0.25).clamp(120.0, 160.0) * frame_ratio / speed;
 				let decay = 1.0 - (-dt_clamped / 0.05).exp();
 				let step_len = (len * decay)
@@ -873,6 +873,62 @@ mod tests {
 		assert!(
 			fast > 0.0 && fast <= normal + 0.5,
 			"a 300% speed factor must not push one frame past the cap: {fast} vs {normal}"
+		);
+	}
+
+	#[test]
+	fn queued_touchpad_step_scales_with_refresh_rate_above_120hz() {
+		let step_for_hz = |hz: f64| {
+			let ctx = egui::Context::default();
+			crate::design::apply(&ctx);
+			let dt = 1.0 / hz;
+			let frame = |time: f64, events: Vec<egui::Event>| {
+				let raw = egui::RawInput {
+					time: Some(time),
+					predicted_dt: dt as f32,
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(900.0, 600.0),
+					)),
+					events,
+					..Default::default()
+				};
+				let mut delta = egui::Vec2::ZERO;
+				ctx.run_ui(raw, |ui| {
+					apply_preferences(ui.ctx(), model::ReadingPreferences::default());
+					delta = ui.input(|i| i.smooth_scroll_delta());
+				})
+				.drop_without_applying_deltas();
+				delta.y
+			};
+			// Prime egui's stable_dt with the target frame interval before the swipe.
+			frame(0.1, vec![]);
+			frame(0.1 + dt, vec![]);
+			frame(
+				0.1 + dt * 2.0,
+				vec![egui::Event::MouseWheel {
+					unit: egui::MouseWheelUnit::Line,
+					delta: egui::vec2(0.0, 10.25),
+					modifiers: egui::Modifiers::NONE,
+					phase: egui::TouchPhase::Move,
+					source: egui::MouseWheelSource::Unknown,
+				}],
+			)
+		};
+		let step_60 = step_for_hz(60.0);
+		let step_120 = step_for_hz(120.0);
+		let step_240 = step_for_hz(240.0);
+		assert!(
+			(step_60 - 150.0).abs() < 0.5,
+			"60 Hz cap should stay 150pt, got {step_60}"
+		);
+		assert!(
+			(step_120 - 75.0).abs() < 0.5,
+			"120 Hz cap should stay 75pt, got {step_120}"
+		);
+		assert!(
+			(step_240 - 37.5).abs() < 0.5,
+			"240 Hz cap should scale to 37.5pt, got {step_240}"
 		);
 	}
 

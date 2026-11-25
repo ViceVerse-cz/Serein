@@ -3214,6 +3214,13 @@ impl TimelineView {
 		let scroll_delta = wheel.y + autoscroll_delta;
 		let before_offset = offset.unwrap_or(self.scroll_offset);
 		let mut timeline_wheel = 0.0;
+		let newest_displayable = state
+			.timeline
+			.iter()
+			.rev()
+			.find(|message| message_visible(state, message.author.id, hide_blocked, hide_ignored))
+			.map(|message| message.id);
+		let mut newest_visible = newest_displayable.is_none();
 		let allow_hover = !session.holding()
 			&& !ui.input(|input| input.is_scrolling())
 			&& ui.ctx().dragged_id().is_none();
@@ -5149,6 +5156,12 @@ impl TimelineView {
 					row_height_key(message, previous, self.unread_boundary, state, deleted),
 					response.response.rect.height(),
 				));
+				if index >= anchor
+					&& newest_displayable == Some(id)
+					&& response.response.rect.intersect(clip).is_positive()
+				{
+					newest_visible = true;
+				}
 			}
 			// Visible rows occupy their measured height immediately; leading overscan
 			// still occupies its old height until the next anchored pass.
@@ -5343,9 +5356,9 @@ impl TimelineView {
 				.hover_pos()
 				.is_some_and(|pos| output.inner_rect.contains(pos))
 		});
-		let user_scrolled_up = user_scroll > 0.0
-			&& timeline_scrolled_up
-			&& (session.holding() || selection_scroll != 0.0 || pointer_on_timeline);
+		let user_scrolled_up = timeline_scrolled_up
+			&& ((timeline_wheel > 0.0 && pointer_on_timeline)
+				|| (autoscroll_delta > 0.0 && (session.holding() || selection_scroll != 0.0)));
 		// Keyboard selection asks the scroll area to reveal the cursor. That moves the
 		// offset with no wheel or drag. A layout clamp while still at the bottom does not.
 		let selection_scrolled_up = timeline_scrolled_up
@@ -5383,15 +5396,10 @@ impl TimelineView {
 		let reflowing = measurements.iter().any(|&(id, key, height)| {
 			!(id == OLDER && older_row) && settles(&self.heights, id, key, height)
 		});
-		let newest_painted = state
-			.timeline
-			.iter()
-			.next_back()
-			.is_none_or(|newest| measurements.iter().any(|&(id, ..)| id == newest.id));
 		let arrived = self.following
 			&& self.present_scroll.is_none()
 			&& at_bottom
-			&& newest_painted
+			&& newest_visible
 			&& !reflowing;
 		if arrived
 			&& self.at_current_latest
@@ -10297,6 +10305,91 @@ mod tests {
 		assert!(reflowed, "the arrival should reflow");
 		assert!(view.following);
 		assert_eq!(view.mark_read.take(), Some(Id(202)));
+		// A downward wheel from within trailing overscan reaches the bottom after layout:
+		// the latest row is measured in overscan but clipped, so ACK waits for the next frame.
+		let above_bottom = (view.scroll_offset - 200.0).max(0.0);
+		let (index, _, top) = visible_range(&view.rows, above_bottom, above_bottom);
+		view.following = false;
+		view.left_live_edge = true;
+		view.anchor = Some((view.rows[index].0, above_bottom - top));
+		view.revision = u64::MAX;
+		for _ in 0..4 {
+			frame(&mut view, &mut state, vec![]);
+		}
+		state
+			.timeline
+			.insert(text_message(203), false, false)
+			.unwrap();
+		state.channels = vec![channel(203)];
+		state.revision += 1;
+		for _ in 0..4 {
+			frame(&mut view, &mut state, vec![]);
+		}
+		assert!(
+			!view.following && view.mark_read.is_none(),
+			"should stay paused above the bottom before wheeling down"
+		);
+		let timeline_pos = egui::pos2(450.0, 300.0);
+		frame(
+			&mut view,
+			&mut state,
+			vec![
+				egui::Event::PointerMoved(timeline_pos),
+				egui::Event::MouseWheel {
+					unit: egui::MouseWheelUnit::Point,
+					delta: egui::vec2(0.0, -300.0),
+					modifiers: egui::Modifiers::NONE,
+					phase: egui::TouchPhase::Move,
+					source: egui::MouseWheelSource::Trackpad,
+				},
+			],
+		);
+		assert!(
+			view.mark_read.is_none(),
+			"acknowledged on the wheel frame before the latest row entered the viewport"
+		);
+		for _ in 0..3 {
+			frame(&mut view, &mut state, vec![]);
+		}
+		assert!(view.following);
+		assert_eq!(view.mark_read.take(), Some(Id(203)));
+		// Hiding the newest message via the blocked filter must not block live-edge ACK,
+		// including when the filter hides every shared message in the channel.
+		state.apply(client_core::Envelope {
+			generation: state.generation,
+			event: client_core::Event::UserAction(client_core::user_actions::Event::Relationship {
+				user: Id(777),
+				blocked: true,
+			}),
+		});
+		view.hide_blocked_messages = true;
+		let mut blocked_latest = text_message(204);
+		blocked_latest.author.id = Id(777);
+		state.timeline.insert(blocked_latest, false, false).unwrap();
+		state.channels = vec![channel(204)];
+		state.revision += 1;
+		for _ in 0..4 {
+			frame(&mut view, &mut state, vec![]);
+		}
+		assert_eq!(
+			view.mark_read.take(),
+			Some(Id(204)),
+			"a hidden newest message blocked live-edge acknowledgement"
+		);
+		state.timeline.clear();
+		let mut only_blocked = text_message(205);
+		only_blocked.author.id = Id(777);
+		state.timeline.insert(only_blocked, false, false).unwrap();
+		state.channels = vec![channel(205)];
+		state.revision += 1;
+		for _ in 0..4 {
+			frame(&mut view, &mut state, vec![]);
+		}
+		assert_eq!(
+			view.mark_read.take(),
+			Some(Id(205)),
+			"an all-hidden timeline blocked live-edge acknowledgement"
+		);
 	}
 
 	fn message_texts(shape: &egui::Shape, labels: &mut Vec<(String, egui::Rect)>) {
@@ -12583,6 +12676,28 @@ mod tests {
 		assert!(
 			view.present_scroll.is_some() && view.following,
 			"a wheel the embed took cancelled the glide"
+		);
+		// While following at the live edge, an upward wheel consumed by the embed must not
+		// stop following even if a layout clamp lowers the timeline offset on the same frame.
+		view.present_scroll = None;
+		view.following = true;
+		view.left_live_edge = false;
+		for _ in 0..4 {
+			frame(&mut view, &mut state, 0.0);
+		}
+		// Give the embed room to scroll upward, then force a layout clamp on the upward wheel.
+		frame(&mut view, &mut state, -1.0);
+		for _ in 0..20 {
+			frame(&mut view, &mut state, 0.0);
+		}
+		assert!(view.following && !view.left_live_edge);
+		let live = view.scroll_offset;
+		view.heights.insert(Id(40), (0, 2000.0));
+		view.revision = u64::MAX;
+		let after_clamp = frame(&mut view, &mut state, 1.0);
+		assert!(
+			after_clamp < live + 1.0 && view.following && !view.left_live_edge,
+			"an upward wheel taken by the embed stopped following during a layout clamp"
 		);
 		// Near the top, a wheel up that the embed takes does not ask for older history.
 		let mut state = State {
