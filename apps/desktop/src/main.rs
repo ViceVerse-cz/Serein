@@ -6576,7 +6576,7 @@ impl eframe::App for Desktop {
 		if self.state.auth == AuthState::Authenticated || self.state.demo {
 			self.poll_voice(ctx);
 		} else {
-			self.voice.stop();
+			self.voice.end_session();
 		}
 		self.sync_tray(ctx);
 		if self.state.voice.active.is_some() {

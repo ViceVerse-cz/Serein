@@ -37,17 +37,24 @@ impl Player {
 		}
 	}
 	/// Advance one 20 ms tick: apply queued requests, then dequeue the next frame.
-	pub fn tick(&mut self) -> (Option<Frame>, Option<u64>) {
+	///
+	/// `audible` is the transport's gate. While it is closed a sound neither starts nor advances,
+	/// so deafening or losing the speaking permission ends it instead of resuming it part-way.
+	pub fn tick(&mut self, audible: bool) -> (Option<Frame>, Option<u64>) {
 		if let Some(messages) = &self.messages {
 			for _ in 0..MAX_REQUESTS {
 				match messages.try_recv() {
 					Ok(Message::Play { id, samples }) => {
-						self.current = Some(Playing { id, samples, at: 0 });
+						self.current = audible.then_some(Playing { id, samples, at: 0 });
 					}
 					Ok(Message::Stop) => self.current = None,
 					Err(TryRecvError::Empty | TryRecvError::Disconnected) => break,
 				}
 			}
+		}
+		if !audible {
+			self.current = None;
+			return (None, None);
 		}
 		let Some(playing) = &mut self.current else {
 			return (None, None);
@@ -92,18 +99,32 @@ mod tests {
 	fn one_clip_plays_on_the_tick_and_a_newer_sound_replaces_it() {
 		let (send, receive) = mpsc::channel();
 		let mut player = Player::new(receive);
-		assert_eq!(player.tick(), (None, None));
+		assert_eq!(player.tick(true), (None, None));
 		send.send(clip(7, 3, 0.25)).unwrap();
-		assert_eq!(player.tick().1, Some(7));
-		assert_eq!(player.tick().1, Some(7));
+		assert_eq!(player.tick(true).1, Some(7));
+		assert_eq!(player.tick(true).1, Some(7));
 		// A second sound takes the slot instead of queueing behind the first.
 		send.send(clip(9, 1, -0.5)).unwrap();
-		let (frame, id) = player.tick();
+		let (frame, id) = player.tick(true);
 		assert_eq!(id, Some(9));
 		assert!(frame.unwrap().iter().all(|sample| *sample == -0.5));
 		// The short clip ends inside one tick; the next tick is silent.
-		assert_eq!(player.tick(), (None, None));
-		assert_eq!(player.tick(), (None, None));
+		assert_eq!(player.tick(true), (None, None));
+		assert_eq!(player.tick(true), (None, None));
+	}
+	#[test]
+	fn a_closed_gate_ends_the_clip_instead_of_resuming_it() {
+		let (send, receive) = mpsc::channel();
+		let mut player = Player::new(receive);
+		send.send(clip(5, 4, 0.5)).unwrap();
+		assert_eq!(player.tick(true).1, Some(5));
+		// Deafened mid-clip: silent, and the rest is dropped rather than played on undeafen.
+		assert_eq!(player.tick(false), (None, None));
+		assert_eq!(player.tick(true), (None, None));
+		// A play requested while the gate is closed never starts when it opens again.
+		send.send(clip(6, 2, 0.5)).unwrap();
+		assert_eq!(player.tick(false), (None, None));
+		assert_eq!(player.tick(true), (None, None));
 	}
 	#[test]
 	fn a_partial_tail_is_padded_and_stop_silences_the_next_tick() {
@@ -114,15 +135,15 @@ mod tests {
 			samples: vec![0.4; 100].into(),
 		})
 		.unwrap();
-		let (frame, id) = player.tick();
+		let (frame, id) = player.tick(true);
 		let frame = frame.unwrap();
 		assert_eq!(id, Some(3));
 		assert!(frame[..100].iter().all(|sample| *sample == 0.4));
 		assert!(frame[100..].iter().all(|sample| *sample == 0.0));
 		send.send(clip(4, 2, 0.1)).unwrap();
-		assert_eq!(player.tick().1, Some(4));
+		assert_eq!(player.tick(true).1, Some(4));
 		send.send(Message::Stop).unwrap();
-		assert_eq!(player.tick(), (None, None));
+		assert_eq!(player.tick(true), (None, None));
 	}
 	#[test]
 	fn mixing_a_sound_never_exceeds_full_scale() {
@@ -143,13 +164,13 @@ mod tests {
 		// Draining is bounded per tick, so the newest sound arrives over a few ticks at most.
 		let mut seen = VecDeque::new();
 		for _ in 0..8 {
-			seen.extend(player.tick().1);
+			seen.extend(player.tick(true).1);
 		}
 		assert!(seen.iter().any(|id| *id >= 56));
-		assert!(player.tick().1.is_some() || send.send(clip(64, 1, 0.0)).is_ok());
+		assert!(player.tick(true).1.is_some() || send.send(clip(64, 1, 0.0)).is_ok());
 		// A disconnected UI never leaves the transport spinning on a closed channel.
 		drop(send);
-		let _ = player.tick();
+		let _ = player.tick(true);
 		let counted = Arc::new(AtomicUsize::new(0));
 		counted.fetch_add(1, Ordering::Relaxed);
 	}

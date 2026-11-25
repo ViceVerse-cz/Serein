@@ -721,10 +721,11 @@ async fn run_inner(
 					   } else {0};
 					   // Session sounds share the microphone's encoder and 20 ms clock; a sound keeps the
 					   // outgoing stream alive while the microphone is muted, but never while deafened.
-					   let (sound,sound_id)=soundboard.as_mut().map_or((None,None),crate::soundboard::Player::tick);
-					   let reported = sound_id.filter(|_| !control.deafened && control.sound);
-					   if reported != sounding {sounding = reported; emit(Status::Soundboard(reported)).map_err(|_|"Call interface closed")?;}
-					   let sounding = sound.is_some() && !control.deafened && control.sound;
+					   // Deafened or without speaking permission the player drops the clip, so whatever it
+					   // returns here is the sound that is heard.
+					   let (sound,sound_id)=soundboard.as_mut().map_or((None,None),|player|player.tick(!control.deafened && control.sound));
+					   if sound_id != sounding {sounding = sound_id; emit(Status::Soundboard(sound_id)).map_err(|_|"Call interface closed")?;}
+					   let sounding = sound.is_some();
 					   let active=enabled && !control.muted && !control.deafened && latest.is_some();
 					   let active_now = active || sounding;
 					   if active_now && !speaking {json_send(&mut ws,json!({"op":5,"d":{"speaking":1,"delay":0,"ssrc":ssrc}})).await?;speaking=true;}
@@ -759,7 +760,7 @@ async fn run_inner(
 						   let (frame,remote_audio)=mixer.pop_with_volumes(&control.user_volumes);
 		let extra=stream_audio.as_ref().and_then(|aux|stream_playout.next(aux,control.stream_volume,true,stalled));
 		let mut frame=crate::PlaybackFrame::mix(frame,extra);
-		if control.sound && let Some(sound)=&sound {match &mut frame {Some(frame)=>{crate::soundboard::add(&mut frame.samples,sound);} None=>{frame=Some((*sound).into());}}}
+		if let Some(sound)=&sound {match &mut frame {Some(frame)=>{crate::soundboard::add(&mut frame.samples,sound);} None=>{frame=Some((*sound).into());}}}
 						   metrics.finish(crate::diagnostics::Stage::Mix, start);
 						   if let Some(frame)=frame {drops = u64::from(playback.try_send(frame).is_err());}
 						   if !heard && remote_audio {heard=true;emit(Status::RemoteAudio).map_err(|_|"Call interface closed")?;}

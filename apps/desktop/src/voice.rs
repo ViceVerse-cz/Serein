@@ -473,6 +473,13 @@ impl Voice {
 	}
 	/// Hang up this device's call. A call it had joined plays the leave cue on the next poll,
 	/// mirroring its local join cue; a call still connecting ends silently.
+	/// Ending the session (logout, account switch, a session that failed) drops the soundboard
+	/// this account kept, including a decode the previous session started; a hangup keeps them.
+	pub fn end_session(&mut self) {
+		self.stop();
+		self.sounds.clear();
+		self.sound_decode = None;
+	}
 	pub fn hang_up(&mut self, state: &State) {
 		self.leave_cue |= self
 			.live
@@ -1106,7 +1113,9 @@ impl Voice {
 			ui::SoundboardRequest::Forget(id) => {
 				self.sounds.retain(|sound| sound.id != id);
 				ui.soundboard.retain(|clip| clip.id != id);
-				if ui.soundboard_playing == Some(id) {
+				// A play the transport has not reported yet is still queued, so stop unless another
+				// clip is the one reported playing.
+				if ui.soundboard_playing.is_none_or(|playing| playing == id) {
 					self.send_sound(discord_voice::soundboard::Message::Stop);
 					ui.soundboard_playing = None;
 				}

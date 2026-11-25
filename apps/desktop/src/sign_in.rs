@@ -35,7 +35,7 @@ impl Desktop {
 			store.cancel_load();
 		}
 		self.credential_status = "";
-		self.voice.stop();
+		self.voice.end_session();
 		self.messaging.camera_test_requested = false;
 		self.messaging.camera_test_texture = None;
 		self.state
@@ -121,7 +121,7 @@ impl Desktop {
 		self.audio.stop();
 		self.video.stop();
 		self.video.cancel_posters();
-		self.voice.stop();
+		self.voice.end_session();
 		self.messaging.camera_test_requested = false;
 		self.messaging.camera_test_texture = None;
 		let was_demo = self.state.demo;
