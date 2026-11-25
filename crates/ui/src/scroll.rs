@@ -43,10 +43,11 @@ pub fn apply_preferences(ctx: &egui::Context, preferences: model::ReadingPrefere
 	let latch_key = egui::Id::unique(WHEEL_LATCH_KEY);
 	let before: WheelLatch = ctx.data(|d| d.get_temp(latch_key)).unwrap_or_default();
 	let mut latch = before;
-	let (incoming, zooming, cancelled) = ctx.input(|input| {
-		let incoming =
+	let (incoming, zoomed, zooming, cancelled) = ctx.input(|input| {
+		let (incoming, zoom) =
 			instant_wheel_delta(&input.raw.events, options, page_height, time, &mut latch);
-		let zooming = zoom_gesture(&latch, options, &input.raw.events);
+		let zooming = zoom == Some(true)
+			|| (latch.touch.is_some() && latch.modifiers.matches_any(options.zoom_modifier));
 		let cancelled = input.raw.events.iter().any(|event| {
 			matches!(
 				event,
@@ -56,7 +57,7 @@ pub fn apply_preferences(ctx: &egui::Context, preferences: model::ReadingPrefere
 				}
 			)
 		});
-		(incoming, zooming, cancelled)
+		(incoming, zoom.is_some(), zooming, cancelled)
 	});
 	if latch != before {
 		ctx.data_mut(|d| d.insert_temp(latch_key, latch));
@@ -99,7 +100,7 @@ pub fn apply_preferences(ctx: &egui::Context, preferences: model::ReadingPrefere
 	let is_scrolling = ctx.input(|i| i.is_scrolling());
 	// A zoom that starts while a swipe is still queued must not keep scrolling, and neither may
 	// a cancelled gesture: egui drops its own pending wheel movement on `Cancel`.
-	if zooming || cancelled {
+	if zoomed || cancelled {
 		state.accumulator = egui::Vec2::ZERO;
 	}
 	let touchpad_active = state.last_active.is_some_and(|last| time - last < 0.35)
@@ -246,8 +247,12 @@ fn instant_wheel_delta(
 	page_height: f32,
 	time: f64,
 	latch: &mut WheelLatch,
-) -> egui::Vec2 {
+) -> (egui::Vec2, Option<bool>) {
 	let mut total = egui::Vec2::ZERO;
+	// `None` without zoom events, otherwise whether the batch's last wheel event zooms.
+	// Movement before a zoom is dropped; ordinary movement after its end still scrolls.
+	let mut zoom = None;
+	let zoom_modifier = options.zoom_modifier;
 	for event in events {
 		let egui::Event::MouseWheel {
 			unit,
@@ -269,6 +274,10 @@ fn instant_wheel_delta(
 			if time - last > timeout {
 				*latch = WheelLatch::default();
 			}
+		}
+		if *phase != egui::TouchPhase::Move && modifiers.matches_any(zoom_modifier) {
+			total = egui::Vec2::ZERO;
+			zoom = Some(true);
 		}
 		match phase {
 			egui::TouchPhase::Start => {
@@ -297,8 +306,13 @@ fn instant_wheel_delta(
 			latch.modifiers = *modifiers;
 		}
 		let modifiers = latch.modifiers;
-		if modifiers.matches_any(options.zoom_modifier) {
+		if modifiers.matches_any(zoom_modifier) {
+			total = egui::Vec2::ZERO;
+			zoom = Some(true);
 			continue;
+		}
+		if zoom.is_some() {
+			zoom = Some(false);
 		}
 		let mut delta = match unit {
 			egui::MouseWheelUnit::Point => *delta,
@@ -315,18 +329,7 @@ fn instant_wheel_delta(
 		}
 		total += delta;
 	}
-	total
-}
-
-fn zoom_gesture(latch: &WheelLatch, options: egui::InputOptions, events: &[egui::Event]) -> bool {
-	let zoom = options.zoom_modifier;
-	if latch.touch.is_some() && latch.modifiers.matches_any(zoom) {
-		return true;
-	}
-	events.iter().any(|event| match event {
-		egui::Event::MouseWheel { modifiers, .. } => modifiers.matches_any(zoom),
-		_ => false,
-	})
+	(total, zoom)
 }
 /// Chromium / Discord default: 3 wheel lines times 40 px. winit reports one notch as `LineDelta` 1.0.
 pub const DISCORD_LINE_SCROLL_SPEED: f32 = 120.0;
@@ -1124,8 +1127,27 @@ mod tests {
 				source: egui::MouseWheelSource::Unknown,
 			},
 		];
+		// Ordinary scrolling after a zoom ends in the same batch still scrolls, by itself.
+		let mut zoom_then_scroll = zoom_start.clone();
+		zoom_then_scroll.extend([
+			egui::Event::MouseWheel {
+				unit: egui::MouseWheelUnit::Point,
+				delta: egui::Vec2::ZERO,
+				modifiers: zoom,
+				phase: egui::TouchPhase::End,
+				source: egui::MouseWheelSource::Trackpad,
+			},
+			egui::Event::MouseWheel {
+				unit: egui::MouseWheelUnit::Point,
+				delta: egui::vec2(0.0, 30.0),
+				modifiers: egui::Modifiers::NONE,
+				phase: egui::TouchPhase::Move,
+				source: egui::MouseWheelSource::Trackpad,
+			},
+		]);
 		for (interrupt, switch, expected) in [
 			(zoom_start, false, egui::Vec2::ZERO),
+			(zoom_then_scroll, false, egui::vec2(0.0, 30.0)),
 			(cancel, false, egui::Vec2::ZERO),
 			(moved_then_cancelled, false, egui::Vec2::ZERO),
 			(elsewhere, false, egui::vec2(0.0, 10.0)),
