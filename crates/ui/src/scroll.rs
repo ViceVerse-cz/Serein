@@ -149,8 +149,8 @@ pub fn apply_preferences(ctx: &egui::Context, preferences: model::ReadingPrefere
 		{
 			state.accumulator.x = 0.0;
 		}
-		state.carried = (state.accumulator != egui::Vec2::ZERO)
-			.then_some((ctx.cumulative_frame_nr(), incoming));
+		let queued = state.accumulator != egui::Vec2::ZERO;
+		state.carried = queued.then_some((ctx.cumulative_frame_nr(), incoming));
 		state.accumulator += incoming;
 		// Smoothing spreads one gesture across frames, so the queue is bounded.
 		// With smoothing off the whole event is delivered below and must not be clipped.
@@ -170,13 +170,14 @@ pub fn apply_preferences(ctx: &egui::Context, preferences: model::ReadingPrefere
 		} else {
 			let len = state.accumulator.length();
 			// For small or slow touchpad scrolls, deliver 100% immediately for crisp 1:1 tactile feel.
+			// A queued remainder keeps the per-frame cap, which is below this threshold above 60 Hz.
 			// Divide the thresholds by the speed factor so the applied delta respects them at every
 			// speed setting, and the per-frame cap still bounds the timeline overscan.
 			let viewport_cap = page_height * 0.45 / speed;
 			let immediate = (120.0 / speed).min(viewport_cap);
 			if state.stepped_frame == Some(frame) {
 				egui::Vec2::ZERO
-			} else if len <= immediate {
+			} else if len <= immediate && !queued {
 				let d = state.accumulator;
 				state.accumulator = egui::Vec2::ZERO;
 				d
@@ -904,7 +905,7 @@ mod tests {
 			// Prime egui's stable_dt with the target frame interval before the swipe.
 			frame(0.1, vec![]);
 			frame(0.1 + dt, vec![]);
-			frame(
+			let first = frame(
 				0.1 + dt * 2.0,
 				vec![egui::Event::MouseWheel {
 					unit: egui::MouseWheelUnit::Line,
@@ -913,7 +914,25 @@ mod tests {
 					phase: egui::TouchPhase::Move,
 					source: egui::MouseWheelSource::Unknown,
 				}],
-			)
+			);
+			// The queued remainder drains without new input and never exceeds the first step.
+			let mut total = first;
+			for n in 3..200 {
+				let step = frame(0.1 + dt * f64::from(n), vec![]);
+				if step == 0.0 {
+					break;
+				}
+				assert!(
+					step <= first + 0.5,
+					"{hz} Hz frame {n} moved {step}, past the {first}pt cap"
+				);
+				total += step;
+			}
+			assert!(
+				(total - 1200.0).abs() < 0.5,
+				"{hz} Hz delivered {total} of the 1200pt queue"
+			);
+			first
 		};
 		let step_60 = step_for_hz(60.0);
 		let step_120 = step_for_hz(120.0);
