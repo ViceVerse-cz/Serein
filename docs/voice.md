@@ -265,6 +265,10 @@ reopen devices. Lost VIEW_CHANNEL drops the stored roster and hides participant 
 when no call is active; late updates cannot repopulate an inaccessible channel.
 
 
+For both Go Live sending and viewing, UDP discovery retries on the same socket
+at most once per second while waiting for a reply. The handshake retains its
+eight-second discovery deadline.
+
 ## Stream lag and viewer timeouts (October 3, 2026)
 
 Discord identifies error 2012 as a [video viewer timeout](https://support.discord.com/hc/en-us/articles/30952914470807-Discord-Audio-and-Video-Error-Codes-Troubleshooting-Guide),
