@@ -6539,10 +6539,7 @@ impl eframe::App for Desktop {
 			.1
 			.iter()
 			.any(|chord| model::keybinds::is_mouse_button(&chord.key));
-		let cancelled = rebound
-			|| (!mouse_hold
-				&& ctx.input(|input| input.raw.focused)
-				&& ctx.egui_wants_keyboard_input());
+		let cancelled = rebound || (!mouse_hold && self.messaging.voice_text_entry_active(ctx));
 		if held || cancelled {
 			self.ptt_release = None;
 		} else if self.messaging.voice_ptt_active && self.ptt_release.is_none() {

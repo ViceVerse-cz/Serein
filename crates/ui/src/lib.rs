@@ -827,6 +827,18 @@ impl MessagingUi {
 				))
 	}
 
+	/// Text entry in either focused call window cancels a keyboard push-to-talk tail.
+	pub fn voice_text_entry_active(&self, ctx: &egui::Context) -> bool {
+		(ctx.input_for(egui::ViewportId::ROOT, |input| input.raw.focused)
+			&& ctx.egui_wants_keyboard_input())
+			|| (self.voice_popout_open()
+				&& self.voice_popout_wants_keyboard
+				&& ctx.input_for(
+					egui::ViewportId::from_hash_of("serein-voice-popout"),
+					|input| input.raw.focused,
+				))
+	}
+
 	/// Text entry suppresses held keys, but a held mouse button is never typing.
 	fn voice_hold_down(&self, ctx: &egui::Context, action: model::KeybindAction) -> bool {
 		self.voice_hold_down_for(
@@ -7583,6 +7595,7 @@ mod composer_tests {
 			},
 		);
 		output.textures_delta.clear();
+		assert!(!view.voice_text_entry_active(&ctx));
 		view.voice_popout_wants_keyboard = true;
 		let mut output = ctx.run_ui(
 			egui::RawInput {
@@ -7603,6 +7616,7 @@ mod composer_tests {
 				..Default::default()
 			},
 			|ui| {
+				assert!(view.voice_text_entry_active(ui.ctx()));
 				assert!(!view.push_to_talk_down(ui.ctx()));
 				assert!(!view.push_to_mute_down(ui.ctx()));
 				assert_eq!(view.voice_toggle_pressed(ui.ctx(), |_, _| false), 0);
