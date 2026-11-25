@@ -331,9 +331,10 @@ fn start_display(
 	if width == 0 || height == 0 || width > MAX_FRAME_WIDTH || height > MAX_FRAME_HEIGHT {
 		return Err("Selected source exceeds the 4K capture limit");
 	}
-	if dxgi::should_use_dxgi_for_display(
-		GraphicsCaptureApi::is_border_settings_supported().unwrap_or(false),
-	) {
+	// Check Windows's per-application screen-capture consent before selecting any capture
+	// backend so an owner denial blocks both DXGI and Windows Graphics Capture.
+	request_access(&cancel)?;
+	if dxgi::should_use_dxgi_for_display(GraphicsCaptureApi::is_border_settings_supported().ok()) {
 		match dxgi::DxgiCapture::start(
 			settings,
 			monitor.as_raw_hmonitor() as usize,
@@ -368,7 +369,7 @@ fn start_display(
 			}
 		}
 	}
-	start_item(settings, monitor, frames, stop, pending, cancel)
+	start_item_checked(settings, monitor, frames, stop, pending)
 }
 
 #[allow(clippy::too_many_arguments)] // One capture's stop, readiness, audio and cancellation flags.
@@ -392,6 +393,19 @@ where
 	// Windows 11 keeps a per-application consent; an application that never asks is denied and
 	// the Settings page lists no request. Asking here shows the system prompt once.
 	request_access(&cancel)?;
+	start_item_checked(settings, item, frames, stop, pending)
+}
+
+fn start_item_checked<T>(
+	settings: CaptureSettings,
+	item: T,
+	frames: SyncSender<RawFrame>,
+	stop: Arc<AtomicBool>,
+	pending: Arc<AtomicBool>,
+) -> Result<Capture, &'static str>
+where
+	T: NativeSource,
+{
 	// The item conversion can still refuse the source (a protected window, for example).
 	item.probe()?;
 	let flags = Flags {

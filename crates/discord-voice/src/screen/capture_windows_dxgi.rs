@@ -7,18 +7,21 @@
 //! if DXGI duplication is unavailable for that display.
 
 use crate::screen::MAX_RAW_BYTES;
+use std::time::{Duration, Instant};
 
 const MAX_FRAME_WIDTH: u32 = 3840;
 const MAX_FRAME_HEIGHT: u32 = 2160;
 /// Bounded cap on a single cursor shape buffer returned by DXGI (4 MiB covers up to 1024x1024 BGRA).
 const MAX_POINTER_SHAPE_BYTES: usize = 4 * 1024 * 1024;
+const RECOVERY_LIMIT: Duration = Duration::from_secs(3);
 
 const _: () = assert!(MAX_FRAME_WIDTH as usize * MAX_FRAME_HEIGHT as usize * 4 == MAX_RAW_BYTES);
 
-/// Prefer DXGI Desktop Duplication for display capture when Windows Graphics Capture cannot hide
-/// the OS capture border.
-pub(super) const fn should_use_dxgi_for_display(border_settings_supported: bool) -> bool {
-	!border_settings_supported
+/// Prefer DXGI Desktop Duplication for display capture only when Windows explicitly reports that
+/// WGC border removal (`IsBorderRequired`) is unsupported. Capability probe failures (`None`)
+/// keep the Windows Graphics Capture path instead of assuming Windows 10.
+pub(super) const fn should_use_dxgi_for_display(border_settings_supported: Option<bool>) -> bool {
+	matches!(border_settings_supported, Some(false))
 }
 
 /// Output rotation reported by `DXGI_OUTDUPL_DESC.Rotation`.
@@ -101,13 +104,13 @@ fn copy_bgra_rotated(
 			}
 		}
 		Rotation::Rotate90 => {
-			// DXGI_MODE_ROTATION_ROTATE90 means the display rotates clockwise by 90 degrees,
-			// so upright desktop pixels come from rotating the scanout surface 90 degrees CCW.
+			// Matches Microsoft's DisplayManager.cpp SetDirtyVert: DXGI_MODE_ROTATION_ROTATE90
+			// maps the raw unrotated surface 90 degrees clockwise into upright desktop pixels.
 			for y in 0..src_h {
 				let src_row = &src[y * src_stride..y * src_stride + src_row_bytes];
+				let dst_x = src_h - 1 - y;
 				for x in 0..src_w {
-					let dst_x = y;
-					let dst_y = src_w - 1 - x;
+					let dst_y = x;
 					let dst_off = dst_y * dst_row_bytes + dst_x * 4;
 					let src_off = x * 4;
 					dst[dst_off..dst_off + 4].copy_from_slice(&src_row[src_off..src_off + 4]);
@@ -127,12 +130,13 @@ fn copy_bgra_rotated(
 			}
 		}
 		Rotation::Rotate270 => {
-			// DXGI_MODE_ROTATION_ROTATE270 reverses to a 90-degree clockwise rotation.
+			// Matches Microsoft's DisplayManager.cpp SetDirtyVert: DXGI_MODE_ROTATION_ROTATE270
+			// maps the raw unrotated surface 90 degrees counter-clockwise into upright desktop pixels.
 			for y in 0..src_h {
 				let src_row = &src[y * src_stride..y * src_stride + src_row_bytes];
-				let dst_x = src_h - 1 - y;
 				for x in 0..src_w {
-					let dst_y = x;
+					let dst_x = y;
+					let dst_y = src_w - 1 - x;
 					let dst_off = dst_y * dst_row_bytes + dst_x * 4;
 					let src_off = x * 4;
 					dst[dst_off..dst_off + 4].copy_from_slice(&src_row[src_off..src_off + 4]);
@@ -395,6 +399,34 @@ const fn classify_recovery_hresult(code: u32) -> RecoveryDisposition {
 	}
 }
 
+/// Tracks one recovery episode across both failed session opens and reopened sessions that fail
+/// before delivering a copied frame, clearing only after a frame copy succeeds.
+#[derive(Default)]
+struct RecoveryBudget {
+	started: Option<Instant>,
+}
+
+impl RecoveryBudget {
+	/// Records a recovery failure at `now`. Returns `true` while recovery may continue and `false`
+	/// once bounded failures have exceeded `RECOVERY_LIMIT`.
+	fn note_failure(&mut self, now: Instant, disposition: RecoveryDisposition) -> bool {
+		match disposition {
+			RecoveryDisposition::KeepWaiting => {
+				self.started = None;
+				true
+			}
+			RecoveryDisposition::RetryBounded => {
+				let started = *self.started.get_or_insert(now);
+				now.saturating_duration_since(started) < RECOVERY_LIMIT
+			}
+		}
+	}
+
+	fn clear(&mut self) {
+		self.started = None;
+	}
+}
+
 /// True when any pixel has a non-zero RGB channel, distinguishing a real static desktop surface
 /// from an uninitialized all-black initial duplication frame.
 fn has_visible_pixels(bgra: &[u8]) -> bool {
@@ -420,7 +452,6 @@ mod native {
 			mpsc::{SyncSender, sync_channel},
 		},
 		thread::JoinHandle,
-		time::{Duration, Instant},
 	};
 	use windows::{
 		Win32::{
@@ -465,7 +496,6 @@ mod native {
 	const MAX_OUTPUTS: u32 = 32;
 	const ACQUIRE_TIMEOUT_MS: u32 = 50;
 	const INITIAL_PRESENT_GRACE: Duration = Duration::from_millis(200);
-	const RECOVERY_LIMIT: Duration = Duration::from_secs(3);
 	const STOP_POLL_SLICE: Duration = Duration::from_millis(25);
 	const HIDDEN_CURSOR_BACKOFF: Duration = Duration::from_millis(4);
 
@@ -704,13 +734,23 @@ mod native {
 				));
 			}
 
-			Ok(Self {
+			let mut session = Self {
 				device,
 				context,
 				duplication,
 				dupl_desc,
 				staging: None,
-			})
+			};
+			// Pre-allocate the initial staging texture during startup so allocation failures fall
+			// back to Windows Graphics Capture immediately without waiting for a presented frame.
+			let (staging_w, staging_h) = map_rotation(dupl_desc.Rotation)
+				.output_dimensions(dupl_desc.ModeDesc.Width, dupl_desc.ModeDesc.Height);
+			session
+				.ensure_staging(staging_w, staging_h, dupl_desc.ModeDesc.Format)
+				.map_err(|error| {
+					OpenError::Hresult(error.code(), "Could not allocate DXGI staging texture")
+				})?;
+			Ok(session)
 		}
 
 		fn ensure_staging(
@@ -985,9 +1025,9 @@ mod native {
 		target_hmonitor: usize,
 		capture_stop: &AtomicBool,
 		local_stop: &AtomicBool,
+		budget: &mut RecoveryBudget,
 	) -> Option<DuplicationSession> {
 		let mut backoff = Duration::from_millis(50);
-		let mut bounded_start: Option<Instant> = None;
 		while !stopped(capture_stop, local_stop) {
 			if !sleep_interruptible(backoff, capture_stop, local_stop) {
 				return None;
@@ -995,23 +1035,14 @@ mod native {
 			match DuplicationSession::open(target_hmonitor) {
 				Ok(session) => return Some(session),
 				Err(error) => {
-					match error.disposition() {
-						RecoveryDisposition::KeepWaiting => {
-							// Reset the bounded timer while Windows holds the secure desktop.
-							bounded_start = None;
+					if !budget.note_failure(Instant::now(), error.disposition()) {
+						if diagnostics_enabled() {
+							eprintln!(
+								"[Serein voice Screen] dxgi_recovery_failed={}",
+								error.reason()
+							);
 						}
-						RecoveryDisposition::RetryBounded => {
-							let started = *bounded_start.get_or_insert_with(Instant::now);
-							if started.elapsed() >= RECOVERY_LIMIT {
-								if diagnostics_enabled() {
-									eprintln!(
-										"[Serein voice Screen] dxgi_recovery_failed={}",
-										error.reason()
-									);
-								}
-								return None;
-							}
-						}
+						return None;
 					}
 					backoff = (backoff * 2).min(Duration::from_millis(250));
 				}
@@ -1069,6 +1100,7 @@ mod native {
 		let mut cursor = CursorTracker::default();
 		let mut pointer_scratch = Vec::new();
 		let mut dirty = false;
+		let mut recovery_budget = RecoveryBudget::default();
 
 		while !stopped(&capture_stop, &local_stop) {
 			if have_desktop {
@@ -1144,6 +1176,7 @@ mod native {
 									desktop_size = size;
 									have_desktop = true;
 									initial_fallback = None;
+									recovery_budget.clear();
 									dirty = true;
 								}
 								Err(_) => needs_recreate = true,
@@ -1157,16 +1190,19 @@ mod native {
 							&& let Ok(texture) = resource.cast::<ID3D11Texture2D>()
 						{
 							let mut candidate = Vec::new();
-							if let Ok(size) = session.copy_surface_to_bgra(&texture, &mut candidate)
-							{
-								if has_visible_pixels(&candidate) {
-									desktop_bgra = candidate;
-									desktop_size = size;
-									have_desktop = true;
-									dirty = true;
-								} else {
-									initial_fallback = Some((size, candidate));
+							match session.copy_surface_to_bgra(&texture, &mut candidate) {
+								Ok(size) => {
+									if has_visible_pixels(&candidate) {
+										desktop_bgra = candidate;
+										desktop_size = size;
+										have_desktop = true;
+										recovery_budget.clear();
+										dirty = true;
+									} else {
+										initial_fallback = Some((size, candidate));
+									}
 								}
+								Err(_) => needs_recreate = true,
 							}
 						}
 					} else if !needs_recreate {
@@ -1177,17 +1213,7 @@ mod native {
 						}
 					}
 				}
-				Err(error) if error.code() == DXGI_ERROR_WAIT_TIMEOUT => {
-					if !have_desktop
-						&& session_opened.elapsed() >= INITIAL_PRESENT_GRACE
-						&& let Some((size, candidate)) = initial_fallback.take()
-					{
-						desktop_bgra = candidate;
-						desktop_size = size;
-						have_desktop = true;
-						dirty = true;
-					}
-				}
+				Err(error) if error.code() == DXGI_ERROR_WAIT_TIMEOUT => {}
 				Err(error)
 					if error.code() == DXGI_ERROR_ACCESS_LOST
 						|| error.code() == DXGI_ERROR_DEVICE_REMOVED
@@ -1201,6 +1227,20 @@ mod native {
 				}
 			}
 
+			// Promote an all-black initial desktop candidate after the grace period even if
+			// pointer-only updates keep AcquireNextFrame returning Ok(()) without a timeout.
+			if !needs_recreate
+				&& !have_desktop
+				&& session_opened.elapsed() >= INITIAL_PRESENT_GRACE
+				&& let Some((size, candidate)) = initial_fallback.take()
+			{
+				desktop_bgra = candidate;
+				desktop_size = size;
+				have_desktop = true;
+				recovery_budget.clear();
+				dirty = true;
+			}
+
 			if needs_recreate {
 				// Release the old duplication and D3D11 device before requesting a replacement.
 				drop(session);
@@ -1208,8 +1248,21 @@ mod native {
 				have_desktop = false;
 				initial_fallback = None;
 				dirty = false;
-				let Some(recovered) = recover_session(target_hmonitor, &capture_stop, &local_stop)
-				else {
+				if !recovery_budget.note_failure(Instant::now(), RecoveryDisposition::RetryBounded)
+				{
+					if diagnostics_enabled() {
+						eprintln!(
+							"[Serein voice Screen] dxgi_recovery_failed=repeated DXGI frame capture failures"
+						);
+					}
+					return;
+				}
+				let Some(recovered) = recover_session(
+					target_hmonitor,
+					&capture_stop,
+					&local_stop,
+					&mut recovery_budget,
+				) else {
 					return;
 				};
 				session = recovered;
@@ -1257,8 +1310,9 @@ mod tests {
 
 	#[test]
 	fn selects_dxgi_only_when_wgc_border_setting_is_unavailable() {
-		assert!(should_use_dxgi_for_display(false));
-		assert!(!should_use_dxgi_for_display(true));
+		assert!(should_use_dxgi_for_display(Some(false)));
+		assert!(!should_use_dxgi_for_display(Some(true)));
+		assert!(!should_use_dxgi_for_display(None));
 	}
 
 	#[test]
@@ -1287,16 +1341,16 @@ mod tests {
 			[px(10), px(20), px(30), px(40), px(50), px(60)].concat()
 		);
 
-		// Rotate90 reverses to 90 deg CCW -> 3x2:
-		// row 0: (1,0)=B  (1,1)=D  (1,2)=F
-		// row 1: (0,0)=A  (0,1)=C  (0,2)=E
+		// Rotate90 rotates 90 deg CW -> 3x2:
+		// row 0: (0,2)=E  (0,1)=C  (0,0)=A
+		// row 1: (1,2)=F  (1,1)=D  (1,0)=B
 		assert_eq!(
 			copy_bgra_rotated(&src, 2, 3, stride, Rotation::Rotate90, &mut out).unwrap(),
 			(3, 2)
 		);
 		assert_eq!(
 			out,
-			[px(20), px(40), px(60), px(10), px(30), px(50)].concat()
+			[px(50), px(30), px(10), px(60), px(40), px(20)].concat()
 		);
 
 		// Rotate180 -> 2x3 reversed:
@@ -1310,16 +1364,16 @@ mod tests {
 			[px(60), px(50), px(40), px(30), px(20), px(10)].concat()
 		);
 
-		// Rotate270 reverses to 90 deg CW -> 3x2:
-		// row 0: (0,2)=E  (0,1)=C  (0,0)=A
-		// row 1: (1,2)=F  (1,1)=D  (1,0)=B
+		// Rotate270 rotates 90 deg CCW -> 3x2:
+		// row 0: (1,0)=B  (1,1)=D  (1,2)=F
+		// row 1: (0,0)=A  (0,1)=C  (0,2)=E
 		assert_eq!(
 			copy_bgra_rotated(&src, 2, 3, stride, Rotation::Rotate270, &mut out).unwrap(),
 			(3, 2)
 		);
 		assert_eq!(
 			out,
-			[px(50), px(30), px(10), px(60), px(40), px(20)].concat()
+			[px(20), px(40), px(60), px(10), px(30), px(50)].concat()
 		);
 
 		// Pre-rotated texture matching portrait ModeDesc must not be rotated a second time.
@@ -1333,18 +1387,26 @@ mod tests {
 		);
 
 		// Stride smaller than row bytes or truncated buffer is rejected.
-		assert!(copy_bgra_rotated(&src, 2, 3, 4, Rotation::Identity, &mut out).is_err());
-		assert!(copy_bgra_rotated(&src[..20], 2, 3, stride, Rotation::Identity, &mut out).is_err());
-		assert!(
+		assert_eq!(
+			copy_bgra_rotated(&src, 2, 3, 4, Rotation::Identity, &mut out),
+			Err("Captured frame buffer is incomplete")
+		);
+		assert_eq!(
+			copy_bgra_rotated(&src[..20], 2, 3, stride, Rotation::Identity, &mut out),
+			Err("Captured frame buffer is incomplete")
+		);
+		// A complete source row wider than 4K must be rejected by the 4K limit check.
+		let oversized = vec![0u8; (MAX_FRAME_WIDTH as usize + 1) * 4];
+		assert_eq!(
 			copy_bgra_rotated(
-				&[0; 16],
+				&oversized,
 				MAX_FRAME_WIDTH + 1,
 				1,
-				(MAX_FRAME_WIDTH as usize + 1) * 4,
+				oversized.len(),
 				Rotation::Identity,
-				&mut out
-			)
-			.is_err()
+				&mut out,
+			),
+			Err("Captured frame exceeds the 4K limit")
 		);
 	}
 
@@ -1456,5 +1518,27 @@ mod tests {
 		);
 		assert!(!has_visible_pixels(&[0, 0, 0, 255, 0, 0, 0, 0]));
 		assert!(has_visible_pixels(&[0, 1, 0, 255]));
+
+		let start = Instant::now();
+		let mut budget = RecoveryBudget::default();
+		assert!(budget.note_failure(start, RecoveryDisposition::RetryBounded));
+		// Repeated failures without a delivered frame share the same 3-second deadline.
+		assert!(budget.note_failure(
+			start + RECOVERY_LIMIT - Duration::from_millis(1),
+			RecoveryDisposition::RetryBounded,
+		));
+		assert!(!budget.note_failure(start + RECOVERY_LIMIT, RecoveryDisposition::RetryBounded));
+
+		// Secure-desktop waits pause the hard-error clock; a successful copy clears it.
+		assert!(budget.note_failure(start + RECOVERY_LIMIT, RecoveryDisposition::KeepWaiting));
+		assert!(budget.note_failure(
+			start + RECOVERY_LIMIT + Duration::from_secs(1),
+			RecoveryDisposition::RetryBounded,
+		));
+		budget.clear();
+		assert!(budget.note_failure(
+			start + RECOVERY_LIMIT + Duration::from_secs(10),
+			RecoveryDisposition::RetryBounded,
+		));
 	}
 }

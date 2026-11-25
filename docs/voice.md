@@ -530,15 +530,16 @@ refused even when an installed copy was already allowed.
 Source discovery alone does not start streaming. Closing or minimizing a selected source may pause frames or end capture, according to the native API. The initial Windows adapter accepts source dimensions up to 3840×2160. Changes to screen-server metadata, lost video permission, leaving the call and logout stop sharing. The sender never starts itself after reconnection.
 
 Windows capture requests border removal through Windows Graphics Capture (`IsBorderRequired`)
-when supported (Windows 11 / build 20348+). On older Windows 10 builds where `IsBorderRequired`
-is unavailable or the capability check fails, display shares use the DXGI Desktop Duplication
-API (`IDXGIOutputDuplication`), capturing the selected monitor without the yellow capture border
-while honoring the cursor visibility setting. If DXGI duplication cannot initialize for that
-display (for example on hybrid-GPU setups that disallow cross-adapter duplication, indirect
-displays, or Remote Desktop), Serein falls back to Windows Graphics Capture automatically.
-Window shares continue to use Windows Graphics Capture so overlapping windows are never exposed,
-and therefore retain the system's default capture border on Windows 10 builds without
-`IsBorderRequired`.
+when supported (Windows 11 / build 20348+). On older Windows 10 builds where Windows reports
+`IsBorderRequired` as unsupported, display shares use the DXGI Desktop Duplication API
+(`IDXGIOutputDuplication`), capturing the selected monitor without the yellow capture border.
+DXGI omits the hardware cursor when cursor capture is off (OS software-rendered cursors, such as
+pointer trails, remain part of the desktop surface). If the capability check fails or DXGI
+duplication cannot initialize for that display (for example on hybrid-GPU setups that disallow
+cross-adapter duplication, indirect displays, or Remote Desktop), Serein falls back to Windows
+Graphics Capture automatically. Window shares continue to use Windows Graphics Capture so
+overlapping windows are never exposed, and therefore retain the system's default capture border
+on Windows 10 builds without `IsBorderRequired`.
 
 Linux uses the desktop ScreenCast portal and PipeWire. Share Screen opens the system
 screen/window picker after the quality dialog; source discovery never opens that picker.
