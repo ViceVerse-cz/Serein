@@ -293,14 +293,51 @@ fn member(state: &State, channel: Id, id: Id) -> Option<&model::Member> {
 	member_in(list, id)
 }
 
+/// Newest server nickname per author in one channel's bounded history.
+///
+/// The picker resolves every candidate at once, so the timeline is scanned here instead of once
+/// per candidate.
+struct HistoryNicknames<'a> {
+	by_user: std::collections::HashMap<Id, &'a str>,
+}
+
+impl<'a> HistoryNicknames<'a> {
+	fn new(state: &'a State, channel: Id) -> Self {
+		let mut by_user = std::collections::HashMap::new();
+		for message in state
+			.timeline
+			.iter()
+			.rev()
+			.filter(|message| message.channel == channel)
+		{
+			if let Some(nick) = message
+				.author_nick
+				.as_deref()
+				.filter(|nick| !nick.is_empty())
+			{
+				by_user.entry(message.author.id).or_insert(nick);
+			}
+		}
+		Self { by_user }
+	}
+
+	fn get(&self, id: Id) -> Option<&'a str> {
+		self.by_user.get(&id).copied()
+	}
+}
+
 /// Server nickname known for this user, independent of which member window is loaded.
-fn nickname<'a>(state: &'a State, channel: Id, id: Id) -> Option<&'a str> {
-	let plain = |nick: &&'a str| !nick.is_empty();
-	if let Some(nick) = member(state, channel, id)
-		.and_then(|member| member.nick.as_deref())
-		.filter(plain)
-	{
-		return Some(nick);
+///
+/// Member data is authoritative: a loaded member without a nickname cleared it, so older history
+/// must not resurrect the removed name.
+fn nickname_with<'a>(
+	state: &'a State,
+	channel: Id,
+	id: Id,
+	history: Option<&HistoryNicknames<'a>>,
+) -> Option<&'a str> {
+	if let Some(member) = member(state, channel, id) {
+		return member.nick.as_deref().filter(|nick| !nick.is_empty());
 	}
 	let search = &state.member_search[0];
 	if state.can_view(channel)
@@ -308,23 +345,21 @@ fn nickname<'a>(state: &'a State, channel: Id, id: Id) -> Option<&'a str> {
 			.request
 			.as_ref()
 			.is_some_and(|request| request.channel == channel)
-		&& let Some(nick) = search
-			.rows
-			.iter()
-			.find(|member| member.user.id == id)
-			.and_then(|member| member.nick.as_deref())
-			.filter(plain)
+		&& let Some(member) = search.rows.iter().find(|member| member.user.id == id)
 	{
-		return Some(nick);
+		return member.nick.as_deref().filter(|nick| !nick.is_empty());
 	}
-	// The channel's own history carries the author's server nickname with the message.
-	state
-		.timeline
-		.iter()
-		.rev()
-		.filter(|message| message.channel == channel && message.author.id == id)
-		.find_map(|message| message.author_nick.as_deref())
-		.filter(plain)
+	match history {
+		Some(history) => history.get(id),
+		// The channel's own history carries the author's server nickname with the message.
+		None => state
+			.timeline
+			.iter()
+			.rev()
+			.filter(|message| message.channel == channel && message.author.id == id)
+			.find_map(|message| message.author_nick.as_deref())
+			.filter(|nick| !nick.is_empty()),
+	}
 }
 
 pub fn find_user<'a>(
@@ -374,8 +409,17 @@ pub fn find_user<'a>(
 }
 
 pub fn mention_label(id: Id, mentions: &[User], source: Option<&MentionSource<'_>>) -> String {
+	mention_label_with(id, mentions, source, None)
+}
+
+fn mention_label_with<'a>(
+	id: Id,
+	mentions: &[User],
+	source: Option<&MentionSource<'a>>,
+	history: Option<&HistoryNicknames<'a>>,
+) -> String {
 	if let Some(source) = source
-		&& let Some(nick) = nickname(source.state, source.channel, id)
+		&& let Some(nick) = nickname_with(source.state, source.channel, id, history)
 	{
 		return format!("@{nick}");
 	}
@@ -654,13 +698,16 @@ impl Menu {
 			}
 			Kind::User => {
 				let recency = recent_user_ranks(state, channel, users);
+				let history = HistoryNicknames::new(state, channel);
+				let source = MentionSource { state, channel };
 				let mut ranked = users
 					.iter()
 					.filter_map(|user| {
-						let label = mention_label(
+						let label = mention_label_with(
 							user.id,
 							std::slice::from_ref(user),
-							Some(&MentionSource { state, channel }),
+							Some(&source),
+							Some(&history),
 						);
 						let name = label.strip_prefix('@').unwrap_or(&label);
 						rank(&query, name, user.id)
@@ -2280,6 +2327,48 @@ mod tests {
 			channel,
 		};
 		assert_eq!(mention_label(author, &[], Some(&source)), "@History Nick");
+	}
+
+	#[test]
+	fn a_removed_server_nickname_is_not_resurrected_from_history() {
+		let mut state = test_support::demo_state();
+		state.demo = false;
+		let channel = state.selected.unwrap();
+		let guild = state.channel(channel).unwrap().guild;
+		let id = Id(30303);
+		let mut author = test_support::message(1, channel).author;
+		author.id = id;
+		author.name = "Display".into();
+		let mut message = test_support::message(40003, channel);
+		message.author = author.clone();
+		message.author_nick = Some("Old Nick".into());
+		state.timeline.insert(message, false, false).unwrap();
+		// The loaded member cleared the nickname; older messages still carry the old one.
+		state.members = Some(model::MemberList {
+			guild,
+			channel,
+			request: 1,
+			start: 0,
+			total: 1,
+			lazy: false,
+			freshness: model::Freshness::Fresh,
+			groups: vec![],
+			ranges: vec![],
+			slots: vec![Some(model::MemberSlot::Person(model::Member {
+				user: author.clone(),
+				roles: vec![],
+				nick: None,
+				status: None,
+				custom_status: None,
+				activities: vec![],
+				clients: Default::default(),
+			}))],
+		});
+		let source = MentionSource {
+			state: &state,
+			channel,
+		};
+		assert_eq!(mention_label(id, &[], Some(&source)), "@Display");
 	}
 }
 
