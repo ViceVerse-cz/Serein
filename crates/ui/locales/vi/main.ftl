@@ -5267,3 +5267,11 @@ group-add-title = Thêm bạn vào tin nhắn trực tiếp
 group-add-subtitle = Chọn một người bạn để thêm vào nhóm này.
 group-add-full = Nhóm này đã đạt giới hạn 10 người.
 group-add-confirm = Thêm bạn
+
+screen-macos-request-source-access = Hiện cửa sổ và màn hình
+
+screen-macos-source-access-settings = Cho phép ghi màn hình trong cài đặt macOS để hiện cửa sổ và màn hình ở đây.
+
+screen-macos-source-group-screens = Màn hình
+
+screen-macos-source-group-windows = Cửa sổ

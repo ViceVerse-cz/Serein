@@ -5231,3 +5231,11 @@ group-add-title = DM에 친구 추가
 group-add-subtitle = 이 그룹에 추가할 친구를 선택하세요.
 group-add-full = 이 그룹은 최대 인원인 10명에 도달했습니다.
 group-add-confirm = 친구 추가
+
+screen-macos-request-source-access = 윈도우 및 화면 표시
+
+screen-macos-source-access-settings = 여기에 윈도우와 화면을 표시하려면 macOS 설정에서 화면 기록을 허용하세요.
+
+screen-macos-source-group-screens = 화면
+
+screen-macos-source-group-windows = 윈도우
