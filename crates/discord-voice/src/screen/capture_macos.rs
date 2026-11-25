@@ -15,6 +15,7 @@ use screencapturekit::{
 	},
 	cv::CVPixelBufferLockFlags,
 	prelude::*,
+	screenshot_manager::{CGImageExt, SCScreenshotManager},
 	stream::delegate_trait::SCStreamDelegateTrait,
 };
 use std::sync::{
@@ -124,6 +125,53 @@ pub(crate) fn sources(request_access: bool) -> Result<SourceList, &'static str> 
 	}
 	sources.items.extend(system_picker);
 	Ok(sources)
+}
+
+pub(crate) fn thumbnail(source: SourceId) -> Option<image::RgbaImage> {
+	const WIDTH: u32 = 256;
+	const HEIGHT: u32 = 144;
+
+	if !CGPreflightScreenCaptureAccess() {
+		return None;
+	}
+	initialize();
+	let content = SCShareableContent::get().ok()?;
+	let filter = match source {
+		SourceId::Display(id) => {
+			let display = content
+				.displays()
+				.into_iter()
+				.find(|display| u64::from(display.display_id()) == id)?;
+			SCContentFilter::create()
+				.with_display(&display)
+				.with_excluding_windows(&[])
+				.build()
+		}
+		SourceId::Window(id) => {
+			let window = content.windows().into_iter().find(|window| {
+				u64::from(window.window_id()) == id
+					&& window.is_on_screen()
+					&& window.window_layer() == 0
+			})?;
+			SCContentFilter::create().with_window(&window).build()
+		}
+		_ => return None,
+	};
+	let configuration = SCStreamConfiguration::new()
+		.with_width(WIDTH)
+		.with_height(HEIGHT)
+		.with_preserves_aspect_ratio(true)
+		.with_scales_to_fit(true)
+		.with_shows_cursor(false);
+	let image = SCScreenshotManager::capture_image(&filter, &configuration).ok()?;
+	let (width, height) = (
+		u32::try_from(image.width()).ok()?,
+		u32::try_from(image.height()).ok()?,
+	);
+	if width == 0 || height == 0 || width > WIDTH || height > HEIGHT {
+		return None;
+	}
+	image::RgbaImage::from_raw(width, height, image.rgba_data().ok()?)
 }
 
 /// Wait for the picker until it answers, the deadline passes or any `stops` flag is set.

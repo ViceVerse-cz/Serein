@@ -38,6 +38,8 @@ mod imp;
 #[path = "capture_windows.rs"]
 mod imp;
 
+#[cfg(target_os = "macos")]
+pub(crate) use imp::thumbnail;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 pub(crate) use imp::{Capture, sources};
 

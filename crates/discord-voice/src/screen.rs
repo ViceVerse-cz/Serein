@@ -132,6 +132,11 @@ pub fn sources(request_access: bool) -> Result<SourceList, &'static str> {
 	})
 }
 
+#[cfg(target_os = "macos")]
+pub fn source_thumbnail(source: SourceId) -> Option<image::RgbaImage> {
+	capture::thumbnail(source)
+}
+
 pub struct Worker {
 	stop: Arc<AtomicBool>,
 	ready: Arc<AtomicBool>,

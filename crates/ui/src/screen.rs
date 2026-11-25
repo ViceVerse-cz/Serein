@@ -27,6 +27,9 @@ pub struct ScreenUi {
 	pub context: Option<(u64, Id, u64)>,
 	pub open: bool,
 	pub sources: Vec<Source>,
+	source_revision: u64,
+	visible_thumbnails: Vec<SourceId>,
+	source_thumbnails: Vec<(SourceId, Option<egui::TextureHandle>)>,
 	pub selected: Option<SourceId>,
 	pub refresh_requested: bool,
 	pub request_source_access: bool,
@@ -57,6 +60,9 @@ impl Default for ScreenUi {
 			context: None,
 			open: false,
 			sources: Vec::new(),
+			source_revision: 0,
+			visible_thumbnails: Vec::new(),
+			source_thumbnails: Vec::new(),
 			selected: None,
 			refresh_requested: false,
 			request_source_access: false,
@@ -93,6 +99,7 @@ impl ScreenUi {
 		self.quality_for = None;
 		self.request_source_access = false;
 		self.source_permission_required = false;
+		self.clear_source_thumbnails();
 		self.sources.clear();
 		if state.demo {
 			self.sources = if cfg!(target_os = "macos") {
@@ -147,6 +154,7 @@ impl ScreenUi {
 		}
 	}
 	pub fn set_sources(&mut self, sources: Vec<Source>) {
+		self.clear_source_thumbnails();
 		self.selected = self
 			.selected
 			.filter(|selected| sources.iter().any(|source| source.id == *selected))
@@ -159,6 +167,59 @@ impl ScreenUi {
 					.map(|source| source.id)
 			});
 		self.sources = sources;
+	}
+
+	fn clear_source_thumbnails(&mut self) {
+		self.source_revision = self.source_revision.wrapping_add(1);
+		self.visible_thumbnails.clear();
+		self.source_thumbnails.clear();
+	}
+
+	#[cfg(target_os = "macos")]
+	pub fn next_source_thumbnail(&self) -> Option<(u64, SourceId)> {
+		if !self.open {
+			return None;
+		}
+		self.visible_thumbnails
+			.iter()
+			.copied()
+			.find(|source| !self.source_thumbnails.iter().any(|(id, _)| id == source))
+			.map(|source| (self.source_revision, source))
+	}
+
+	#[cfg(target_os = "macos")]
+	pub fn cache_source_thumbnail(
+		&mut self,
+		revision: u64,
+		source: SourceId,
+		image: Option<image::RgbaImage>,
+		ctx: &egui::Context,
+	) {
+		if !self.open
+			|| revision != self.source_revision
+			|| !self.visible_thumbnails.contains(&source)
+		{
+			return;
+		}
+		let texture = image.map(|image| {
+			ctx.load_texture(
+				"screen-source-preview",
+				egui::ColorImage::from_rgba_premultiplied(
+					[image.width() as usize, image.height() as usize],
+					image.as_raw(),
+				),
+				egui::TextureOptions::LINEAR,
+			)
+		});
+		if self.source_thumbnails.len() == 8 {
+			let stale = self
+				.source_thumbnails
+				.iter()
+				.position(|(id, _)| !self.visible_thumbnails.contains(id))
+				.unwrap_or(0);
+			self.source_thumbnails.remove(stale);
+		}
+		self.source_thumbnails.push((source, texture));
 	}
 
 	fn selected_source(&self) -> Option<&Source> {
@@ -239,8 +300,12 @@ impl ScreenUi {
 			self.started = None;
 		}
 		if !self.open {
+			if !self.visible_thumbnails.is_empty() || !self.source_thumbnails.is_empty() {
+				self.clear_source_thumbnails();
+			}
 			return;
 		}
+		self.visible_thumbnails.clear();
 		let mut cancel = false;
 		let mut share = false;
 		let response = crate::dialog::Dialog::new(
@@ -289,6 +354,7 @@ impl ScreenUi {
 		}
 		if cancel || share {
 			self.open = false;
+			self.clear_source_thumbnails();
 		}
 	}
 
@@ -332,7 +398,7 @@ impl ScreenUi {
 			.sources
 			.iter()
 			.find(|source| source.id == SourceId::SystemPicker)
-			&& source_row(ui, source, self.selected == Some(source.id))
+			&& source_row(ui, source, self.selected == Some(source.id), None).clicked()
 		{
 			self.selected = Some(source.id);
 		}
@@ -490,17 +556,39 @@ impl ScreenUi {
 				));
 			}
 			last_group = group;
-			if source_row(ui, source, self.selected == Some(source.id)) {
+			let preview = self
+				.source_thumbnails
+				.iter()
+				.find(|(id, _)| *id == source.id)
+				.and_then(|(_, texture)| texture.as_ref());
+			let row = source_row(ui, source, self.selected == Some(source.id), preview);
+			if source_supports_preview(source.id) && ui.is_rect_visible(row.rect) {
+				self.visible_thumbnails.push(source.id);
+			}
+			if row.clicked() {
 				self.selected = Some(source.id);
 			}
 		}
 	}
 }
 
-fn source_row(ui: &mut egui::Ui, source: &Source, selected: bool) -> bool {
+fn source_supports_preview(source: SourceId) -> bool {
+	cfg!(target_os = "macos") && matches!(source, SourceId::Window(_) | SourceId::Display(_))
+}
+
+fn source_row(
+	ui: &mut egui::Ui,
+	source: &Source,
+	selected: bool,
+	preview: Option<&egui::TextureHandle>,
+) -> egui::Response {
 	let colors = crate::design::palette(ui);
-	let (rect, response) =
-		ui.allocate_exact_size(egui::vec2(ui.available_width(), 48.0), egui::Sense::click());
+	let preview_slot = source_supports_preview(source.id);
+	let height = if preview_slot { 68.0 } else { 48.0 };
+	let (rect, response) = ui.allocate_exact_size(
+		egui::vec2(ui.available_width(), height),
+		egui::Sense::click(),
+	);
 	let fill = if selected {
 		colors.accent.gamma_multiply(0.18)
 	} else if response.hovered() || response.has_focus() {
@@ -518,36 +606,66 @@ fn source_row(ui: &mut egui::Ui, source: &Source, selected: bool) -> bool {
 		);
 	}
 	let display = matches!(source.id, SourceId::Display(_) | SourceId::X11Desktop);
-	crate::icons::paint(
-		ui.painter(),
-		if display {
-			crate::icons::Icon::Television
-		} else {
-			crate::icons::Icon::ScreenShare
-		},
-		egui::Rect::from_center_size(
-			egui::pos2(rect.left() + 26.0, rect.center().y),
-			egui::Vec2::splat(20.0),
-		),
-		if selected {
-			colors.accent
-		} else {
-			colors.muted
-		},
+	let preview_box = egui::Rect::from_center_size(
+		egui::pos2(rect.left() + 57.0, rect.center().y),
+		egui::vec2(96.0, 54.0),
 	);
-	let text_left = rect.left() + 46.0;
+	if preview_slot {
+		ui.painter().rect_filled(preview_box, 4, colors.base);
+	}
+	if let Some(texture) = preview {
+		let size = texture.size_vec2();
+		let scale = (preview_box.width() / size.x).min(preview_box.height() / size.y);
+		ui.painter().image(
+			texture.id(),
+			egui::Rect::from_center_size(preview_box.center(), size * scale),
+			egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)),
+			egui::Color32::WHITE,
+		);
+	} else {
+		crate::icons::paint(
+			ui.painter(),
+			if display {
+				crate::icons::Icon::Television
+			} else {
+				crate::icons::Icon::ScreenShare
+			},
+			egui::Rect::from_center_size(
+				if preview_slot {
+					preview_box.center()
+				} else {
+					egui::pos2(rect.left() + 26.0, rect.center().y)
+				},
+				egui::Vec2::splat(20.0),
+			),
+			if selected {
+				colors.accent
+			} else {
+				colors.muted
+			},
+		);
+	}
+	let text_left = if preview_slot {
+		preview_box.right() + 12.0
+	} else {
+		rect.left() + 46.0
+	};
 	let text_width = (rect.right() - 36.0 - text_left).max(40.0);
 	let source_name = if source.id == SourceId::SystemPicker {
 		crate::i18n::translate("screen-macos-system-picker")
 	} else {
 		source.name.clone()
 	};
-	let name = ui.painter().layout(
+	let mut name = egui::text::LayoutJob::simple(
 		source_name.clone(),
 		egui::FontId::new(14.0, crate::design::medium_family(ui.ctx())),
 		colors.text_strong,
 		text_width,
 	);
+	if preview_slot {
+		name.wrap.max_rows = 2;
+	}
+	let name = ui.painter().layout_job(name);
 	let kind = ui.painter().layout_no_wrap(
 		match source.id {
 			SourceId::Display(_) | SourceId::X11Desktop => "Screen".to_owned(),
@@ -581,7 +699,7 @@ fn source_row(ui: &mut egui::Ui, source: &Source, selected: bool) -> bool {
 		egui::WidgetInfo::selected(egui::Role::RadioButton, true, selected, &source_name)
 	});
 	ui.add_space(4.0);
-	response.clicked()
+	response
 }
 
 fn preferred_resolution(offered: &[Resolution]) -> Resolution {
@@ -688,6 +806,25 @@ mod tests {
 		picker.set_sources(vec![system]);
 		picker.align_quality();
 		assert_eq!(picker.settings().unwrap().source, SourceId::SystemPicker);
+	}
+
+	#[cfg(target_os = "macos")]
+	#[test]
+	fn thumbnails_ignore_results_from_previous_source_lists() {
+		let mut picker = ScreenUi {
+			open: true,
+			..Default::default()
+		};
+		let source = SourceId::Display(1);
+		let replacement = SourceId::Window(2);
+		picker.visible_thumbnails.push(source);
+		let (revision, requested) = picker.next_source_thumbnail().unwrap();
+		assert_eq!(requested, source);
+		picker.set_sources(Vec::new());
+		picker.visible_thumbnails.push(replacement);
+		picker.cache_source_thumbnail(revision, source, None, &egui::Context::default());
+		assert!(picker.source_thumbnails.is_empty());
+		assert_eq!(picker.next_source_thumbnail().unwrap().1, replacement);
 	}
 
 	#[test]

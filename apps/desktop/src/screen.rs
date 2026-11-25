@@ -78,6 +78,13 @@ struct SourceScan {
 	receive: mpsc::Receiver<Result<SourceList, &'static str>>,
 }
 
+#[cfg(target_os = "macos")]
+struct SourceThumbnail {
+	revision: u64,
+	source: screen::SourceId,
+	receive: mpsc::Receiver<Option<image::RgbaImage>>,
+}
+
 #[derive(Default)]
 pub(super) struct Screen {
 	pending: Option<Pending>,
@@ -85,6 +92,8 @@ pub(super) struct Screen {
 	closing: Option<Closing>,
 	retiring: Option<mpsc::Receiver<Result<(), Cow<'static, str>>>>,
 	source_scan: Option<SourceScan>,
+	#[cfg(target_os = "macos")]
+	source_thumbnail: Option<SourceThumbnail>,
 	command: Option<Command>,
 	sequence: u64,
 	/// Owned when it carries a run-time detail such as a Windows error code.
@@ -106,6 +115,42 @@ impl Screen {
 		// Keep one in-flight OS enumeration tracked until it completes.
 		self.retire_live();
 		self.status = "Screen sharing stopped".into();
+	}
+
+	#[cfg(target_os = "macos")]
+	fn poll_source_thumbnail(&mut self, screen: &mut ui::screen::ScreenUi, ctx: &egui::Context) {
+		if let Some(thumbnail) = &self.source_thumbnail {
+			let image = match thumbnail.receive.try_recv() {
+				Ok(image) => image,
+				Err(mpsc::TryRecvError::Disconnected) => None,
+				Err(mpsc::TryRecvError::Empty) => return,
+			};
+			screen.cache_source_thumbnail(thumbnail.revision, thumbnail.source, image, ctx);
+			self.source_thumbnail = None;
+		}
+		if self.source_scan.is_some() || !ctx.input(|input| input.focused) {
+			return;
+		}
+		let Some((revision, source)) = screen.next_source_thumbnail() else {
+			return;
+		};
+		let (send, receive) = mpsc::sync_channel(1);
+		let wake = ctx.clone();
+		match std::thread::Builder::new()
+			.name("screen-thumbnail".into())
+			.spawn(move || {
+				let _ = send.send(discord_voice::screen::source_thumbnail(source));
+				wake.request_repaint();
+			}) {
+			Ok(_) => {
+				self.source_thumbnail = Some(SourceThumbnail {
+					revision,
+					source,
+					receive,
+				})
+			}
+			Err(_) => screen.cache_source_thumbnail(revision, source, None, ctx),
+		}
 	}
 
 	fn retire_live(&mut self) {
@@ -356,6 +401,9 @@ impl Screen {
 				Err(mpsc::TryRecvError::Empty) => {}
 			}
 		}
+
+		#[cfg(target_os = "macos")]
+		self.poll_source_thumbnail(&mut ui.screen, ctx);
 
 		let call_context = call
 			.as_ref()
