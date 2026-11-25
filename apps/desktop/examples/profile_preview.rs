@@ -28,6 +28,8 @@ struct Preview {
 	scroll: Option<(f32, egui::Pos2)>,
 	/// Demo-only message hover position and whether Shift is held.
 	toolbar_hover: Option<(egui::Pos2, bool)>,
+	/// Demo-only primary click injected after the first frames, to open a popup.
+	click: Option<egui::Pos2>,
 	/// Close settings on the first frame before presenting the conversation.
 	close_settings: bool,
 	requested: bool,
@@ -63,6 +65,15 @@ impl eframe::App for Preview {
 				} else {
 					egui::Modifiers::NONE
 				}));
+		}
+		if let Some(at) = self.click.filter(|_| (4..=5).contains(&self.frames)) {
+			raw_input.events.push(egui::Event::PointerMoved(at));
+			raw_input.events.push(egui::Event::PointerButton {
+				pos: at,
+				button: egui::PointerButton::Primary,
+				pressed: self.frames == 4,
+				modifiers: egui::Modifiers::NONE,
+			});
 		}
 		if let Some((distance, at)) = self.scroll.filter(|_| (1..=3).contains(&self.frames)) {
 			raw_input.events.push(egui::Event::PointerMoved(at));
@@ -325,7 +336,8 @@ fn profile_card_role_ids() -> Vec<model::Id> {
 
 /// Puts four roles in the catalog in an order that is not top-of-hierarchy first.
 /// Reversing the stored list yields Member, Moderator, Guest, Owner.
-fn install_profile_roles(state: &mut client_core::State) {
+/// `owner` makes you the server owner, so you may assign the member's roles.
+fn install_profile_roles(state: &mut client_core::State, owner: bool) {
 	let mut permissions = test_support::permission_snapshot(state);
 	if let Some(guild) = permissions
 		.guilds
@@ -352,6 +364,9 @@ fn install_profile_roles(state: &mut client_core::State) {
 			role(102, 2, "Member", 0x2ECC71),
 		]);
 		guild.roles = Some(roles);
+		if owner {
+			guild.owner = state.user.as_ref().map(|own| own.id);
+		}
 	}
 	state
 		.permissions
@@ -885,6 +900,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		page = "chat".into();
 	}
 	let name_colors = args.iter().any(|arg| arg == "--name-colors");
+	// `--click=X,Y` presses the primary button there; `--manage-roles` makes you the owner.
+	let click = value("--click=")
+		.map(|at| {
+			let (x, y) = at.split_once(',').ok_or("Click must be X,Y")?;
+			Ok::<_, Box<dyn std::error::Error>>(egui::pos2(x.parse()?, y.parse()?))
+		})
+		.transpose()?;
+	let manage_roles = args.iter().any(|arg| arg == "--manage-roles");
 	let close_settings =
 		toolbar_hover.is_some() || name_colors || args.iter().any(|arg| arg == "--close-settings");
 	let forum_tags: Vec<_> = value("--tags=")
@@ -1252,7 +1275,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 				state.demo = false;
 				state.gateway_connected = true;
 				state.selected = Some(model::Id(20));
-				install_profile_roles(&mut state);
+				install_profile_roles(&mut state, manage_roles);
+				if manage_roles {
+					state.auth = client_core::auth::AuthState::Authenticated;
+				}
 				let mut user = test_support::message(1, model::Id(20)).author;
 				style_name(&mut user);
 				state.members = Some(model::MemberList {
@@ -1509,6 +1535,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 				frames: 0,
 				scroll,
 				toolbar_hover,
+				click,
 				close_settings,
 				requested: false,
 				screenshot: None,
