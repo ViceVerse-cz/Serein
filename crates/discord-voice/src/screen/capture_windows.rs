@@ -24,6 +24,8 @@ use windows_capture::{
 
 #[path = "audio_windows.rs"]
 mod audio;
+#[path = "capture_windows_dxgi.rs"]
+mod dxgi;
 
 fn monitor_id(monitor: &Monitor) -> u64 {
 	u64::try_from(monitor.as_raw_hmonitor() as usize).unwrap_or(0)
@@ -193,8 +195,13 @@ impl GraphicsCaptureApiHandler for Handler {
 	}
 }
 
+enum Backend {
+	GraphicsCapture(CaptureControl<Handler, &'static str>),
+	Dxgi(dxgi::DxgiCapture),
+}
+
 pub(crate) struct Capture {
-	control: Option<CaptureControl<Handler, &'static str>>,
+	backend: Option<Backend>,
 	audio: Option<audio::Audio>,
 }
 
@@ -230,7 +237,7 @@ impl Capture {
 					.into_iter()
 					.find(|monitor| monitor_id(monitor) == id)
 					.ok_or("Selected display is no longer available")?;
-				start_item(settings, monitor, frames, stop.clone(), pending, cancel)
+				start_display(settings, monitor, frames, stop.clone(), pending, cancel)
 			}
 			SourceId::Window(id) => {
 				let window = Window::enumerate()
@@ -309,6 +316,61 @@ impl NativeSource for Window {
 	}
 }
 
+#[allow(clippy::too_many_arguments)] // One display capture's output, stop, readiness and cancellation flags.
+fn start_display(
+	settings: CaptureSettings,
+	monitor: Monitor,
+	frames: SyncSender<RawFrame>,
+	stop: Arc<AtomicBool>,
+	pending: Arc<AtomicBool>,
+	cancel: Arc<AtomicBool>,
+) -> Result<Capture, &'static str> {
+	let Some((width, height)) = monitor.dimensions() else {
+		return Err("Selected source dimensions are unavailable");
+	};
+	if width == 0 || height == 0 || width > MAX_FRAME_WIDTH || height > MAX_FRAME_HEIGHT {
+		return Err("Selected source exceeds the 4K capture limit");
+	}
+	if dxgi::should_use_dxgi_for_display(
+		GraphicsCaptureApi::is_border_settings_supported().unwrap_or(false),
+	) {
+		match dxgi::DxgiCapture::start(
+			settings,
+			monitor.as_raw_hmonitor() as usize,
+			frames.clone(),
+			stop.clone(),
+			pending.clone(),
+			&cancel,
+		) {
+			Ok(capture) => {
+				if std::env::var_os("SEREIN_VOICE_DIAGNOSTICS").is_some_and(|value| value == "1") {
+					eprintln!("[Serein voice Screen] capture_backend=dxgi_duplication");
+				}
+				return Ok(Capture {
+					backend: Some(Backend::Dxgi(capture)),
+					audio: None,
+				});
+			}
+			Err(dxgi::StartError::Cancelled) => return Err("Screen sharing was cancelled"),
+			Err(dxgi::StartError::Fallback(reason, code)) => {
+				if std::env::var_os("SEREIN_VOICE_DIAGNOSTICS").is_some_and(|value| value == "1") {
+					match code {
+						Some(code) => {
+							eprintln!(
+								"[Serein voice Screen] dxgi_fallback_to_wgc={reason} (0x{code:08X})"
+							);
+						}
+						None => {
+							eprintln!("[Serein voice Screen] dxgi_fallback_to_wgc={reason}");
+						}
+					}
+				}
+			}
+		}
+	}
+	start_item(settings, monitor, frames, stop, pending, cancel)
+}
+
 #[allow(clippy::too_many_arguments)] // One capture's stop, readiness, audio and cancellation flags.
 fn start_item<T>(
 	settings: CaptureSettings,
@@ -371,7 +433,7 @@ where
 	);
 	let control = Handler::start_free_threaded(native).map_err(|error| start_failure(&error))?;
 	Ok(Capture {
-		control: Some(control),
+		backend: Some(Backend::GraphicsCapture(control)),
 		audio: None,
 	})
 }
@@ -379,8 +441,12 @@ where
 impl Drop for Capture {
 	fn drop(&mut self) {
 		self.audio.take();
-		if let Some(control) = self.control.take() {
-			let _ = control.stop();
+		match self.backend.take() {
+			Some(Backend::GraphicsCapture(control)) => {
+				let _ = control.stop();
+			}
+			Some(Backend::Dxgi(capture)) => drop(capture),
+			None => {}
 		}
 	}
 }

@@ -9,6 +9,9 @@ mod audio_windows;
 #[cfg(not(target_os = "linux"))]
 #[path = "screen/capture.rs"]
 mod capture;
+#[cfg(all(test, not(target_os = "windows")))]
+#[path = "screen/capture_windows_dxgi.rs"]
+mod capture_windows_dxgi;
 #[cfg(any(test, not(target_os = "linux")))]
 #[path = "screen/convert.rs"]
 mod convert;

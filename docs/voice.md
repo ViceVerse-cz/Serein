@@ -507,7 +507,7 @@ Like Discord, the quality row offers every choice, smallest first: 480p (854×48
 
 Target bitrate is 2 Mbps at 480p, 4 Mbps at 720p, and 8 Mbps at 1080p for 15 and 30 fps. 60 fps doubles that, 90 fps triples it, and 120 fps quadruples it, with a ceiling of 16 Mbps. Above 1080p the 8 Mbps base scales with pixel count, up to 12 Mbps before the frame-rate multiplier; 2160p uses a 16 Mbps base. Encoder support for these sizes depends on the installed hardware and plugins, and the software fallback costs substantially more CPU.
 
-Capture uses macOS 14+ ScreenCaptureKit or Windows Graphics Capture. On macOS,
+Capture uses macOS 14+ ScreenCaptureKit, Windows Graphics Capture, or Windows DXGI Desktop Duplication. On macOS,
 Share Screen offers the native `SCContentSharingPicker` to choose one display or
 window. Source discovery only advertises that choice; it does not enumerate private
 window titles, request screen-recording permission or open the picker. The owner
@@ -529,10 +529,16 @@ refused even when an installed copy was already allowed.
 
 Source discovery alone does not start streaming. Closing or minimizing a selected source may pause frames or end capture, according to the native API. The initial Windows adapter accepts source dimensions up to 3840×2160. Changes to screen-server metadata, lost video permission, leaving the call and logout stop sharing. The sender never starts itself after reconnection.
 
-Windows capture requests border removal when the native `IsBorderRequired` API is
-supported (Windows 11), and keeps the system's default border on Windows 10 builds
-without it or if the capability check fails. This avoids an unsupported border
-request aborting capture startup. Native Windows verification of this correction is pending.
+Windows capture requests border removal through Windows Graphics Capture (`IsBorderRequired`)
+when supported (Windows 11 / build 20348+). On older Windows 10 builds where `IsBorderRequired`
+is unavailable or the capability check fails, display shares use the DXGI Desktop Duplication
+API (`IDXGIOutputDuplication`), capturing the selected monitor without the yellow capture border
+while honoring the cursor visibility setting. If DXGI duplication cannot initialize for that
+display (for example on hybrid-GPU setups that disallow cross-adapter duplication, indirect
+displays, or Remote Desktop), Serein falls back to Windows Graphics Capture automatically.
+Window shares continue to use Windows Graphics Capture so overlapping windows are never exposed,
+and therefore retain the system's default capture border on Windows 10 builds without
+`IsBorderRequired`.
 
 Linux uses the desktop ScreenCast portal and PipeWire. Share Screen opens the system
 screen/window picker after the quality dialog; source discovery never opens that picker.
