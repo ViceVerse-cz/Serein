@@ -305,6 +305,11 @@ distinguish busy, disconnected, unsupported-format and permission failures when
 the audio backend identifies them. This fast local change still needs a retry on
 an affected Windows device; it does not establish that every reported failure is fixed.
 
+Call UDP discovery resends the request on the same socket once per second while
+waiting for a reply. It stops on the first valid response or at the existing
+eight-second discovery deadline. The optional diagnostic log records when the
+voice transport is ready and the specific error if its unconfirmed negotiation fails.
+
 Call progress distinguishes requesting allocation, connecting to the voice server, checking the
 UDP network path, securing audio, and opening audio devices. Negotiation errors identify the
 missing server Hello/Ready, transport key, DAVE group or transition execution. These are bounded,
