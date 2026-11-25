@@ -318,10 +318,24 @@ impl ScreenUi {
 			});
 		});
 		ui.add_space(6.0);
-		egui::ScrollArea::vertical()
-			.id_salt("screen-sources")
-			.max_height(196.0)
-			.show(ui, |ui| self.source_list(ui));
+		let system_picker = self
+			.sources
+			.iter()
+			.find(|source| source.id == SourceId::SystemPicker);
+		if system_picker.is_none() || self.sources.len() > 1 {
+			egui::ScrollArea::vertical()
+				.id_salt("screen-sources")
+				.max_height(196.0)
+				.show(ui, |ui| self.source_list(ui));
+		}
+		if let Some(source) = self
+			.sources
+			.iter()
+			.find(|source| source.id == SourceId::SystemPicker)
+			&& source_row(ui, source, self.selected == Some(source.id))
+		{
+			self.selected = Some(source.id);
+		}
 		if self.source_permission_required
 			&& crate::design::text_action(
 				ui,
@@ -455,7 +469,11 @@ impl ScreenUi {
 				});
 		}
 		let mut last_group = None;
-		for source in &self.sources {
+		for source in self
+			.sources
+			.iter()
+			.filter(|source| source.id != SourceId::SystemPicker)
+		{
 			let group = match source.id {
 				SourceId::Display(_) => Some("screen-macos-source-group-screens"),
 				SourceId::Window(_) => Some("screen-macos-source-group-windows"),
@@ -472,96 +490,98 @@ impl ScreenUi {
 				));
 			}
 			last_group = group;
-			let selected = self.selected == Some(source.id);
-			let (rect, response) = ui
-				.allocate_exact_size(egui::vec2(ui.available_width(), 48.0), egui::Sense::click());
-			let fill = if selected {
-				colors.accent.gamma_multiply(0.18)
-			} else if response.hovered() || response.has_focus() {
-				colors.hover
-			} else {
-				colors.base
-			};
-			ui.painter().rect_filled(rect, 8, fill);
-			if selected {
-				ui.painter().rect_stroke(
-					rect,
-					8,
-					egui::Stroke::new(1.0, colors.accent),
-					egui::StrokeKind::Inside,
-				);
-			}
-			let display = matches!(source.id, SourceId::Display(_) | SourceId::X11Desktop);
-			crate::icons::paint(
-				ui.painter(),
-				if display {
-					crate::icons::Icon::Television
-				} else {
-					crate::icons::Icon::ScreenShare
-				},
-				egui::Rect::from_center_size(
-					egui::pos2(rect.left() + 26.0, rect.center().y),
-					egui::Vec2::splat(20.0),
-				),
-				if selected {
-					colors.accent
-				} else {
-					colors.muted
-				},
-			);
-			let text_left = rect.left() + 46.0;
-			let text_width = (rect.right() - 36.0 - text_left).max(40.0);
-			let source_name = if source.id == SourceId::SystemPicker {
-				crate::i18n::translate("screen-macos-system-picker")
-			} else {
-				source.name.clone()
-			};
-			let name = ui.painter().layout(
-				source_name.clone(),
-				egui::FontId::new(14.0, crate::design::medium_family(ui.ctx())),
-				colors.text_strong,
-				text_width,
-			);
-			let kind = ui.painter().layout_no_wrap(
-				match source.id {
-					SourceId::Display(_) | SourceId::X11Desktop => "Screen".to_owned(),
-					SourceId::Window(_) => "Window".to_owned(),
-					SourceId::SystemPicker => {
-						crate::i18n::translate("screen-macos-system-picker-kind")
-					}
-					#[allow(unreachable_patterns)] // Portal may be absent outside Linux.
-					_ => "System permission dialog".to_owned(),
-				},
-				egui::FontId::proportional(11.0),
-				colors.muted,
-			);
-			let total = name.size().y + kind.size().y;
-			let mut y = rect.center().y - total * 0.5;
-			ui.painter()
-				.galley(egui::pos2(text_left, y), name, colors.text_strong);
-			y += total - kind.size().y;
-			ui.painter()
-				.galley(egui::pos2(text_left, y), kind, colors.muted);
-			if selected {
-				crate::icons::paint(
-					ui.painter(),
-					crate::icons::Icon::Check,
-					egui::Rect::from_center_size(
-						egui::pos2(rect.right() - 20.0, rect.center().y),
-						egui::Vec2::splat(16.0),
-					),
-					colors.accent,
-				);
-			}
-			response.widget_info(|| {
-				egui::WidgetInfo::selected(egui::Role::RadioButton, true, selected, &source_name)
-			});
-			if response.clicked() {
+			if source_row(ui, source, self.selected == Some(source.id)) {
 				self.selected = Some(source.id);
 			}
-			ui.add_space(4.0);
 		}
 	}
+}
+
+fn source_row(ui: &mut egui::Ui, source: &Source, selected: bool) -> bool {
+	let colors = crate::design::palette(ui);
+	let (rect, response) =
+		ui.allocate_exact_size(egui::vec2(ui.available_width(), 48.0), egui::Sense::click());
+	let fill = if selected {
+		colors.accent.gamma_multiply(0.18)
+	} else if response.hovered() || response.has_focus() {
+		colors.hover
+	} else {
+		colors.base
+	};
+	ui.painter().rect_filled(rect, 8, fill);
+	if selected {
+		ui.painter().rect_stroke(
+			rect,
+			8,
+			egui::Stroke::new(1.0, colors.accent),
+			egui::StrokeKind::Inside,
+		);
+	}
+	let display = matches!(source.id, SourceId::Display(_) | SourceId::X11Desktop);
+	crate::icons::paint(
+		ui.painter(),
+		if display {
+			crate::icons::Icon::Television
+		} else {
+			crate::icons::Icon::ScreenShare
+		},
+		egui::Rect::from_center_size(
+			egui::pos2(rect.left() + 26.0, rect.center().y),
+			egui::Vec2::splat(20.0),
+		),
+		if selected {
+			colors.accent
+		} else {
+			colors.muted
+		},
+	);
+	let text_left = rect.left() + 46.0;
+	let text_width = (rect.right() - 36.0 - text_left).max(40.0);
+	let source_name = if source.id == SourceId::SystemPicker {
+		crate::i18n::translate("screen-macos-system-picker")
+	} else {
+		source.name.clone()
+	};
+	let name = ui.painter().layout(
+		source_name.clone(),
+		egui::FontId::new(14.0, crate::design::medium_family(ui.ctx())),
+		colors.text_strong,
+		text_width,
+	);
+	let kind = ui.painter().layout_no_wrap(
+		match source.id {
+			SourceId::Display(_) | SourceId::X11Desktop => "Screen".to_owned(),
+			SourceId::Window(_) => "Window".to_owned(),
+			SourceId::SystemPicker => crate::i18n::translate("screen-macos-system-picker-kind"),
+			#[allow(unreachable_patterns)] // Portal may be absent outside Linux.
+			_ => "System permission dialog".to_owned(),
+		},
+		egui::FontId::proportional(11.0),
+		colors.muted,
+	);
+	let total = name.size().y + kind.size().y;
+	let mut y = rect.center().y - total * 0.5;
+	ui.painter()
+		.galley(egui::pos2(text_left, y), name, colors.text_strong);
+	y += total - kind.size().y;
+	ui.painter()
+		.galley(egui::pos2(text_left, y), kind, colors.muted);
+	if selected {
+		crate::icons::paint(
+			ui.painter(),
+			crate::icons::Icon::Check,
+			egui::Rect::from_center_size(
+				egui::pos2(rect.right() - 20.0, rect.center().y),
+				egui::Vec2::splat(16.0),
+			),
+			colors.accent,
+		);
+	}
+	response.widget_info(|| {
+		egui::WidgetInfo::selected(egui::Role::RadioButton, true, selected, &source_name)
+	});
+	ui.add_space(4.0);
+	response.clicked()
 }
 
 fn preferred_resolution(offered: &[Resolution]) -> Resolution {
