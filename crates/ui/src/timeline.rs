@@ -12725,12 +12725,22 @@ mod tests {
 			frame(&mut view, &mut state, 0.0);
 		}
 		assert!(view.following && !view.left_live_edge);
+		// The stale height keeps the row's cache key, so the rebuild lays out 100 points too
+		// tall and the measured row clamps the offset back down. The embed stays under the
+		// pointer; a larger stale height would scroll it out of view and hand the timeline
+		// the wheel.
 		let live = view.scroll_offset;
-		view.heights.insert(Id(40), (0, 2000.0));
+		let (key, height) = view.heights[&Id(40)];
+		view.heights.insert(Id(40), (key, height + 100.0));
 		view.revision = u64::MAX;
+		let reflows = view.reflow_frames;
 		let after_clamp = frame(&mut view, &mut state, 1.0);
 		assert!(
-			after_clamp < live + 1.0 && view.following && !view.left_live_edge,
+			view.reflow_frames > reflows && after_clamp < live + 99.0,
+			"the stale height should clamp the offset, at {after_clamp} from {live}"
+		);
+		assert!(
+			view.following && !view.left_live_edge,
 			"an upward wheel taken by the embed stopped following during a layout clamp"
 		);
 		// Near the top, a wheel up that the embed takes does not ask for older history.
