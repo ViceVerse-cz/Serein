@@ -509,7 +509,7 @@ Target bitrate is 2 Mbps at 480p, 4 Mbps at 720p, and 8 Mbps at 1080p for 15 and
 
 Capture uses macOS 14+ ScreenCaptureKit or Windows Graphics Capture. On macOS,
 Share Screen lists available displays and windows when macOS has granted Screen
-Recording permission. Window names are kept in the picker and are not logged or sent.
+Recording permission. Source names stay on the device and are not logged or sent.
 Opening the dialog checks permission without prompting. Use **Show windows and
 screens** to request permission. The native `SCContentSharingPicker` remains available
 to select one display or window with system consent. Sharing starts only after the
