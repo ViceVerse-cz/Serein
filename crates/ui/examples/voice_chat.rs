@@ -317,20 +317,20 @@ fn main() {
 				assert_eq!(view.take_voice_fullscreen_request(), Some(false));
 				// A share that ends while fullscreen restores the window on its own.
 				state.voice.active.as_mut().unwrap().watching = Some(model::Id(7));
-				view.voice_focus = Some(ui::StageFocus::Stream(model::Id(7)));
+				view.set_voice_focus(channel, Some(ui::StageFocus::Stream(model::Id(7))));
 				frame(&ctx, &mut view, &mut state, width, vec![]);
 				enter(&mut view, &mut state);
 				state.voice.active.as_mut().unwrap().watching = None;
 				frame(&ctx, &mut view, &mut state, width, vec![]);
 				assert_eq!(view.take_voice_fullscreen_request(), Some(false));
 				state.voice.active.as_mut().unwrap().watching = Some(model::Id(7));
-				view.voice_focus = Some(ui::StageFocus::Stream(model::Id(7)));
+				view.set_voice_focus(channel, Some(ui::StageFocus::Stream(model::Id(7))));
 				// Signing out while fullscreen still hands the desktop a restore request.
 				enter(&mut view, &mut state);
 				view.clear();
 				assert_eq!(view.take_voice_fullscreen_request(), Some(false));
 				view.language = ui::i18n::Language::English;
-				view.voice_focus = Some(ui::StageFocus::Stream(model::Id(7)));
+				view.set_voice_focus(channel, Some(ui::StageFocus::Stream(model::Id(7))));
 				if right_click {
 					view.voice_stream_view = Some(stream_view);
 				}

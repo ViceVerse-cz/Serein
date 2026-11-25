@@ -63,6 +63,7 @@ impl MessagingUi {
 					})
 			}) {
 			self.voice_popout = None;
+			self.voice_popout_wants_keyboard = false;
 		}
 	}
 
@@ -83,11 +84,13 @@ impl MessagingUi {
 				if class == egui::ViewportClass::EmbeddedWindow {
 					ui.label("A separate call window is unavailable on this display.");
 					self.voice_popout = None;
+					self.voice_popout_wants_keyboard = false;
 					ui.ctx().request_repaint_of(egui::ViewportId::ROOT);
 					return;
 				}
 				if ui.input(|input| input.viewport().close_requested()) {
 					self.voice_popout = None;
+					self.voice_popout_wants_keyboard = false;
 					ui.ctx().request_repaint_of(egui::ViewportId::ROOT);
 					return;
 				}
@@ -96,6 +99,7 @@ impl MessagingUi {
 					.show(ui, |ui| {
 						self.voice_channel(ui, state, channel, &mut commands)
 					});
+				self.voice_popout_wants_keyboard = ui.ctx().egui_wants_keyboard_input();
 			},
 		);
 		commands
@@ -111,6 +115,12 @@ impl MessagingUi {
 		self.voice_popout == Some((generation, channel, request))
 	}
 
+	/// Set the enlarged tile and its owning call together (also used by offline demos).
+	pub fn set_voice_focus(&mut self, channel: Id, focus: Option<StageFocus>) {
+		self.voice_focus = focus;
+		self.voice_focus_channel = focus.map(|_| channel);
+	}
+
 	fn stage_focus(&self, channel: Id) -> Option<StageFocus> {
 		(self.voice_focus_channel == Some(channel))
 			.then_some(self.voice_focus)
@@ -123,6 +133,7 @@ impl MessagingUi {
 			ui.label("Call is in another window");
 			if ui.button("Bring back").clicked() {
 				self.voice_popout = None;
+				self.voice_popout_wants_keyboard = false;
 			}
 		});
 	}
@@ -3859,6 +3870,7 @@ impl MessagingUi {
 			if popout.clicked() {
 				self.voice_popout =
 					(!in_popout).then_some((state.generation, channel, call.request));
+				self.voice_popout_wants_keyboard = false;
 			}
 		}
 		if screen_focused && !in_popout && side_shown {
@@ -5597,11 +5609,8 @@ mod tests {
 	#[test]
 	fn rendering_another_voice_stage_does_not_clear_detached_focus() {
 		let state = test_support::voice_demo_state();
-		let mut view = MessagingUi {
-			voice_focus: Some(StageFocus::Stream(Id(3))),
-			voice_focus_channel: Some(Id(22)),
-			..Default::default()
-		};
+		let mut view = MessagingUi::default();
+		view.set_voice_focus(Id(22), Some(StageFocus::Stream(Id(3))));
 		let ctx = egui::Context::default();
 		let mut output = ctx.run_ui(
 			egui::RawInput {

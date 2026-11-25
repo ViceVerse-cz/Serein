@@ -2122,7 +2122,9 @@ impl Desktop {
 			}
 			// Watching enlarges the share, as a click on Watch Stream does.
 			if state.watch_stream(peer).is_some() {
-				messaging.voice_focus = Some(ui::StageFocus::Stream(peer));
+				if let Some(call) = &state.voice.active {
+					messaging.set_voice_focus(call.channel, Some(ui::StageFocus::Stream(peer)));
+				}
 			}
 			let (width, height) = (640usize, 360usize);
 			let pixels = (0..width * height)
@@ -2145,7 +2147,9 @@ impl Desktop {
 			messaging.voice_stream_status = "Watching the stream";
 			// `--demo-focus` additionally opens the enlarged stage layout.
 			if std::env::args().any(|arg| arg == "--demo-focus") {
-				messaging.voice_focus = Some(ui::StageFocus::Stream(peer));
+				if let Some(call) = &state.voice.active {
+					messaging.set_voice_focus(call.channel, Some(ui::StageFocus::Stream(peer)));
+				}
 			}
 		}
 		// `--demo-voice-video`: Robin's camera is a synthetic gradient and starts enlarged, so the
@@ -2185,7 +2189,9 @@ impl Desktop {
 				.voice_remote_video
 				.push((robin, egui::load::SizedTexture::from_handle(&texture)));
 			demo_textures.push(texture);
-			messaging.voice_focus = Some(ui::StageFocus::Participant(robin));
+			if let Some(call) = &state.voice.active {
+				messaging.set_voice_focus(call.channel, Some(ui::StageFocus::Participant(robin)));
+			}
 		}
 		messaging.build = ui::design::Build {
 			channel: if cfg!(debug_assertions) {

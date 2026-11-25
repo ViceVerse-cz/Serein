@@ -547,6 +547,8 @@ pub struct MessagingUi {
 	voice_focus_channel: Option<Id>,
 	/// One call stage in a native child window (account generation, channel, call attempt).
 	voice_popout: Option<(u64, Id, u64)>,
+	/// Keyboard focus captured during the child viewport's last UI pass.
+	voice_popout_wants_keyboard: bool,
 	/// Screen share currently owning the client surface, its prior window mode and focus target.
 	voice_fullscreen: Option<(voice::StageFocus, egui::Context, bool, egui::Id)>,
 	/// Native window transition for the desktop to apply after this UI frame.
@@ -809,7 +811,7 @@ impl MessagingUi {
 					ctx,
 					egui::ViewportId::from_hash_of("serein-voice-popout"),
 					model::KeybindAction::PushToTalk,
-					false,
+					self.voice_popout_wants_keyboard,
 				))
 	}
 
@@ -821,7 +823,7 @@ impl MessagingUi {
 					ctx,
 					egui::ViewportId::from_hash_of("serein-voice-popout"),
 					model::KeybindAction::PushToMute,
-					false,
+					self.voice_popout_wants_keyboard,
 				))
 	}
 
@@ -893,7 +895,7 @@ impl MessagingUi {
 			self.voice_toggle_pressed_for(
 				ctx,
 				egui::ViewportId::from_hash_of("serein-voice-popout"),
-				false,
+				self.voice_popout_wants_keyboard,
 				&registered_globally,
 			)
 		} else {
@@ -7578,6 +7580,32 @@ mod composer_tests {
 				assert!(view.push_to_talk_down(ui.ctx()));
 				assert!(view.push_to_mute_down(ui.ctx()));
 				assert_eq!(view.voice_toggle_pressed(ui.ctx(), |_, _| false), 1);
+			},
+		);
+		output.textures_delta.clear();
+		view.voice_popout_wants_keyboard = true;
+		let mut output = ctx.run_ui(
+			egui::RawInput {
+				viewport_id: child,
+				viewports: {
+					let mut viewports = egui::viewport::ViewportIdMap::default();
+					viewports.insert(child, egui::ViewportInfo::default());
+					viewports
+				},
+				focused: true,
+				events: vec![egui::Event::Key {
+					key: egui::Key::I,
+					physical_key: None,
+					pressed: true,
+					repeat: false,
+					modifiers: egui::Modifiers::NONE,
+				}],
+				..Default::default()
+			},
+			|ui| {
+				assert!(!view.push_to_talk_down(ui.ctx()));
+				assert!(!view.push_to_mute_down(ui.ctx()));
+				assert_eq!(view.voice_toggle_pressed(ui.ctx(), |_, _| false), 0);
 			},
 		);
 		output.textures_delta.clear();
