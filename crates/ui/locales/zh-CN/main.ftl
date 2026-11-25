@@ -2170,6 +2170,7 @@ profiles-more-menu-unblock = 解除屏蔽
 profiles-more-menu-unmute = 取消静音
 # Context: role_chips
 profiles-role-chips-show-remaining-roles = 显示其他身份组
+profiles-role-chips-add-role = 添加身份组
 # Context: server_tag
 profiles-server-tag-server = 服务器
 # Context: server_tag

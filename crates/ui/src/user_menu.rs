@@ -498,44 +498,62 @@ fn roles_menu(
 	user: model::Id,
 	action: &mut Option<Action>,
 ) {
-	let roles = state.member_menu_roles(guild, user);
-	if roles.is_empty() {
+	if state.member_menu_roles(guild, user).is_empty() {
 		return;
 	}
+	// Stays open while roles are toggled so several can be assigned in one go.
+	egui::containers::menu::SubMenuButton::new(crate::i18n::translate("user-menu-contents-roles"))
+		.config(
+			egui::containers::menu::MenuConfig::find(ui)
+				.close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside),
+		)
+		.ui(ui, |ui| {
+			if let Some(picked) = role_checkboxes(ui, state, guild, user) {
+				*action = Some(picked);
+			}
+		});
+}
+
+/// One checkbox per role the viewer may toggle on the member; returns the toggle picked
+/// this frame. Shared by the user menu and the profile card's add-role chip.
+pub(crate) fn role_checkboxes(
+	ui: &mut egui::Ui,
+	state: &State,
+	guild: model::Id,
+	user: model::Id,
+) -> Option<Action> {
 	let enabled = !state.server_admin.pending
 		&& !state.server_settings.saving
 		&& (state.demo
 			|| (state.gateway_connected
 				&& state.auth == client_core::auth::AuthState::Authenticated));
 	let text = crate::design::palette(ui).text;
-	ui.menu_button(crate::i18n::translate("user-menu-contents-roles"), |ui| {
-		ui.set_min_width(180.0);
-		let background = ui.visuals().window_fill;
-		egui::ScrollArea::vertical()
-			.max_height(320.0)
-			.show(ui, |ui| {
-				for (role, assigned) in roles {
-					let mut checked = assigned;
-					let mut name = egui::RichText::new(&role.name);
-					if role.color != 0 {
-						name = name
-							.color(crate::design::role_name_color(role.color, background, text));
-					}
-					if ui
-						.add_enabled(enabled, egui::Checkbox::new(&mut checked, name))
-						.clicked()
-					{
-						*action = Some(Action::SetRole {
-							guild,
-							user,
-							role: role.id,
-							assigned: !assigned,
-						});
-						ui.close();
-					}
+	let mut picked = None;
+	ui.set_min_width(180.0);
+	let background = ui.visuals().window_fill;
+	egui::ScrollArea::vertical()
+		.max_height(320.0)
+		.show(ui, |ui| {
+			for (role, assigned) in state.member_menu_roles(guild, user) {
+				let mut checked = assigned;
+				let mut name = egui::RichText::new(&role.name);
+				if role.color != 0 {
+					name = name.color(crate::design::role_name_color(role.color, background, text));
 				}
-			});
-	});
+				if ui
+					.add_enabled(enabled, egui::Checkbox::new(&mut checked, name))
+					.clicked()
+				{
+					picked = Some(Action::SetRole {
+						guild,
+						user,
+						role: role.id,
+						assigned: !assigned,
+					});
+				}
+			}
+		});
+	picked
 }
 
 #[cfg(test)]

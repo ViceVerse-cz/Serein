@@ -2206,6 +2206,7 @@ profiles-more-menu-unblock = Unblock
 profiles-more-menu-unmute = Unmute
 # Context: role_chips
 profiles-role-chips-show-remaining-roles = Show remaining roles
+profiles-role-chips-add-role = Add role
 # Context: server_tag
 profiles-server-tag-server = server
 # Context: server_tag

@@ -2141,6 +2141,7 @@ profiles-more-menu-unblock = ブロックを解除する
 profiles-more-menu-unmute = ミュートを解除する
 # Context: role_chips
 profiles-role-chips-show-remaining-roles = 残りの役割を表示
+profiles-role-chips-add-role = ロールを追加
 # Context: server_tag
 profiles-server-tag-server = サーバ
 # Context: server_tag

@@ -2141,6 +2141,7 @@ profiles-more-menu-unblock = Разблокировать
 profiles-more-menu-unmute = Включить звук
 # Context: role_chips
 profiles-role-chips-show-remaining-roles = Показать оставшиеся роли
+profiles-role-chips-add-role = Добавить роль
 # Context: server_tag
 profiles-server-tag-server = сервер
 # Context: server_tag

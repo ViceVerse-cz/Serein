@@ -2176,6 +2176,7 @@ profiles-more-menu-unblock = 차단 해제
 profiles-more-menu-unmute = 알림 켜기
 # Context: role_chips
 profiles-role-chips-show-remaining-roles = 나머지 역할 표시
+profiles-role-chips-add-role = 역할 추가
 # Context: server_tag
 profiles-server-tag-server = 서버
 # Context: server_tag
