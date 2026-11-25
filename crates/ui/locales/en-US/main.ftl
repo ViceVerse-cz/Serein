@@ -5269,3 +5269,11 @@ group-add-title = Add Friends to DM
 group-add-subtitle = Choose a friend to add to this group.
 group-add-full = This group has reached the 10-person limit.
 group-add-confirm = Add Friend
+
+screen-macos-request-source-access = Show windows and screens
+
+screen-macos-source-access-settings = Allow Screen Recording in macOS settings to list windows and screens here.
+
+screen-macos-source-group-screens = Screens
+
+screen-macos-source-group-windows = Windows

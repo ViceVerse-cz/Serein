@@ -4,7 +4,10 @@ use client_core::{
 	screen::{self, Settings},
 	voice,
 };
-use discord_voice::{Identity, Status, screen::Worker};
+use discord_voice::{
+	Identity, Status,
+	screen::{SourceList, Worker},
+};
 use eframe::egui;
 use model::Id;
 use std::{
@@ -72,7 +75,7 @@ struct Closing {
 struct SourceScan {
 	generation: u64,
 	context: Option<(u64, Id, u64)>,
-	receive: mpsc::Receiver<Result<Vec<screen::Source>, &'static str>>,
+	receive: mpsc::Receiver<Result<SourceList, &'static str>>,
 }
 
 #[derive(Default)]
@@ -282,16 +285,23 @@ impl Screen {
 			ui.screen.selected = None;
 		}
 
-		if ui.screen.refresh_requested {
+		if !ui.screen.open {
+			ui.screen.request_source_access = false;
+		}
+		if ui.screen.open
+			&& self.source_scan.is_none()
+			&& (ui.screen.refresh_requested || ui.screen.request_source_access)
+		{
 			ui.screen.refresh_requested = false;
-			if !state.demo && self.source_scan.is_none() && ui.screen.supported {
+			let request_access = std::mem::take(&mut ui.screen.request_source_access);
+			if !state.demo && ui.screen.supported {
 				let (send, receive) = mpsc::sync_channel(1);
 				let wake = ctx.clone();
 				self.status = "Looking for screens and windows…".into();
 				match std::thread::Builder::new()
 					.name("screen-sources".into())
 					.spawn(move || {
-						let _ = send.send(discord_voice::screen::sources());
+						let _ = send.send(discord_voice::screen::sources(request_access));
 						wake.request_repaint();
 					}) {
 					Ok(_) => {
@@ -321,18 +331,11 @@ impl Screen {
 					}
 				}
 				Ok(Ok(sources)) => {
-					ui.screen.sources = sources;
-					ui.screen.selected = ui
-						.screen
-						.selected
-						.filter(|selected| {
-							ui.screen
-								.sources
-								.iter()
-								.any(|source| source.id == *selected)
-						})
-						.or_else(|| ui.screen.sources.first().map(|source| source.id));
-					self.status = if ui.screen.sources.is_empty() {
+					ui.screen.source_permission_required = sources.permission_required;
+					ui.screen.set_sources(sources.items);
+					self.status = if ui.screen.source_permission_required {
+						ui::i18n::translate("screen-macos-source-access-settings").into()
+					} else if ui.screen.sources.is_empty() {
 						"No shareable screens or windows were found".into()
 					} else if cfg!(target_os = "linux") {
 						"Choose the system picker or, on X11, explicitly share the entire desktop"

@@ -5,7 +5,8 @@ use super::{
 	MAX_FRAME_HEIGHT, MAX_FRAME_WIDTH, MAX_RAW_BYTES, MAX_SOURCE_HEIGHT, MAX_SOURCE_WIDTH,
 	MAX_SOURCES, bounded_name,
 };
-use crate::screen::{RawFrame, Settings, Source, SourceId};
+use crate::screen::{RawFrame, Settings, Source, SourceId, SourceList};
+use objc2_core_graphics::{CGPreflightScreenCaptureAccess, CGRequestScreenCaptureAccess};
 use screencapturekit::{
 	cm::{CMSampleBufferExt, CMSampleBufferSCExt},
 	content_sharing_picker::{
@@ -30,24 +31,43 @@ fn initialize() {
 	});
 }
 
-pub(crate) fn sources() -> Result<Vec<Source>, &'static str> {
-	if SCContentSharingPicker::is_available() {
-		return Ok(vec![Source {
-			id: SourceId::SystemPicker,
-			name: "Choose with the macOS system picker".into(),
-			width: 0,
-			height: 0,
-			refresh_hz: 0,
-		}]);
+pub(crate) fn sources(request_access: bool) -> Result<SourceList, &'static str> {
+	let system_picker = SCContentSharingPicker::is_available().then(|| Source {
+		id: SourceId::SystemPicker,
+		name: "Choose with the macOS system picker".into(),
+		width: 0,
+		height: 0,
+		refresh_hz: 0,
+	});
+	let mut authorized = CGPreflightScreenCaptureAccess();
+	if request_access && !authorized {
+		CGRequestScreenCaptureAccess();
+		authorized = CGPreflightScreenCaptureAccess();
+	}
+	let mut sources = SourceList {
+		items: Vec::with_capacity(MAX_SOURCES),
+		permission_required: !authorized,
+	};
+	if sources.permission_required {
+		sources.items.extend(system_picker);
+		return Ok(sources);
 	}
 	initialize();
-	let content = SCShareableContent::get().map_err(
-		|_| "Screen sources are unavailable. Allow screen recording in System Settings, then refresh.",
-	)?;
-	let snapshot = content.snapshot().ok_or("Screen sources are unavailable")?;
-	let mut sources = Vec::with_capacity(MAX_SOURCES);
+	let content = SCShareableContent::get()
+		.ok()
+		.and_then(|content| content.snapshot());
+	let Some(snapshot) = content else {
+		sources.items.extend(system_picker);
+		return if sources.items.is_empty() {
+			Err("Screen sources are unavailable")
+		} else {
+			Ok(sources)
+		};
+	};
+	let has_system_picker = system_picker.is_some();
+	let limit = MAX_SOURCES - usize::from(has_system_picker);
 
-	for display in snapshot.displays {
+	for display in snapshot.displays.into_iter().take(limit) {
 		let (Ok(width), Ok(height)) = (u32::try_from(display.width), u32::try_from(display.height))
 		else {
 			continue;
@@ -55,19 +75,19 @@ pub(crate) fn sources() -> Result<Vec<Source>, &'static str> {
 		if width == 0 || height == 0 || width > MAX_SOURCE_WIDTH || height > MAX_SOURCE_HEIGHT {
 			continue;
 		}
-		sources.push(Source {
+		sources.items.push(Source {
 			id: SourceId::Display(u64::from(display.display_id)),
 			name: format!("Display {}", display.display_id),
-			width,
-			height,
+			width: if has_system_picker { 0 } else { width },
+			height: if has_system_picker { 0 } else { height },
 			refresh_hz: 0,
 		});
-		if sources.len() == MAX_SOURCES {
-			return Ok(sources);
-		}
 	}
 
 	for window in snapshot.windows {
+		if sources.items.len() == limit {
+			break;
+		}
 		let Some(title) = window.title.filter(|title| !title.trim().is_empty()) else {
 			continue;
 		};
@@ -94,17 +114,15 @@ pub(crate) fn sources() -> Result<Vec<Source>, &'static str> {
 		) else {
 			continue;
 		};
-		sources.push(Source {
+		sources.items.push(Source {
 			id: SourceId::Window(u64::from(window.window_id)),
 			name: bounded_name(name),
-			width,
-			height,
+			width: if has_system_picker { 0 } else { width },
+			height: if has_system_picker { 0 } else { height },
 			refresh_hz: 0,
 		});
-		if sources.len() == MAX_SOURCES {
-			break;
-		}
 	}
+	sources.items.extend(system_picker);
 	Ok(sources)
 }
 
@@ -426,6 +444,11 @@ impl Capture {
 			|| settings.fps == 0
 		{
 			return Err("Invalid screen capture settings");
+		}
+		if matches!(settings.source, SourceId::Display(_) | SourceId::Window(_))
+			&& !CGPreflightScreenCaptureAccess()
+		{
+			return Err("Screen recording permission denied");
 		}
 		// Own the picker before selection so every later error/cancellation deactivates it.
 		let system_picker = PickerSession(settings.source == SourceId::SystemPicker);

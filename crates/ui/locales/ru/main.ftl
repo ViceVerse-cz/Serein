@@ -4958,3 +4958,11 @@ group-add-title = Добавить друзей в ЛС
 group-add-subtitle = Выберите друга, которого нужно добавить в эту группу.
 group-add-full = Эта группа достигла лимита в 10 человек.
 group-add-confirm = Добавить друга
+
+screen-macos-request-source-access = Показать окна и экраны
+
+screen-macos-source-access-settings = Разрешите запись экрана в настройках macOS, чтобы увидеть здесь окна и экраны.
+
+screen-macos-source-group-screens = Экраны
+
+screen-macos-source-group-windows = Окна

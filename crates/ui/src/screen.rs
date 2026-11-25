@@ -29,6 +29,8 @@ pub struct ScreenUi {
 	pub sources: Vec<Source>,
 	pub selected: Option<SourceId>,
 	pub refresh_requested: bool,
+	pub request_source_access: bool,
+	pub source_permission_required: bool,
 	pub request: Option<Request>,
 	pub busy: bool,
 	/// Capture has produced a frame for this device's live share.
@@ -57,6 +59,8 @@ impl Default for ScreenUi {
 			sources: Vec::new(),
 			selected: None,
 			refresh_requested: false,
+			request_source_access: false,
+			source_permission_required: false,
 			request: None,
 			busy: false,
 			sharing: false,
@@ -87,16 +91,34 @@ impl ScreenUi {
 		self.open = true;
 		self.selected = None;
 		self.quality_for = None;
+		self.request_source_access = false;
+		self.source_permission_required = false;
 		self.sources.clear();
 		if state.demo {
 			self.sources = if cfg!(target_os = "macos") {
-				vec![Source {
-					id: SourceId::SystemPicker,
-					name: "Choose with the macOS system picker".into(),
-					width: 0,
-					height: 0,
-					refresh_hz: 0,
-				}]
+				vec![
+					Source {
+						id: SourceId::Display(1),
+						name: "Built-in display".into(),
+						width: 0,
+						height: 0,
+						refresh_hz: 0,
+					},
+					Source {
+						id: SourceId::Window(2),
+						name: "Notes — Project plan".into(),
+						width: 0,
+						height: 0,
+						refresh_hz: 0,
+					},
+					Source {
+						id: SourceId::SystemPicker,
+						name: "Choose with the macOS system picker".into(),
+						width: 0,
+						height: 0,
+						refresh_hz: 0,
+					},
+				]
 			} else {
 				vec![
 					Source {
@@ -115,13 +137,30 @@ impl ScreenUi {
 					},
 				]
 			};
-			self.selected = self.sources.first().map(|source| source.id);
+			if !cfg!(target_os = "macos") {
+				self.selected = self.sources.first().map(|source| source.id);
+			}
 			self.status = "Offline preview · no screen is captured".into();
 		} else {
 			self.refresh_requested = true;
 			self.status = "Looking for screens and windows…".into();
 		}
 	}
+	pub fn set_sources(&mut self, sources: Vec<Source>) {
+		self.selected = self
+			.selected
+			.filter(|selected| sources.iter().any(|source| source.id == *selected))
+			.or_else(|| {
+				sources
+					.first()
+					.filter(|source| {
+						!cfg!(target_os = "macos") || source.id == SourceId::SystemPicker
+					})
+					.map(|source| source.id)
+			});
+		self.sources = sources;
+	}
+
 	fn selected_source(&self) -> Option<&Source> {
 		self.sources
 			.iter()
@@ -273,9 +312,6 @@ impl ScreenUi {
 					.inner
 					.clicked()
 				{
-					self.selected = None;
-					self.quality_for = None;
-					self.sources.clear();
 					self.refresh_requested = true;
 					self.status = "Looking for screens and windows…".into();
 				}
@@ -286,6 +322,16 @@ impl ScreenUi {
 			.id_salt("screen-sources")
 			.max_height(196.0)
 			.show(ui, |ui| self.source_list(ui));
+		if self.source_permission_required
+			&& crate::design::text_action(
+				ui,
+				&crate::i18n::translate("screen-macos-request-source-access"),
+			)
+			.clicked()
+		{
+			self.source_permission_required = false;
+			self.request_source_access = true;
+		}
 		self.align_quality();
 		let (width, height, refresh) = self.geometry();
 		ui.add_space(14.0);
@@ -408,7 +454,24 @@ impl ScreenUi {
 					);
 				});
 		}
+		let mut last_group = None;
 		for source in &self.sources {
+			let group = match source.id {
+				SourceId::Display(_) => Some("screen-macos-source-group-screens"),
+				SourceId::Window(_) => Some("screen-macos-source-group-windows"),
+				_ => None,
+			};
+			if cfg!(target_os = "macos")
+				&& group != last_group
+				&& let Some(group) = group
+			{
+				ui.label(crate::design::eyebrow(
+					ui,
+					crate::i18n::translate(group),
+					colors.muted,
+				));
+			}
+			last_group = group;
 			let selected = self.selected == Some(source.id);
 			let (rect, response) = ui
 				.allocate_exact_size(egui::vec2(ui.available_width(), 48.0), egui::Sense::click());
@@ -575,6 +638,36 @@ mod tests {
 		assert!(picker.settings().is_some());
 		picker.sources.clear();
 		assert!(picker.settings().is_none());
+	}
+
+	#[cfg(target_os = "macos")]
+	#[test]
+	fn macos_direct_sources_require_selection_and_refresh_preserves_it() {
+		let window = Source {
+			id: SourceId::Window(7),
+			name: "Notes".into(),
+			width: 0,
+			height: 0,
+			refresh_hz: 0,
+		};
+		let system = Source {
+			id: SourceId::SystemPicker,
+			name: "System picker".into(),
+			width: 0,
+			height: 0,
+			refresh_hz: 0,
+		};
+		let mut picker = ScreenUi::default();
+		picker.set_sources(vec![window.clone(), system.clone()]);
+		assert!(picker.settings().is_none());
+		picker.selected = Some(window.id);
+		picker.align_quality();
+		assert_eq!(picker.settings().unwrap().source, window.id);
+		picker.set_sources(vec![window, system.clone()]);
+		assert_eq!(picker.settings().unwrap().source, SourceId::Window(7));
+		picker.set_sources(vec![system]);
+		picker.align_quality();
+		assert_eq!(picker.settings().unwrap().source, SourceId::SystemPicker);
 	}
 
 	#[test]
