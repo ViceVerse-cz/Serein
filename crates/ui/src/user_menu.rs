@@ -247,6 +247,11 @@ pub(super) fn contents(
 		}
 	}
 	if user.webhook || state.user.as_ref().is_some_and(|own| own.id == user.id) {
+		// A webhook's id is not a user id, so only the own account gets the copy row.
+		if !user.webhook {
+			ui.separator();
+			copy_ids(ui, state, user, place);
+		}
 		return;
 	}
 	let dm = state
@@ -453,6 +458,34 @@ pub(super) fn contents(
 		.and_then(|id| state.channel(id).and_then(|channel| channel.guild))
 	{
 		moderation_menu(ui, state, guild, user, action);
+	}
+	ui.separator();
+	copy_ids(ui, state, user, place);
+}
+
+/// Copies the user's ID and, on a one-to-one DM row, that DM's own channel ID.
+fn copy_ids(ui: &mut egui::Ui, state: &State, user: &User, place: Place) {
+	if ui
+		.button(crate::i18n::translate(
+			"server-admin-member-menu-copy-user-id",
+		))
+		.clicked()
+	{
+		ui.ctx().copy_text(user.id.to_string());
+		ui.close();
+	}
+	if let Place::Conversation(id) = place
+		&& state
+			.channel(id)
+			.is_some_and(|channel| channel.guild.is_none() && channel.kind == 1)
+		&& ui
+			.button(crate::i18n::translate(
+				"channel-menu-context-copy-channel-id",
+			))
+			.clicked()
+	{
+		ui.ctx().copy_text(id.to_string());
+		ui.close();
 	}
 }
 
@@ -906,6 +939,7 @@ mod tests {
 			let mut view = crate::MessagingUi::default();
 			let mut state = test_support::demo_state();
 			let selected = state.selected;
+			let copied = std::cell::RefCell::new(Vec::<String>::new());
 			let render = |view: &mut crate::MessagingUi, state: &mut State, events| {
 				let mut commands = vec![];
 				let mut output = ctx.run_ui(
@@ -927,6 +961,11 @@ mod tests {
 					},
 				);
 				output.textures_delta.clear();
+				for command in &output.platform_output.commands {
+					if let egui::OutputCommand::CopyText(value) = command {
+						copied.borrow_mut().push(value.clone());
+					}
+				}
 				let mut text = vec![];
 				for shape in output.shapes {
 					labels(&shape.shape, &mut text);
@@ -945,6 +984,34 @@ mod tests {
 			} else {
 				name.center()
 			};
+			let dm_user = state.channel(model::Id(22)).unwrap().recipients[0].id;
+			// A DM row copies the DM's own channel ID next to the user's ID, never the open chat.
+			for (label, expected) in [
+				("Copy Channel ID", model::Id(22)),
+				("Copy User ID", dm_user),
+			] {
+				for pressed in [true, false] {
+					render(
+						&mut view,
+						&mut state,
+						pointer(pos, PointerButton::Secondary, pressed),
+					);
+				}
+				let (_, text) = render(&mut view, &mut state, vec![]);
+				let at = text.iter().find(|(s, _)| s == label).unwrap().1.center();
+				for pressed in [true, false] {
+					render(
+						&mut view,
+						&mut state,
+						pointer(at, PointerButton::Primary, pressed),
+					);
+				}
+				assert_eq!(
+					copied.borrow_mut().drain(..).collect::<Vec<_>>(),
+					[expected.to_string()]
+				);
+				render(&mut view, &mut state, vec![]);
+			}
 			for pressed in [true, false] {
 				let (commands, _) = render(
 					&mut view,

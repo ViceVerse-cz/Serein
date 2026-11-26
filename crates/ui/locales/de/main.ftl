@@ -3029,6 +3029,7 @@ server-menu-header-reconnect-to-manage-this-server = Stellen Sie die Verbindung 
 server-menu-header-server-menu = Servermenü
 # Context: leave_item
 server-menu-leave-item-leave-server = Verlassen Sie den Server
+server-menu-copy-id-item-copy-server-id = Server-ID kopieren
 # Context: read_item
 server-menu-read-item-mark-as-read = Als gelesen markieren
 # Context: all_read_item
@@ -3108,6 +3109,7 @@ server-roles-list-default-permissions-everyone-applies-to-all-server-members = S
     @everyone · gilt für alle Servermitglieder
 # Context: list
 server-roles-list-delete-role = Rolle löschen
+server-roles-list-copy-role-id = Rollen-ID kopieren
 # Context: list
 server-roles-list-edit-role = Rolle bearbeiten
 # Context: list

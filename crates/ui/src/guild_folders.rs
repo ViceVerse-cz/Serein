@@ -730,6 +730,10 @@ impl MessagingUi {
 								);
 							}
 						});
+						if let Item::Server(id) = item {
+							ui.separator();
+							self.server_menu.copy_id_item(ui, id);
+						}
 					});
 					if enabled && response.drag_started_by(egui::PointerButton::Primary) {
 						response.dnd_set_drag_payload(item);

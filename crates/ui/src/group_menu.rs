@@ -120,6 +120,12 @@ impl GroupMenu {
 				ui.close();
 			}
 		});
+		// Copying an ID is local, so it stays available while group actions are disabled.
+		ui.separator();
+		if row(ui, "channel-menu-context-copy-channel-id", colors.text).clicked() {
+			ui.ctx().copy_text(channel.id.to_string());
+			ui.close();
+		}
 		if !enabled {
 			ui.small(crate::i18n::translate(
 				"group-menu-menu-group-actions-unavailable-while-disconnected-or-busy",
@@ -444,6 +450,9 @@ fn row(ui: &mut egui::Ui, label: &str, color: egui::Color32) -> egui::Response {
 mod tests {
 	use super::*;
 	use egui::{Event, Pos2, Rect};
+	thread_local! {
+		static COPIED: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+	}
 	fn fixture() -> (State, Id) {
 		let mut state = test_support::demo_state();
 		let channel = state.channels.iter_mut().find(|c| c.kind == 1).unwrap();
@@ -517,6 +526,11 @@ mod tests {
 		for shape in &output.shapes {
 			labels(&shape.shape, &mut text);
 		}
+		for command in &output.platform_output.commands {
+			if let egui::OutputCommand::CopyText(value) = command {
+				COPIED.with_borrow_mut(|copied| copied.push(value.clone()));
+			}
+		}
 		output.drop_without_applying_deltas();
 		text
 	}
@@ -564,7 +578,12 @@ mod tests {
 	#[test]
 	fn group_menu_edit_mute_leave_and_stale_picker() {
 		for (light, width) in [(false, 640.0), (true, 320.0)] {
-			for action in ["Edit Group", "Mute Conversation", "Leave Group"] {
+			for action in [
+				"Edit Group",
+				"Mute Conversation",
+				"Leave Group",
+				"Copy Channel ID",
+			] {
 				let ctx = egui::Context::default();
 				design::apply(&ctx);
 				ctx.set_visuals(if light {
@@ -604,7 +623,12 @@ mod tests {
 					vec![],
 					&mut commands,
 				);
-				for expected in ["Edit Group", "Mute Conversation", "Leave Group"] {
+				for expected in [
+					"Edit Group",
+					"Mute Conversation",
+					"Leave Group",
+					"Copy Channel ID",
+				] {
 					assert!(text.iter().any(|(s, _)| s == expected));
 				}
 				assert!(
@@ -613,6 +637,7 @@ mod tests {
 						.any(|(s, _)| matches!(s.as_str(), "Profile" | "Close DM" | "Block"))
 				);
 				assert!(commands.is_empty());
+				COPIED.with_borrow_mut(Vec::clear);
 				let position = text.iter().find(|(s, _)| s == action).unwrap().1.center();
 				for pressed in [true, false] {
 					frame(
@@ -637,6 +662,14 @@ mod tests {
 				if action == "Mute Conversation" {
 					assert_eq!(commands.len(), 1);
 					assert_eq!(state.dm_muted(channel), Some(true));
+					continue;
+				}
+				if action == "Copy Channel ID" {
+					assert!(commands.is_empty());
+					assert_eq!(
+						COPIED.with_borrow_mut(std::mem::take),
+						[channel.to_string()]
+					);
 					continue;
 				}
 				assert!(

@@ -3030,6 +3030,7 @@ server-menu-header-reconnect-to-manage-this-server = このサーバーを管理
 server-menu-header-server-menu = サーバーメニュー
 # Context: leave_item
 server-menu-leave-item-leave-server = サーバーから離れる
+server-menu-copy-id-item-copy-server-id = サーバーIDをコピー
 # Context: read_item
 server-menu-read-item-mark-as-read = 既読としてマーク
 # Context: all_read_item
@@ -3109,6 +3110,7 @@ server-roles-list-default-permissions-everyone-applies-to-all-server-members = �
     @everyone · すべてのサーバーメンバーに適用されます
 # Context: list
 server-roles-list-delete-role = 役割の削除
+server-roles-list-copy-role-id = ロールIDをコピー
 # Context: list
 server-roles-list-edit-role = 役割の編集
 # Context: list

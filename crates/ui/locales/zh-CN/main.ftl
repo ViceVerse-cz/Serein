@@ -3060,6 +3060,7 @@ server-menu-header-reconnect-to-manage-this-server = 请重新连接以管理此
 server-menu-header-server-menu = 服务器菜单
 # Context: leave_item
 server-menu-leave-item-leave-server = 离开服务器
+server-menu-copy-id-item-copy-server-id = 复制服务器 ID
 # Context: read_item
 server-menu-read-item-mark-as-read = 标为已读
 # Context: all_read_item
@@ -3139,6 +3140,7 @@ server-roles-list-default-permissions-everyone-applies-to-all-server-members = �
     @everyone · 应用于所有服务器成员
 # Context: list
 server-roles-list-delete-role = 删除身份组
+server-roles-list-copy-role-id = 复制身份组 ID
 # Context: list
 server-roles-list-edit-role = 编辑身份组
 # Context: list

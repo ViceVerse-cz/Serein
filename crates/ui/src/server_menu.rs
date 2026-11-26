@@ -224,6 +224,20 @@ impl ServerMenu {
 		}
 		false
 	}
+	/// Copies the server's raw ID, the last row of a server menu.
+	pub fn copy_id_item(&mut self, ui: &mut egui::Ui, guild: Id) {
+		if menu_row(
+			ui,
+			icons::Icon::Copy,
+			&crate::i18n::translate("server-menu-copy-id-item-copy-server-id"),
+			design::palette(ui).text,
+		)
+		.clicked()
+		{
+			ui.ctx().copy_text(guild.to_string());
+			ui.close();
+		}
+	}
 	/// Create invite for `guild`, shown only where the account may create one.
 	pub fn invite_item(&mut self, ui: &mut egui::Ui, state: &mut State, guild: Id) -> bool {
 		let Some(channel) = state.invite_channel(guild) else {
@@ -373,6 +387,11 @@ impl ServerMenu {
 					}
 					ui.separator();
 					self.leave_item(ui, state, guild);
+					// Leave draws nothing for the owner, whose menu already ends in a separator.
+					if state.leave_server_reason(guild).is_none() {
+						ui.separator();
+					}
+					self.copy_id_item(ui, guild);
 					if !available {
 						ui.small(crate::i18n::translate_if_key(
 							if state.server_action_pending() {
@@ -589,6 +608,9 @@ mod tests {
 			_ => {}
 		}
 	}
+	thread_local! {
+		static COPIED: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+	}
 	fn pointer(pos: Pos2, pressed: bool) -> Vec<Event> {
 		vec![
 			Event::PointerMoved(pos),
@@ -641,6 +663,11 @@ mod tests {
 			assert!(output.platform_output.commands.iter().any(|command| {
 				matches!(command, egui::OutputCommand::CopyText(link) if link == "https://discord.gg/synthetic-invite")
 			}));
+		}
+		for command in &output.platform_output.commands {
+			if let egui::OutputCommand::CopyText(value) = command {
+				COPIED.with_borrow_mut(|copied| copied.push(value.clone()));
+			}
 		}
 		output.drop_without_applying_deltas();
 		(response.unwrap(), text)
@@ -696,7 +723,7 @@ mod tests {
 	#[test]
 	fn server_menu_requires_explicit_invite_and_leave_confirmation() {
 		for (light, width) in [(false, 320.0), (true, 320.0), (false, 960.0), (true, 960.0)] {
-			for action in ["Create invite", "Leave server"] {
+			for action in ["Create invite", "Leave server", "Copy Server ID"] {
 				let ctx = egui::Context::default();
 				design::apply(&ctx);
 				ctx.set_visuals(if light {
@@ -738,6 +765,7 @@ mod tests {
 				}
 				let (_, text) = frame(&ctx, width, &mut menu, &mut state, vec![], &mut commands);
 				assert!(commands.is_empty());
+				COPIED.with_borrow_mut(Vec::clear);
 				let position = text
 					.iter()
 					.find(|(t, _)| t == action)
@@ -755,6 +783,11 @@ mod tests {
 					);
 				}
 				let (_, text) = frame(&ctx, width, &mut menu, &mut state, vec![], &mut commands);
+				if action == "Copy Server ID" {
+					assert!(commands.is_empty());
+					assert_eq!(COPIED.with_borrow_mut(std::mem::take), ["10"]);
+					continue;
+				}
 				assert_eq!(
 					commands.len(),
 					usize::from(action == "Create invite"),

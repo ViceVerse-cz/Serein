@@ -3136,6 +3136,7 @@ server-menu-header-reconnect-to-manage-this-server = Kết nối lại để qu�
 server-menu-header-server-menu = Trình đơn máy chủ
 # Context: leave_item
 server-menu-leave-item-leave-server = Rời khỏi máy chủ
+server-menu-copy-id-item-copy-server-id = Sao chép ID máy chủ
 # Context: read_item
 server-menu-read-item-mark-as-read = Đánh dấu là đã đọc
 # Context: all_read_item
@@ -3215,6 +3216,7 @@ server-roles-list-default-permissions-everyone-applies-to-all-server-members = Q
     @everyone · áp dụng cho tất cả thành viên máy chủ
 # Context: list
 server-roles-list-delete-role = Xóa vai trò
+server-roles-list-copy-role-id = Sao chép ID vai trò
 # Context: list
 server-roles-list-edit-role = Chỉnh sửa vai trò
 # Context: list
