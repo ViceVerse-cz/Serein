@@ -783,7 +783,10 @@ and `twcc_received/sent/reported/missing/discarded`, and authenticated call vide
 datagrams, counted before RTX restoration, in `video_rtp_bytes/bps`.
 
 Windows, macOS and Linux expose a camera picker in Voice & Video settings and beside both call
-camera controls. Discovery runs on a worker without starting capture. macOS uses AVFoundation device discovery; Linux queries up to 64 V4L2 nodes without configuring or streaming them. Up to
+camera controls. Discovery runs on a worker without starting capture. macOS uses AVFoundation device
+discovery and resolves the Sonoma external and Continuity Camera types only when present. On Ventura
+it falls back to the legacy external camera type. Linux queries up to 64 V4L2 nodes without
+configuring or streaming them. Up to
 32 device IDs (4 KiB each) and names (256 bytes each) are retained. The selected
 ID is session-local. Refresh discovers added/removed devices; a missing selected
 device is reported rather than silently opening another camera. Changing selection
