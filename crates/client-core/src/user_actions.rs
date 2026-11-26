@@ -257,6 +257,8 @@ pub struct Actions {
 	view: u64,
 	sequence: u64,
 	pending: Option<(Action, u64, bool)>,
+	/// Outcome of the latest finished request: its id and whether the write succeeded.
+	completed: Option<(u64, bool)>,
 	challenge: Option<(std::time::Instant, crate::captcha::Challenge)>,
 	// Friendship is required only for the existing friend-only navigation callers.
 	dm_origin: Option<(Option<Id>, u64, bool)>,
@@ -270,6 +272,11 @@ impl Actions {
 	pub(crate) fn reset(&mut self) {
 		*self = Self {
 			sequence: self.sequence,
+			completed: self
+				.pending
+				.as_ref()
+				.map(|(_, request, _)| (*request, false))
+				.or(self.completed),
 			view: self.view.wrapping_add(1),
 			..Self::default()
 		};
@@ -597,6 +604,9 @@ impl State {
 	fn release_challenge(&mut self, cancelled: bool) {
 		self.user_actions.challenge = None;
 		let direct = matches!(self.user_actions.pending, Some((Action::OpenDm(_), _, _)));
+		if let Some((_, request, _)) = &self.user_actions.pending {
+			self.user_actions.completed = Some((*request, false));
+		}
 		self.user_actions.pending = None;
 		if direct {
 			self.user_actions.dm_origin = None;
@@ -833,6 +843,13 @@ impl State {
 	pub fn user_action_pending(&self) -> bool {
 		self.user_actions.pending.is_some()
 	}
+	/// Whether the write queued as `request` succeeded; `None` while it is pending or superseded.
+	pub fn user_action_completed(&self, request: u64) -> Option<bool> {
+		self.user_actions
+			.completed
+			.filter(|(id, _)| *id == request)
+			.map(|(_, ok)| ok)
+	}
 	pub fn user_action_status(&self) -> Option<&'static str> {
 		self.user_actions.status
 	}
@@ -1044,7 +1061,8 @@ impl State {
 		self.user_actions.group_origin = None;
 		self.user_actions.created_group = None;
 		self.user_actions.challenge = None;
-		if let Some((action, _, _)) = self.user_actions.pending.take() {
+		if let Some((action, request, _)) = self.user_actions.pending.take() {
+			self.user_actions.completed = Some((request, false));
 			if matches!(action, Action::Block { .. }) {
 				self.user_actions.bump_view();
 			}
@@ -1131,6 +1149,7 @@ impl State {
 						});
 					}
 				};
+				self.user_actions.completed = Some((request, true));
 				self.user_actions.pending = None;
 				let id = channel.id;
 				// Preserve newer Gateway metadata; otherwise use the normal navigation bounds.
@@ -1188,6 +1207,7 @@ impl State {
 						});
 					}
 				};
+				self.user_actions.completed = Some((request, true));
 				self.user_actions.pending = None;
 				let id = channel.id;
 				if self.channel(id).is_none() {
@@ -1701,6 +1721,7 @@ impl State {
 					return Ok(());
 				}
 				let observed = *observed;
+				self.user_actions.completed = Some((request, result.is_ok()));
 				self.user_actions.pending = None;
 				self.user_actions.challenge = None;
 				if matches!(action, Action::OpenDm(_)) {
@@ -2455,7 +2476,14 @@ mod tests {
 			let write = state
 				.set_friend_nickname(user.id, "Private name".into())
 				.unwrap();
+			let id = |command: &Command| match command {
+				Command::UserAction { request, .. } => *request,
+				_ => panic!("expected a user action"),
+			};
+			let first = id(&write);
+			assert_eq!(state.user_action_completed(first), None);
 			finish(&mut state, write, Ok(()));
+			assert_eq!(state.user_action_completed(first), Some(true));
 			assert_eq!(state.user_display_name(&user), "Private name");
 			assert_eq!(state.conversation_name(&state.channels[0]), "Private name");
 			let write = state
@@ -2467,7 +2495,11 @@ mod tests {
 					text: "Newest name".into(),
 				})
 				.unwrap();
+			let late = id(&write);
 			finish(&mut state, write, Ok(()));
+			// A Gateway update that already showed other text still completes the request.
+			assert_eq!(state.user_action_completed(late), Some(true));
+			assert_eq!(state.user_action_completed(first), None);
 			assert_eq!(state.friend_nickname(user.id), Some("Newest name"));
 			let write = state
 				.set_friend_nickname(user.id, "Removed friend".into())
@@ -2481,6 +2513,23 @@ mod tests {
 				.unwrap();
 			finish(&mut state, write, Ok(()));
 			assert_eq!(state.friend_nickname(user.id), None);
+			// Failures, cancellations and rejections all report an unsuccessful outcome.
+			state
+				.apply_user_action(Event::Friends(Some(vec![(
+					user.clone(),
+					"synthetic".into(),
+				)])))
+				.unwrap();
+			for outcome in 0..3 {
+				let write = state.set_friend_nickname(user.id, String::new()).unwrap();
+				let request = id(&write);
+				match outcome {
+					0 => finish(&mut state, write, Err(Failure::Forbidden)),
+					1 => state.cancel_user_action(),
+					_ => state.command_rejected(write),
+				}
+				assert_eq!(state.user_action_completed(request), Some(false));
+			}
 			assert!(
 				!format!(
 					"{:?}",
