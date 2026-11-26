@@ -760,6 +760,7 @@ impl Voice {
 					let received = live
 						.early_server
 						.as_ref()
+						.filter(|early| early.revision == *negotiation_revision)
 						.map_or_else(Instant::now, |early| early.received);
 					live.early_server = Some(EarlyServer {
 						received,
@@ -3216,6 +3217,28 @@ mod tests {
 			assert!(manager.observe(&state, &mut server(from, 2)).is_none());
 			if server_first {
 				assert!(manager.observe(&state, &mut server(from, 3)).is_none());
+				let expired = Instant::now() - MOVE_GRACE;
+				manager
+					.live
+					.as_mut()
+					.unwrap()
+					.early_server
+					.as_mut()
+					.unwrap()
+					.received = expired;
+				assert!(manager.observe(&state, &mut server(from, 3)).is_none());
+				assert_eq!(
+					manager
+						.live
+						.as_ref()
+						.unwrap()
+						.early_server
+						.as_ref()
+						.unwrap()
+						.received,
+					expired
+				);
+				assert!(manager.observe(&state, &mut server(from, 4)).is_none());
 			}
 			let moved = || voice::Event::Moved {
 				from,
@@ -3248,7 +3271,7 @@ mod tests {
 				assert!(manager.pending.as_ref().unwrap().server.is_none());
 				assert!(
 					manager
-						.observe(&state, &mut server(destination, 3))
+						.observe(&state, &mut server(destination, 4))
 						.is_none()
 				);
 			}
@@ -3259,11 +3282,11 @@ mod tests {
 			);
 			assert_eq!(
 				pending.server.as_ref().unwrap().0.expose(),
-				"synthetic-token-3"
+				"synthetic-token-4"
 			);
 			assert!(
-				matches!(pending.confirm_transport(3), Some(Command::Voice(voice::Command::ConfirmSession {
-				channel, request: confirmed, revision: 3,
+				matches!(pending.confirm_transport(4), Some(Command::Voice(voice::Command::ConfirmSession {
+				channel, request: confirmed, revision: 4,
 			})) if channel == destination && confirmed == request)
 			);
 
@@ -3271,7 +3294,7 @@ mod tests {
 				// The gateway still tags this allocation with the first destination.
 				assert!(
 					manager
-						.observe(&state, &mut server(destination, 4))
+						.observe(&state, &mut server(destination, 5))
 						.is_none()
 				);
 			} else {
@@ -3280,7 +3303,7 @@ mod tests {
 			}
 			if negotiating {
 				manager.retiring = None;
-				manager.live = Some(make_live(destination, 4, manager.pending.take()));
+				manager.live = Some(make_live(destination, 5, manager.pending.take()));
 			}
 			let second_move = || voice::Event::Moved {
 				from: destination,
@@ -3296,17 +3319,17 @@ mod tests {
 			assert!(manager.live.is_none());
 			if !server_first {
 				assert!(manager.pending.as_ref().unwrap().server.is_none());
-				assert!(manager.observe(&state, &mut server(from, 4)).is_none());
+				assert!(manager.observe(&state, &mut server(from, 5)).is_none());
 			}
 			assert!(manager.observe(&state, &mut server(from, 2)).is_none());
 			let pending = manager.pending.as_ref().unwrap();
 			assert_eq!(
 				pending.server.as_ref().unwrap().0.expose(),
-				"synthetic-token-4"
+				"synthetic-token-5"
 			);
 			assert!(
-				matches!(pending.confirm_transport(4), Some(Command::Voice(voice::Command::ConfirmSession {
-				channel, request: confirmed, revision: 4,
+				matches!(pending.confirm_transport(5), Some(Command::Voice(voice::Command::ConfirmSession {
+				channel, request: confirmed, revision: 5,
 			})) if channel == from && confirmed == request)
 			);
 		}
