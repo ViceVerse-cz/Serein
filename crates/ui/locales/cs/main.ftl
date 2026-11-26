@@ -2168,6 +2168,7 @@ profiles-more-menu-unblock = Odblokovat
 profiles-more-menu-unmute = Zrušit ztlumení
 # Context: role_chips
 profiles-role-chips-show-remaining-roles = Zobrazit zbývající role
+profiles-role-chips-add-role = Přidat roli
 # Context: server_tag
 profiles-server-tag-server = server
 # Context: server_tag

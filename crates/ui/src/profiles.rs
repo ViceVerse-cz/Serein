@@ -2364,18 +2364,22 @@ fn role_target_name(name: &str) -> String {
 }
 
 /// Draws a member's role chips, collapsing overflow into a `+N` chip, with a plugin role
-/// menu on each chip when an enabled plugin offers role actions.
+/// menu on each chip when an enabled plugin offers role actions, and a trailing `+` chip
+/// that opens the assignable-role checklist when the viewer may edit the member's roles.
 pub(crate) fn role_chips(
 	ui: &mut egui::Ui,
 	theme: &Theme,
 	state: &State,
 	user: Id,
 	guild: &model::GuildProfile,
-) {
+) -> Option<crate::user_menu::Action> {
 	let roles = state.profile_roles(user, guild);
-	if roles.is_empty() {
-		return;
+	let can_assign = !state.member_menu_roles(guild.guild, user).is_empty();
+	if roles.is_empty() && !can_assign {
+		return None;
 	}
+	let mut picked = None;
+	let add_width = 25.0;
 	let max_width = ui.available_width();
 	let widths: Vec<_> = roles
 		.iter()
@@ -2416,6 +2420,9 @@ pub(crate) fn role_chips(
 				let mut row = widths[..count].to_vec();
 				if hidden > 0 {
 					row.push(25.0 + hidden.to_string().len() as f32 * 7.0);
+				}
+				if can_assign {
+					row.push(add_width);
 				}
 				fits(&row)
 			})
@@ -2530,7 +2537,40 @@ pub(crate) fn role_chips(
 				ui.data_mut(|data| data.insert_temp(expanded_id, true));
 			}
 		}
+		if can_assign {
+			let label = crate::i18n::translate("profiles-role-chips-add-role");
+			let height = ui
+				.painter()
+				.layout_no_wrap("+".into(), egui::FontId::proportional(12.0), theme.text)
+				.size()
+				.y + 6.0;
+			let (rect, response) =
+				ui.allocate_exact_size(vec2(add_width, height), egui::Sense::click());
+			let fill = if response.hovered() || response.has_focus() {
+				theme.chip_hover
+			} else {
+				theme.chip
+			};
+			ui.painter().rect_filled(rect, 6, fill);
+			icons::paint(
+				ui.painter(),
+				Icon::Plus,
+				egui::Rect::from_center_size(rect.center(), vec2(12.0, 12.0)),
+				theme.text,
+			);
+			response
+				.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, label.clone()));
+			let response = response.on_hover_text(&label);
+			// Stays open while roles are toggled so several can be assigned in one go.
+			egui::Popup::menu(&response)
+				.id(ui.make_persistent_id(("profile-role-add", guild.guild, user)))
+				.close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+				.show(|ui| {
+					picked = crate::user_menu::role_checkboxes(ui, state, guild.guild, user);
+				});
+		}
 	});
+	picked
 }
 
 /// Board game cover art size.
@@ -4461,7 +4501,11 @@ fn card_view(
 									}
 									if let Some(guild) = data.guild.as_ref() {
 										let roles = state.profile_roles(data.user.id, guild);
-										if !roles.is_empty() {
+										if !roles.is_empty()
+											|| !state
+												.member_menu_roles(guild.guild, data.user.id)
+												.is_empty()
+										{
 											section(
 												ui,
 												&theme,
@@ -4469,7 +4513,11 @@ fn card_view(
 												"profiles-show-roles",
 												full,
 											);
-											role_chips(ui, &theme, state, data.user.id, guild);
+											if let Some(picked) =
+												role_chips(ui, &theme, state, data.user.id, guild)
+											{
+												action = Some(Action::Menu(picked));
+											}
 										}
 									}
 									if !data.private {

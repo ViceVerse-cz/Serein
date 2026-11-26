@@ -2141,6 +2141,7 @@ profiles-more-menu-unblock = Engellemeyi kaldır
 profiles-more-menu-unmute = Sesini açmak
 # Context: role_chips
 profiles-role-chips-show-remaining-roles = Kalan rolleri göster
+profiles-role-chips-add-role = Rol ekle
 # Context: server_tag
 profiles-server-tag-server = sunucu
 # Context: server_tag
