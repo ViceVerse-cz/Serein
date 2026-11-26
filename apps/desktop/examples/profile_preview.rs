@@ -30,6 +30,8 @@ struct Preview {
 	toolbar_hover: Option<(egui::Pos2, bool)>,
 	/// Demo-only primary click injected after the first frames, to open a popup.
 	click: Option<egui::Pos2>,
+	/// Input frames seen, counted in every mode so `--interactive` still gets the click.
+	inputs: u8,
 	/// Close settings on the first frame before presenting the conversation.
 	close_settings: bool,
 	requested: bool,
@@ -66,12 +68,12 @@ impl eframe::App for Preview {
 					egui::Modifiers::NONE
 				}));
 		}
-		if let Some(at) = self.click.filter(|_| (4..=5).contains(&self.frames)) {
+		if let Some(at) = self.click.filter(|_| (4..=5).contains(&self.inputs)) {
 			raw_input.events.push(egui::Event::PointerMoved(at));
 			raw_input.events.push(egui::Event::PointerButton {
 				pos: at,
 				button: egui::PointerButton::Primary,
-				pressed: self.frames == 4,
+				pressed: self.inputs == 4,
 				modifiers: egui::Modifiers::NONE,
 			});
 		}
@@ -85,6 +87,7 @@ impl eframe::App for Preview {
 				modifiers: egui::Modifiers::NONE,
 			});
 		}
+		self.inputs = self.inputs.saturating_add(1);
 	}
 
 	fn ui(&mut self, ui: &mut egui::Ui, _: &mut eframe::Frame) {
@@ -1536,6 +1539,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 				scroll,
 				toolbar_hover,
 				click,
+				inputs: 0,
 				close_settings,
 				requested: false,
 				screenshot: None,

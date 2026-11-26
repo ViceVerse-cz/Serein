@@ -990,4 +990,171 @@ mod tests {
 			assert!(render(&mut view, &mut state, vec![]).0.is_empty());
 		}
 	}
+
+	/// An owned server whose member Mika holds no roles, with Guest and Member assignable.
+	fn assignable_roles() -> (State, User) {
+		let (mut state, mika) = crate::moderation::tests::owned_server_with_member();
+		state.demo = true;
+		let mut snapshot = test_support::permission_snapshot(&state);
+		let guild = snapshot
+			.guilds
+			.iter_mut()
+			.find(|guild| guild.id == model::Id(10))
+			.unwrap();
+		let role = |id, position, name: &str| model::permissions::Role {
+			id: model::Id(id),
+			bits: 0,
+			name: name.into(),
+			color: 0,
+			secondary_color: None,
+			tertiary_color: None,
+			position,
+			hoist: false,
+			managed: false,
+		};
+		let mut roles = guild.roles.clone().unwrap_or_default();
+		roles.extend([role(101, 1, "Guest"), role(102, 2, "Member")]);
+		guild.roles = Some(roles);
+		// The snapshot is rebuilt from the demo, so ownership is set again here.
+		guild.owner = state.user.as_ref().map(|own| own.id);
+		// A permission snapshot resets the live member list, so restore Mika's row after it.
+		let members = state.members.take();
+		state.apply(client_core::Envelope {
+			generation: state.generation,
+			event: client_core::Event::Permissions(client_core::permissions::Event::Snapshot(
+				snapshot,
+			)),
+		});
+		state.members = members;
+		(state, mika)
+	}
+
+	/// Toggles Guest then Member, checking the menu stays open between them, then clicks
+	/// outside and checks it closed. `draw` renders one frame and returns its labels.
+	fn toggle_two_roles_then_click_outside(
+		mut draw: impl FnMut(Vec<Event>, &mut Option<Action>) -> Vec<(String, Rect)>,
+	) {
+		let mut picked = vec![];
+		for name in ["Guest", "Member"] {
+			let text = draw(vec![], &mut None);
+			let (_, rect) = text
+				.iter()
+				.find(|(text, _)| text == name)
+				.unwrap_or_else(|| panic!("{name} is not shown: {text:?}"));
+			let mut action = None;
+			for pressed in [true, false] {
+				draw(
+					pointer(rect.center(), PointerButton::Primary, pressed),
+					&mut action,
+				);
+			}
+			picked.push(action);
+		}
+		let set = |role| {
+			Some(Action::SetRole {
+				guild: model::Id(10),
+				user: model::Id(77),
+				role: model::Id(role),
+				assigned: true,
+			})
+		};
+		assert!(
+			picked == [set(101), set(102)],
+			"each toggle returns its own SetRole"
+		);
+		for pressed in [true, false] {
+			draw(
+				pointer(Pos2::new(310.0, 410.0), PointerButton::Primary, pressed),
+				&mut None,
+			);
+		}
+		let text = draw(vec![], &mut None);
+		assert!(
+			!text.iter().any(|(text, _)| text == "Guest"),
+			"an outside click closes the roles menu: {text:?}"
+		);
+	}
+
+	#[test]
+	fn roles_submenu_stays_open_across_toggles_and_closes_on_outside_click() {
+		let (state, mika) = assignable_roles();
+		let ctx = egui::Context::default();
+		let mut profile = crate::profiles::ProfileSession::default();
+		let (row, _) = frame(&ctx, &state, &mika, vec![], &mut profile, &mut None);
+		for pressed in [true, false] {
+			frame(
+				&ctx,
+				&state,
+				&mika,
+				pointer(row.rect.center(), PointerButton::Secondary, pressed),
+				&mut profile,
+				&mut None,
+			);
+		}
+		let (_, text) = frame(&ctx, &state, &mika, vec![], &mut profile, &mut None);
+		let (_, roles) = text.iter().find(|(text, _)| text == "Roles").unwrap();
+		for pressed in [true, false] {
+			frame(
+				&ctx,
+				&state,
+				&mika,
+				pointer(roles.center(), PointerButton::Primary, pressed),
+				&mut profile,
+				&mut None,
+			);
+		}
+		toggle_two_roles_then_click_outside(|events, action| {
+			frame(&ctx, &state, &mika, events, &mut profile, action).1
+		});
+	}
+
+	#[test]
+	fn profile_add_role_popup_stays_open_across_toggles_and_closes_on_outside_click() {
+		let (state, mika) = assignable_roles();
+		let member = model::GuildProfile {
+			guild: model::Id(10),
+			roles: vec![],
+			nick: None,
+			avatar: None,
+			banner: None,
+			bio: String::new(),
+			pronouns: String::new(),
+			joined_at: None,
+		};
+		let ctx = egui::Context::default();
+		let chip = std::cell::Cell::new(Pos2::ZERO);
+		let draw = |events, action: &mut Option<Action>| {
+			let mut output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(320.0, 420.0))),
+					events,
+					..Default::default()
+				},
+				|ui| {
+					// With no roles held, the add chip is the first item.
+					chip.set(ui.cursor().min + egui::vec2(12.0, 8.0));
+					let theme = crate::profiles::Theme::new(&crate::design::palette(ui), None);
+					if let Some(picked) =
+						crate::profiles::role_chips(ui, &theme, &state, mika.id, &member)
+					{
+						*action = Some(picked);
+					}
+				},
+			);
+			output.textures_delta.clear();
+			let mut text = vec![];
+			for shape in output.shapes {
+				labels(&shape.shape, &mut text);
+			}
+			text
+		};
+		draw(vec![], &mut None);
+		for pressed in [true, false] {
+			draw(
+				pointer(chip.get(), PointerButton::Primary, pressed),
+				&mut None,
+			);
+		}
+		toggle_two_roles_then_click_outside(draw);
+	}
 }
