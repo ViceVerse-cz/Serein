@@ -75,6 +75,7 @@ impl Settings {
 				!= model::voice_settings::NoiseSuppression::Off,
 			voice_processing: Some(ui.voice_processing),
 			voice_push_to_talk: ui.voice_push_to_talk,
+			confirm_call_switch: !ui.skip_call_switch_confirmation,
 			voice_muted: ui.voice_muted,
 			voice_deafened: ui.voice_deafened,
 			voice_input: ui.voice_input.clone(),
@@ -134,6 +135,7 @@ impl Settings {
 			model::voice_settings::VoiceProcessing::from_legacy(value.voice_noise_suppression)
 		});
 		ui.voice_push_to_talk = value.voice_push_to_talk;
+		ui.skip_call_switch_confirmation = !value.confirm_call_switch;
 		ui.voice_muted = value.voice_muted;
 		ui.voice_deafened = value.voice_deafened;
 		ui.voice_input.clone_from(&value.voice_input);

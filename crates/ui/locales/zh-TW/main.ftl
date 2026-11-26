@@ -4349,6 +4349,10 @@ voice-voice-processing-controls-open-microphone-mute-and-push-to-talk-still-appl
 # Context: voice_processing_controls
 voice-voice-processing-controls-push-to-talk = 按住說話
 # Context: voice_processing_controls
+voice-voice-processing-controls-confirm-before-switching-calls = 切換通話前確認
+# Context: voice_processing_controls
+voice-voice-processing-controls-ask-before-leaving-your-current-call-to-join-another = 離開目前通話並加入另一個通話前先詢問。
+# Context: voice_processing_controls
 voice-voice-processing-controls-reduce-speaker-audio-picked-up-by-your-microphone = 減少麥克風收進的喇叭聲音。
 # Context: voice_processing_controls
 voice-voice-processing-controls-removes-keyboard-fan-and-room-noise-from-your-microphone = 移除你麥克風中的鍵盤、風扇與室內噪音。

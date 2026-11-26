@@ -163,7 +163,7 @@ impl Page {
 				"game activity playing osu status presence sharing registered games added current game detection detected process program executable rename wrong add hide last played"
 			}
 			Self::Voice => {
-				"voice video camera preview audio microphone speakers devices volume gain noise suppression push to talk"
+				"voice video camera preview audio microphone speakers devices volume gain noise suppression push to talk confirm switch switching calls call leave join"
 			}
 			Self::LanguageTime => {
 				"language time clock 12 hour 24 hour am pm format locale translation"

@@ -4317,6 +4317,10 @@ voice-voice-processing-controls-open-microphone-mute-and-push-to-talk-still-appl
 # Context: voice_processing_controls
 voice-voice-processing-controls-push-to-talk = Empurre para falar
 # Context: voice_processing_controls
+voice-voice-processing-controls-confirm-before-switching-calls = Confirmar antes de trocar de chamada
+# Context: voice_processing_controls
+voice-voice-processing-controls-ask-before-leaving-your-current-call-to-join-another = Perguntar antes de sair da chamada atual para entrar em outra.
+# Context: voice_processing_controls
 voice-voice-processing-controls-reduce-speaker-audio-picked-up-by-your-microphone = Reduza o áudio do alto-falante captado pelo seu microfone.
 # Context: voice_processing_controls
 voice-voice-processing-controls-removes-keyboard-fan-and-room-noise-from-your-microphone = Remove o ruído do teclado, do ventilador e da sala do seu microfone.

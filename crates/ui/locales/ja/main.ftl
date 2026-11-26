@@ -4311,6 +4311,10 @@ voice-voice-processing-controls-open-microphone-mute-and-push-to-talk-still-appl
 # Context: voice_processing_controls
 voice-voice-processing-controls-push-to-talk = プッシュして話す
 # Context: voice_processing_controls
+voice-voice-processing-controls-confirm-before-switching-calls = 通話を切り替える前に確認する
+# Context: voice_processing_controls
+voice-voice-processing-controls-ask-before-leaving-your-current-call-to-join-another = 現在の通話を退出して別の通話に参加する前に確認します。
+# Context: voice_processing_controls
 voice-voice-processing-controls-reduce-speaker-audio-picked-up-by-your-microphone = マイクが拾うスピーカーの音声を減らします。
 # Context: voice_processing_controls
 voice-voice-processing-controls-removes-keyboard-fan-and-room-noise-from-your-microphone = キーボード、ファン、室内のノイズをマイクから除去します。

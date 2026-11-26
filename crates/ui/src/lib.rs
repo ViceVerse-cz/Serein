@@ -581,6 +581,9 @@ pub struct MessagingUi {
 	/// The running call or microphone test moved automatic suppression to RNNoise.
 	pub voice_suppression_fell_back: bool,
 	pub voice_push_to_talk: bool,
+	/// Inverse of the saved "confirm before switching calls" setting, so a default-constructed
+	/// view keeps asking.
+	pub skip_call_switch_confirmation: bool,
 	/// Device-local voice intent, retained between calls and restarts.
 	pub voice_muted: bool,
 	pub voice_deafened: bool,

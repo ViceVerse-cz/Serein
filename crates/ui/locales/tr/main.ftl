@@ -4311,6 +4311,10 @@ voice-voice-processing-controls-open-microphone-mute-and-push-to-talk-still-appl
 # Context: voice_processing_controls
 voice-voice-processing-controls-push-to-talk = Konuşmak için bas
 # Context: voice_processing_controls
+voice-voice-processing-controls-confirm-before-switching-calls = Arama değiştirmeden önce onay iste
+# Context: voice_processing_controls
+voice-voice-processing-controls-ask-before-leaving-your-current-call-to-join-another = Başka bir aramaya katılmak için mevcut aramadan ayrılmadan önce sor.
+# Context: voice_processing_controls
 voice-voice-processing-controls-reduce-speaker-audio-picked-up-by-your-microphone = Mikrofonunuzun aldığı hoparlör sesini azaltın.
 # Context: voice_processing_controls
 voice-voice-processing-controls-removes-keyboard-fan-and-room-noise-from-your-microphone = Mikrofonunuzdan klavye, fan ve oda gürültüsünü ortadan kaldırır.

@@ -4444,6 +4444,10 @@ voice-voice-processing-controls-open-microphone-mute-and-push-to-talk-still-appl
 # Context: voice_processing_controls
 voice-voice-processing-controls-push-to-talk = Nhấn để nói chuyện
 # Context: voice_processing_controls
+voice-voice-processing-controls-confirm-before-switching-calls = Xác nhận trước khi chuyển cuộc gọi
+# Context: voice_processing_controls
+voice-voice-processing-controls-ask-before-leaving-your-current-call-to-join-another = Hỏi trước khi rời cuộc gọi hiện tại để tham gia cuộc gọi khác.
+# Context: voice_processing_controls
 voice-voice-processing-controls-reduce-speaker-audio-picked-up-by-your-microphone = Giảm âm thanh loa thu được từ micrô của bạn.
 # Context: voice_processing_controls
 voice-voice-processing-controls-removes-keyboard-fan-and-room-noise-from-your-microphone = Loại bỏ tiếng ồn bàn phím, tiếng quạt và tiếng ồn trong phòng khỏi micrô của bạn.
