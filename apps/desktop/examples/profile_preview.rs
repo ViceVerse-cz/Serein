@@ -311,6 +311,20 @@ fn prime_name_colors(state: &mut client_core::State) {
 		.apply_author_membership(model::Id(2), &[pink], None);
 }
 
+/// Gives the voice fixture's participants the synthetic name-color roles; Fern keeps none.
+fn prime_voice_roles(state: &mut client_core::State) {
+	prime_name_colors(state);
+	for (index, roles) in [
+		(0, vec![model::Id(201)]),
+		(1, vec![model::Id(202)]),
+		(3, vec![model::Id(201), model::Id(202)]),
+	] {
+		if let Some(member) = state.voice.roster[index].member.as_mut() {
+			member.roles = roles;
+		}
+	}
+}
+
 fn prime_profile(state: &mut client_core::State) {
 	if let Some(client_core::Command::EditProfile { user, request, .. }) = state.load_own_profile()
 	{
@@ -822,7 +836,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let args: Vec<_> = std::env::args().skip(1).collect();
 	let value = |prefix: &str| args.iter().find_map(|arg| arg.strip_prefix(prefix));
 	if !args.iter().any(|arg| arg == "--demo") {
-		return Err("Usage: profile_preview --demo [--output=PATH.png | --smoke | --interactive] [--page=stickers|slash-commands|slash-command-search|slash-command-options|profile|markdown|embeds|channel-links|channel-link-replies|profile-card|collectibles|member-tags|dm-tags|account|appearance|storage|updates|general|chat|language|notifications|keybinds|extensions|server|server-engagement|server-safety|server-emoji|server-stickers|server-members|server-roles|server-invites|server-integrations|server-audit-log] [--command=help|weather] [--themes] [--extension=ID] [--thumbnail] [--proxy-artwork] [--width=1120] [--height=760] [--scroll=PIXELS] [--toolbar-hover=normal|shift] [--close-settings] [--name-colors] [--keybinds-custom] [--light] [--toasts] [--compact] [--transparency=0..100]".into());
+		return Err("Usage: profile_preview --demo [--output=PATH.png | --smoke | --interactive] [--page=stickers|slash-commands|slash-command-search|slash-command-options|profile|markdown|embeds|channel-links|channel-link-replies|profile-card|collectibles|member-tags|dm-tags|account|appearance|storage|updates|general|chat|language|notifications|keybinds|extensions|server|server-engagement|server-safety|server-emoji|server-stickers|server-members|server-roles|server-invites|server-integrations|server-audit-log] [--command=help|weather] [--themes] [--extension=ID] [--thumbnail] [--proxy-artwork] [--width=1120] [--height=760] [--scroll=PIXELS] [--toolbar-hover=normal|shift] [--close-settings] [--name-colors] [--voice-roles] [--keybinds-custom] [--light] [--toasts] [--compact] [--transparency=0..100]".into());
 	}
 	let smoke = args.iter().any(|arg| arg == "--smoke");
 	let interactive = args.iter().any(|arg| arg == "--interactive");
@@ -903,6 +917,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		page = "chat".into();
 	}
 	let name_colors = args.iter().any(|arg| arg == "--name-colors");
+	// --voice-roles shows the offline voice fixture with colored roles on its participants.
+	let voice_roles = args.iter().any(|arg| arg == "--voice-roles");
 	// `--click=X,Y` presses the primary button there; `--manage-roles` makes you the owner.
 	let click = value("--click=")
 		.map(|at| {
@@ -911,8 +927,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		})
 		.transpose()?;
 	let manage_roles = args.iter().any(|arg| arg == "--manage-roles");
-	let close_settings =
-		toolbar_hover.is_some() || name_colors || args.iter().any(|arg| arg == "--close-settings");
+	let close_settings = toolbar_hover.is_some()
+		|| name_colors
+		|| voice_roles
+		|| args.iter().any(|arg| arg == "--close-settings");
 	let forum_tags: Vec<_> = value("--tags=")
 		.map(|list| {
 			list.split(',')
@@ -986,6 +1004,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			};
 			if toolbar_hover.is_some() || close_settings {
 				state = test_support::chat_demo_state();
+			}
+			if voice_roles {
+				state = test_support::voice_demo_state();
+				prime_voice_roles(&mut state);
 			}
 			if name_colors {
 				prime_name_colors(&mut state);
