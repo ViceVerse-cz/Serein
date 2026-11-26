@@ -3151,6 +3151,7 @@ mod tests {
 			discriminator: 0,
 			kind: Default::default(),
 			webhook: false,
+			username: None,
 			primary_guild: None,
 			cosmetics: None,
 		};

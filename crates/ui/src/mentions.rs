@@ -1945,6 +1945,7 @@ mod tests {
 			webhook: false,
 			kind: Default::default(),
 			discriminator: 0,
+			username: None,
 			primary_guild: None,
 			cosmetics: None,
 		}

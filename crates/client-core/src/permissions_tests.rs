@@ -395,6 +395,7 @@ fn large_startup_retains_permissions_read_state_and_subsequent_channel_threads()
 
 fn user() -> User {
 	User {
+		username: None,
 		primary_guild: None,
 		cosmetics: None,
 		id: Id(2),

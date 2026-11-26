@@ -114,8 +114,8 @@ pub struct Draft {
 }
 
 pub fn users(state: &State) -> Vec<&User> {
-	let mut users = std::collections::BTreeMap::new();
-	for user in state
+	let mut users = std::collections::BTreeMap::<Id, &User>::new();
+	for (user, loaded_member) in state
 		.user
 		.iter()
 		.chain(
@@ -126,6 +126,7 @@ pub fn users(state: &State) -> Vec<&User> {
 				.flat_map(|c| &c.recipients),
 		)
 		.chain(state.timeline.iter().map(|m| &m.author))
+		.map(|user| (user, false))
 		.chain(state.members.iter().flat_map(|list| {
 			list.slots
 				.iter()
@@ -134,13 +135,16 @@ pub fn users(state: &State) -> Vec<&User> {
 					model::MemberSlot::Person(m) => Some(m),
 					_ => None,
 				})
-				.map(|member| &member.user)
+				.map(|member| (&member.user, true))
 		}))
 		.take(1500)
 	{
-		users.entry(user.id).or_insert(user);
-		if users.len() >= 100 {
-			break;
+		if let Some(entry) = users.get_mut(&user.id) {
+			if user.username.is_some() && (loaded_member || entry.username.is_none()) {
+				*entry = user;
+			}
+		} else if users.len() < 100 {
+			users.insert(user.id, user);
 		}
 	}
 	users.into_values().collect()
@@ -216,6 +220,67 @@ pub fn label(name: &str) -> String {
 		.collect()
 }
 
+fn user_handle(user: &User) -> Option<String> {
+	let username = label(user.username.as_deref()?);
+	if username.is_empty() {
+		return None;
+	}
+	Some(if user.discriminator == 0 {
+		format!("@{username}")
+	} else {
+		format!("@{username}#{:04}", user.discriminator)
+	})
+}
+
+pub fn user_label(user: &User) -> String {
+	user_handle(user).unwrap_or_else(|| {
+		let display = label(&user.name);
+		if display.starts_with('@') {
+			user.id.to_string()
+		} else {
+			display
+		}
+	})
+}
+
+/// The caller lowercases the input once for the whole suggestion list.
+fn user_matches(user: &User, typed: &str) -> bool {
+	let username_matches = user_handle(user).is_some_and(|handle| {
+		handle[1..]
+			.to_lowercase()
+			.contains(typed.trim_start_matches('@'))
+	});
+	let name = user.name.to_lowercase();
+	username_matches
+		|| (!typed.starts_with('@') && (name.contains(typed) || label(&name).contains(typed)))
+}
+
+fn exact_username_match(user: &User, typed: &str) -> bool {
+	if typed.is_empty() {
+		return false;
+	}
+	if typed.contains('#') {
+		user_handle(user).is_some_and(|handle| handle[1..].to_lowercase() == typed)
+	} else {
+		user.username
+			.as_deref()
+			.is_some_and(|username| label(username).to_lowercase() == typed)
+	}
+}
+
+pub fn matching_users<'a>(users: &[&'a User], typed: &str) -> Vec<&'a User> {
+	let mut matching: Vec<_> = users
+		.iter()
+		.copied()
+		.filter(|user| user_matches(user, typed))
+		.collect();
+	if !typed.is_empty() {
+		let typed = typed.trim_start_matches('@');
+		matching.sort_by_key(|user| !exact_username_match(user, typed));
+	}
+	matching
+}
+
 /// Names picked from suggestions, so the field can show `from:name` while search sends IDs.
 #[derive(Default)]
 pub struct Labels(Vec<(&'static str, String, Id)>);
@@ -223,11 +288,30 @@ pub struct Labels(Vec<(&'static str, String, Id)>);
 impl Labels {
 	const LIMIT: usize = 64;
 
-	pub fn remember(&mut self, kind: &'static str, label: &str, id: Id) {
-		self.0
-			.retain(|(k, l, i)| *k != kind || (*i != id && !l.eq_ignore_ascii_case(label)));
+	pub fn remember(&mut self, kind: &'static str, label: &str, id: Id, query: &str) {
+		if kind == "user" && label.parse::<u64>().is_ok() {
+			return;
+		}
+		let normalized = label.to_lowercase();
+		self.0.retain(|(k, l, i)| {
+			*k != kind || (l.to_lowercase() != normalized && (kind == "user" || *i != id))
+		});
 		if self.0.len() >= Self::LIMIT {
-			self.0.remove(0);
+			// Keep the aliases on the current query even when the recent-label cache is full.
+			let Some(index) = self.0.iter().position(|(kind, label, _)| {
+				let normalized = label.to_lowercase();
+				!query.split_whitespace().any(|token| {
+					token.split_once(':').is_some_and(|(key, value)| {
+						matches!(
+							(*kind, key),
+							("user", "from" | "mentions") | ("channel", "in")
+						) && value.to_lowercase() == normalized
+					})
+				})
+			}) else {
+				return;
+			};
+			self.0.remove(index);
 		}
 		self.0.push((kind, label.to_owned(), id));
 	}
@@ -237,6 +321,20 @@ impl Labels {
 			.rev()
 			.find(|(k, l, _)| *k == kind && l.to_lowercase() == label.to_lowercase())
 			.map(|(_, _, id)| *id)
+	}
+	pub fn user_token(&self, name: String, id: Id, users: &[&User]) -> String {
+		let normalized = name.to_lowercase();
+		if name.is_empty()
+			|| name.parse::<u64>().is_ok()
+			|| self.id("user", &name).is_some_and(|other| other != id)
+			|| users
+				.iter()
+				.any(|user| user.id != id && user_label(user).to_lowercase() == normalized)
+		{
+			id.to_string()
+		} else {
+			name
+		}
 	}
 	fn label(&self, kind: &str, id: Id) -> Option<&str> {
 		self.0
@@ -256,7 +354,19 @@ fn user_id(value: &str, state: &State, labels: &Labels) -> Option<Id> {
 		.or_else(|| labels.id("user", value))
 		.or_else(|| {
 			let value = value.to_lowercase();
-			users(state)
+			let users = users(state);
+			let username = value.trim_start_matches('@');
+			let mut exact = users
+				.iter()
+				.filter(|user| exact_username_match(user, username));
+			if let Some(user) = exact.next() {
+				// A bare legacy username can belong to more than one account.
+				return exact.next().is_none().then_some(user.id);
+			}
+			if value.starts_with('@') {
+				return None;
+			}
+			users
 				.into_iter()
 				.find(|user| label(&user.name).to_lowercase() == value)
 				.map(|user| user.id)
@@ -327,6 +437,7 @@ pub fn display(query: &str, state: &State, labels: &mut Labels) -> String {
 	let mut tokens = Vec::new();
 	let during = date_picker::during_date(query);
 	let mut emitted_during = false;
+	let mut search_users = None;
 	for token in query.split_whitespace() {
 		if let Some(date) = during
 			&& date_picker::is_bound(token)
@@ -341,13 +452,19 @@ pub fn display(query: &str, state: &State, labels: &mut Labels) -> String {
 		let next = token.split_once(':').and_then(|(key, value)| match key {
 			"from" | "mentions" => {
 				let id = numeric(value)?;
+				let candidates = search_users.get_or_insert_with(|| users(state));
 				let name = labels.label("user", id).map(str::to_owned).or_else(|| {
-					users(state)
-						.into_iter()
+					candidates
+						.iter()
+						.copied()
 						.find(|user| user.id == id)
-						.map(|user| label(&user.name))
+						.map(user_label)
 				})?;
-				labels.remember("user", &name, id);
+				let name = labels.user_token(name, id, candidates);
+				if name == value {
+					return None;
+				}
+				labels.remember("user", &name, id, query);
 				Some(format!("{key}:{name}"))
 			}
 			"in" => {
@@ -356,7 +473,7 @@ pub fn display(query: &str, state: &State, labels: &mut Labels) -> String {
 					.channel(id)
 					.map(|channel| label(&channel.name))
 					.or_else(|| labels.label("channel", id).map(str::to_owned))?;
-				labels.remember("channel", &name, id);
+				labels.remember("channel", &name, id, query);
 				Some(format!("in:{name}"))
 			}
 			"before_id" | "after_id" => Some(format!(
@@ -480,6 +597,10 @@ pub fn user_row(
 	selected: bool,
 ) -> egui::Response {
 	let colors = design::palette(ui);
+	let title = match user_handle(user) {
+		Some(handle) => std::borrow::Cow::Owned(format!("{}  {handle}", user.name)),
+		None => std::borrow::Cow::Borrowed(user.name.as_str()),
+	};
 	let (rect, response) =
 		ui.allocate_exact_size(egui::vec2(ui.available_width(), 36.0), egui::Sense::click());
 	if selected || response.hovered() || response.has_focus() {
@@ -494,7 +615,7 @@ pub fn user_row(
 				let avatar = avatars.show(ui, user, 24.0, demo);
 				ui.add(
 					egui::Label::new(
-						design::semibold(ui, &user.name, 14.0).color(colors.text_strong),
+						design::semibold(ui, title.as_ref(), 14.0).color(colors.text_strong),
 					)
 					.truncate()
 					.selectable(false),
@@ -503,7 +624,7 @@ pub fn user_row(
 			},
 		)
 		.inner;
-	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &user.name));
+	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, title.as_ref()));
 	response.union(avatar)
 }
 
@@ -589,18 +710,15 @@ fn user_picker(
 						"search-filters-user-picker-search-users",
 					)),
 			);
-			let mut count = 0;
-			for user in users
-				.iter()
-				.filter(|user| user.name.to_lowercase().contains(&needle.to_lowercase()))
-			{
-				count += 1;
+			let typed = needle.to_lowercase();
+			let matching = matching_users(users, &typed);
+			for user in &matching {
 				let id = user.id.to_string();
 				if user_row(ui, user, avatars, demo, selected(query, key, &id)).clicked() {
 					replace(query, key, &id, true);
 				}
 			}
-			if count == 0 {
+			if matching.is_empty() {
 				ui.label(crate::i18n::translate(
 					"search-filters-user-picker-no-matching-users",
 				));
@@ -897,6 +1015,167 @@ impl Draft {
 
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn retained_authors_get_usernames_even_after_the_candidate_limit() {
+		let mut state = super::State::default();
+		for id in 1..=100 {
+			let mut message = test_support::message(1000 + id, model::Id(20));
+			message.author.id = model::Id(id);
+			message.author.username = (id == 2).then(|| "old_handle".into());
+			state.timeline.insert(message, true, false).unwrap();
+		}
+		let member = |id, username: &str| {
+			let mut user = test_support::message(1, model::Id(20)).author;
+			user.id = model::Id(id);
+			user.username = Some(username.into());
+			Some(model::MemberSlot::Person(model::Member {
+				user,
+				roles: vec![],
+				nick: None,
+				status: None,
+				custom_status: None,
+				activities: vec![],
+				clients: Default::default(),
+			}))
+		};
+		state.members = Some(model::MemberList {
+			guild: None,
+			channel: model::Id(20),
+			request: 0,
+			start: 0,
+			slots: vec![
+				member(101, "excluded"),
+				member(2, "robin"),
+				member(3, "quiet"),
+			],
+			total: 3,
+			lazy: false,
+			freshness: model::Freshness::Fresh,
+			groups: vec![],
+			ranges: vec![],
+		});
+		let users = super::users(&state);
+		assert_eq!(users.len(), 100);
+		assert_eq!(super::matching_users(&users, "@robin")[0].id, model::Id(2));
+		assert_eq!(super::matching_users(&users, "@quiet")[0].id, model::Id(3));
+		assert!(super::matching_users(&users, "@old_handle").is_empty());
+	}
+
+	#[test]
+	fn remembering_a_handle_keeps_the_current_queries_original_account() {
+		let channel = model::Id(20);
+		let mut state = super::State::default();
+		for (id, username) in [(2, "quiet"), (3, "robin")] {
+			let mut message = test_support::message(1000 + id, channel);
+			message.author.id = model::Id(id);
+			message.author.username = Some(username.into());
+			state.timeline.insert(message, true, false).unwrap();
+		}
+		let mut labels = super::Labels::default();
+		labels.remember("user", "Robin", model::Id(2), "");
+		for id in 100..100 + (super::Labels::LIMIT as u64 - 1) {
+			labels.remember("user", &format!("@user_{id}"), model::Id(id), "");
+		}
+		let query = "from:rOBIN mentions:@quiet";
+		labels.remember("user", "@quiet", model::Id(2), query);
+		assert_eq!(
+			super::wire(query, &state, &labels).unwrap(),
+			"from:2 mentions:2"
+		);
+		assert_eq!(labels.0.len(), super::Labels::LIMIT);
+	}
+
+	#[test]
+	fn exact_usernames_rank_first_and_handle_labels_keep_their_ids() {
+		let channel = model::Id(20);
+		let mut partial = test_support::message(1001, channel);
+		partial.author.id = model::Id(2);
+		partial.author.username = Some("robin_extra".into());
+		let mut exact = test_support::message(1002, channel);
+		exact.author.id = model::Id(3);
+		exact.author.username = Some("robin".into());
+		exact.author.discriminator = 1234;
+		for typed in ["robin", "@robin", "robin#1234"] {
+			assert_eq!(
+				super::matching_users(&[&partial.author, &exact.author], typed)[0].id,
+				model::Id(3)
+			);
+		}
+		let mut state = super::State::default();
+		exact.author.discriminator = 0;
+		partial.author.username = None;
+		partial.author.name = "@Robin".into();
+		for message in [partial, exact] {
+			state.timeline.insert(message, true, false).unwrap();
+		}
+		let query = "from:2 mentions:3";
+		let mut labels = super::Labels::default();
+		let shown = super::display(query, &state, &mut labels);
+		assert_eq!(shown, "from:2 mentions:@robin");
+		assert_eq!(super::wire(&shown, &state, &labels).unwrap(), query);
+	}
+
+	#[test]
+	fn wire_resolves_legacy_usernames_before_matching_display_names() {
+		let channel = model::Id(20);
+		let mut state = super::State::default();
+		let mut legacy = test_support::message(1001, channel);
+		legacy.author.id = model::Id(2);
+		legacy.author.username = Some("alice".into());
+		legacy.author.discriminator = 1234;
+		let mut display_match = test_support::message(1002, channel);
+		display_match.author.id = model::Id(3);
+		display_match.author.username = Some("another".into());
+		display_match.author.name = "Alice".into();
+		state.timeline.insert(legacy.clone(), true, false).unwrap();
+		state.timeline.insert(display_match, true, false).unwrap();
+		let labels = super::Labels::default();
+		assert_eq!(
+			super::wire("from:alice weather mentions:@Alice#1234", &state, &labels).unwrap(),
+			"from:2 weather mentions:2"
+		);
+		legacy.id = model::Id(1003);
+		legacy.author.id = model::Id(4);
+		legacy.author.discriminator = 5678;
+		state.timeline.insert(legacy, true, false).unwrap();
+		assert!(super::wire("from:alice weather", &state, &labels).is_err());
+		assert_eq!(
+			super::wire("from:alice#5678 mentions:2", &state, &labels).unwrap(),
+			"from:4 mentions:2"
+		);
+		let mut labels = labels;
+		labels.remember("user", "Alice", model::Id(3), "from:Alice");
+		assert_eq!(
+			super::wire("from:Alice", &state, &labels).unwrap(),
+			"from:3"
+		);
+	}
+
+	#[test]
+	fn username_search_resolves_to_the_correct_account_id() {
+		let mut state = test_support::demo_state();
+		let user = state.user.as_mut().unwrap();
+		user.username = Some("quiet-robin".into());
+		let id = user.id;
+		assert!(super::user_matches(user, "@quiet"));
+		assert!(super::user_matches(user, "synthetic"));
+		assert!(!super::user_matches(user, "@synthetic"));
+		let mut labels = super::Labels::default();
+		for typed in [
+			"from:@Quiet-Robin",
+			"from:quiet-robin",
+			"mentions:@quiet-robin",
+		] {
+			let filter = typed.split_once(':').unwrap().0;
+			let wire = super::wire(typed, &state, &labels).unwrap();
+			assert_eq!(wire, format!("{filter}:{id}"));
+			assert_eq!(
+				super::display(&wire, &state, &mut labels),
+				format!("{filter}:@quiet-robin")
+			);
+		}
+	}
+
 	/// "More filters" keeps a finished trailing `has:` and drops one still being typed.
 	#[test]
 	fn a_finished_has_filter_survives_and_a_partial_one_does_not() {

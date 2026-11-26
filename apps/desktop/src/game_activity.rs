@@ -1011,6 +1011,7 @@ mod tests {
 
 	fn user() -> User {
 		User {
+			username: None,
 			primary_guild: None,
 			cosmetics: None,
 			id: model::Id(1),

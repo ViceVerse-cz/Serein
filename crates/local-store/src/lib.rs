@@ -15,6 +15,54 @@ const NATIVE_SCHEMA: u32 = 29;
 const READABLE_SCHEMA: u32 = 29;
 #[derive(serde::Deserialize)]
 struct CachedMentions(#[serde(deserialize_with = "model::deserialize_mentions")] Vec<User>);
+
+fn same_cached_user(old: &User, live: &User) -> bool {
+	old.id == live.id
+		&& old.name == live.name
+		&& old.avatar == live.avatar
+		&& old.discriminator == live.discriminator
+		&& old.kind == live.kind
+		&& old.webhook == live.webhook
+}
+
+/// Compare the fields written to the messages table without allocating or serializing.
+fn same_cached_message(old: &Message, live: &Message) -> bool {
+	old.id == live.id
+		&& old.channel == live.channel
+		&& same_cached_user(&old.author, &live.author)
+		&& old.content == live.content
+		&& old.edited == live.edited
+		&& old.reply_to == live.reply_to
+		&& old.unsupported == live.unsupported
+		&& old.embeds == live.embeds
+		&& old.embeds_suppressed == live.embeds_suppressed
+		&& old.attachments == live.attachments
+		&& old.mentions.len() == live.mentions.len()
+		&& old
+			.mentions
+			.iter()
+			.zip(&live.mentions)
+			.all(|(old, live)| same_cached_user(old, live))
+		&& old.extra_content == live.extra_content
+		&& old.kind == live.kind
+		&& old.reply_deleted == live.reply_deleted
+		&& old.forwarded == live.forwarded
+		&& old.author_roles == live.author_roles
+		&& old.author_nick == live.author_nick
+		&& old.components == live.components
+		&& old.application_id == live.application_id
+		&& old.flags == live.flags
+		&& old.sticker_items == live.sticker_items
+		&& match (old.interaction.as_deref(), live.interaction.as_deref()) {
+			(Some(old), Some(live)) => {
+				old.command == live.command && same_cached_user(&old.user, &live.user)
+			}
+			(None, None) => true,
+			_ => false,
+		} && old.reactions == live.reactions
+		&& old.forward_origin == live.forward_origin
+}
+
 fn parse_author_roles(raw: &str) -> std::result::Result<Vec<Id>, StoreError> {
 	let values: Vec<String> = serde_json::from_str(raw).map_err(|_| StoreError::Incompatible)?;
 	if values.len() > model::permissions::MAX_MEMBER_ROLES {
@@ -1018,7 +1066,7 @@ impl LocalStore {
 		for message in messages {
 			if previous
 				.get(&message.id)
-				.is_some_and(|old| *old == *message)
+				.is_some_and(|old| same_cached_message(old, message))
 			{
 				continue;
 			}
@@ -1407,6 +1455,7 @@ impl LocalStore {
 				id: parse(row.get(0)?)?,
 				channel,
 				author: User {
+					username: None,
 					primary_guild: None,
 					cosmetics: None,
 					id: parse(row.get(1)?)?,
@@ -2670,6 +2719,36 @@ mod tests {
 	}
 
 	#[test]
+	fn message_cache_skips_writes_for_session_only_usernames() {
+		let mut store = LocalStore::initialize(Connection::open_in_memory().unwrap()).unwrap();
+		store.0.execute("INSERT INTO messages(account,channel,id,author,name,content,edited,unsupported) VALUES('1','2','3','4','Synthetic','original',0,0)", []).unwrap();
+		let mut messages = store.load_channel(Id(1), Id(2)).unwrap();
+		let author = messages[0].author.clone();
+		messages[0].mentions.push(author.clone());
+		messages[0].interaction = Some(Box::new(model::Interaction {
+			user: author,
+			command: "synthetic".into(),
+		}));
+		store.save_channel(Id(1), Id(2), &messages, false).unwrap();
+		store.0.execute_batch("CREATE TRIGGER reject_message_write BEFORE INSERT ON messages BEGIN SELECT RAISE(ABORT, 'unexpected rewrite'); END;").unwrap();
+		messages[0].author.username = Some("author".into());
+		messages[0].mentions[0].username = Some("mention".into());
+		messages[0].interaction.as_mut().unwrap().user.username = Some("invoker".into());
+		store.save_channel(Id(1), Id(2), &messages, false).unwrap();
+		messages[0].content = "edited".into();
+		assert!(store.save_channel(Id(1), Id(2), &messages, false).is_err());
+		store
+			.0
+			.execute_batch("DROP TRIGGER reject_message_write;")
+			.unwrap();
+		store.save_channel(Id(1), Id(2), &messages, false).unwrap();
+		assert_eq!(
+			store.load_channel(Id(1), Id(2)).unwrap()[0].content,
+			"edited"
+		);
+	}
+
+	#[test]
 	fn message_kind_migration_round_trip_and_bounds() {
 		let store = LocalStore::initialize(Connection::open_in_memory().unwrap()).unwrap();
 		store
@@ -3411,6 +3490,7 @@ mod tests {
 		assert!(messages[0].mentions.is_empty());
 		assert_eq!(store.load_drafts(Id(1)).unwrap()[&Id(2)], "kept draft");
 		messages[0].mentions = vec![User {
+			username: None,
 			primary_guild: None,
 			cosmetics: None,
 			id: Id(5),
@@ -3617,6 +3697,7 @@ mod tests {
 				id: Id(100),
 				channel: Id(channel),
 				author: User {
+					username: None,
 					primary_guild: None,
 					cosmetics: None,
 					id: Id(1),

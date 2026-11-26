@@ -5982,6 +5982,7 @@ mod tests {
 				Event::Ready {
 					permissions: model::permissions::Snapshot::default(),
 					user: User {
+						username: None,
 						primary_guild: None,
 						cosmetics: None,
 						id: Id(1),
@@ -6344,6 +6345,7 @@ mod tests {
 			id: Id(id),
 			channel: Id(1),
 			author: User {
+				username: None,
 				primary_guild: None,
 				cosmetics: None,
 				id: Id(2),
@@ -6425,6 +6427,7 @@ mod tests {
 			Event::RecipientAdded {
 				channel: Id(1),
 				user: User {
+					username: None,
 					primary_guild: None,
 					cosmetics: None,
 					id: Id(3),
@@ -6643,6 +6646,7 @@ mod tests {
 				message_count: None,
 			};
 			let user = || User {
+				username: None,
 				primary_guild: None,
 				cosmetics: None,
 				id: Id(2),
@@ -6774,6 +6778,7 @@ mod tests {
 				Event::Ready {
 					permissions: model::permissions::Snapshot::default(),
 					user: User {
+						username: None,
 						primary_guild: None,
 						cosmetics: None,
 						id: Id(2),

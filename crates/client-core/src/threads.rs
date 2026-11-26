@@ -271,6 +271,7 @@ mod tests {
 		};
 		let mut state = State {
 			user: Some(User {
+				username: None,
 				primary_guild: None,
 				cosmetics: None,
 				id: Id(9),
@@ -397,6 +398,7 @@ mod tests {
 			id: Id(500),
 			channel: Id(100),
 			author: User {
+				username: None,
 				primary_guild: None,
 				cosmetics: None,
 				id: Id(9),

@@ -111,6 +111,9 @@ pub struct User {
 	pub webhook: bool,
 	pub id: Id,
 	pub name: String,
+	/// Account username from the service, kept only in session memory.
+	#[serde(skip)]
+	pub username: Option<Box<str>>,
 	pub avatar: Option<String>,
 	pub discriminator: u16,
 	/// Service-supplied server identity displayed beside this user's name.
@@ -132,6 +135,7 @@ impl User {
 	}
 	pub fn heap_bytes(&self) -> usize {
 		self.name.capacity()
+			+ self.username.as_deref().map_or(0, str::len)
 			+ self.avatar.as_ref().map_or(0, String::capacity)
 			+ self.primary_guild.as_ref().map_or(0, |guild| {
 				std::mem::size_of::<ClanTag>()
@@ -267,6 +271,7 @@ impl SavedAccount {
 			name: self.label().to_owned(),
 			avatar: self.avatar.clone(),
 			discriminator: self.discriminator,
+			username: None,
 			primary_guild: None,
 			cosmetics: None,
 		}
@@ -1151,6 +1156,7 @@ mod roster_identity_tests {
 			webhook: false,
 			kind: AccountKind::Human,
 			discriminator: 0,
+			username: None,
 			primary_guild: None,
 			cosmetics: None,
 		}

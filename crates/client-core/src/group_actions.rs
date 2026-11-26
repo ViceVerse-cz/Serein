@@ -485,6 +485,7 @@ mod tests {
 			webhook: false,
 			kind: Default::default(),
 			discriminator: 0,
+			username: None,
 			primary_guild: None,
 			cosmetics: None,
 		};
@@ -610,6 +611,7 @@ mod tests {
 			generation: state.generation,
 			event: CoreEvent::Ready {
 				user: model::User {
+					username: None,
 					primary_guild: None,
 					cosmetics: None,
 					id: Id(1),

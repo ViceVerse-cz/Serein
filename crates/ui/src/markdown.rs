@@ -1884,6 +1884,7 @@ impl Formatted {
 								webhook: false,
 								kind: Default::default(),
 								discriminator: 0,
+								username: None,
 								primary_guild: None,
 								cosmetics: None,
 							});
@@ -2613,6 +2614,7 @@ impl Formatted {
 							webhook: false,
 							kind: Default::default(),
 							discriminator: 0,
+							username: None,
 							primary_guild: None,
 						});
 					render.profile.person_click(ui, &hit, None, &user);
@@ -5691,6 +5693,7 @@ mod tests {
 			webhook: false,
 			kind: Default::default(),
 			discriminator: 0,
+			username: None,
 			primary_guild: None,
 			cosmetics: None,
 		}];
@@ -6885,6 +6888,7 @@ mod tests {
 			webhook: false,
 			kind: Default::default(),
 			discriminator: 0,
+			username: None,
 			primary_guild: None,
 		}];
 		let opening = std::cell::RefCell::new(None);

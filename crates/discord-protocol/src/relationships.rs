@@ -115,6 +115,7 @@ impl Snapshot {
 							name: "Unknown user".into(),
 							avatar: None,
 							discriminator: 0,
+							username: None,
 							primary_guild: None,
 							cosmetics: None,
 							webhook: false,

@@ -706,6 +706,7 @@ mod tests {
 	fn own_data(name: &str) -> Box<UserProfile> {
 		Box::new(UserProfile {
 			user: model::User {
+				username: None,
 				primary_guild: None,
 				cosmetics: None,
 				id: Id(1),
@@ -1365,6 +1366,7 @@ mod tests {
 			fn profile(user: Id) -> Box<UserProfile> {
 				Box::new(UserProfile {
 					user: model::User {
+						username: None,
 						primary_guild: None,
 						cosmetics: None,
 						id: user,
@@ -1575,6 +1577,7 @@ mod tests {
 			let profile = |user| {
 				Box::new(UserProfile {
 					user: model::User {
+						username: None,
 						primary_guild: None,
 						cosmetics: None,
 						id: user,

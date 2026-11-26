@@ -1006,6 +1006,7 @@ fn webhook_identity(ui: &mut egui::Ui, state: &State, webhook: &Webhook, avatars
 			name: webhook_name(webhook).to_owned(),
 			avatar: webhook.avatar.clone(),
 			discriminator: 0,
+			username: None,
 			primary_guild: None,
 			cosmetics: None,
 		};
