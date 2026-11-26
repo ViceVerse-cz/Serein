@@ -47,7 +47,7 @@ impl eframe::App for Preview {
 	}
 
 	fn raw_input_hook(&mut self, _: &egui::Context, raw_input: &mut egui::RawInput) {
-		if self.close_settings && self.frames == 0 {
+		if self.close_settings && self.inputs == 0 {
 			// The Chat settings page shares its route name with the timeline's semantic page.
 			// Close it first so this fixture reaches the conversation.
 			raw_input.events.push(egui::Event::Key {
