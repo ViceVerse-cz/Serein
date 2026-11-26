@@ -2494,8 +2494,9 @@ impl DiscordApi {
 			body["sticker_ids"] = serde_json::json!([sticker]);
 		}
 		if let Some(reply) = reply {
+			// type 0 (DEFAULT) is the reply reference the recorded client sends; forwards use 1.
 			body["message_reference"] =
-				serde_json::json!({"message_id":reply.target(),"channel_id":channel});
+				serde_json::json!({"type":0,"message_id":reply.target(),"channel_id":channel});
 		}
 		if let Some(attachment) = attachment {
 			body["attachments"] = serde_json::json!(attachment);

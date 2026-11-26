@@ -86,7 +86,8 @@ impl Search {
 		if !request.valid() {
 			return Ok(None);
 		}
-		let mut data = serde_json::json!({"guild_id": request.guild.to_string(), "limit": LIMIT, "nonce": request.nonce.to_string()});
+		// The recorded client requests presences alongside members; extra chunk fields are ignored.
+		let mut data = serde_json::json!({"guild_id": request.guild.to_string(), "presences": true, "limit": LIMIT, "nonce": request.nonce.to_string()});
 		if !request.users.is_empty() {
 			data["user_ids"] = serde_json::json!(
 				request
