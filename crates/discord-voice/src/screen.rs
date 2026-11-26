@@ -71,8 +71,11 @@ pub struct AudioChunk {
 /// CPAL names its PulseAudio client `cpal-pulseaudio-<pid>`. PipeWire's PulseAudio server keeps
 /// that name while reporting the daemon as the stream's process, so such a proxied stream cannot
 /// be recognised by its process ID or binary alone.
+///
+/// Visible to the crate because `examples/linux_screen.rs` includes `screen/audio_linux.rs` at the
+/// crate root, where `super` is not this module.
 #[cfg(any(target_os = "linux", test))]
-fn own_cpal_client(name: Option<&str>, pid: u32) -> bool {
+pub(crate) fn own_cpal_client(name: Option<&str>, pid: u32) -> bool {
 	name.and_then(|name| name.strip_prefix("cpal-pulseaudio-"))
 		.is_some_and(|rest| {
 			rest.split(|c: char| !c.is_ascii_digit())

@@ -117,7 +117,7 @@ impl OwnApplication {
 		pid != 0
 			&& pid != self.pid
 			&& !binary.eq_ignore_ascii_case(&self.binary)
-			&& !super::own_cpal_client(name, self.pid)
+			&& !crate::screen::own_cpal_client(name, self.pid)
 			&& ![Some(binary), name, app_id].into_iter().flatten().any(|v| {
 				v.len() > 256
 					|| v.to_ascii_lowercase().contains("serein")
