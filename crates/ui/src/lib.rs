@@ -5076,6 +5076,7 @@ impl MessagingUi {
 		#[cfg(feature = "demo")]
 		let cached = cached.filter(|_| !self.avatars.hold_demo_images);
 		self.dm_profile.calls_blocked = self.calls_unavailable(state);
+		self.dm_profile.viewer_open = self.profile_image.is_some();
 		let mut action = None;
 		// The panel shares the conversation surface, so the card floats on the chat itself.
 		egui::Panel::right("dm-profile-pane")
@@ -5165,7 +5166,6 @@ impl MessagingUi {
 						grid,
 					}),
 				});
-				self.profile.close();
 			}
 			profiles::Action::Banner(media) => {
 				let ext = media
@@ -5188,7 +5188,6 @@ impl MessagingUi {
 					},
 					floor: attachments::Floor::Fit,
 				});
-				self.profile.close();
 			}
 			profiles::Action::AddFriend(id) => {
 				if let Some(command) = state.add_profile_friend(id) {
@@ -5505,7 +5504,9 @@ impl MessagingUi {
 		}
 		if self.server_settings.is_open() {
 			self.extensions.stop_theme_preview(&ctx);
+			// An open image viewer owns Escape; it runs later this frame.
 			if self.profile.open_user().is_some()
+				&& self.profile_image.is_none()
 				&& ctx
 					.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
 			{
@@ -6799,6 +6800,8 @@ impl MessagingUi {
 			let anchor = self.profile.anchor_or_place(&ctx, user.id);
 			self.profile.ingest_opener_rect(&ctx);
 			self.profile.calls_blocked = self.calls_unavailable(state);
+			// The viewer opens over the card and closing it returns here.
+			self.profile.viewer_open = self.profile_image.is_some();
 			let action = profiles::show_with_session(
 				ui,
 				&user,
@@ -8656,6 +8659,145 @@ mod composer_tests {
 		// With the viewer closed, Escape returns to the search it was covering.
 		frame(&mut view, &mut state, vec![edit_key(egui::Key::Escape)]);
 		assert!(!view.search.open);
+	}
+
+	#[test]
+	fn profile_image_viewer_dismissal_keeps_the_card_open() {
+		let ctx = egui::Context::default();
+		let mut state = edit_state();
+		let user = model::User {
+			id: Id(2),
+			name: "Sam".into(),
+			avatar: None,
+			webhook: false,
+			kind: Default::default(),
+			discriminator: 0,
+			username: None,
+			primary_guild: None,
+			cosmetics: None,
+		};
+		let mut view = MessagingUi::default();
+		let frame = |view: &mut MessagingUi, state: &mut State, events| {
+			ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(1000.0, 700.0),
+					)),
+					events,
+					..Default::default()
+				},
+				|ui| {
+					view.show(ui, state);
+				},
+			)
+			.drop_without_applying_deltas();
+		};
+		let settle = |view: &mut MessagingUi, state: &mut State| {
+			for _ in 0..3 {
+				frame(view, state, vec![]);
+			}
+		};
+		let open_image = |view: &mut MessagingUi, state: &mut State, banner: bool| {
+			let media = model::EmbedMedia {
+				url: Some("https://cdn.example/image.png".into()),
+				width: 128,
+				height: 128,
+				..Default::default()
+			};
+			let user = view.profile.open_user().cloned().unwrap();
+			let action = if banner {
+				profiles::Action::Banner(media)
+			} else {
+				profiles::Action::Avatar {
+					media,
+					points: 128.0,
+					grid: attachments::PixelGrid::Declared,
+				}
+			};
+			view.profile_action(&ctx, state, &mut Vec::new(), &user, None, action);
+			settle(view, state);
+			assert!(view.profile_image.is_some());
+		};
+		let away = egui::pos2(40.0, 660.0);
+		let button = |pressed| egui::Event::PointerButton {
+			pos: away,
+			button: egui::PointerButton::Primary,
+			pressed,
+			modifiers: egui::Modifiers::NONE,
+		};
+		let card_open = |view: &MessagingUi| view.profile.open_user().is_some();
+		let escape = || vec![edit_key(egui::Key::Escape)];
+
+		view.preview_profile_popout(user.clone());
+		settle(&mut view, &mut state);
+		assert!(card_open(&view));
+
+		// Opening the picture leaves the card under the viewer.
+		open_image(&mut view, &mut state, false);
+		assert!(card_open(&view), "the card outlives opening");
+
+		// Click-away: the press lands while the viewer is open and the release closes it.
+		frame(&mut view, &mut state, vec![egui::Event::PointerMoved(away)]);
+		frame(&mut view, &mut state, vec![button(true)]);
+		assert!(card_open(&view), "the press is the viewer's");
+		frame(&mut view, &mut state, vec![button(false)]);
+		assert!(view.profile_image.is_none(), "click-away closes the viewer");
+		settle(&mut view, &mut state);
+		assert!(card_open(&view), "the card is back to read");
+
+		// Escape closes the viewer first and the card on its next press.
+		open_image(&mut view, &mut state, false);
+		frame(&mut view, &mut state, escape());
+		assert!(view.profile_image.is_none(), "Escape closes the viewer");
+		assert!(card_open(&view), "Escape stops at the viewer");
+
+		// Normal dismissal is restored: banner, then an outside click closes the card.
+		open_image(&mut view, &mut state, true);
+		frame(&mut view, &mut state, escape());
+		assert!(view.profile_image.is_none() && card_open(&view));
+		settle(&mut view, &mut state);
+		frame(&mut view, &mut state, vec![button(true)]);
+		assert!(!card_open(&view), "an outside click closes the card again");
+
+		// The full profile is a modal under the viewer: Escape closes only the viewer.
+		view.preview_full_profile(user.clone());
+		settle(&mut view, &mut state);
+		open_image(&mut view, &mut state, false);
+		frame(&mut view, &mut state, escape());
+		assert!(view.profile_image.is_none(), "Escape reaches the viewer");
+		assert!(card_open(&view), "the full profile stays");
+		settle(&mut view, &mut state);
+		frame(&mut view, &mut state, escape());
+		assert!(!card_open(&view), "the next Escape closes the full profile");
+
+		// Server settings intercept Escape for the card behind them; the viewer still wins.
+		state.guilds.push(model::Guild {
+			banner: None,
+			id: Id(100),
+			name: "Synthetic server".into(),
+			icon: None,
+			emojis: None,
+			stickers: None,
+			default_message_notifications: None,
+		});
+		state.permissions.guilds.insert(
+			Id(100),
+			model::permissions::Guild {
+				id: Id(100),
+				owner: Some(Id(1)),
+				roles: None,
+				member: None,
+			},
+		);
+		let _ = view.preview_server_settings(&mut state, Id(100));
+		view.preview_profile_popout(user);
+		settle(&mut view, &mut state);
+		assert!(view.server_settings.is_open() && card_open(&view));
+		open_image(&mut view, &mut state, false);
+		frame(&mut view, &mut state, escape());
+		assert!(view.profile_image.is_none(), "Escape closes the viewer");
+		assert!(card_open(&view), "Escape does not reach the card");
 	}
 
 	#[test]

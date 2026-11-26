@@ -1275,6 +1275,16 @@ pub fn viewer(
 	let mut close = false;
 	// Modal input capture prevents clicks and keys reaching the conversation. No dialog frame.
 	let modal = egui::Id::unique("attachment-viewer");
+	// Cards and the full profile share the Foreground order and stay open beneath the viewer.
+	// Claiming the top every frame keeps it above them, at most one frame late when both ask in
+	// the same frame. Its own menus are newer popups, so it yields while one is open.
+	if !egui::Popup::is_any_open(ui.ctx()) {
+		ui.ctx().memory_mut(|memory| {
+			memory
+				.areas_mut()
+				.move_to_top(egui::LayerId::new(egui::Order::Foreground, modal));
+		});
+	}
 	let overlay = egui::Modal::new(modal)
 		// Pinned, not centered: a frame whose content outgrows the window must not shift it.
 		.area(egui::Modal::default_area(modal).anchor(egui::Align2::LEFT_TOP, egui::Vec2::ZERO))
