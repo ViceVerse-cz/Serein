@@ -702,6 +702,10 @@ pub fn snapshot(
 				server_muted: row.shown.server_muted,
 				server_deafened: row.shown.server_deafened,
 				speaking: row.speaking,
+				avatar: row
+					.avatar
+					.filter(|hash| hash.len() <= 128 && model::valid_avatar_hash(hash))
+					.map(str::to_owned),
 			};
 			if !push(&mut roster, entry, &mut budget, MAX_VOICE_ROSTER) {
 				break;
@@ -1354,6 +1358,7 @@ impl ChangeKey {
 						row.shown.server_muted,
 						row.shown.server_deafened,
 						row.speaking,
+						row.avatar,
 					)
 						.hash(&mut roster);
 				}
@@ -1436,6 +1441,39 @@ mod tests {
 				surface: Surface::Panel,
 			}],
 		}
+	}
+
+	#[test]
+	fn voice_roster_snapshot_carries_loaded_avatars() {
+		let mut state = test_support::voice_demo_state();
+		let messaging = ui::MessagingUi::default();
+		let before = ChangeKey::capture(&state, &messaging);
+		for row in &mut state.voice.roster {
+			if row.participant.user == Id(2) {
+				row.member.as_mut().unwrap().user.avatar =
+					Some("a_0123456789abcdef0123456789abcdef".into());
+			}
+			if row.participant.user == Id(3) {
+				row.member.as_mut().unwrap().user.avatar = Some("not-a-hash".into());
+			}
+		}
+		assert_eq!(
+			ChangeKey::capture(&state, &messaging).changed(&before),
+			Some(AppEventKind::Voice),
+			"a loaded avatar notifies voice subscribers"
+		);
+		let voice = manifest(vec![Capability::VoiceState]);
+		let app = snapshot(&state, &messaging, &voice, None).unwrap();
+		let roster = &app.voice.as_ref().unwrap().roster;
+		let row = |user: &str| roster.iter().find(|row| row.user_id == user).unwrap();
+		assert_eq!(
+			row("2").avatar.as_deref(),
+			Some("a_0123456789abcdef0123456789abcdef")
+		);
+		assert!(row("1").avatar.is_none(), "no avatar, no field");
+		assert!(row("3").avatar.is_none(), "a malformed hash is left out");
+		app.validate(&voice)
+			.expect("avatars pass the host validator");
 	}
 
 	/// Regression for #1111: the roster is kept in update order, so on busy accounts the
