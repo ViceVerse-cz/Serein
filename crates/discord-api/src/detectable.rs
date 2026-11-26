@@ -318,20 +318,23 @@ impl Index {
 				return Some(found.clone());
 			}
 			// The path ends with a name two games claim. A shorter name below it belongs to
-			// a different program, so it must not be reported for this path.
+			// a different program, so it must not be reported for this path, and neither
+			// must a bundle named elsewhere in the path.
 			if self.ambiguous_names.contains(candidate) {
-				break;
+				return None;
 			}
 			candidate = candidate.split_once('/').map_or("", |(_, rest)| rest);
 		}
-		// macOS entries name the bundle, which sits above the executable inside it.
-		if let Some(found) = parts
-			.iter()
-			.rev()
-			.filter(|part| part.ends_with(".app"))
-			.find_map(|part| self.names.get(*part).cloned())
-		{
-			return Some(found);
+		// macOS entries name the bundle, which sits above the executable inside it. The
+		// innermost bundle wins; when two games claim it, an outer bundle is a different
+		// application and cannot stand in for it.
+		for part in parts.iter().rev().filter(|part| part.ends_with(".app")) {
+			if let Some(found) = self.names.get(*part) {
+				return Some(found.clone());
+			}
+			if self.ambiguous_names.contains(*part) {
+				return None;
+			}
 		}
 		// A known directory that does not match must not fall back either: `GitHub CLI/gh.exe`
 		// is not `green hell/gh.exe`.
@@ -549,6 +552,37 @@ mod tests {
 			index.find(r"C:\Games\Third\game.exe").map(|(id, _)| id),
 			Some(Id(3))
 		);
+	}
+
+	#[test]
+	fn ambiguous_suffix_does_not_fall_through_to_an_enclosing_bundle() {
+		let games = decode(
+			br#"[
+			{"id":"1","name":"First","executables":[{"name":"x/game.exe"}]},
+			{"id":"2","name":"Second","executables":[{"name":"x/game.exe"}]},
+			{"id":"3","name":"Bundle","executables":[{"name":"outer.app"}]}
+		]"#,
+		)
+		.unwrap();
+		let index = Index::new(&games);
+		// Two games claim the executable suffix, so the enclosing bundle must not decide
+		// the match on their behalf.
+		assert_eq!(index.find("/outer.app/x/game.exe"), None);
+	}
+
+	#[test]
+	fn shared_inner_bundle_does_not_fall_through_to_the_outer_bundle() {
+		let games = decode(
+			br#"[
+			{"id":"1","name":"First","executables":[{"name":"inner.app"}]},
+			{"id":"2","name":"Second","executables":[{"name":"inner.app"}]},
+			{"id":"3","name":"Outer","executables":[{"name":"outer.app"}]}
+		]"#,
+		)
+		.unwrap();
+		let index = Index::new(&games);
+		// The nearest bundle belongs to two games; the enclosing one is a different app.
+		assert_eq!(index.find("/outer.app/inner.app/Contents/MacOS/main"), None);
 	}
 
 	#[test]
