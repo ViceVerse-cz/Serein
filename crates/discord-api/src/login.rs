@@ -297,11 +297,6 @@ impl LoginApi {
 		if let Some(fingerprint) = fingerprint {
 			request = request.header("x-fingerprint", fingerprint.clone());
 		}
-		if let Some(installation) = client_core::fingerprint::installation_id()
-			&& let Ok(value) = HeaderValue::from_str(&installation)
-		{
-			request = request.header("x-installation-id", value);
-		}
 		request
 	}
 	async fn post(

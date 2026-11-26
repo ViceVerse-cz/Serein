@@ -166,42 +166,6 @@ impl ProxyState {
 		Ok(client)
 	}
 }
-/// Asks Discord for this device's installation ID and keeps it. Best effort and bounded.
-async fn read_installation(client: &Client, base: &str) {
-	#[derive(serde::Deserialize)]
-	struct Apex {
-		installation: String,
-	}
-	let fetch = async {
-		let response = current_identity(client.get(format!("{base}/apex/experiments?surface=2")))
-			.send()
-			.await
-			.ok()?;
-		if !response.status().is_success()
-			|| response
-				.content_length()
-				.is_some_and(|n| n > MAX_WIRE as u64)
-		{
-			return None;
-		}
-		let mut bytes = Vec::new();
-		let mut body = std::pin::pin!(response.bytes_stream());
-		while let Some(chunk) = futures_util::StreamExt::next(&mut body)
-			.await
-			.transpose()
-			.ok()?
-		{
-			if bytes.len() + chunk.len() > MAX_WIRE {
-				return None;
-			}
-			bytes.extend_from_slice(&chunk);
-		}
-		decode::<Apex>(&bytes).ok()
-	};
-	if let Ok(Some(apex)) = tokio::time::timeout(Duration::from_secs(5), fetch).await {
-		device::set_installation(&apex.installation);
-	}
-}
 /// The document the desktop client loads at every start. Its text names the current web build.
 #[cfg(not(test))]
 const APP_PAGE: &str = "https://discord.com/app";
@@ -526,27 +490,6 @@ impl DiscordApi {
 			timeout_clock: std::sync::Mutex::new(None),
 		})
 	}
-	/// Asks Discord once for this device's installation ID and keeps it, before the Gateway
-	/// identifies. Unofficial: SakuraCord's desktop sign-in reads it from an unauthenticated
-	/// `GET /apex/experiments?surface=2`. Best effort and bounded; Serein works without it.
-	pub async fn ensure_installation(&self) {
-		// One attempt per process: a reconnect must not wait on an endpoint that gave no ID.
-		static ASKED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-		// Without a route yet the request could only wait; a later connection asks instead.
-		if client_core::fingerprint::installation_id().is_some()
-			|| self.proxy.lock().await.receiver.borrow().is_none()
-			|| ASKED.swap(true, std::sync::atomic::Ordering::Relaxed)
-		{
-			return;
-		}
-		#[cfg(not(test))]
-		let base = API_ORIGIN;
-		#[cfg(test)]
-		let base = self.base.as_str();
-		if let Ok(client) = self.rest_client().await {
-			read_installation(&client, base).await;
-		}
-	}
 	/// Credential-free client snapshot for Discord REST; authorization is added per request.
 	pub async fn rest_client(&self) -> Result<Client, Failure> {
 		self.proxy.lock().await.client(&self.client).await
@@ -844,12 +787,6 @@ impl DiscordApi {
 				.header(AUTHORIZATION, authorization);
 			if write {
 				request = request.header(wreq::header::ORIGIN, "https://discord.com");
-			}
-			if let Some(installation) = client_core::fingerprint::installation_id() {
-				request = request.header(
-					"x-installation-id",
-					HeaderValue::from_str(&installation).map_err(|_| Failure::Protocol)?,
-				);
 			}
 			if let Some(context) = context {
 				request = request.header(

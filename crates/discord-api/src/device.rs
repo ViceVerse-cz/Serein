@@ -1,12 +1,11 @@
 //! Discord device state kept across launches, as a browser profile keeps it: the cookies the
-//! API sets (Discord's `__dcfduid`/`__sdcfduid` device IDs and Cloudflare's) and the installation
-//! ID Discord issues. Without them every launch looks like a new device with no history. Yapfast
-//! and SakuraCord keep both; how the service weighs them is unverified.
+//! API sets (Discord's `__dcfduid`/`__sdcfduid` device IDs and Cloudflare's). Without them every
+//! launch looks like a new device with no history. The recorded official client sent no
+//! installation ID, so Serein keeps and sends none.
 //!
 //! Only `https://discord.com` cookies are taken and sent. Session cookies stay in memory;
-//! persistent ones and the installation ID are saved in one private, bounded file that can
-//! be deleted at any time. They are device state, not credentials: the account token is never
-//! written here.
+//! persistent ones are saved in one private, bounded file that can be deleted at any time.
+//! They are device state, not credentials: the account token is never written here.
 use std::{
 	path::{Path, PathBuf},
 	sync::{Arc, Mutex, OnceLock},
@@ -41,7 +40,6 @@ struct Cookie {
 
 #[derive(Default, serde::Serialize, serde::Deserialize)]
 struct Saved {
-	installation: Option<String>,
 	cookies: Vec<Cookie>,
 }
 
@@ -77,9 +75,6 @@ pub fn keep_in(file: PathBuf) {
 		.and_then(|_| std::fs::read(&file).ok())
 		.and_then(|bytes| serde_json::from_slice::<Saved>(&bytes).ok())
 		.unwrap_or_default();
-	if let Some(installation) = &saved.installation {
-		client_core::fingerprint::set_installation_id(installation);
-	}
 	let now = unix_now();
 	let Ok(mut state) = store().state.lock() else {
 		return;
@@ -94,16 +89,9 @@ pub fn keep_in(file: PathBuf) {
 	state.file = Some(file);
 }
 
-/// Keeps the installation ID Discord issued and saves it with the device.
-pub(crate) fn set_installation(id: &str) {
-	if client_core::fingerprint::set_installation_id(id) {
-		store().save();
-	}
-}
-
 impl Device {
-	/// Saves the persistent cookies and the installation ID. The snapshot is taken under the
-	/// cookie lock and written outside it.
+	/// Saves the persistent cookies. The snapshot is taken under the cookie lock and written
+	/// outside it.
 	fn save(&self) {
 		let Ok(_writing) = self.writing.lock() else {
 			return;
@@ -117,10 +105,7 @@ impl Device {
 			};
 			(file, persistent(&state.cookies).cloned().collect())
 		};
-		let saved = Saved {
-			installation: client_core::fingerprint::installation_id(),
-			cookies,
-		};
+		let saved = Saved { cookies };
 		if write_private(&file, &saved)
 			&& let Ok(mut state) = self.state.lock()
 		{
