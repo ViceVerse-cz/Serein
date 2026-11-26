@@ -225,8 +225,11 @@ fn bound(mut games: Vec<Game>) -> Result<Vec<Game>, &'static str> {
 /// against every entry is quadratic and far too slow to repeat on a timer.
 pub struct Index {
 	names: HashMap<String, (Id, String)>,
+	/// Path suffixes two applications claim. A readable path that reaches one is a guess, so
+	/// suffix lookup stops there instead of falling through to a shorter, unique name.
+	ambiguous_names: HashSet<String>,
 	/// A Windows process that cannot be queried exposes only its image name, while Discord's
-	/// list often stores `win64/cs2.exe`. Only bare inputs fall back here, and only names a
+	/// list often stores `win64/cs2.exe`. Only bare inputs use this, and only names a
 	/// single application claims: `launcher.exe` must not select one arbitrary game.
 	basenames: HashMap<String, (Id, String)>,
 	/// Lowercase titles; `None` when several applications share one, so a guess never wins.
@@ -266,6 +269,7 @@ impl Index {
 		}
 		Self {
 			names,
+			ambiguous_names,
 			basenames,
 			titles,
 		}
@@ -283,8 +287,9 @@ impl Index {
 			.copied()
 			.flatten()
 	}
-	/// Match a running executable path. Longer suffixes win, and a name two games claim
-	/// is never matched, so a generic image name cannot select an arbitrary game.
+	/// Match a running executable path. Longer suffixes win; a name two games claim is never
+	/// matched, and neither is a shorter name behind it, so a generic image name cannot
+	/// select an arbitrary game.
 	pub fn find(&self, path: &str) -> Option<(Id, String)> {
 		let path = path.to_lowercase();
 		let mut parts = [""; 8];
@@ -300,11 +305,22 @@ impl Index {
 		}
 		let parts = &mut parts[..count];
 		parts.reverse();
+		// A process whose path could not be read supplies only its image name, while the
+		// list often stores `win64/cs2.exe`. Only `basenames` knows whether several games
+		// claim that image name, so a bare input never consults `names` first.
+		if let [basename] = parts {
+			return self.basenames.get(*basename).cloned();
+		}
 		let suffix = parts.join("/");
 		let mut candidate = suffix.as_str();
 		while !candidate.is_empty() {
 			if let Some(found) = self.names.get(candidate) {
 				return Some(found.clone());
+			}
+			// The path ends with a name two games claim. A shorter name below it belongs to
+			// a different program, so it must not be reported for this path.
+			if self.ambiguous_names.contains(candidate) {
+				break;
 			}
 			candidate = candidate.split_once('/').map_or("", |(_, rest)| rest);
 		}
@@ -317,13 +333,9 @@ impl Index {
 		{
 			return Some(found);
 		}
-		// A process whose path could not be read supplies only the image name, while the
-		// list often stores `win64/cs2.exe`. A known directory that does not match must not
-		// fall back: `GitHub CLI/gh.exe` is not `green hell/gh.exe`.
-		match parts {
-			[basename] => self.basenames.get(*basename).cloned(),
-			_ => None,
-		}
+		// A known directory that does not match must not fall back either: `GitHub CLI/gh.exe`
+		// is not `green hell/gh.exe`.
+		None
 	}
 }
 
@@ -493,6 +505,50 @@ mod tests {
 		assert_eq!(index.find("shared.exe").map(|(id, _)| id), Some(Id(4)));
 		// A name only one game claims still resolves from an image name.
 		assert_eq!(index.find("unique.exe").map(|(id, _)| id), Some(Id(3)));
+	}
+
+	#[test]
+	fn bare_and_nested_claims_of_one_image_name_stay_unmatched() {
+		let games = decode(
+			br#"[
+			{"id":"1","name":"Bare","executables":[{"name":"launcher.exe"}]},
+			{"id":"2","name":"Nested","executables":[{"name":"other/launcher.exe"}]}
+		]"#,
+		)
+		.unwrap();
+		let index = Index::new(&games);
+		// An unreadable process path supplies only the image name, which both games claim.
+		assert_eq!(index.find("launcher.exe"), None);
+		// A readable path still resolves the suffix it actually ends with.
+		assert_eq!(
+			index.find(r"C:\Games\Bare\launcher.exe").map(|(id, _)| id),
+			Some(Id(1))
+		);
+		assert_eq!(
+			index.find(r"C:\Games\Other\launcher.exe").map(|(id, _)| id),
+			Some(Id(2))
+		);
+	}
+
+	#[test]
+	fn shared_path_suffix_does_not_fall_through_to_a_shorter_name() {
+		let games = decode(
+			br#"[
+			{"id":"1","name":"First","executables":[{"name":"x/game.exe"}]},
+			{"id":"2","name":"Second","executables":[{"name":"x/game.exe"}]},
+			{"id":"3","name":"Third","executables":[{"name":"game.exe"}]}
+		]"#,
+		)
+		.unwrap();
+		let index = Index::new(&games);
+		// `x/game.exe` belongs to two games, so reaching it must not return the game that
+		// merely claims the shorter `game.exe`.
+		assert_eq!(index.find(r"C:\Games\x\game.exe"), None);
+		// A path that only ends at the third game's own claim still resolves it.
+		assert_eq!(
+			index.find(r"C:\Games\Third\game.exe").map(|(id, _)| id),
+			Some(Id(3))
+		);
 	}
 
 	#[test]
