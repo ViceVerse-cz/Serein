@@ -613,11 +613,13 @@ and audio remain included. macOS retains ScreenCaptureKit's current-process excl
 
 Linux captures individual playback streams through PulseAudio's per-stream monitor API,
 also implemented by PipeWire's PulseAudio server. It excludes Serein and streams whose
-application identity cannot be established; it never falls back to a whole-output monitor
-or microphone. The ScreenCast portal grants video only; audio uses the existing desktop
-audio access, including Flatpak's PulseAudio socket permission. A separate bounded worker
-handles discovery, capture and mixing outside video encoding and rendering. No applications
-are moved between outputs and no virtual device is installed.
+application identity cannot be established. A PipeWire-proxied stream reports the daemon as
+its process, so Serein's own CPAL playback is recognised by the process ID in its client
+name. It never falls back to a whole-output monitor or microphone. The ScreenCast portal
+grants video only; audio uses the existing desktop audio access, including Flatpak's
+PulseAudio socket permission. A separate bounded worker handles discovery, capture and
+mixing outside video encoding and rendering. No applications are moved between outputs and
+no virtual device is installed.
 
 Windows uses native process loopback. Sharing a window captures only that window's
 application; Store app windows belong to ApplicationFrameHost, so they capture like a screen

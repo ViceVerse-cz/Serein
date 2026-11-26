@@ -117,6 +117,7 @@ impl OwnApplication {
 		pid != 0
 			&& pid != self.pid
 			&& !binary.eq_ignore_ascii_case(&self.binary)
+			&& !super::own_cpal_client(name, self.pid)
 			&& ![Some(binary), name, app_id].into_iter().flatten().any(|v| {
 				v.len() > 256
 					|| v.to_ascii_lowercase().contains("serein")
@@ -821,6 +822,21 @@ pub(super) fn check_isolation() {
 	assert!(!own.allows(Some("42"), Some("renamed-client"), None, None));
 	assert!(!own.allows(Some("999"), Some("serein"), None, None));
 	assert!(!own.allows(Some("999"), Some("other"), Some("Serein call"), None));
+	// PipeWire's PulseAudio server reports itself as the process of a proxied CPAL client, so
+	// only the client name still carries our own process ID (issue #1041).
+	assert!(!own.allows(
+		Some("1995"),
+		Some("pipewire"),
+		Some("cpal-pulseaudio-42"),
+		None
+	));
+	// Another process's CPAL client is a different application and stays shareable.
+	assert!(own.allows(
+		Some("1995"),
+		Some("pipewire"),
+		Some("cpal-pulseaudio-999"),
+		None
+	));
 	assert!(!own.allows(
 		Some("999"),
 		Some("other"),
