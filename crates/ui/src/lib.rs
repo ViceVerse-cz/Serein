@@ -543,6 +543,12 @@ pub struct MessagingUi {
 	voice_stream_muted: bool,
 	/// Enlarged stage tile; cleared when it stops showing video or on Escape.
 	pub voice_focus: Option<voice::StageFocus>,
+	/// Channel owning the enlarged stage tile, so another visible stage cannot clear it.
+	voice_focus_channel: Option<Id>,
+	/// One call stage in a native child window (account generation, channel, call attempt).
+	voice_popout: Option<(u64, Id, u64)>,
+	/// Keyboard focus captured during the child viewport's last UI pass.
+	voice_popout_wants_keyboard: bool,
 	/// Screen share currently owning the client surface, its prior window mode and focus target.
 	voice_fullscreen: Option<(voice::StageFocus, egui::Context, bool, egui::Id)>,
 	/// Native window transition for the desktop to apply after this UI frame.
@@ -800,19 +806,59 @@ impl MessagingUi {
 	/// Returns whether the configured push-to-talk chord is held in the focused window.
 	pub fn push_to_talk_down(&self, ctx: &egui::Context) -> bool {
 		self.voice_hold_down(ctx, model::KeybindAction::PushToTalk)
+			|| (self.voice_popout_open()
+				&& self.voice_hold_down_for(
+					ctx,
+					egui::ViewportId::from_hash_of("serein-voice-popout"),
+					model::KeybindAction::PushToTalk,
+					self.voice_popout_wants_keyboard,
+				))
 	}
 
 	/// Returns whether the configured push-to-mute chord is held in the focused window.
 	pub fn push_to_mute_down(&self, ctx: &egui::Context) -> bool {
 		self.voice_hold_down(ctx, model::KeybindAction::PushToMute)
+			|| (self.voice_popout_open()
+				&& self.voice_hold_down_for(
+					ctx,
+					egui::ViewportId::from_hash_of("serein-voice-popout"),
+					model::KeybindAction::PushToMute,
+					self.voice_popout_wants_keyboard,
+				))
+	}
+
+	/// Text entry in either focused call window cancels a keyboard push-to-talk tail.
+	pub fn voice_text_entry_active(&self, ctx: &egui::Context) -> bool {
+		(ctx.input_for(egui::ViewportId::ROOT, |input| input.raw.focused)
+			&& ctx.egui_wants_keyboard_input())
+			|| (self.voice_popout_open()
+				&& self.voice_popout_wants_keyboard
+				&& ctx.input_for(
+					egui::ViewportId::from_hash_of("serein-voice-popout"),
+					|input| input.raw.focused,
+				))
 	}
 
 	/// Text entry suppresses held keys, but a held mouse button is never typing.
 	fn voice_hold_down(&self, ctx: &egui::Context, action: model::KeybindAction) -> bool {
-		let wants_keyboard = ctx.egui_wants_keyboard_input();
+		self.voice_hold_down_for(
+			ctx,
+			egui::ViewportId::ROOT,
+			action,
+			ctx.egui_wants_keyboard_input(),
+		)
+	}
+
+	fn voice_hold_down_for(
+		&self,
+		ctx: &egui::Context,
+		viewport: egui::ViewportId,
+		action: model::KeybindAction,
+		wants_keyboard: bool,
+	) -> bool {
 		// Raw focus follows the window even when a hidden window runs no UI pass, which would
 		// otherwise keep the last visible frame's key state.
-		ctx.input(|input| {
+		ctx.input_for(viewport, |input| {
 			input.raw.focused
 				&& self.keybinds.chords(action).any(|chord| {
 					(!wants_keyboard || model::keybinds::is_mouse_button(&chord.key))
@@ -851,11 +897,36 @@ impl MessagingUi {
 		ctx: &egui::Context,
 		registered_globally: impl Fn(model::KeybindAction, &model::KeyChord) -> bool,
 	) -> u8 {
-		if !ctx.input(|input| input.raw.focused) {
+		let root = self.voice_toggle_pressed_for(
+			ctx,
+			egui::ViewportId::ROOT,
+			ctx.egui_wants_keyboard_input(),
+			&registered_globally,
+		);
+		let child = if self.voice_popout_open() {
+			self.voice_toggle_pressed_for(
+				ctx,
+				egui::ViewportId::from_hash_of("serein-voice-popout"),
+				self.voice_popout_wants_keyboard,
+				&registered_globally,
+			)
+		} else {
+			0
+		};
+		root | child
+	}
+
+	fn voice_toggle_pressed_for(
+		&self,
+		ctx: &egui::Context,
+		viewport: egui::ViewportId,
+		wants_keyboard: bool,
+		registered_globally: &impl Fn(model::KeybindAction, &model::KeyChord) -> bool,
+	) -> u8 {
+		if !ctx.input_for(viewport, |input| input.raw.focused) {
 			return 0;
 		}
-		let wants_keyboard = ctx.egui_wants_keyboard_input();
-		ctx.input_mut(|input| {
+		ctx.input_mut_for(viewport, |input| {
 			let mut toggles = 0;
 			if self
 				.keybinds
@@ -5341,6 +5412,7 @@ impl MessagingUi {
 	/// Draws one frame of the signed-in client and returns the commands it produced for the
 	/// service layer.
 	pub fn show(&mut self, ui: &mut egui::Ui, state: &mut State) -> Vec<Command> {
+		self.retain_voice_popout(state);
 		self.clear_inactive_composer_undo(ui.ctx(), state.generation, state.selected);
 		interface_tweaks::publish(ui.ctx(), &self.interface_tweaks);
 		rtl::scope(
@@ -6055,7 +6127,11 @@ impl MessagingUi {
 					return;
 				}
 				// In a DM call the header moves onto the call stage, shown while hovered.
-				let header_in_call = !search_open && self.dm_call_stage(state).is_some();
+				let header_in_call = !search_open
+					&& self.dm_call_stage(state).is_some_and(|channel| {
+						self.voice_popout
+							.is_none_or(|(_, popped, _)| popped != channel)
+					});
 				if !search_open && !header_in_call && dm_recipient.is_none() {
 					self.channel_header(
 						ui,
@@ -7469,6 +7545,84 @@ mod composer_tests {
 			|ui| assert!(view.push_to_talk_down(ui.ctx())),
 		)
 		.drop_without_applying_deltas();
+	}
+
+	#[test]
+	fn detached_call_uses_its_focused_viewport_for_voice_chords() {
+		let mut view = MessagingUi {
+			voice_popout: Some((1, Id(22), 1)),
+			..Default::default()
+		};
+		view.keybinds.custom = vec![
+			model::CustomBinding {
+				action: model::KeybindAction::PushToTalk,
+				chord: model::KeyChord::new("Y", 0),
+			},
+			model::CustomBinding {
+				action: model::KeybindAction::PushToMute,
+				chord: model::KeyChord::new("U", 0),
+			},
+			model::CustomBinding {
+				action: model::KeybindAction::ToggleMute,
+				chord: model::KeyChord::new("I", 0),
+			},
+		];
+		let ctx = egui::Context::default();
+		let child = egui::ViewportId::from_hash_of("serein-voice-popout");
+		let mut viewports = egui::viewport::ViewportIdMap::default();
+		viewports.insert(child, egui::ViewportInfo::default());
+		let mut output = ctx.run_ui(
+			egui::RawInput {
+				viewport_id: child,
+				viewports,
+				focused: true,
+				events: [egui::Key::Y, egui::Key::U, egui::Key::I]
+					.into_iter()
+					.map(|key| egui::Event::Key {
+						key,
+						physical_key: None,
+						pressed: true,
+						repeat: false,
+						modifiers: egui::Modifiers::NONE,
+					})
+					.collect(),
+				..Default::default()
+			},
+			|ui| {
+				assert!(view.push_to_talk_down(ui.ctx()));
+				assert!(view.push_to_mute_down(ui.ctx()));
+				assert_eq!(view.voice_toggle_pressed(ui.ctx(), |_, _| false), 1);
+			},
+		);
+		output.textures_delta.clear();
+		assert!(!view.voice_text_entry_active(&ctx));
+		view.voice_popout_wants_keyboard = true;
+		let mut output = ctx.run_ui(
+			egui::RawInput {
+				viewport_id: child,
+				viewports: {
+					let mut viewports = egui::viewport::ViewportIdMap::default();
+					viewports.insert(child, egui::ViewportInfo::default());
+					viewports
+				},
+				focused: true,
+				events: vec![egui::Event::Key {
+					key: egui::Key::I,
+					physical_key: None,
+					pressed: true,
+					repeat: false,
+					modifiers: egui::Modifiers::NONE,
+				}],
+				..Default::default()
+			},
+			|ui| {
+				assert!(view.voice_text_entry_active(ui.ctx()));
+				assert!(!view.push_to_talk_down(ui.ctx()));
+				assert!(!view.push_to_mute_down(ui.ctx()));
+				assert_eq!(view.voice_toggle_pressed(ui.ctx(), |_, _| false), 0);
+			},
+		);
+		output.textures_delta.clear();
 	}
 
 	#[test]

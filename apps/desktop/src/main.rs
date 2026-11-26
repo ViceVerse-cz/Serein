@@ -2122,7 +2122,9 @@ impl Desktop {
 			}
 			// Watching enlarges the share, as a click on Watch Stream does.
 			if state.watch_stream(peer).is_some() {
-				messaging.voice_focus = Some(ui::StageFocus::Stream(peer));
+				if let Some(call) = &state.voice.active {
+					messaging.set_voice_focus(call.channel, Some(ui::StageFocus::Stream(peer)));
+				}
 			}
 			let (width, height) = (640usize, 360usize);
 			let pixels = (0..width * height)
@@ -2145,7 +2147,9 @@ impl Desktop {
 			messaging.voice_stream_status = "Watching the stream";
 			// `--demo-focus` additionally opens the enlarged stage layout.
 			if std::env::args().any(|arg| arg == "--demo-focus") {
-				messaging.voice_focus = Some(ui::StageFocus::Stream(peer));
+				if let Some(call) = &state.voice.active {
+					messaging.set_voice_focus(call.channel, Some(ui::StageFocus::Stream(peer)));
+				}
 			}
 		}
 		// `--demo-voice-video`: Robin's camera is a synthetic gradient and starts enlarged, so the
@@ -2185,7 +2189,9 @@ impl Desktop {
 				.voice_remote_video
 				.push((robin, egui::load::SizedTexture::from_handle(&texture)));
 			demo_textures.push(texture);
-			messaging.voice_focus = Some(ui::StageFocus::Participant(robin));
+			if let Some(call) = &state.voice.active {
+				messaging.set_voice_focus(call.channel, Some(ui::StageFocus::Participant(robin)));
+			}
 		}
 		messaging.build = ui::design::Build {
 			channel: if cfg!(debug_assertions) {
@@ -6166,7 +6172,8 @@ impl eframe::App for Desktop {
 	/// that pass's shapes are presented again: no layout or tessellation per video frame.
 	fn paint_only(&mut self, ctx: &egui::Context, _: &mut eframe::Frame) -> bool {
 		// The demo's pending automatic pause is decided in the ui pass.
-		self.demo_video_autoplay.is_none()
+		!self.messaging.voice_popout_open()
+			&& self.demo_video_autoplay.is_none()
 			&& self.video.paint_only(self.messaging.video(), ctx)
 			&& self.voice.paint_only(ctx)
 	}
@@ -6256,7 +6263,12 @@ impl eframe::App for Desktop {
 		self.sync_fonts(ctx);
 		// Raw focus follows the window even while it is hidden and runs no UI pass.
 		self.hotkeys.set_activity(
-			ctx.input(|input| input.raw.focused),
+			ctx.input(|input| input.raw.focused)
+				|| (self.messaging.voice_popout_open()
+					&& ctx.input_for(
+						egui::ViewportId::from_hash_of("serein-voice-popout"),
+						|input| input.raw.focused,
+					)),
 			self.state.voice.active.is_some(),
 		);
 		self.hotkeys.sync(
@@ -6527,10 +6539,7 @@ impl eframe::App for Desktop {
 			.1
 			.iter()
 			.any(|chord| model::keybinds::is_mouse_button(&chord.key));
-		let cancelled = rebound
-			|| (!mouse_hold
-				&& ctx.input(|input| input.raw.focused)
-				&& ctx.egui_wants_keyboard_input());
+		let cancelled = rebound || (!mouse_hold && self.messaging.voice_text_entry_active(ctx));
 		if held || cancelled {
 			self.ptt_release = None;
 		} else if self.messaging.voice_ptt_active && self.ptt_release.is_none() {
@@ -7008,6 +7017,7 @@ impl eframe::App for Desktop {
 				self.messaging.notification_sound_status = "Could not save device notification settings. Changes apply only until restart.";
 			}
 			let mut commands = self.messaging.show(ui, &mut self.state);
+			commands.extend(self.messaging.show_voice_popout(&ctx, &mut self.state));
 			interface_size = self.messaging.plugin_interface_size();
 			self.extensions.cancel_stale_message_events(&self.state);
 			self.choose_interaction_files(&ctx);
