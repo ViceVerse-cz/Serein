@@ -1,22 +1,18 @@
 #!/usr/bin/env python3
-"""Rebuild bundled Twemoji atlas and scalable artwork; requires Pillow==11.3.0 and zstd."""
+"""Rebuild bundled scalable Twemoji artwork and its index; requires the zstd command."""
 
 import argparse
 import hashlib
 import io
-import sys
 import struct
 from pathlib import Path
-import shutil
 import subprocess
 import tarfile
 import urllib.request
 
-from PIL import Image
-
 COMMIT = "b6b55fef1e8636b540a6d016a4729ca8cdf2e60b"  # jdecked/twemoji v17.0.3
 ARCHIVE_SHA256 = "705d79de1460e5e775f362f0d0f01fbe3ef8d65bf4648c490e4649704584f747"
-COLUMNS, CELL, COUNT = 64, 32, 4009
+COUNT = 4009
 
 
 def main():
@@ -43,15 +39,10 @@ def main():
         )
         assert len(entries) == COUNT
         assert len({text for text, _ in entries}) == COUNT
-        atlas = Image.new("RGBA", (COLUMNS * CELL, ((COUNT + COLUMNS - 1) // COLUMNS) * CELL))
         index = []
         vectors = bytearray()
         offsets = [0]
         for cell, (text, member) in enumerate(entries):
-            with Image.open(archive.extractfile(member)) as original:
-                assert original.size == (72, 72)
-                glyph = original.convert("RGBA").resize((CELL - 2, CELL - 2), Image.Resampling.LANCZOS)
-                atlas.paste(glyph, ((cell % COLUMNS) * CELL + 1, (cell // COLUMNS) * CELL + 1))
             svg_name = member.name.replace("/assets/72x72/", "/assets/svg/").removesuffix(".png") + ".svg"
             svg = archive.extractfile(svg_name).read(65537)
             assert len(svg) <= 65536
@@ -63,18 +54,12 @@ def main():
         assert len({text for text, _ in index}) == COUNT
         assert len(vectors) <= 8 * 1024 * 1024
         (destination / "vectors.bin").write_bytes(struct.pack(f"<{COUNT + 1}I", *offsets) + vectors)
-        atlas.save(destination / "atlas.png", optimize=True)
-        # Lossless; ~13% smaller than Pillow's best zlib output. Install with `cargo install oxipng`.
-        if shutil.which("oxipng"):
-            subprocess.run(["oxipng", "-o", "max", "--strip", "all", "-q", destination / "atlas.png"], check=True)
-        else:
-            print("oxipng not found; atlas.png left at Pillow compression", file=sys.stderr)
         (destination / "index.tsv").write_text(
             "".join(f"{text}\t{cell}\n" for text, cell in sorted(index)), encoding="utf-8"
         )
         license_file = archive.extractfile(f"twemoji-{COMMIT}/LICENSE-GRAPHICS")
         (destination / "LICENSE-GRAPHICS").write_bytes(license_file.read())
-    print(f"{COUNT} emoji; {atlas.width}x{atlas.height}; {atlas.width * atlas.height * 4} decoded RGBA bytes")
+    print(f"{COUNT} emoji; vectors.bin {len(vectors)} compressed SVG bytes")
 
 
 if __name__ == "__main__":

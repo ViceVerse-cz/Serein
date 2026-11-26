@@ -440,6 +440,11 @@ pub(crate) struct Picker {
 	gif_query: String,
 	/// Time the GIF query last changed; the search fires once typing pauses.
 	gif_changed_at: Option<f64>,
+	/// When the pointer came to rest on the closed emoji button, and whether its artwork was
+	/// prefetched since.
+	prewarm: Option<(f64, bool)>,
+	/// Grid scroll offset last frame, for the direction to prefetch in.
+	grid_offset: f32,
 }
 
 impl Default for Picker {
@@ -467,11 +472,22 @@ impl Default for Picker {
 			gif_section: GifSection::Home,
 			gif_query: String::new(),
 			gif_changed_at: None,
+			prewarm: None,
+			grid_offset: 0.0,
 		}
 	}
 }
 
 const GIF_DEBOUNCE: f64 = 0.3;
+/// Rest on the emoji button before its artwork is prefetched, like conversation preloading.
+const PREWARM_DWELL: f64 = 0.12;
+/// Picker grid cells prefetched by a rest on the emoji button: about its first two screens.
+const PREWARM_CELLS: usize = 160;
+/// Unicode emoji artwork size in the picker grid and frequently used row.
+const GRID_EMOJI: f32 = 32.0;
+/// egui's touch fling decays exponentially with this time constant; its coast distance is
+/// the release velocity times it (`scroll_physics.rs`).
+const FLING_DECAY: f32 = 0.5;
 
 impl Picker {
 	/// The same bundled Unicode catalog and cells, without composer or network actions.
@@ -636,6 +652,33 @@ impl Picker {
 		self.stickers.query = query.chars().take(64).collect();
 	}
 
+	/// After a short rest on the closed emoji button, prefetches the frequently used row and
+	/// the first screens of the grid, so the picker opens with its artwork ready.
+	fn prewarm_emoji(&mut self, ctx: &egui::Context, state: &State, hovered: bool) {
+		if !hovered {
+			self.prewarm = None;
+			return;
+		}
+		let now = ctx.input(|input| input.time);
+		let (since, done) = self.prewarm.get_or_insert((now, false));
+		if *done {
+			return;
+		}
+		let remaining = PREWARM_DWELL - (now - *since);
+		if remaining > 0.0 {
+			ctx.request_repaint_after_secs(remaining as f32);
+			return;
+		}
+		*done = true;
+		for favorite in self.favorites(state) {
+			if let Used::Unicode(index) = favorite {
+				crate::emoji::prefetch(ctx, standard()[index].0, GRID_EMOJI);
+			}
+		}
+		for &index in self.matches.iter().take(PREWARM_CELLS) {
+			crate::emoji::prefetch(ctx, standard()[index].0, GRID_EMOJI);
+		}
+	}
 	fn filter(&mut self) {
 		let query = self.query.trim().to_lowercase();
 		self.matches.clear();
@@ -1063,6 +1106,7 @@ impl Picker {
 			if self.preload && gif_trigger.hovered() {
 				preload_gifs(ui.ctx(), state, avatars, commands);
 			}
+			self.prewarm_emoji(ui.ctx(), state, trigger.hovered());
 			return None;
 		}
 		self.popup(
@@ -1725,7 +1769,7 @@ impl Picker {
 											.color(colors.muted),
 										);
 									}
-									egui::ScrollArea::vertical()
+									let grid = egui::ScrollArea::vertical()
 										.id_salt(("emoji-grid", channel, self.server, &self.query))
 										.max_height(ui.available_height())
 										.auto_shrink([false, false])
@@ -1871,6 +1915,43 @@ impl Picker {
 												}
 											},
 										);
+									// Rasterise ahead of the scroll: one screen on in its direction and,
+									// during a touch fling, the screen where it will come to rest.
+									let offset = grid.state.clamped_offset().y;
+									let velocity = grid.state.velocity().y;
+									let direction = if velocity == 0.0 {
+										offset - self.grid_offset
+									} else {
+										velocity
+									};
+									self.grid_offset = offset;
+									let screen =
+										(grid.inner_rect.height() / CELL).ceil() as usize + 1;
+									let first = (offset.max(0.0) / CELL) as usize;
+									let ahead = if direction < 0.0 {
+										first.saturating_sub(screen)..first
+									} else {
+										first + screen..first + 2 * screen
+									};
+									let landing = (velocity != 0.0).then(|| {
+										let row = ((offset + velocity * FLING_DECAY).max(0.0)
+											/ CELL) as usize;
+										row..row + screen
+									});
+									for row in ahead.chain(landing.into_iter().flatten()) {
+										for index in (row * columns..count).take(columns) {
+											if let Some(&standard_index) = index
+												.checked_sub(custom.len())
+												.and_then(|index| unicode.get(index))
+											{
+												crate::emoji::prefetch(
+													ui.ctx(),
+													standard()[standard_index].0,
+													GRID_EMOJI,
+												);
+											}
+										}
+									}
 								},
 							);
 						}
@@ -3114,7 +3195,7 @@ mod tests {
 	#[test]
 	fn reaction_search_keyboard_selection_permissions_and_session_reset() {
 		let ctx = egui::Context::default();
-		crate::emoji::install(&ctx).unwrap();
+		crate::emoji::install_for_tests(&ctx);
 		let mut state = test_support::demo_state();
 		// The emoji tab's frecency settings read is not under test here.
 		state.gifs.sync_attempted = true;
@@ -3236,7 +3317,7 @@ mod tests {
 		// node list, so every frame must keep the focused widget registered as a node.
 		let ctx = egui::Context::default();
 		ctx.enable_accesskit();
-		crate::emoji::install(&ctx).unwrap();
+		crate::emoji::install_for_tests(&ctx);
 		let mut state = test_support::demo_state();
 		state.gifs.sync_attempted = true;
 		let message = Id(500);
@@ -3316,7 +3397,7 @@ mod tests {
 	#[test]
 	fn sticker_picker_search_keyboard_send_preserves_draft_and_resets_session() {
 		let ctx = egui::Context::default();
-		crate::emoji::install(&ctx).unwrap();
+		crate::emoji::install_for_tests(&ctx);
 		let mut state = test_support::demo_state();
 		test_support::seed_stickers(&mut state);
 		let channel = state.selected.unwrap();
@@ -3397,7 +3478,7 @@ mod tests {
 	#[test]
 	fn gif_search_keeps_focus_when_the_back_button_appears() {
 		let ctx = egui::Context::default();
-		crate::emoji::install(&ctx).unwrap();
+		crate::emoji::install_for_tests(&ctx);
 		let mut state = test_support::demo_state();
 		let channel = state.selected.unwrap();
 		let mut picker = Picker {

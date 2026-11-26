@@ -1356,7 +1356,7 @@ zero-RSS result is used as evidence.
 GPU drivers and allocators may reserve freed resources; these payload reductions
 are not an equal whole-process RAM reduction guarantee. Returning after expiry
 can re-decode cached artwork or fetch it again after a disk-cache miss. Font
-storage and the shared Unicode emoji atlas retain their existing lifetimes.
+storage retains its existing lifetime; Unicode emoji rasters are bounded separately (see `storage-policy.md`).
 
 The standard voice-inclusive package was rebuilt without demo/developer features.
 The preserved baseline is the verified PR #618 package at `c16cb2df`, whose source

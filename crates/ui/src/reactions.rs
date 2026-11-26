@@ -180,12 +180,7 @@ pub fn show(
 									.custom_image(ui.ctx(), id, 52.0, media.1)
 									.unwrap_or_else(|| crate::emoji::blank(ui.ctx(), 52.0)),
 							),
-							// The full-size raster matches message artwork; the atlas cell bridges it.
-							None => crate::emoji::lookup(&reaction.emoji.label())
-								.and_then(|cell| media.0.unicode_image(ui.ctx(), cell, 52.0))
-								.or_else(|| {
-									crate::emoji::image(ui.ctx(), &reaction.emoji.label(), 52.0)
-								}),
+							None => crate::emoji::image(ui.ctx(), &reaction.emoji.label(), 52.0),
 						} {
 							ui.add(image);
 						} else {
@@ -516,7 +511,7 @@ mod tests {
 		}];
 		for (enabled, toggle) in [(true, true), (false, true), (true, false), (false, false)] {
 			let ctx = egui::Context::default();
-			crate::emoji::install(&ctx).unwrap();
+			crate::emoji::install_for_tests(&ctx);
 			let mut action = None;
 			for key in [None, Some(egui::Key::Tab), Some(egui::Key::Enter)] {
 				let input = egui::RawInput {

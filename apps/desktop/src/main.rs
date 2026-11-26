@@ -18,6 +18,7 @@ mod credentials;
 #[cfg(feature = "demo")]
 mod dm_demo;
 mod downloads;
+mod emoji_raster;
 mod emoji_upload;
 mod extension_app;
 mod extension_bridge;
@@ -1721,7 +1722,7 @@ impl Desktop {
 		local_store: Option<local_store::LocalStore>,
 	) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
 		ui::fonts::install(&cc.egui_ctx);
-		ui::emoji::install(&cc.egui_ctx)?;
+		ui::emoji::install(&cc.egui_ctx, emoji_raster::backend());
 		ui::icons::install(&cc.egui_ctx);
 		#[cfg(feature = "demo")]
 		if demo {
