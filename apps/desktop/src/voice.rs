@@ -78,9 +78,10 @@ struct Pending {
 	guild: Option<Id>,
 	session: Option<Secret>,
 	negotiation_revision: Option<u64>,
-	/// Revision used in the channel we just left. Its server allocation cannot be reused.
+	/// Revision of the source transport. Its server allocation cannot be reused.
 	move_from_revision: Option<u64>,
 	server: Option<(Secret, String)>,
+	server_received: Option<Instant>,
 	started: Instant,
 	failed_candidate: bool,
 }
@@ -143,6 +144,23 @@ impl Pending {
 
 	fn old_move_server(&self, revision: Option<u64>) -> bool {
 		self.move_from_revision.is_some() && self.move_from_revision == revision
+	}
+
+	fn retarget_move(&mut self, channel: Id) {
+		self.channel = channel;
+		// Guild allocations generally omit the destination channel. While this transport is
+		// unconfirmed, a recent allocation may belong to the move that just reached us.
+		// Keep the candidate for renegotiation without treating it as the old transport.
+		if self
+			.server_received
+			.is_none_or(|at| at.elapsed() >= MOVE_GRACE)
+		{
+			self.server = None;
+			self.server_received = None;
+			self.negotiation_revision = None;
+		}
+		self.failed_candidate = false;
+		self.started = Instant::now();
 	}
 }
 enum Notice {
@@ -541,6 +559,7 @@ impl Voice {
 			negotiation_revision: None,
 			move_from_revision: None,
 			server: None,
+			server_received: None,
 			started: Instant::now(),
 			failed_candidate: false,
 		});
@@ -602,14 +621,7 @@ impl Voice {
 				(pending.generation, pending.channel, pending.request)
 					== (state.generation, *from, *request)
 			}) {
-				// Discard a previous destination's allocation before following a second move.
-				pending.channel = *channel;
-				pending.move_from_revision =
-					pending.negotiation_revision.or(pending.move_from_revision);
-				pending.server = None;
-				pending.negotiation_revision = None;
-				pending.failed_candidate = false;
-				pending.started = Instant::now();
+				pending.retarget_move(*channel);
 			}
 			return None;
 		}
@@ -809,6 +821,7 @@ impl Voice {
 				pending.negotiation_revision = *negotiation_revision;
 				let Some(endpoint) = endpoint.take() else {
 					pending.server = None;
+					pending.server_received = None;
 					let _ = token.take();
 					return None;
 				};
@@ -816,6 +829,9 @@ impl Voice {
 					return Some("Discord omitted the voice connection token");
 				};
 				pending.server = Some((token, endpoint));
+				if changed || pending.server_received.is_none() {
+					pending.server_received = Some(Instant::now());
+				}
 				note(Level::Info, "voice server received", &[]);
 			}
 			_ => {}
@@ -825,13 +841,26 @@ impl Voice {
 	/// Restart media for the new channel without sending a leave or another join.
 	fn follow_move(&mut self, state: &State, channel: Id) {
 		let live = self.live.as_mut().expect("matched move source");
+		if live
+			.negotiation
+			.as_ref()
+			.is_some_and(|pending| pending.move_from_revision.is_some())
+		{
+			let mut pending = live.negotiation.take().expect("in-progress move");
+			pending.retarget_move(channel);
+			self.stop();
+			self.pending = Some(pending);
+			return;
+		}
 		let session = Secret::new(live.session.to_string()).expect("validated voice session");
 		let early = live
 			.early_server
 			.take()
 			.filter(|early| early.received.elapsed() < MOVE_GRACE);
-		let (negotiation_revision, server) =
-			early.map_or((None, None), |early| (early.revision, early.server));
+		let (negotiation_revision, server_received, server) = early
+			.map_or((None, None, None), |early| {
+				(early.revision, Some(early.received), early.server)
+			});
 		let pending = Pending {
 			generation: live.generation,
 			channel,
@@ -844,6 +873,7 @@ impl Voice {
 			negotiation_revision,
 			move_from_revision: Some(live.negotiation_revision),
 			server,
+			server_received,
 			started: Instant::now(),
 			failed_candidate: false,
 		};
@@ -3121,7 +3151,7 @@ mod tests {
 	#[test]
 	fn server_move_restarts_media_with_the_destination_allocation_in_either_order() {
 		let runtime = Runtime::new().unwrap();
-		for server_first in [false, true] {
+		for (server_first, negotiating) in [(false, false), (true, false), (true, true)] {
 			let mut state = test_support::voice_demo_state();
 			state.demo = false;
 			state.gateway_connected = true;
@@ -3129,47 +3159,51 @@ mod tests {
 			let from = call.channel;
 			let request = call.request;
 			let destination = Id(37);
-			let (capture, _) = mpsc::sync_channel(1);
-			let (_, playback) = mpsc::sync_channel(1);
-			let audio = Audio::start(Devices::default(), capture, playback, |_| {}).unwrap();
-			let (controls, _) = watch::channel(Controls::default());
-			let (_, events) = mpsc::sync_channel(1);
-			let (_, speakers) = watch::channel([0; 64]);
-			let (_, latency) = watch::channel(ui::VoiceLatency::default());
-			let (camera_frames, _) = mpsc::sync_channel(1);
-			let (stream_audio, _) = mpsc::sync_channel(1);
+			let generation = state.generation;
+			let make_live = |channel, revision, negotiation| {
+				let (capture, _) = mpsc::sync_channel(1);
+				let (_, playback) = mpsc::sync_channel(1);
+				let audio = Audio::start(Devices::default(), capture, playback, |_| {}).unwrap();
+				let (controls, _) = watch::channel(Controls::default());
+				let (_, events) = mpsc::sync_channel(1);
+				let (_, speakers) = watch::channel([0; 64]);
+				let (_, latency) = watch::channel(ui::VoiceLatency::default());
+				let (camera_frames, _) = mpsc::sync_channel(1);
+				let (stream_audio, _) = mpsc::sync_channel(1);
+				Live {
+					generation,
+					channel,
+					request,
+					user: Id(1),
+					peer: None,
+					ring_pending: false,
+					cues: CallCues::default(),
+					session: Zeroizing::new("synthetic-session".into()),
+					negotiation_revision: revision,
+					early_server: None,
+					closed: None,
+					negotiation,
+					media_ready: false,
+					waiting_for_peer: false,
+					identity: discord_voice::Identity::generate(),
+					audio,
+					controls,
+					events,
+					failure: Arc::new(OnceLock::new()),
+					speakers,
+					latency,
+					task: runtime.spawn(std::future::pending()),
+					devices: Devices::default(),
+					device_deadline: None,
+					camera_frames,
+					camera_negotiated: false,
+					camera_clock: Instant::now(),
+					remote_video: Arc::new(std::sync::Mutex::new(Vec::new())),
+					stream_audio,
+				}
+			};
 			let mut manager = Voice::default();
-			manager.live = Some(Live {
-				generation: state.generation,
-				channel: from,
-				request,
-				user: Id(1),
-				peer: None,
-				ring_pending: false,
-				cues: CallCues::default(),
-				session: Zeroizing::new("synthetic-session".into()),
-				negotiation_revision: 2,
-				early_server: None,
-				closed: None,
-				negotiation: None,
-				media_ready: false,
-				waiting_for_peer: false,
-				identity: discord_voice::Identity::generate(),
-				audio,
-				controls,
-				events,
-				failure: Arc::new(OnceLock::new()),
-				speakers,
-				latency,
-				task: runtime.spawn(std::future::pending()),
-				devices: Devices::default(),
-				device_deadline: None,
-				camera_frames,
-				camera_negotiated: false,
-				camera_clock: Instant::now(),
-				remote_video: Arc::new(std::sync::Mutex::new(Vec::new())),
-				stream_audio,
-			});
+			manager.live = Some(make_live(from, 2, None));
 			let server = |channel, revision| {
 				Event::Voice(voice::Event::Server {
 					request,
@@ -3231,6 +3265,49 @@ mod tests {
 				matches!(pending.confirm_transport(3), Some(Command::Voice(voice::Command::ConfirmSession {
 				channel, request: confirmed, revision: 3,
 			})) if channel == destination && confirmed == request)
+			);
+
+			if server_first {
+				// The gateway still tags this allocation with the first destination.
+				assert!(
+					manager
+						.observe(&state, &mut server(destination, 4))
+						.is_none()
+				);
+			} else {
+				manager.pending.as_mut().unwrap().server_received =
+					Some(Instant::now() - MOVE_GRACE);
+			}
+			if negotiating {
+				manager.retiring = None;
+				manager.live = Some(make_live(destination, 4, manager.pending.take()));
+			}
+			let second_move = || voice::Event::Moved {
+				from: destination,
+				channel: from,
+				request,
+			};
+			assert!(
+				manager
+					.observe(&state, &mut Event::Voice(second_move()))
+					.is_none()
+			);
+			state.apply_voice(second_move());
+			assert!(manager.live.is_none());
+			if !server_first {
+				assert!(manager.pending.as_ref().unwrap().server.is_none());
+				assert!(manager.observe(&state, &mut server(from, 4)).is_none());
+			}
+			assert!(manager.observe(&state, &mut server(from, 2)).is_none());
+			let pending = manager.pending.as_ref().unwrap();
+			assert_eq!(
+				pending.server.as_ref().unwrap().0.expose(),
+				"synthetic-token-4"
+			);
+			assert!(
+				matches!(pending.confirm_transport(4), Some(Command::Voice(voice::Command::ConfirmSession {
+				channel, request: confirmed, revision: 4,
+			})) if channel == from && confirmed == request)
 			);
 		}
 	}
