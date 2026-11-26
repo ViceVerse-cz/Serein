@@ -720,10 +720,10 @@ async fn run_inner(
 						   crate::activity::hold_at(latest.as_ref().map_or(0.0, |frame| frame.iter().filter(|s| s.is_finite()).map(|s| s*s).sum()),local_activity,control.activity_threshold_db)
 					   } else {0};
 					   // Session sounds share the microphone's encoder and 20 ms clock; a sound keeps the
-					   // outgoing stream alive while the microphone is muted, but never while deafened.
-					   // Deafened or without speaking permission the player drops the clip, so whatever it
-					   // returns here is the sound that is heard.
-					   let (sound,sound_id)=soundboard.as_mut().map_or((None,None),|player|player.tick(!control.deafened && control.sound));
+					   // outgoing stream alive while the microphone is muted, but never while deafened or
+					   // before the transport is ready. A closed gate drops the clip, so whatever it returns
+					   // here is the sound that is heard.
+					   let (sound,sound_id)=soundboard.as_mut().map_or((None,None),|player|player.tick(soundboard_audible(enabled,control.deafened,control.sound)));
 					   if sound_id != sounding {sounding = sound_id; emit(Status::Soundboard(sound_id)).map_err(|_|"Call interface closed")?;}
 					   let sounding = sound.is_some();
 					   let active=enabled && !control.muted && !control.deafened && latest.is_some();
@@ -1096,6 +1096,13 @@ impl StreamAudio {
 		self.pending.drain(..STREAM_AUDIO_FRAME);
 		Some(frame)
 	}
+}
+
+/// Whether a session sound may play on this tick. A sound needs the ready transport (`enabled`),
+/// so one requested while the call is still negotiating, resuming or waiting for a peer is
+/// dropped instead of starting unannounced; the user's own switch and deafening close it too.
+fn soundboard_audible(enabled: bool, deafened: bool, sound: bool) -> bool {
+	enabled && !deafened && sound
 }
 
 fn soundshare_announcement(audio: &mut Option<StreamAudio>, ssrc: u32) -> Option<Value> {
@@ -1942,6 +1949,31 @@ mod tests {
 	use super::*;
 	use crate::video_receive::Receivers;
 	use opus2::Decoder;
+	#[test]
+	fn sounds_play_only_on_a_ready_transport_and_through_an_audible_gate() {
+		assert!(soundboard_audible(true, false, true));
+		// Negotiating, resuming or waiting for a peer: there is no transport to hear a sound on.
+		assert!(!soundboard_audible(false, false, true));
+		// Deafened or switched off in the call interface closes the same gate.
+		assert!(!soundboard_audible(true, true, true));
+		assert!(!soundboard_audible(true, false, false));
+		let (send, receive) = std::sync::mpsc::channel();
+		let mut player = crate::soundboard::Player::new(receive);
+		send.send(crate::soundboard::Message::Play {
+			id: 1,
+			samples: vec![0.5; 1_920].into(),
+		})
+		.unwrap();
+		// A request queued before the call is ready is dropped, not replayed when it is.
+		assert_eq!(
+			player.tick(soundboard_audible(false, false, true)),
+			(None, None)
+		);
+		assert_eq!(
+			player.tick(soundboard_audible(true, false, true)),
+			(None, None)
+		);
+	}
 	#[test]
 	fn camera_transition_requests_a_keyframe_despite_the_feedback_throttle() {
 		let frame = |sequence, keyframe| crate::camera_video::Frame {
