@@ -32,6 +32,90 @@ enum PreviewImage {
 	Channel(crate::icons::Icon),
 }
 
+/// Longer than every name in the bundled shortcode table (the longest is 76 bytes).
+const SHORTCODE_MAX: usize = 80;
+
+fn shortcode_emoji(name: &str) -> Option<&'static str> {
+	static TABLE: std::sync::OnceLock<HashMap<String, &'static str>> = std::sync::OnceLock::new();
+	let table = TABLE.get_or_init(|| {
+		let mut table = HashMap::new();
+		for (emoji, primary, aliases) in crate::emoji_picker::discord_names() {
+			for name in std::iter::once(*primary).chain(aliases.split(',')) {
+				if !name.is_empty() {
+					table.entry(name.to_ascii_lowercase()).or_insert(*emoji);
+				}
+			}
+		}
+		table
+	});
+	if name.bytes().any(|b| b.is_ascii_uppercase()) {
+		table.get(&name.to_ascii_lowercase()).copied()
+	} else {
+		table.get(name).copied()
+	}
+}
+
+/// Expand `:name:` standard shortcodes in ordinary prose. Callers pass only non-code text.
+/// A colon glued to a preceding word or `<` is left alone, which keeps `<:name:id>`,
+/// `<a:name:id>`, `<t:100:R>`, `10:30` and URL paths intact; unknown names stay literal.
+fn expand_shortcodes(text: &str) -> std::borrow::Cow<'_, str> {
+	if !text.contains(':') {
+		return text.into();
+	}
+	let bytes = text.as_bytes();
+	let mut output = String::new();
+	let mut copied = 0;
+	let mut at = 0;
+	// Start of the whitespace-delimited word holding the current colon, advanced
+	// incrementally so long runs without whitespace stay linear.
+	let mut word = 0;
+	let mut scanned = 0;
+	while let Some(offset) = text[at..].find(':') {
+		let open = at + offset;
+		at = open + 1;
+		let name_len = bytes[at..]
+			.iter()
+			.take(SHORTCODE_MAX + 1)
+			.take_while(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'+' | b'-'))
+			.count();
+		let close = at + name_len;
+		if name_len == 0 || name_len > SHORTCODE_MAX || bytes.get(close) != Some(&b':') {
+			continue;
+		}
+		if text[..open]
+			.chars()
+			.next_back()
+			.is_some_and(|c| c.is_alphanumeric() || c == '<')
+		{
+			continue;
+		}
+		if let Some((index, space)) = text[scanned..open]
+			.char_indices()
+			.rfind(|(_, c)| c.is_whitespace())
+		{
+			word = scanned + index + space.len_utf8();
+		}
+		scanned = open;
+		// A URL is literal text; skip any word that looks like one.
+		let bare = text[word..].trim_start_matches(['(', '[', '{', '"', '\'']);
+		if text[word..open].contains("://") || bare.starts_with("www.") {
+			continue;
+		}
+		let Some(emoji) = shortcode_emoji(&text[at..close]) else {
+			continue;
+		};
+		output.push_str(&text[copied..open]);
+		output.push_str(emoji);
+		copied = close + 1;
+		at = copied;
+	}
+	if copied == 0 {
+		return text.into();
+	}
+	output.push_str(&text[copied..]);
+	output.into()
+}
+
 /// True when the raw source escapes the token at `at` with an odd run of backslashes.
 fn escaped(source: &str, at: usize) -> bool {
 	source[..at]
@@ -400,6 +484,18 @@ impl FormatCache {
 		self.get_part(id, 0, source)
 	}
 	pub fn get_part(&mut self, message: Id, part: u16, source: &str) -> &Formatted {
+		self.get_part_styled(message, part, source, false)
+	}
+	/// Like `get_part`, but with every span bold, as embed field names render. The source is
+	/// parsed unmodified, so its own markdown cannot unbalance injected `**` delimiters. A part
+	/// id must always be requested with the same `strong` value.
+	pub(crate) fn get_part_styled(
+		&mut self,
+		message: Id,
+		part: u16,
+		source: &str,
+		strong: bool,
+	) -> &Formatted {
 		let id = (message, part);
 		self.clock += 1;
 		if self
@@ -417,7 +513,12 @@ impl FormatCache {
 			while !source.is_char_boundary(end) {
 				end -= 1;
 			}
-			let parsed = Formatted::parse(source);
+			let mut parsed = Formatted::parse(source);
+			if strong {
+				for (_, style) in &mut parsed.spans {
+					style.strong = true;
+				}
+			}
 			let source = source[..end].to_owned();
 			self.bytes += source.capacity() + parsed.bytes();
 			self.entries.insert(id, (source, parsed, self.clock));
@@ -1133,8 +1234,9 @@ impl Formatted {
 							text.chars().next().map_or(0, char::len_utf8)
 						};
 						output.push(&text[..escaped], style);
+						let expanded = expand_shortcodes(&text[escaped..]);
 						if !output.push_spoiler_literal(
-							&text[escaped..],
+							&expanded,
 							style,
 							&mut open_spoiler,
 							&mut regions,
@@ -3505,6 +3607,53 @@ impl Formatted {
 
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn standard_shortcodes_expand_only_in_prose() {
+		let text = |raw: &str| {
+			super::Formatted::parse(raw)
+				.spans
+				.iter()
+				.map(|(text, _)| text.as_str())
+				.collect::<String>()
+		};
+		assert_eq!(
+			text(":flag_fi: and :flag_us:!"),
+			"\u{1f1eb}\u{1f1ee} and \u{1f1fa}\u{1f1f8}!"
+		);
+		assert_eq!(text("**:flag_fi:** bold"), "\u{1f1eb}\u{1f1ee} bold");
+		assert_eq!(text(":x: failed"), "\u{274c} failed");
+		// Multi-byte whitespace before a shortcode must not split a UTF-8 sequence.
+		assert_eq!(text("a\u{a0}:flag_fi:"), "a\u{a0}\u{1f1eb}\u{1f1ee}");
+		for raw in [
+			"(www.example.com/:flag_fi:)",
+			"`:flag_fi:`",
+			"```\n:flag_fi:\n```",
+			"https://example.com/a:flag_fi:b",
+			"<https://example.com/:flag_fi:>",
+			"\\:flag_fi:",
+			":not_a_real_emoji_xyz:",
+			"at 10:30:15 or <t:100:R>",
+			"<:flag_axis:1412795573072822383>",
+		] {
+			assert!(
+				!text(raw).contains('\u{1f1eb}') && !text(raw).contains('\u{1f4af}'),
+				"{raw:?} expanded to {:?}",
+				text(raw)
+			);
+		}
+		// Embed field names render bold without injecting `**` around their own markdown.
+		let mut cache = super::FormatCache::default();
+		let name = cache.get_part_styled(model::Id(1), 32, "5* Rating :flag_fi:", true);
+		assert_eq!(
+			name.spans
+				.iter()
+				.map(|(text, _)| text.as_str())
+				.collect::<String>(),
+			"5* Rating \u{1f1eb}\u{1f1ee}"
+		);
+		assert!(name.spans.iter().all(|(_, style)| style.strong));
+	}
+
 	#[test]
 	fn timestamps_resolve_in_bodies_and_previews_while_code_and_escapes_stay_literal() {
 		let ctx = egui::Context::default();
