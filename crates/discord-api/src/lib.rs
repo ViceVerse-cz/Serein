@@ -867,6 +867,13 @@ impl DiscordApi {
 				.get("retry-after")
 				.and_then(|v| v.to_str().ok())
 				.and_then(|s| s.parse::<f64>().ok());
+			// A user- or shared-scoped 429 limits one bucket; only a global or unscoped block is a
+			// reason to stop the whole session. The recorded client reads x-ratelimit-scope.
+			let route_scoped = response
+				.headers()
+				.get("x-ratelimit-scope")
+				.and_then(|v| v.to_str().ok())
+				.is_some_and(|scope| scope == "user" || scope == "shared");
 
 			if status == StatusCode::UNAUTHORIZED {
 				if advisory {
@@ -982,13 +989,25 @@ impl DiscordApi {
 					self.stop_with(Failure::Challenged);
 					return Err(Failure::Challenged);
 				}
-				if error.code == Some(40333)
-					|| (status == StatusCode::TOO_MANY_REQUESTS
-						&& !error
-							.retry_after
-							.is_some_and(|s| s.is_finite() && s > 0.0 && s <= 86400.0))
-				{
+				let unusable_retry = status == StatusCode::TOO_MANY_REQUESTS
+					&& !error
+						.retry_after
+						.is_some_and(|s| s.is_finite() && s > 0.0 && s <= 86400.0);
+				if error.code == Some(40333) || (unusable_retry && !route_scoped) {
 					return Err(self.block_response(retry_header.or(reset)).await);
+				}
+				if unusable_retry {
+					// Route-scoped limit with no usable reset: wait the bucket out on a conservative
+					// cooldown without ending the session, as an unscoped block would.
+					let delay = match retry_header.or(reset) {
+						Some(seconds) => {
+							safe_delay(Some(seconds)).unwrap_or(Duration::from_secs(60))
+						}
+						None => Duration::from_secs(60),
+					};
+					let mut next = self.cooldown.lock().await;
+					*next = (*next).max(Instant::now() + delay);
+					return Err(Failure::RateLimited);
 				}
 				// Scoped restriction codes hold back the relevant writes and never reach
 				// the automatic resend of a rate-limited message.
@@ -4123,6 +4142,51 @@ mod tests {
 				Err(Failure::ServiceBlocked)
 			);
 			assert_eq!(api.stop_reason(), Some(Failure::ServiceBlocked));
+			server.await.unwrap();
+		}
+	}
+
+	#[tokio::test]
+	async fn a_route_scoped_rate_limit_waits_without_stopping_the_session() {
+		// A 429 carrying no usable retry-after: a user/shared scope is one bucket and must not
+		// end the session, while a global or unscoped block still does.
+		for (scope, expected, stops) in [
+			("x-ratelimit-scope: user\r\n", Failure::RateLimited, false),
+			("x-ratelimit-scope: shared\r\n", Failure::RateLimited, false),
+			("", Failure::ServiceBlocked, true),
+			(
+				"x-ratelimit-scope: global\r\n",
+				Failure::ServiceBlocked,
+				true,
+			),
+		] {
+			let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+			let mut api = DiscordApi::new(Arc::new(
+				SessionSecret::from_owner_input("SYNTHETIC_SECRET_MARKER".into()).unwrap(),
+			))
+			.unwrap();
+			api.base = format!("http://{}", listener.local_addr().unwrap());
+			let server = tokio::spawn(async move {
+				let (mut socket, _) = listener.accept().await.unwrap();
+				let mut request = [0; 4096];
+				assert!(socket.read(&mut request).await.unwrap() > 0);
+				let response = format!(
+					"HTTP/1.1 429 Too Many Requests\r\nContent-Type: application/json\r\n{scope}Content-Length: 2\r\nConnection: close\r\n\r\n{{}}"
+				);
+				let _ = socket.write_all(response.as_bytes()).await;
+			});
+			assert_eq!(
+				api.request_with_content(
+					Method::POST,
+					"/channels/1/typing",
+					None,
+					64,
+					Extras::default()
+				)
+				.await,
+				Err(expected)
+			);
+			assert_eq!(api.stopped(), stops);
 			server.await.unwrap();
 		}
 	}
