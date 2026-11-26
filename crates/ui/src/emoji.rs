@@ -120,6 +120,52 @@ pub(crate) fn inline_format(ui: &egui::Ui, width: f32, height: f32) -> egui::Tex
 	}
 }
 
+/// Byte ranges of the emoji in a display name that Twemoji can draw, with their atlas cells.
+/// Empty (and allocation-free) for names without non-ASCII characters.
+pub(crate) fn name_spans(text: &str) -> Vec<(std::ops::Range<usize>, usize)> {
+	use unicode_segmentation::UnicodeSegmentation as _;
+	if text.is_ascii() {
+		return Vec::new();
+	}
+	text.grapheme_indices(true)
+		.filter_map(|(start, grapheme)| Some((start..start + grapheme.len(), lookup(grapheme)?)))
+		.collect()
+}
+
+/// A name's blank slot glyph, as laid out by [`inline_format`]: its line height is shorter than
+/// its font's height while ordinary spaces' is not.
+fn is_slot(glyph: &egui::epaint::text::Glyph) -> bool {
+	glyph.chr == ' ' && glyph.line_height < glyph.font_height
+}
+
+/// Paints the Twemoji art over the slots that `spans` left in `galley` (placed at `pos`). A slot
+/// elided by truncation is simply absent from the galley, so no emoji is drawn past the cut.
+pub(crate) fn paint_name_slots(
+	ui: &egui::Ui,
+	atlas: egui::load::SizedTexture,
+	galley: &egui::Galley,
+	pos: egui::Pos2,
+	text: &str,
+	spans: &[(std::ops::Range<usize>, usize)],
+	size: f32,
+) {
+	let mut spans = spans.iter();
+	for placed in &galley.rows {
+		for glyph in placed.glyphs.iter().filter(|glyph| is_slot(glyph)) {
+			let Some((range, cell)) = spans.next() else {
+				return;
+			};
+			let center = pos
+				+ placed.pos.to_vec2()
+				+ egui::vec2(glyph.pos.x + glyph.advance_width * 0.5, placed.size.y * 0.5);
+			image_cell(atlas, &text[range.clone()], *cell, size).paint_at(
+				ui,
+				egui::Rect::from_center_size(center, egui::Vec2::splat(size)),
+			);
+		}
+	}
+}
+
 pub(crate) fn lookup(text: &str) -> Option<usize> {
 	// Explicit text presentation must stay text. Do not partially match unknown sequences.
 	if text.is_ascii() || text.contains('\u{fe0e}') || text.len() > 128 {
@@ -297,6 +343,20 @@ mod tests {
 			assert!(custom_prefix(token).is_none(), "{token}");
 		}
 	}
+	#[test]
+	fn names_split_into_known_emoji_spans() {
+		let name = "🇮🇹 Mario ⭐";
+		let spans = name_spans(name);
+		let found: Vec<_> = spans
+			.iter()
+			.map(|(range, _)| &name[range.clone()])
+			.collect();
+		assert_eq!(found, ["🇮🇹", "⭐"]);
+		assert!(name_spans("Mario").is_empty());
+		// Sequences Twemoji lacks stay text, as in chat (a lone 🇮 has its own Twemoji art).
+		assert!(name_spans("Mario 👩\u{200d}🦀").is_empty());
+	}
+
 	#[test]
 	fn atlas_is_bounded_and_matches_complete_sequences() {
 		let image = image::load_from_memory(ATLAS).unwrap();
