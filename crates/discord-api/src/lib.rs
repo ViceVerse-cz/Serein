@@ -2485,6 +2485,7 @@ impl DiscordApi {
 			"mobile_network_type": "unknown",
 			"content": content,
 			"nonce": nonce,
+			"enforce_nonce": true,
 			"tts": false,
 			"flags": if silent { message_options::SUPPRESS_NOTIFICATIONS } else { 0 },
 			"allowed_mentions": allowed_mentions(content, reply),
@@ -2499,7 +2500,9 @@ impl DiscordApi {
 		if let Some(attachment) = attachment {
 			body["attachments"] = serde_json::json!(attachment);
 		}
-		// No enforce_nonce claim until normal-user semantics are live verified. Never auto-retry writes.
+		// enforce_nonce matches the Phoenix binary, which carries the field; it makes a same-nonce
+		// resend idempotent instead of a duplicate. Normal-user semantics stay live-unverified, and
+		// writes are never auto-retried. The forward paths keep their constant nonce and omit it.
 		self.create_message(
 			channel,
 			body,
