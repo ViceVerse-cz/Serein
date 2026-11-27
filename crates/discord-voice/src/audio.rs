@@ -355,17 +355,14 @@ impl Audio {
 					{
 						next_input_retry = Instant::now() + Duration::from_secs(2);
 						let device = choose(&active.host, current.input.as_deref(), true).ok();
-						match microphone_retry(device, &mut rebuild_devices_for_input) {
-							MicrophoneRetry::ReopenDevices => {
-								// The next iteration retires the pair for the new revision.
-								let _ = worker_gate.revision.compare_exchange(
-									revision,
-									revision + 1,
-									Ordering::AcqRel,
-									Ordering::Acquire,
-								);
-								continue;
-							}
+						match microphone_retry(
+							device,
+							&mut rebuild_devices_for_input,
+							&worker_gate,
+							revision,
+						) {
+							// The next iteration retires the pair for the new revision.
+							MicrophoneRetry::ReopenDevices => continue,
 							MicrophoneRetry::ReopenInput(input) => {
 								if active.try_reopen_input(&input, &worker_gate, revision) {
 									emit(Ok(()));
@@ -624,11 +621,23 @@ enum MicrophoneRetry<T> {
 	ReopenInput(T),
 }
 
-fn microphone_retry<T>(device: Option<T>, rebuild_devices: &mut bool) -> MicrophoneRetry<T> {
+fn microphone_retry<T>(
+	device: Option<T>,
+	rebuild_devices: &mut bool,
+	gate: &Gate,
+	revision: u64,
+) -> MicrophoneRetry<T> {
 	match device {
 		// Open the microphone first so a Bluetooth headset can switch to its call profile.
 		Some(_) if *rebuild_devices => {
 			*rebuild_devices = false;
+			// Leave a revision another change already advanced as it is.
+			let _ = gate.revision.compare_exchange(
+				revision,
+				revision + 1,
+				Ordering::AcqRel,
+				Ordering::Acquire,
+			);
 			MicrophoneRetry::ReopenDevices
 		}
 		Some(device) => MicrophoneRetry::ReopenInput(device),
@@ -1657,35 +1666,46 @@ mod tests {
 
 	#[test]
 	fn returning_headset_rebuilds_the_stream_pair_once() {
+		let gate = Gate::default();
+		let revision = || gate.revision.load(Ordering::Acquire);
 		let mut rebuild_devices = false;
+		let mut retry = |device: Option<&'static str>| {
+			microphone_retry(device, &mut rebuild_devices, &gate, revision())
+		};
 		// A microphone that never started can be retried without disturbing playback.
 		assert!(matches!(
-			microphone_retry(Some("headset"), &mut rebuild_devices),
+			retry(Some("headset")),
 			MicrophoneRetry::ReopenInput("headset")
 		));
-		assert!(matches!(
-			microphone_retry::<&str>(None, &mut rebuild_devices),
-			MicrophoneRetry::Missing
-		));
+		assert!(matches!(retry(None), MicrophoneRetry::Missing));
 		// Input-only open cannot recover on a headset that needs to switch profiles
-		// before playback starts. The next attempt must use the input-first pair open.
+		// before playback starts. The next attempt must retire the open pair.
+		let start = revision();
 		assert!(matches!(
-			microphone_retry(Some("headset"), &mut rebuild_devices),
+			retry(Some("headset")),
 			MicrophoneRetry::ReopenDevices
 		));
+		assert_eq!(revision(), start + 1);
 		// A still-failing microphone must not tear down working playback every poll.
 		assert!(matches!(
-			microphone_retry(Some("headset"), &mut rebuild_devices),
+			retry(Some("headset")),
 			MicrophoneRetry::ReopenInput("headset")
 		));
+		assert!(matches!(retry(None), MicrophoneRetry::Missing));
 		assert!(matches!(
-			microphone_retry::<&str>(None, &mut rebuild_devices),
-			MicrophoneRetry::Missing
-		));
-		assert!(matches!(
-			microphone_retry(Some("headset"), &mut rebuild_devices),
+			retry(Some("headset")),
 			MicrophoneRetry::ReopenDevices
 		));
+		assert_eq!(revision(), start + 2);
+		// A pair another change already retired is not skipped past a second revision.
+		let mut rebuild_devices = true;
+		let stale = revision();
+		gate.revision.fetch_add(1, Ordering::AcqRel);
+		assert!(matches!(
+			microphone_retry(Some("headset"), &mut rebuild_devices, &gate, stale),
+			MicrophoneRetry::ReopenDevices
+		));
+		assert_eq!(revision(), stale + 1);
 	}
 	#[test]
 	fn microphone_recovery_preserves_startup_failures() {
