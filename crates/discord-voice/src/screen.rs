@@ -66,6 +66,25 @@ pub struct AudioChunk {
 	pub epoch: u64,
 }
 
+/// Tells whether a PulseAudio client name carries this process's ID.
+///
+/// CPAL names its PulseAudio client `cpal-pulseaudio-<pid>`. PipeWire's PulseAudio server keeps
+/// that name while reporting the daemon as the stream's process, so such a proxied stream cannot
+/// be recognised by its process ID or binary alone.
+///
+/// Visible to the crate because `examples/linux_screen.rs` includes `screen/audio_linux.rs` at the
+/// crate root, where `super` is not this module.
+#[cfg(any(target_os = "linux", test))]
+pub(crate) fn own_cpal_client(name: Option<&str>, pid: u32) -> bool {
+	name.and_then(|name| name.strip_prefix("cpal-pulseaudio-"))
+		.is_some_and(|rest| {
+			rest.split(|c: char| !c.is_ascii_digit())
+				.next()
+				.and_then(|digits| digits.parse::<u32>().ok())
+				== Some(pid)
+		})
+}
+
 pub struct Video {
 	pub settings: Settings,
 	pub frames: tokio::sync::mpsc::Receiver<EncodedFrame>,
@@ -793,6 +812,19 @@ fn fit_frame(frame: RawFrame, width: u32, height: u32) -> Result<Vec<u8>, &'stat
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn own_cpal_client_name_carries_the_owning_process_id() {
+		assert!(own_cpal_client(Some("cpal-pulseaudio-27190"), 27190));
+		// PipeWire may append a stream suffix after the process ID.
+		assert!(own_cpal_client(Some("cpal-pulseaudio-27190-call"), 27190));
+		assert!(!own_cpal_client(Some("cpal-pulseaudio-271901"), 27190));
+		assert!(!own_cpal_client(Some("cpal-pulseaudio-1995"), 27190));
+		assert!(!own_cpal_client(Some("cpal-pulseaudio-"), 27190));
+		assert!(!own_cpal_client(Some("cpal-pulseaudio-game"), 27190));
+		assert!(!own_cpal_client(Some("serein"), 27190));
+		assert!(!own_cpal_client(None, 27190));
+	}
 
 	#[test]
 	fn idle_screen_keyframe_uses_latest_snapshot_only_when_ready() {
