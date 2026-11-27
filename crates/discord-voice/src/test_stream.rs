@@ -126,10 +126,11 @@ async fn exchange(rekey_timeout: bool) {
 			cursor: false,
 			audio: true,
 		},
+		max_bitrate: 1_000_000,
 		frames,
 		ready: ready.clone(),
 		keyframe: keyframe.clone(),
-		bitrate: Arc::new(std::sync::atomic::AtomicU32::new(4_000_000)),
+		bitrate: Arc::new(std::sync::atomic::AtomicU32::new(1_000_000)),
 		audio: Some(audio),
 		audio_epoch: epoch.clone(),
 	};
@@ -211,6 +212,7 @@ async fn exchange(rekey_timeout: bool) {
 			soundshare = true;
 		} else {
 			assert_eq!(value["op"], 12);
+			assert_eq!(value["d"]["streams"][0]["max_bitrate"], 1_000_000);
 			assert!(
 				soundshare,
 				"Soundshare must be announced before media capture starts"
