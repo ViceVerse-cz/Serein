@@ -21,6 +21,9 @@ pub struct State {
 	hide_wait: u8,
 	/// Compositor IPC for Wayland sessions where winit cannot hide (Hyprland, KWin).
 	compositor: Option<platform::compositor::Hider>,
+	/// The compositor drops minimize requests (niri, Sway), so a Wayland window cannot leave
+	/// the screen and closing must exit instead of hiding to the tray.
+	minimize_ignored: bool,
 	/// Logout notice: a close while the session ends must exit, never hide to the tray.
 	session: Option<platform::session::Monitor>,
 }
@@ -56,6 +59,7 @@ impl Default for State {
 			hide_pending: false,
 			hide_wait: 0,
 			compositor: platform::compositor::Hider::detect(),
+			minimize_ignored: platform::compositor::ignores_minimize(),
 			session: None,
 		}
 	}
@@ -194,7 +198,10 @@ impl State {
 			return;
 		}
 		let unseen = was_hidden || native_visible == Some(false);
-		if tray_available && !self.exiting && !unseen && !ending {
+		// Wayland cannot confirm a minimize, so a compositor known to drop it would keep the
+		// close cancelled forever with the window still on screen.
+		let can_park = can_hide || usable(&self.compositor).is_some() || !self.minimize_ignored;
+		if tray_available && can_park && !self.exiting && !unseen && !ending {
 			// Native Wayland cannot hide surfaces through winit, Hyprland ignores minimization
 			// and KWin keeps minimized windows in the taskbar, so their IPC hides the window
 			// instead. Elsewhere never label a possibly visible window hidden; the compositor
@@ -299,5 +306,37 @@ mod tests {
 			HideOutcome::Failed,
 			"missing minimized state cannot confirm a hide either"
 		);
+	}
+
+	/// niri and Sway drop Wayland minimize requests: hiding to the tray there left the close
+	/// cancelled and the window on screen, so nothing could close it.
+	#[test]
+	fn close_exits_where_wayland_minimize_is_ignored() {
+		use super::{State, egui};
+		let mut close = egui::RawInput::default();
+		close
+			.viewports
+			.get_mut(&egui::ViewportId::ROOT)
+			.unwrap()
+			.events
+			.push(egui::ViewportEvent::Close);
+		for minimize_ignored in [false, true] {
+			let ctx = egui::Context::default();
+			let mut state = State {
+				compositor: None,
+				minimize_ignored,
+				..State::default()
+			};
+			// Wayland: winit can neither hide the window nor report its visibility.
+			let output = ctx.run_logic(&close, |ctx| state.logic(ctx, true, false, None));
+			let cancelled = output
+				.viewport_commands
+				.get(&egui::ViewportId::ROOT)
+				.is_some_and(|cmds| cmds.contains(&egui::ViewportCommand::CancelClose));
+			assert_eq!(
+				cancelled, !minimize_ignored,
+				"only a compositor that minimizes may keep the window open in the tray"
+			);
+		}
 	}
 }

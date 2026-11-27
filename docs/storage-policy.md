@@ -1508,7 +1508,9 @@ not blanket session-bus access. No Discord identifiers, presence or secrets ente
 
 Close keeps the process running only with an available tray. X11 supports hiding;
 native Wayland receives a compositor-controlled minimize request and is not falsely
-marked hidden. Show and Quit restore first; Quit defers to a UI pass so existing
+marked hidden. niri and Sway (detected by `NIRI_SOCKET`/`SWAYSOCK`) ignore that request,
+so Close there follows the ordinary exit checks and the custom title bar omits Minimize.
+Show and Quit restore first; Quit defers to a UI pass so existing
 unsaved-work and cleanup checks can run. Cancelling Quit restores close-to-tray behavior.
 
 While local game sharing is enabled, one cancellable account-settings operation reads

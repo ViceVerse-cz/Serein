@@ -2658,6 +2658,7 @@ impl Desktop {
 			&& app_settings.current.hide_window_decorations
 			&& !messaging.custom_title_bar;
 		let custom_title_bar = messaging.custom_title_bar;
+		ui::design::set_minimize_available(!platform::compositor::ignores_minimize());
 		app_settings.current.hide_window_decorations = messaging.hide_window_decorations;
 		app_settings.current.custom_title_bar = messaging.custom_title_bar;
 		#[cfg(target_os = "windows")]
