@@ -84,9 +84,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest, windows-11-arm]
+        # macos-15-intel publishes the macOS-X64 asset that Intel builds' updater requests.
+        os: [macos-latest, macos-15-intel, windows-latest, windows-11-arm]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 90
+    # The 4-vCPU Intel runner needs about twice the time of a 6-core i7-9750H, which
+    # spends ~50 minutes on `cargo xtask check` plus the fat-LTO package.
+    timeout-minutes: ${{ matrix.os == 'macos-15-intel' && 150 || 90 }}
     env:
       TAG: ${{ needs.prepare.outputs.tag }}
       VERSION: ${{ needs.prepare.outputs.version }}
