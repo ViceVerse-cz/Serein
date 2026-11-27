@@ -55,9 +55,15 @@ fn shortcode_emoji(name: &str) -> Option<&'static str> {
 	}
 }
 
+const URL_WRAPPERS: [char; 9] = ['(', '[', '{', '"', '\'', '*', '_', '~', '|'];
+
+fn strip_url_wrappers(word: &str) -> &str {
+	word.trim_start_matches(URL_WRAPPERS)
+}
+
 fn starts_with_www(word: &str) -> bool {
-	let bare = word.trim_start_matches(['(', '[', '{', '"', '\'', '*', '_', '~', '|']);
-	bare.get(..4)
+	strip_url_wrappers(word)
+		.get(..4)
 		.is_some_and(|prefix| prefix.eq_ignore_ascii_case("www."))
 }
 
@@ -79,6 +85,7 @@ fn expand_shortcodes<'a>(text: &'a str, source: &str, start: usize) -> std::borr
 		return text.into();
 	}
 	let prefix = source_word_prefix(source, start);
+	let prefix_only_wrappers = strip_url_wrappers(prefix).is_empty();
 	let bytes = text.as_bytes();
 	let mut output = String::new();
 	let mut copied = 0;
@@ -123,7 +130,7 @@ fn expand_shortcodes<'a>(text: &'a str, source: &str, start: usize) -> std::borr
 		url |= text[from..open].contains("://");
 		scanned = open;
 		// A URL is literal text; skip any word that looks like one.
-		if url || ((word > 0 || prefix.is_empty()) && starts_with_www(&text[word..])) {
+		if url || ((word > 0 || prefix_only_wrappers) && starts_with_www(&text[word..])) {
 			continue;
 		}
 		let Some(emoji) = shortcode_emoji(&text[at..close]) else {
@@ -3652,9 +3659,14 @@ mod tests {
 		assert_eq!(text(":x::x::x:"), "\u{274c}\u{274c}\u{274c}");
 		assert_eq!(text("https://a.example/:x::x:"), "https://a.example/:x::x:");
 		assert_eq!(text("WWW.example.com/:x:"), "WWW.example.com/:x:");
+		assert_eq!(text("**WWW.example.com/:x:**"), "WWW.example.com/:x:");
 		assert_eq!(
 			text("www.example.com/?q=&amp;/:x: :flag_fi:"),
 			"www.example.com/?q=&/:x: \u{1f1eb}\u{1f1ee}"
+		);
+		assert_eq!(
+			text("**www.example.com/?q=&amp;/:x:**"),
+			"www.example.com/?q=&/:x:"
 		);
 		// Multi-byte whitespace before a shortcode must not split a UTF-8 sequence.
 		assert_eq!(text("a\u{a0}:flag_fi:"), "a\u{a0}\u{1f1eb}\u{1f1ee}");
