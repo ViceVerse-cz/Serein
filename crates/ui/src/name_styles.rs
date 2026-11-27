@@ -54,22 +54,73 @@ pub(crate) fn label(
 	always: bool,
 ) -> egui::Response {
 	let width = ui.available_width();
+	// Twemoji art replaces the font's monochrome emoji (flags show as boxed letters), as in chat.
+	let atlas = if text.is_ascii() {
+		None
+	} else {
+		crate::emoji::atlas(ui.ctx())
+	};
+	let spans = atlas.map_or_else(Vec::new, |_| crate::emoji::name_spans(text));
 	let Some(style) = style else {
-		let galley = crate::role_names::galley(ui, text, font, colors, background, fallback, width);
-		return ui.add(
-			egui::Label::new(galley)
-				.truncate()
-				.selectable(false)
-				.sense(sense),
+		let size = ui.fonts_mut(|fonts| fonts.row_height(&font));
+		let galley = crate::role_names::galley_with_emoji(
+			ui, text, font, colors, background, fallback, width, &spans,
 		);
+		let (Some(atlas), false) = (atlas, spans.is_empty()) else {
+			return ui.add(
+				egui::Label::new(galley)
+					.truncate()
+					.selectable(false)
+					.sense(sense),
+			);
+		};
+		// `Label::ui` with the emoji painted over their slots.
+		let interactive = sense != egui::Sense::hover();
+		let (pos, galley, mut response) = egui::Label::new(galley)
+			.truncate()
+			.selectable(false)
+			.sense(sense)
+			.layout_in_ui(ui);
+		response
+			.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, ui.is_enabled(), text));
+		if ui.is_rect_visible(response.rect) {
+			if galley.elided {
+				response = response.on_hover_text(text);
+			}
+			let color = if interactive {
+				ui.style().interact(&response).text_color()
+			} else {
+				ui.visuals().text_color()
+			};
+			let underline = if response.has_focus() || response.highlighted() {
+				egui::Stroke::new(1.0, color)
+			} else {
+				egui::Stroke::NONE
+			};
+			ui.painter().add(
+				egui::epaint::TextShape::new(pos, galley.clone(), color).with_underline(underline),
+			);
+			crate::emoji::paint_name_slots(ui, atlas, &galley, pos, text, &spans, size);
+		}
+		return response;
 	};
 	let backdrop = ui.painter().add(Shape::Noop);
 	let row = ui.fonts_mut(|fonts| fonts.row_height(&font));
 	let font = crate::fonts::name_family(ui.ctx(), style.font)
 		.map_or(font.clone(), |family| egui::FontId::new(font.size, family));
+	// Emoji slots are as tall as the font laid out, which may differ from `row`.
+	let size = ui.fonts_mut(|fonts| fonts.row_height(&font));
 	// Colours never change the layout, so the plain galley sizes the allocation.
-	let plain =
-		crate::role_names::galley(ui, text, font.clone(), colors, background, fallback, width);
+	let plain = crate::role_names::galley_with_emoji(
+		ui,
+		text,
+		font.clone(),
+		colors,
+		background,
+		fallback,
+		width,
+		&spans,
+	);
 	let (rect, mut response) = ui.allocate_exact_size(vec2(plain.size().x, row), sense);
 	// `contains_pointer` ignores the row or message widget that sits over the name.
 	let styled = always || ROW_HOVER.get() || response.contains_pointer();
@@ -83,6 +134,7 @@ pub(crate) fn label(
 			background,
 			fallback,
 			width,
+			&spans,
 		)
 	} else {
 		plain
@@ -92,6 +144,9 @@ pub(crate) fn label(
 		paint_backdrop(ui, backdrop, style, &galley, pos);
 	}
 	ui.painter().galley(pos, galley.clone(), fallback);
+	if let (Some(atlas), false) = (atlas, spans.is_empty()) {
+		crate::emoji::paint_name_slots(ui, atlas, &galley, pos, text, &spans, size);
+	}
 	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, true, text));
 	if galley.elided {
 		response = response.on_hover_text(text);
