@@ -2208,10 +2208,8 @@ impl Picker {
 							let gifs: &[model::Gif] = if typed.is_empty() {
 								&state.gifs.favorites
 							} else {
-								let terms: Vec<String> = typed
-									.split_whitespace()
-									.map(str::to_lowercase)
-									.collect();
+								let terms: Vec<String> =
+									typed.split_whitespace().map(str::to_lowercase).collect();
 								filtered = state
 									.gifs
 									.favorites
@@ -2837,7 +2835,11 @@ fn strip_media_extension(segment: &str) -> &str {
 	let Some((stem, ext)) = segment.rsplit_once('.') else {
 		return segment;
 	};
-	if !stem.is_empty() && EXTENSIONS.iter().any(|known| ext.eq_ignore_ascii_case(known)) {
+	if !stem.is_empty()
+		&& EXTENSIONS
+			.iter()
+			.any(|known| ext.eq_ignore_ascii_case(known))
+	{
 		stem
 	} else {
 		segment
@@ -2998,7 +3000,11 @@ mod tests {
 				.count(),
 			2
 		);
-		assert!(initial_labels.iter().any(|label| label.contains("Happy dance")));
+		assert!(
+			initial_labels
+				.iter()
+				.any(|label| label.contains("Happy dance"))
+		);
 		run(
 			&mut picker,
 			&mut state,
@@ -3019,7 +3025,11 @@ mod tests {
 			1
 		);
 		assert!(filtered_labels.iter().any(|label| label == &send_gif_label));
-		assert!(!filtered_labels.iter().any(|label| label.contains("Happy dance")));
+		assert!(
+			!filtered_labels
+				.iter()
+				.any(|label| label.contains("Happy dance"))
+		);
 		assert!(!filtered_texts.iter().any(|text| text == &empty_heading));
 		assert!(
 			!commands
@@ -3029,8 +3039,7 @@ mod tests {
 		);
 		// Non-matching query renders the no-results state without emitting remote requests.
 		picker.gif_query = "no-such-favorite-xyz".into();
-		let (empty_labels, empty_texts) =
-			run(&mut picker, &mut state, &mut commands, 2.0, vec![]);
+		let (empty_labels, empty_texts) = run(&mut picker, &mut state, &mut commands, 2.0, vec![]);
 		assert_eq!(
 			empty_labels
 				.iter()
