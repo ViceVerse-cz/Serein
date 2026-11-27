@@ -5369,6 +5369,9 @@ impl MessagingUi {
 		self.selection_prev_frame = !escaped && select::has_selection(ctx);
 		self.tile_focus_escape_frame = false;
 		self.composer_escape_frame = None;
+		if !self.conversation_shown {
+			self.timeline.present_requested = None;
+		}
 		self.conversation_shown = false;
 	}
 	fn show_frame(&mut self, ui: &mut egui::Ui, state: &mut State) -> Vec<Command> {
@@ -6707,12 +6710,19 @@ impl MessagingUi {
 				self.timeline.pending_channel_reference = None;
 			}
 		}
-		if let Some(channel) = self.timeline.mark_channel_read.take() {
+		if let Some(channel) = self.timeline.mark_channel_read {
 			if Some(channel) == state.selected {
 				self.timeline.mark_read = None;
 			}
 			if let Some(command) = state.prepare_mark_channel_read(channel) {
+				self.timeline.mark_channel_read = None;
 				commands.push(command);
+			} else if state.auth != client_core::auth::AuthState::Authenticated
+				|| !state.gateway_connected
+				|| state.unread(channel) != Some(true)
+				|| state.channel(channel).and_then(|c| c.last_message).is_none()
+			{
+				self.timeline.mark_channel_read = None;
 			}
 		}
 		if let Some((channel, message)) = self.timeline.leave_read.take()
@@ -8778,16 +8788,42 @@ mod composer_tests {
 		// Stale call-tile focus from another stage does not block Escape in a text channel.
 		view.voice_focus = Some(voice::StageFocus::LocalScreen);
 		frame(&mut view, &mut state, vec![]);
-		// Switching channels before the next drain still sends Escape's read acknowledgement.
+		// Another read in flight holds Escape's acknowledgement across channel switches,
+		// while a frame with no timeline expires its pending return-to-present request.
 		let mut other = state.channels[0].clone();
 		other.id = Id(11);
-		other.last_message = None;
+		other.kind = 1;
+		other.last_message = Some(Id(30));
 		state.channels.push(other);
+		state
+			.apply_read_state(client_core::read_state::Event::Snapshot {
+				entries: Some(vec![(Id(10), Some(Id(1)), 0), (Id(11), Some(Id(1)), 0)]),
+				version: Some(2),
+				partial: false,
+			})
+			.unwrap();
+		let pending_request = match state.prepare_mark_channel_read(Id(11)) {
+			Some(Command::MarkRead { request, .. }) => request,
+			_ => panic!("expected pending read request for Id(11)"),
+		};
 		frame(&mut view, &mut state, escape());
 		assert_eq!(view.timeline.present_requested, Some(Id(10)));
+		state.channels[1].kind = 2;
 		state.selected = Some(Id(11));
-		assert!(marks(&frame(&mut view, &mut state, vec![])));
+		assert!(!marks(&frame(&mut view, &mut state, vec![])));
 		assert_eq!(view.timeline.present_requested, None);
+		assert_eq!(view.timeline.mark_channel_read, Some(Id(10)));
+		state
+			.apply_read_state(client_core::read_state::Event::Result {
+				channel: Id(11),
+				message: Id(30),
+				request: pending_request,
+				result: Ok(()),
+			})
+			.unwrap();
+		state.channels[1].kind = 1;
+		assert!(marks(&frame(&mut view, &mut state, vec![])));
+		assert_eq!(view.timeline.mark_channel_read, None);
 		view.voice_focus = None;
 		state.selected = Some(Id(10));
 		frame(&mut view, &mut state, vec![]);
