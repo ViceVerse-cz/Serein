@@ -1971,13 +1971,35 @@ fn mutual_link(ui: &mut egui::Ui, theme: &Theme, icon: Icon, text: String) -> eg
 /// Height of a [`mutual_row`].
 const MUTUAL_ROW: f32 = 44.0;
 
-/// One clickable row in the mutuals panel: a 32 px face painted by `face`, then the name.
+/// One clickable row in the mutuals panel: a 32 px face painted by `face`, then the name and
+/// optional secondary subtitle (such as a server nickname).
 fn mutual_row(
 	ui: &mut egui::Ui,
 	theme: &Theme,
 	name: &str,
+	subtitle: Option<&str>,
 	face: impl FnOnce(&mut egui::Ui, Rect),
 ) -> egui::Response {
+	fn line_layout(
+		ui: &egui::Ui,
+		text: &str,
+		size: f32,
+		color: Color32,
+		max_width: f32,
+	) -> std::sync::Arc<egui::Galley> {
+		let mut job = egui::text::LayoutJob::single_section(
+			text.to_owned(),
+			egui::TextFormat::simple(egui::FontId::proportional(size), color),
+		);
+		job.wrap = egui::text::TextWrapping {
+			max_width,
+			max_rows: 1,
+			break_anywhere: true,
+			overflow_character: Some('…'),
+		};
+		ui.painter().layout_job(job)
+	}
+
 	let (rect, response) =
 		ui.allocate_exact_size(vec2(ui.available_width(), MUTUAL_ROW), egui::Sense::click());
 	if response.hovered() {
@@ -1988,20 +2010,28 @@ fn mutual_row(
 		Vec2::splat(32.0),
 	);
 	face(ui, avatar);
-	let galley = ui.painter().layout(
-		name.to_owned(),
-		egui::FontId::proportional(14.0),
-		theme.text,
-		rect.right() - avatar.right() - 20.0,
-	);
-	ui.painter().galley(
-		pos2(
-			avatar.right() + 12.0,
-			rect.center().y - galley.size().y * 0.5,
-		),
-		galley,
-		theme.text,
-	);
+	let text_x = avatar.right() + 12.0;
+	let max_width = (rect.right() - avatar.right() - 20.0).max(0.0);
+	let galley = line_layout(ui, name, 14.0, theme.text, max_width);
+	if let Some(subtitle) = subtitle {
+		let sub_galley = line_layout(ui, subtitle, 12.0, theme.muted, max_width);
+		let total_height = galley.size().y + 2.0 + sub_galley.size().y;
+		let top = rect.center().y - total_height * 0.5;
+		let sub_y = top + galley.size().y + 2.0;
+		ui.painter().galley(pos2(text_x, top), galley, theme.text);
+		ui.painter()
+			.galley(pos2(text_x, sub_y), sub_galley, theme.muted);
+		response.widget_info(|| {
+			egui::WidgetInfo::labeled(egui::Role::Button, true, format!("{name}, {subtitle}"))
+		});
+	} else {
+		ui.painter().galley(
+			pos2(text_x, rect.center().y - galley.size().y * 0.5),
+			galley,
+			theme.text,
+		);
+		response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, name));
+	}
 	response.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
@@ -2029,7 +2059,12 @@ fn mutual_rows(
 					},
 					|guild| guild.name.clone(),
 				);
-				let row = mutual_row(ui, theme, &name, |ui, rect| {
+				let nick = mutual
+					.nick
+					.as_deref()
+					.map(str::trim)
+					.filter(|nick| !nick.is_empty());
+				let row = mutual_row(ui, theme, &name, nick, |ui, rect| {
 					if let Some(guild) = guild {
 						avatars.paint_guild(ui, guild, rect, state.demo, 16);
 					} else {
@@ -2043,11 +2078,17 @@ fn mutual_rows(
 		}
 		Mutuals::Friends => {
 			for friend in &data.mutual_friends {
-				let row = mutual_row(ui, theme, state.user_display_name(friend), |ui, rect| {
-					ui.scope_builder(UiBuilder::new().max_rect(rect), |ui| {
-						avatars.show_plain(ui, friend, 32.0, state.demo);
-					});
-				});
+				let row = mutual_row(
+					ui,
+					theme,
+					state.user_display_name(friend),
+					None,
+					|ui, rect| {
+						ui.scope_builder(UiBuilder::new().max_rect(rect), |ui| {
+							avatars.show_plain(ui, friend, 32.0, state.demo);
+						});
+					},
+				);
 				if row.clicked() {
 					action = Some(Action::Profile(friend.clone()));
 				}
@@ -6376,5 +6417,156 @@ mod tests {
 				"{visible:?}"
 			);
 		}
+	}
+
+	#[test]
+	fn mutual_servers_show_server_nicknames_and_truncate_narrow_rows() {
+		let ctx = egui::Context::default();
+		let mut state = test_support::demo_state();
+		for (id, name) in [
+			(Id(901), "Alpha Guild"),
+			(Id(902), "Beta Guild"),
+			(Id(903), "Gamma Guild"),
+			(
+				Id(904),
+				"Very Long Guild Name That Must Truncate Within The Panel Width",
+			),
+		] {
+			state.guilds.push(model::Guild {
+				default_message_notifications: None,
+				stickers: None,
+				emojis: None,
+				id,
+				name: name.into(),
+				icon: None,
+				banner: None,
+			});
+		}
+		let user = User {
+			id: Id(500),
+			name: "Tester".into(),
+			avatar: None,
+			webhook: false,
+			kind: Default::default(),
+			discriminator: 0,
+			username: None,
+			primary_guild: None,
+			cosmetics: None,
+		};
+		let mut data = synthetic(&user, None);
+		data.mutual_guilds = vec![
+			model::ProfileGuild {
+				id: Id(901),
+				nick: Some("Server Alias".into()),
+			},
+			model::ProfileGuild {
+				id: Id(902),
+				nick: None,
+			},
+			model::ProfileGuild {
+				id: Id(903),
+				nick: Some("   ".into()),
+			},
+			model::ProfileGuild {
+				id: Id(904),
+				nick: Some("Very Long Server Nickname That Also Truncates On One Line".into()),
+			},
+		];
+		let mut avatars = Avatars::default();
+		let container = Rect::from_min_size(Pos2::ZERO, vec2(MUTUALS_WIDTH, 300.0));
+		let mut painted = Vec::new();
+		let mut row_bounds = Vec::new();
+		for _ in 0..2 {
+			painted.clear();
+			row_bounds.clear();
+			let output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(400.0, 400.0))),
+					..Default::default()
+				},
+				|ui| {
+					let theme = Theme::new(&design::palette(ui), None);
+					ui.scope_builder(UiBuilder::new().max_rect(container), |ui| {
+						ui.set_width(MUTUALS_WIDTH);
+						ui.spacing_mut().item_spacing = vec2(0.0, 2.0);
+						let _ =
+							mutual_rows(ui, Mutuals::Servers, &data, &state, &mut avatars, &theme);
+					});
+				},
+			);
+			let mut stack: Vec<_> = output.shapes.iter().map(|clipped| &clipped.shape).collect();
+			while let Some(shape) = stack.pop() {
+				match shape {
+					egui::Shape::Text(text) => {
+						painted.push((text.galley.job.text.clone(), text.galley.rows.len()));
+						row_bounds.push(shape.visual_bounding_rect());
+					}
+					egui::Shape::Vec(shapes) => stack.extend(shapes),
+					_ => {}
+				}
+			}
+			output.drop_without_applying_deltas();
+		}
+		assert!(
+			painted.iter().any(|(text, _)| text == "Server Alias"),
+			"{painted:?}"
+		);
+		assert!(
+			!painted.iter().any(|(text, _)| text.trim().is_empty()),
+			"{painted:?}"
+		);
+		assert_eq!(
+			painted.len(),
+			10,
+			"expected 4 guild initials + 4 guild names + 2 non-empty nicks: {painted:?}"
+		);
+		assert!(painted.iter().all(|(_, rows)| *rows == 1), "{painted:?}");
+		for bounds in row_bounds {
+			assert!(
+				bounds.right() <= MUTUALS_WIDTH + 0.5 && bounds.bottom() <= container.bottom(),
+				"{bounds:?}"
+			);
+		}
+		let click_pos = pos2(80.0, MUTUAL_ROW * 0.5);
+		let mut clicked_action = None;
+		for events in [
+			vec![
+				egui::Event::PointerMoved(click_pos),
+				egui::Event::PointerButton {
+					pos: click_pos,
+					button: egui::PointerButton::Primary,
+					pressed: true,
+					modifiers: egui::Modifiers::NONE,
+				},
+			],
+			vec![egui::Event::PointerButton {
+				pos: click_pos,
+				button: egui::PointerButton::Primary,
+				pressed: false,
+				modifiers: egui::Modifiers::NONE,
+			}],
+		] {
+			let output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(400.0, 400.0))),
+					events,
+					..Default::default()
+				},
+				|ui| {
+					let theme = Theme::new(&design::palette(ui), None);
+					ui.scope_builder(UiBuilder::new().max_rect(container), |ui| {
+						ui.set_width(MUTUALS_WIDTH);
+						ui.spacing_mut().item_spacing = vec2(0.0, 2.0);
+						if let Some(action) =
+							mutual_rows(ui, Mutuals::Servers, &data, &state, &mut avatars, &theme)
+						{
+							clicked_action = Some(action);
+						}
+					});
+				},
+			);
+			output.drop_without_applying_deltas();
+		}
+		assert!(matches!(clicked_action, Some(Action::Server(Id(901)))));
 	}
 }
