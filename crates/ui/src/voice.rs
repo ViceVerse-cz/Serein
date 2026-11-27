@@ -2299,8 +2299,9 @@ impl MessagingUi {
 			return Err(reason.into());
 		}
 		if let Some(call) = &state.voice.active {
-			// A failed call has nothing left to keep, so it is ended without asking.
-			let failed = call.phase == Phase::Failed;
+			// A failed call has nothing left to keep, so it is ended without asking, and so is
+			// any call when the owner turned the confirmation off.
+			let skip_dialog = call.phase == Phase::Failed || self.skip_call_switch_confirmation;
 			self.voice_switch = Some(CallSwitch {
 				from: (call.channel, call.request),
 				channel,
@@ -2310,7 +2311,7 @@ impl MessagingUi {
 				audio,
 				open: None,
 			});
-			if failed && let Some(command) = state.leave_call() {
+			if skip_dialog && let Some(command) = state.leave_call() {
 				self.voice_switch
 					.as_mut()
 					.expect("pending switch")
@@ -3320,6 +3321,20 @@ impl MessagingUi {
 		.on_hover_text(crate::i18n::translate(
 			"voice-voice-processing-controls-mute-and-deafen-always-take-priority",
 		));
+		design::card_divider(ui);
+		let mut confirm = !self.skip_call_switch_confirmation;
+		if design::switch(
+			ui,
+			"voice-voice-processing-controls-confirm-before-switching-calls",
+			Some(
+				"voice-voice-processing-controls-ask-before-leaving-your-current-call-to-join-another",
+			),
+			&mut confirm,
+		)
+		.changed()
+		{
+			self.skip_call_switch_confirmation = !confirm;
+		}
 	}
 
 	/// Whether the local mute/deafen controls may emit commands for the active call.
@@ -5513,6 +5528,36 @@ mod tests {
 		);
 		assert_eq!((view.voice_muted, view.voice_deafened), (true, true));
 		assert!(commands.is_empty());
+
+		// With the confirmation turned off, the same request leaves at once and joins after the
+		// departure, through the path "Switch call" takes, without ever showing the dialog.
+		let joined = state
+			.voice
+			.active
+			.as_ref()
+			.map(|call| (call.channel, call.request));
+		assert_eq!(joined.map(|(channel, _)| channel), Some(Id(25)));
+		view.skip_call_switch_confirmation = true;
+		view.voice_switch_ready = false;
+		view.request_call(&mut state, origin.0, false, &mut commands);
+		assert!(matches!(
+			&commands[..],
+			[Command::Voice(client_core::voice::Command::Leave { .. })]
+		));
+		assert!(view.voice_switch.as_ref().unwrap().confirmed_at.is_some());
+		commands.clear();
+		let (channel, request) = joined.unwrap();
+		state.apply_voice(client_core::voice::Event::Departed { channel, request });
+		// The join still waits for local audio teardown, as after "Switch call".
+		view.show_call_switch(&ctx, &mut state, &mut commands);
+		assert!(commands.is_empty());
+		view.voice_switch_ready = true;
+		view.show_call_switch(&ctx, &mut state, &mut commands);
+		assert!(matches!(
+			&commands[..],
+			[Command::Voice(client_core::voice::Command::Join { channel, .. })] if *channel == origin.0
+		));
+		assert!(view.voice_switch.is_none());
 	}
 
 	#[test]

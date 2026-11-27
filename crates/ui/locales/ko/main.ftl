@@ -4383,6 +4383,10 @@ voice-voice-processing-controls-open-microphone-mute-and-push-to-talk-still-appl
 # Context: voice_processing_controls
 voice-voice-processing-controls-push-to-talk = 눌러서 말하기
 # Context: voice_processing_controls
+voice-voice-processing-controls-confirm-before-switching-calls = 통화를 전환하기 전에 확인
+# Context: voice_processing_controls
+voice-voice-processing-controls-ask-before-leaving-your-current-call-to-join-another = 현재 통화에서 나가 다른 통화에 참여하기 전에 확인합니다.
+# Context: voice_processing_controls
 voice-voice-processing-controls-reduce-speaker-audio-picked-up-by-your-microphone = 마이크에 들어오는 스피커 소리를 줄입니다.
 # Context: voice_processing_controls
 voice-voice-processing-controls-removes-keyboard-fan-and-room-noise-from-your-microphone = 마이크의 키보드, 팬, 실내 잡음을 제거합니다.

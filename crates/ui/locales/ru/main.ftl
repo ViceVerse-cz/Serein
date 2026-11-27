@@ -4328,6 +4328,10 @@ voice-voice-processing-controls-open-microphone-mute-and-push-to-talk-still-appl
 # Context: voice_processing_controls
 voice-voice-processing-controls-push-to-talk = Нажмите, чтобы поговорить
 # Context: voice_processing_controls
+voice-voice-processing-controls-confirm-before-switching-calls = Подтверждать переключение между звонками
+# Context: voice_processing_controls
+voice-voice-processing-controls-ask-before-leaving-your-current-call-to-join-another = Спрашивать перед выходом из текущего звонка для подключения к другому.
+# Context: voice_processing_controls
 voice-voice-processing-controls-reduce-speaker-audio-picked-up-by-your-microphone = Уменьшите звук динамика, улавливаемый микрофоном.
 # Context: voice_processing_controls
 voice-voice-processing-controls-removes-keyboard-fan-and-room-noise-from-your-microphone = Удаляет шум клавиатуры, вентилятора и комнаты с микрофона.

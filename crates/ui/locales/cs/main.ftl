@@ -4353,6 +4353,10 @@ voice-voice-processing-controls-open-microphone-mute-and-push-to-talk-still-appl
 # Context: voice_processing_controls
 voice-voice-processing-controls-push-to-talk = Push to talk
 # Context: voice_processing_controls
+voice-voice-processing-controls-confirm-before-switching-calls = Potvrdit před přepnutím hovorů
+# Context: voice_processing_controls
+voice-voice-processing-controls-ask-before-leaving-your-current-call-to-join-another = Zeptat se před opuštěním aktuálního hovoru kvůli připojení k jinému.
+# Context: voice_processing_controls
 voice-voice-processing-controls-reduce-speaker-audio-picked-up-by-your-microphone = Snižte zvuk reproduktoru zachycovaný vaším mikrofonem.
 # Context: voice_processing_controls
 voice-voice-processing-controls-removes-keyboard-fan-and-room-noise-from-your-microphone = Odstraňuje hluk z klávesnice, ventilátoru a místnosti z mikrofonu.

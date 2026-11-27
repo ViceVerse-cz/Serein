@@ -748,8 +748,8 @@ sampling pauses while it applies, and the user's own size, position and maximize
 memory from when the first plugin size took over, return once no plugin asks.
 Notification opt-in, hidden-channel visibility, primary RGB color, audio devices (up to 1,024 bytes each),
 input profile/custom processing, push-to-talk, gain, keyboard and mouse-button bindings (including up to 32
-extra custom bindings) and the global-keybind
-switch (enabled by default) are saved in the device-wide `app_preferences`
+extra custom bindings), the global-keybind switch (enabled by default) and the confirm-before-switching-calls
+switch (enabled by default, including older saved preferences) are saved in the device-wide `app_preferences`
 SQLite singleton (16 KiB maximum), using the existing background worker. The GPU preference
 and graphics API are fixed enum values in this same device-local record. Unknown API
 keys from newer builds fall back to Automatic without rejecting the other settings. The Linux
@@ -886,6 +886,7 @@ The owner explicitly withdrew the no-storage policy on 2026-09-09. Local files, 
 | SQLite working files | DELETE journal mode, in-memory temporary tables, 2 MiB page cache; transaction journal may temporarily add disk usage | SQLite transaction completion; normal SQLite crash recovery |
 | Voice credentials, DAVE identities/keys and PCM/Opus audio | Session memory only; one call, bounded media queues; no recording or audio cache | Hangup, failure, logout and application teardown; no forensic-erasure claim |
 | Audio devices, input profile/custom processing, push-to-talk and gain | Device-wide `app_preferences` SQLite singleton, bounded to 16 KiB; device names ≤1,024 bytes each | Retained across restart/logout; demo changes remain in memory |
+| Confirm before switching calls | Boolean `confirm_call_switch` in the existing device-wide `app_preferences` singleton; defaults on, including older saved preferences | Retained across restart/logout; off joins another call without the "Switch calls?" prompt; demo changes remain in memory |
 | Automatic emoticon conversion | Boolean in the existing device-wide `app_preferences` singleton; defaults off, including older saved preferences | Retained across restart/logout; converts standalone emoticons on message send/edit; demo changes remain in memory |
 | Preload on hover | Boolean in the existing device-wide `app_preferences` singleton; defaults off (the official client sends no such requests); a value already saved is kept, and preferences saved before the setting existed read as off | Retained across restart/logout; off stops conversation, profile and GIF picker preloads; demo never preloads conversations or profiles |
 | Collapsed message requests | Boolean in the existing device-wide `app_preferences` singleton; defaults open, including older saved preferences | Retained across restart/logout; only the home list section folds, pending requests remain accessible from its header |
