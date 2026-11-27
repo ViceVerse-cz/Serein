@@ -1352,6 +1352,18 @@ fn access_candidates(state: &State, event: &Event) -> Vec<model::Id> {
 		.map(|c| c.id)
 		.collect()
 }
+/// Events that permanently revoke access to cached history, so the account-wide clear that
+/// follows is justified. A gateway resync revokes nothing: a reconnect READY replaces navigation
+/// and permissions, and real removals still reach the clear through `access_candidates`.
+/// Treating a routine reconnect as invalidation wiped the whole local cache on every sleep/wake
+/// or network blip (issue #1165).
+fn wipes_history(state: &State, event: &Event) -> bool {
+	matches!(event, Event::PermissionsChanged | Event::Unavailable(_))
+		|| matches!(event, Event::RecipientRemoved { user, .. } if state.user.as_ref().is_some_and(|owner| owner.id == *user))
+		|| matches!(event, Event::Reactions(client_core::reactions::Event::Read {channel,result:Err(Failure::Forbidden),..}) if state.selected==Some(*channel))
+		|| matches!(event, Event::HistoryFailed { channel, request, failure: Failure::Forbidden }
+			if state.selected == Some(*channel) && state.request == state.history_request(*request) && state.history_pending)
+}
 fn user_action_notice(event: &Event) -> Option<(ui::design::Level, &'static str)> {
 	let Event::UserAction(client_core::user_actions::Event::Written { action, result, .. }) = event
 	else {
@@ -5532,13 +5544,7 @@ impl Desktop {
 			};
 			let mut removed_channels = access_candidates(&self.state, &event.event);
 			removed_channels.retain(|id| self.state.can_read_history(*id));
-			let invalidate = matches!(
-				event.event,
-				Event::Resync | Event::PermissionsChanged | Event::Unavailable(_)
-			) || matches!(&event.event, Event::RecipientRemoved { user, .. } if self.state.user.as_ref().is_some_and(|owner| owner.id == *user))
-				|| matches!(&event.event, Event::Reactions(client_core::reactions::Event::Read {channel,result:Err(Failure::Forbidden),..}) if self.state.selected==Some(*channel))
-				|| matches!(&event.event, Event::HistoryFailed { channel, request, failure: Failure::Forbidden }
-                if self.state.selected == Some(*channel) && self.state.request == self.state.history_request(*request) && self.state.history_pending);
+			let invalidate = wipes_history(&self.state, &event.event);
 			let history_changed = changes_active_history(&self.state, &event.event);
 			if history_changed {
 				match &event.event {
@@ -7742,6 +7748,31 @@ fn plaintext_login_dir() -> Option<std::path::PathBuf> {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[test]
+	fn gateway_resync_keeps_cached_history_while_revoked_access_still_clears_it() {
+		let mut state = test_support::demo_state();
+		// A reconnect after READY revokes nothing, so it must not erode the account's cache.
+		assert!(!wipes_history(&state, &Event::Resync));
+		assert!(!wipes_history(&state, &Event::Resumed));
+		// Access loss keeps the account-wide clear that real removals already queue.
+		assert!(wipes_history(&state, &Event::PermissionsChanged));
+		assert!(wipes_history(&state, &Event::Unavailable(model::Id(7))));
+		let channel = state.selected.unwrap();
+		state.history_pending = true;
+		let request = state.request;
+		let forbidden = |channel, request| Event::HistoryFailed {
+			channel,
+			request,
+			failure: Failure::Forbidden,
+		};
+		assert!(wipes_history(&state, &forbidden(channel, request)));
+		// A forbidden read of another conversation, or one nobody awaits, is not a revocation.
+		state.selected = Some(model::Id(8));
+		assert!(!wipes_history(&state, &forbidden(channel, request)));
+		state.selected = Some(channel);
+		state.history_pending = false;
+		assert!(!wipes_history(&state, &forbidden(channel, request)));
+	}
 	#[test]
 	fn minimizing_keeps_attachment_audio_playing() {
 		use MediaStop::{Everything, Nothing, VideoOnly};

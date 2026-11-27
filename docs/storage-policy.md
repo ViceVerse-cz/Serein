@@ -1076,6 +1076,11 @@ reset releases the cache. No catalog strings or image pixels are duplicated.
 
 Channel obfuscation and accepted READY removals invalidate inaccessible history using the existing
 account-wide ClearHistory operation; readable-to-unsupported channel changes count as removal.
+A gateway resync after READY is not a removal: it used to wipe the account's cached history on every
+reconnect, sleep/wake or network blip, while the replacement READY snapshot already re-derives what
+stays readable and cached history still hydrates only behind current navigation and permission
+decisions. Revocations that arrive as permission, unavailability or thread-removal events, or as a
+readable-to-unsupported change, still queue the clear.
 This deliberately trades a broader history refetch for no new per-channel deletion API. Cache
 hydration requires the current request, a pending empty loading view, a loaded text channel and
 matching message channel IDs. Late disk/HTTP responses cannot refill a revoked view. Drafts remain
