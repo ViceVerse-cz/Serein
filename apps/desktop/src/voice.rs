@@ -78,7 +78,10 @@ struct Pending {
 	guild: Option<Id>,
 	session: Option<Secret>,
 	negotiation_revision: Option<u64>,
+	/// Revision of the source transport. Its server allocation cannot be reused.
+	move_from_revision: Option<u64>,
 	server: Option<(Secret, String)>,
+	server_received: Option<Instant>,
 	started: Instant,
 	failed_candidate: bool,
 }
@@ -120,12 +123,14 @@ impl Pending {
 			voice::Event::Server {
 				request,
 				channel,
+				negotiation_revision,
 				token,
 				endpoint,
 				..
 			} => {
 				*request == self.request
 					&& *channel == self.channel
+					&& !self.old_move_server(*negotiation_revision)
 					&& self.server.as_ref().is_none_or(|(old, address)| {
 						token
 							.as_ref()
@@ -135,6 +140,27 @@ impl Pending {
 			}
 			_ => false,
 		}
+	}
+
+	fn old_move_server(&self, revision: Option<u64>) -> bool {
+		self.move_from_revision.is_some() && self.move_from_revision == revision
+	}
+
+	fn retarget_move(&mut self, channel: Id) {
+		self.channel = channel;
+		// Guild allocations generally omit the destination channel. While this transport is
+		// unconfirmed, a recent allocation may belong to the move that just reached us.
+		// Keep the candidate for renegotiation without treating it as the old transport.
+		if self
+			.server_received
+			.is_none_or(|at| at.elapsed() >= MOVE_GRACE)
+		{
+			self.server = None;
+			self.server_received = None;
+			self.negotiation_revision = None;
+		}
+		self.failed_candidate = false;
+		self.started = Instant::now();
 	}
 }
 enum Notice {
@@ -156,8 +182,8 @@ struct Live {
 	cues: CallCues,
 	session: Zeroizing<String>,
 	negotiation_revision: u64,
-	/// When Discord last moved this session to another channel; its voice server may follow.
-	moved: Option<Instant>,
+	/// A guild allocation may arrive before the same-session move that explains it.
+	early_server: Option<EarlyServer>,
 	/// When Discord closed the voice socket, while the gateway may still report a move.
 	closed: Option<Instant>,
 	// Retained only until Gateway acknowledges the server-accepted local transport candidate.
@@ -182,6 +208,12 @@ struct Live {
 	remote_video: Arc<std::sync::Mutex<RemotePictures>>,
 	/// Decoded audio of a watched stream, mixed into this call's playback.
 	stream_audio: mpsc::SyncSender<discord_voice::PlaybackFrame>,
+}
+
+struct EarlyServer {
+	received: Instant,
+	revision: Option<u64>,
+	server: Option<(Secret, String)>,
 }
 
 #[derive(Default)]
@@ -332,7 +364,6 @@ const REJOIN_STABLE: Duration = Duration::from_secs(30);
 const REJOIN_DEPARTURE_TIMEOUT: Duration = Duration::from_secs(5);
 /// How long after a move Discord may still close the old voice socket or name a new server
 /// (unverified; both arrive within moments).
-const MOVE_WINDOW: Duration = Duration::from_secs(10);
 /// A moved session's old socket can close before the gateway reports the move (unverified
 /// order); the close counts as a removal only once this has passed without one.
 const MOVE_GRACE: Duration = Duration::from_secs(2);
@@ -526,7 +557,9 @@ impl Voice {
 			ring: ring && channel.guild.is_none(),
 			session: None,
 			negotiation_revision: None,
+			move_from_revision: None,
 			server: None,
+			server_received: None,
 			started: Instant::now(),
 			failed_candidate: false,
 		});
@@ -580,25 +613,15 @@ impl Voice {
 			request,
 		} = event
 		{
-			if let Some(live) = self.live.as_mut().filter(|live| {
+			if self.live.as_ref().is_some_and(|live| {
 				(live.generation, live.channel, live.request) == (state.generation, *from, *request)
 			}) {
-				live.channel = *channel;
-				live.moved = Some(Instant::now());
-				if let Some(negotiation) = &mut live.negotiation {
-					negotiation.channel = *channel;
-				}
+				self.follow_move(state, *channel);
 			} else if let Some(pending) = self.pending.as_mut().filter(|pending| {
 				(pending.generation, pending.channel, pending.request)
 					== (state.generation, *from, *request)
 			}) {
-				// Moved again while media was restarting for the previous move: keep the
-				// session, and wait for the voice server Discord names for this channel.
-				pending.channel = *channel;
-				pending.server = None;
-				pending.negotiation_revision = None;
-				pending.failed_candidate = false;
-				pending.started = Instant::now();
+				pending.retarget_move(*channel);
 			}
 			return None;
 		}
@@ -692,8 +715,7 @@ impl Voice {
 			self.stop();
 			self.pending = pending;
 		}
-		let mut server_changed = false;
-		if let Some(live) = &self.live {
+		if let Some(live) = &mut self.live {
 			match event {
 				voice::Event::State {
 					request: Some(request),
@@ -714,20 +736,45 @@ impl Voice {
 					}
 				}
 				voice::Event::Server {
-					request, channel, ..
+					request,
+					channel,
+					negotiation_revision,
+					token,
+					endpoint,
 				} if live.generation == state.generation
 					&& *request == live.request
 					&& *channel == live.channel
 					&& live.negotiation.is_none() =>
 				{
-					server_changed = true;
+					if !state
+						.voice
+						.active
+						.as_ref()
+						.is_some_and(|call| call.guild.is_some())
+					{
+						return Some("Voice server changed; start a new encrypted call");
+					}
+					if *negotiation_revision == Some(live.negotiation_revision) {
+						return None;
+					}
+					let received = live
+						.early_server
+						.as_ref()
+						.filter(|early| early.revision == *negotiation_revision)
+						.map_or_else(Instant::now, |early| early.received);
+					live.early_server = Some(EarlyServer {
+						received,
+						revision: *negotiation_revision,
+						server: token.take().zip(endpoint.take()),
+					});
+					live.audio.set_ready(false);
+					self.screen.stop();
+					self.watch.stop();
+					self.stop_camera();
+					return None;
 				}
 				_ => {}
 			}
-		}
-		// A move's new voice server is taken below, by the negotiation that follows the move.
-		if server_changed && !self.follow_move(state) {
-			return Some("Voice server changed; start a new encrypted call");
 		}
 		let pending = self.pending.as_mut()?;
 		if pending.generation != state.generation
@@ -768,10 +815,14 @@ impl Voice {
 				token,
 				endpoint,
 				negotiation_revision,
-			} if *request == pending.request && *channel == pending.channel => {
+			} if *request == pending.request
+				&& *channel == pending.channel
+				&& !pending.old_move_server(*negotiation_revision) =>
+			{
 				pending.negotiation_revision = *negotiation_revision;
 				let Some(endpoint) = endpoint.take() else {
 					pending.server = None;
+					pending.server_received = None;
 					let _ = token.take();
 					return None;
 				};
@@ -779,43 +830,57 @@ impl Voice {
 					return Some("Discord omitted the voice connection token");
 				};
 				pending.server = Some((token, endpoint));
+				if changed || pending.server_received.is_none() {
+					pending.server_received = Some(Instant::now());
+				}
 				note(Level::Info, "voice server received", &[]);
 			}
 			_ => {}
 		}
 		None
 	}
-	/// Discord moved this session a moment ago and is replacing its voice server: restart media
-	/// for the new channel with the same session. A join would be ignored, and a leave would
-	/// drop the account from a channel it may not be able to enter by itself.
-	fn follow_move(&mut self, state: &State) -> bool {
-		let Some(live) = self.live.as_ref().filter(|live| {
-			live.generation == state.generation
-				&& live.moved.is_some_and(|at| at.elapsed() < MOVE_WINDOW)
-		}) else {
-			return false;
-		};
-		let Ok(session) = Secret::new(live.session.to_string()) else {
-			return false;
-		};
+	/// Restart media for the new channel without sending a leave or another join.
+	fn follow_move(&mut self, state: &State, channel: Id) {
+		let live = self.live.as_mut().expect("matched move source");
+		if live
+			.negotiation
+			.as_ref()
+			.is_some_and(|pending| pending.move_from_revision.is_some())
+		{
+			let mut pending = live.negotiation.take().expect("in-progress move");
+			pending.retarget_move(channel);
+			self.stop();
+			self.pending = Some(pending);
+			return;
+		}
+		let session = Secret::new(live.session.to_string()).expect("validated voice session");
+		let early = live
+			.early_server
+			.take()
+			.filter(|early| early.received.elapsed() < MOVE_GRACE);
+		let (negotiation_revision, server_received, server) = early
+			.map_or((None, None, None), |early| {
+				(early.revision, Some(early.received), early.server)
+			});
 		let pending = Pending {
 			generation: live.generation,
-			channel: live.channel,
+			channel,
 			request: live.request,
 			ring: false,
 			user: live.user,
 			peer: live.peer,
 			guild: state.voice.active.as_ref().and_then(|call| call.guild),
 			session: Some(session),
-			negotiation_revision: None,
-			server: None,
+			negotiation_revision,
+			move_from_revision: Some(live.negotiation_revision),
+			server,
+			server_received,
 			started: Instant::now(),
 			failed_candidate: false,
 		};
 		note(Level::Info, "following channel move", &[]);
 		self.stop();
 		self.pending = Some(pending);
-		true
 	}
 	fn end_control(&self, channel: Id, request: u64) -> Command {
 		let established = self.live.as_ref().is_some_and(|live| {
@@ -843,11 +908,6 @@ impl Voice {
 	/// Media for the active call failed. A call this device had joined rejoins automatically
 	/// within the attempt budget; anything else fails as before.
 	pub fn fail_or_rejoin(&mut self, state: &mut State, message: &'static str) -> Option<Command> {
-		// Discord closes the old voice socket when it moves a session; the server it names next
-		// carries the call on.
-		if message == discord_voice::DISCONNECTED_BY_DISCORD && self.follow_move(state) {
-			return None;
-		}
 		let call = state.voice.active.as_ref()?;
 		let (channel, request, camera) = (call.channel, call.request, call.camera);
 		let joined = self.live.as_ref().is_some_and(|live| {
@@ -1105,11 +1165,11 @@ impl Voice {
 			ui.voice_camera_available = false;
 			ui.voice_camera_preview = None;
 			ui.voice_camera_status = "";
-			ui.voice_privacy_code = None;
 		}
 		// Remote camera textures exist only for live media and are always dropped together
 		// with the ids the view borrows, so no tile can draw a freed texture.
 		if expected.is_none() || self.live.is_none() {
+			ui.voice_privacy_code = None;
 			ui.voice_remote_video.clear();
 			self.remote_textures.clear();
 		}
@@ -1209,6 +1269,20 @@ impl Voice {
 		}
 		let mut failure = None;
 		let mut command = None;
+		if let Some(early) = self
+			.live
+			.as_ref()
+			.and_then(|live| live.early_server.as_ref())
+		{
+			ui.voice_privacy_code = None;
+			ui.voice_remote_video.clear();
+			let elapsed = early.received.elapsed();
+			if elapsed >= MOVE_GRACE {
+				return self.fail(state, "Voice server changed; start a new encrypted call");
+			}
+			ctx.request_repaint_after(MOVE_GRACE - elapsed);
+			return None;
+		}
 		if let Some(live) = &mut self.live {
 			let call = state.voice.active.as_ref().expect("matching active call");
 			let deafened = call.deafened || call.server_deafened;
@@ -1495,8 +1569,6 @@ impl Voice {
 				.as_ref()
 				.is_some_and(|call| call.guild.is_some())
 			&& let Some(live) = self.live.as_mut()
-			// A move that kept its socket long ago says nothing about this close.
-			&& live.moved.is_none_or(|at| at.elapsed() >= MOVE_WINDOW)
 		{
 			let waited = live.closed.get_or_insert_with(Instant::now).elapsed();
 			if waited < MOVE_GRACE {
@@ -2111,7 +2183,7 @@ impl Voice {
 			camera_clock: Instant::now(),
 			remote_video,
 			stream_audio,
-			moved: None,
+			early_server: None,
 			closed: None,
 			negotiation: Some(pending),
 		});
@@ -3078,6 +3150,192 @@ mod tests {
 	}
 
 	#[test]
+	fn server_move_restarts_media_with_the_destination_allocation_in_either_order() {
+		let runtime = Runtime::new().unwrap();
+		for (server_first, negotiating) in [(false, false), (true, false), (true, true)] {
+			let mut state = test_support::voice_demo_state();
+			state.demo = false;
+			state.gateway_connected = true;
+			let call = state.voice.active.as_mut().unwrap();
+			let from = call.channel;
+			let request = call.request;
+			let destination = Id(37);
+			let generation = state.generation;
+			let make_live = |channel, revision, negotiation| {
+				let (capture, _) = mpsc::sync_channel(1);
+				let (_, playback) = mpsc::sync_channel(1);
+				let audio = Audio::start(Devices::default(), capture, playback, |_| {}).unwrap();
+				let (controls, _) = watch::channel(Controls::default());
+				let (_, events) = mpsc::sync_channel(1);
+				let (_, speakers) = watch::channel([0; 64]);
+				let (_, latency) = watch::channel(ui::VoiceLatency::default());
+				let (camera_frames, _) = mpsc::sync_channel(1);
+				let (stream_audio, _) = mpsc::sync_channel(1);
+				Live {
+					generation,
+					channel,
+					request,
+					user: Id(1),
+					peer: None,
+					ring_pending: false,
+					cues: CallCues::default(),
+					session: Zeroizing::new("synthetic-session".into()),
+					negotiation_revision: revision,
+					early_server: None,
+					closed: None,
+					negotiation,
+					media_ready: false,
+					waiting_for_peer: false,
+					identity: discord_voice::Identity::generate(),
+					audio,
+					controls,
+					events,
+					failure: Arc::new(OnceLock::new()),
+					speakers,
+					latency,
+					task: runtime.spawn(std::future::pending()),
+					devices: Devices::default(),
+					device_deadline: None,
+					camera_frames,
+					camera_negotiated: false,
+					camera_clock: Instant::now(),
+					remote_video: Arc::new(std::sync::Mutex::new(Vec::new())),
+					stream_audio,
+				}
+			};
+			let mut manager = Voice::default();
+			manager.live = Some(make_live(from, 2, None));
+			let server = |channel, revision| {
+				Event::Voice(voice::Event::Server {
+					request,
+					channel,
+					negotiation_revision: Some(revision),
+					token: Some(Secret::new(format!("synthetic-token-{revision}")).unwrap()),
+					endpoint: Some("voice.discord.media".into()),
+				})
+			};
+			assert!(manager.observe(&state, &mut server(from, 2)).is_none());
+			if server_first {
+				assert!(manager.observe(&state, &mut server(from, 3)).is_none());
+				let expired = Instant::now() - MOVE_GRACE;
+				manager
+					.live
+					.as_mut()
+					.unwrap()
+					.early_server
+					.as_mut()
+					.unwrap()
+					.received = expired;
+				assert!(manager.observe(&state, &mut server(from, 3)).is_none());
+				assert_eq!(
+					manager
+						.live
+						.as_ref()
+						.unwrap()
+						.early_server
+						.as_ref()
+						.unwrap()
+						.received,
+					expired
+				);
+				assert!(manager.observe(&state, &mut server(from, 4)).is_none());
+			}
+			let moved = || voice::Event::Moved {
+				from,
+				channel: destination,
+				request,
+			};
+			assert!(
+				manager
+					.observe(&state, &mut Event::Voice(moved()))
+					.is_none()
+			);
+			state.apply_voice(moved());
+			let call = state.voice.active.as_ref().unwrap();
+			assert_eq!((call.channel, call.phase), (destination, Phase::Connecting));
+			assert!(manager.live.is_none() && manager.retiring.is_some());
+			assert!(
+				manager
+					.observe(&state, &mut server(destination, 2))
+					.is_none()
+			);
+			assert!(
+				manager
+					.pending
+					.as_ref()
+					.unwrap()
+					.confirm_transport(2)
+					.is_none()
+			);
+			if !server_first {
+				assert!(manager.pending.as_ref().unwrap().server.is_none());
+				assert!(
+					manager
+						.observe(&state, &mut server(destination, 4))
+						.is_none()
+				);
+			}
+			let pending = manager.pending.as_ref().unwrap();
+			assert_eq!(
+				pending.session.as_ref().unwrap().expose(),
+				"synthetic-session"
+			);
+			assert_eq!(
+				pending.server.as_ref().unwrap().0.expose(),
+				"synthetic-token-4"
+			);
+			assert!(
+				matches!(pending.confirm_transport(4), Some(Command::Voice(voice::Command::ConfirmSession {
+				channel, request: confirmed, revision: 4,
+			})) if channel == destination && confirmed == request)
+			);
+
+			if server_first {
+				// The gateway still tags this allocation with the first destination.
+				assert!(
+					manager
+						.observe(&state, &mut server(destination, 5))
+						.is_none()
+				);
+			} else {
+				manager.pending.as_mut().unwrap().server_received =
+					Some(Instant::now() - MOVE_GRACE);
+			}
+			if negotiating {
+				manager.retiring = None;
+				manager.live = Some(make_live(destination, 5, manager.pending.take()));
+			}
+			let second_move = || voice::Event::Moved {
+				from: destination,
+				channel: from,
+				request,
+			};
+			assert!(
+				manager
+					.observe(&state, &mut Event::Voice(second_move()))
+					.is_none()
+			);
+			state.apply_voice(second_move());
+			assert!(manager.live.is_none());
+			if !server_first {
+				assert!(manager.pending.as_ref().unwrap().server.is_none());
+				assert!(manager.observe(&state, &mut server(from, 5)).is_none());
+			}
+			assert!(manager.observe(&state, &mut server(from, 2)).is_none());
+			let pending = manager.pending.as_ref().unwrap();
+			assert_eq!(
+				pending.server.as_ref().unwrap().0.expose(),
+				"synthetic-token-5"
+			);
+			assert!(
+				matches!(pending.confirm_transport(5), Some(Command::Voice(voice::Command::ConfirmSession {
+				channel, request: confirmed, revision: 5,
+			})) if channel == from && confirmed == request)
+			);
+		}
+	}
+
+	#[test]
 	fn confirmation_failure_stops_live_unconfirmed_transport_and_audio_worker() {
 		// The audio worker stays behind its initial ready=false gate throughout this test:
 		// it never enumerates/opens devices. The transport is only a pending local task.
@@ -3144,7 +3402,7 @@ mod tests {
 			cues: CallCues::default(),
 			session: Zeroizing::new("synthetic-session".into()),
 			negotiation_revision: 2,
-			moved: None,
+			early_server: None,
 			closed: None,
 			negotiation: Some(pending),
 			media_ready: false,

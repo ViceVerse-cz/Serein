@@ -877,6 +877,8 @@ impl ClientState {
 				{
 					call.channel = channel;
 					call.channel_started_at = None;
+					call.phase = Phase::Connecting;
+					call.connected_at = None;
 					// Video belongs to the channel left behind; the microphone choice stays.
 					call.camera = false;
 					call.watching = None;
