@@ -285,13 +285,12 @@ impl Audio {
 							worker_gate.clone(),
 							revision,
 							recovery_attempts > 0,
+							&mut rebuild_devices_for_input,
 						) {
 							Ok(value) => {
 								if !worker_gate.acknowledge(revision) {
 									continue;
 								}
-								// A microphone missing at open still earns its input-first rebuild.
-								rebuild_devices_for_input |= value.input_missing;
 								streams = Some((revision, value));
 								worker_gate.echo_reset.store(true, Ordering::Release);
 								worker_gate.devices_missing.store(false, Ordering::Release);
@@ -638,20 +637,19 @@ fn heard_microphone(rebuild_devices: &mut bool, input_age: Duration, failed: boo
 	}
 }
 
-/// Opens the pair's microphone and reports whether none could be selected. Both failures
-/// still mark the microphone unavailable; only a missing one earns an input-first rebuild.
+/// Opens the pair's microphone. Both failures mark the microphone unavailable; only one
+/// that could not be selected earns an input-first rebuild when it returns.
 fn open_microphone<D, T>(
 	gate: &Gate,
 	revision: u64,
+	rebuild_devices: &mut bool,
 	select: impl FnOnce() -> Result<D, &'static str>,
 	open: impl FnOnce(D) -> Result<T, &'static str>,
-) -> (Result<T, &'static str>, bool) {
-	let mut missing = false;
-	let opened = gate.reopen_input(revision, || {
-		let device = select().inspect_err(|_| missing = true)?;
+) -> Result<T, &'static str> {
+	gate.reopen_input(revision, || {
+		let device = select().inspect_err(|_| *rebuild_devices = true)?;
 		open(device)
-	});
-	(opened, missing)
+	})
 }
 
 fn microphone_retry<T>(
@@ -690,8 +688,6 @@ struct Streams {
 	input_callbacks: u64,
 	input_activity: Instant,
 	input_opened: Instant,
-	/// The pair opened while no microphone could be selected.
-	input_missing: bool,
 	_input: Option<cpal::Stream>,
 	_output: cpal::Stream,
 	input: rtrb::Consumer<Frame>,
@@ -707,6 +703,7 @@ impl Streams {
 		gate: Arc<Gate>,
 		revision: u64,
 		prefer_default: bool,
+		rebuild_devices: &mut bool,
 	) -> Result<Self, &'static str> {
 		let mut candidates = [
 			settings.clone(),
@@ -725,7 +722,7 @@ impl Streams {
 				continue;
 			}
 			attempted.push(candidate.clone());
-			match Self::open(&candidate, gate.clone(), revision) {
+			match Self::open(&candidate, gate.clone(), revision, rebuild_devices) {
 				Ok(streams) => return Ok(streams),
 				Err(error) => last_error = error,
 			}
@@ -751,7 +748,12 @@ impl Streams {
 			id(self.host.default_input_device())
 		})
 	}
-	fn open(settings: &Devices, gate: Arc<Gate>, revision: u64) -> Result<Self, &'static str> {
+	fn open(
+		settings: &Devices,
+		gate: Arc<Gate>,
+		revision: u64,
+		rebuild_devices: &mut bool,
+	) -> Result<Self, &'static str> {
 		if gate.stopped.load(Ordering::Acquire)
 			|| !gate.ready.load(Ordering::Acquire)
 			|| gate.revision.load(Ordering::Acquire) != revision
@@ -759,16 +761,14 @@ impl Streams {
 			return Err("Call changed before audio devices could open");
 		}
 		let host = cpal::default_host();
-		let mut input_missing = false;
 		let (input_stream, input_read, input_id) = if gate.input_enabled.load(Ordering::Acquire) {
-			let (opened, missing) = open_microphone(
+			match open_microphone(
 				&gate,
 				revision,
+				rebuild_devices,
 				|| choose(&host, settings.input.as_deref(), true),
 				|input| open_input_stream(&host, &input, &gate, revision),
-			);
-			input_missing = missing;
-			match opened {
+			) {
 				Ok((stream, read, id)) => (Some(stream), read, id),
 				Err(_) => (None, rtrb::RingBuffer::new(8).1, None),
 			}
@@ -825,7 +825,6 @@ impl Streams {
 			input_callbacks: gate.input_callbacks.load(Ordering::Acquire),
 			input_activity: Instant::now(),
 			input_opened: Instant::now(),
-			input_missing,
 			_input: input_stream,
 			_output: output_stream,
 			input: input_read,
@@ -1724,27 +1723,35 @@ mod tests {
 		assert!(rebuild_devices);
 		rebuild_devices = false;
 		// A selected microphone that fails to open with the pair stays on input-only retries.
-		let (opened, missing) =
-			open_microphone::<_, ()>(&gate, revision(), || Ok("headset"), |_| Err("busy"));
-		assert!(opened.is_err() && !missing);
+		let opened = open_microphone::<_, ()>(
+			&gate,
+			revision(),
+			&mut rebuild_devices,
+			|| Ok("headset"),
+			|_| Err("busy"),
+		);
+		assert!(opened.is_err() && !rebuild_devices);
 		assert_eq!(
 			gate.input_failed_revision.load(Ordering::Acquire),
 			revision()
 		);
-		rebuild_devices |= missing;
 		assert!(matches!(
 			microphone_retry(Some("headset"), &mut rebuild_devices, &gate, revision()),
 			MicrophoneRetry::ReopenInput("headset")
 		));
 		// A microphone missing when the pair opens gets the input-first rebuild on return.
-		let (opened, missing) =
-			open_microphone::<&str, ()>(&gate, revision(), || Err("missing"), |_| Ok(()));
-		assert!(opened.is_err() && missing);
+		let opened = open_microphone::<&str, ()>(
+			&gate,
+			revision(),
+			&mut rebuild_devices,
+			|| Err("missing"),
+			|_| Ok(()),
+		);
+		assert!(opened.is_err());
 		assert_eq!(
 			gate.input_failed_revision.load(Ordering::Acquire),
 			revision()
 		);
-		rebuild_devices |= missing;
 		let pair = revision();
 		assert!(matches!(
 			microphone_retry(Some("headset"), &mut rebuild_devices, &gate, pair),
