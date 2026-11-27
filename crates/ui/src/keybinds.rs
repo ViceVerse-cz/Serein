@@ -56,7 +56,6 @@ pub(super) fn show(
 	bindings: &mut Keybinds,
 	capturing: &mut Option<CaptureTarget>,
 	global_status: &str,
-	side_down: u8,
 ) {
 	section(
 		ui,
@@ -98,7 +97,7 @@ pub(super) fn show(
 		bindings,
 		capturing,
 	);
-	show_voice(ui, bindings, capturing, global_status, side_down);
+	show_voice(ui, bindings, capturing, global_status);
 	ui.add_space(10.0);
 	custom_section(ui, bindings, capturing);
 }
@@ -108,7 +107,6 @@ pub(super) fn show_voice(
 	bindings: &mut Keybinds,
 	capturing: &mut Option<CaptureTarget>,
 	global_status: &str,
-	side_down: u8,
 ) {
 	let colors = design::palette(ui);
 	voice_section(ui, bindings, capturing);
@@ -140,7 +138,7 @@ pub(super) fn show_voice(
 	if bindings.global_enabled {
 		design::hint(ui, global_status);
 	}
-	capture(ui, bindings, capturing, side_down);
+	capture(ui, bindings, capturing);
 }
 
 fn voice_section(
@@ -180,29 +178,45 @@ impl Default for ConflictNotice {
 #[derive(Clone, Copy, Default)]
 struct CaptureStarted;
 
-/// Lone side-modifier recording. The host reads the mask only once it sees capture active, so
-/// the first frame after the click seeds `previous`, and a key held from before never records.
+/// Lone side-modifier recording: the key that went down alone, recorded when it comes back up.
+/// egui reports side modifiers only as physical key presses, so Ctrl+K arrives as ControlLeft
+/// then K: the K press disarms and the combo is recorded instead.
 #[derive(Clone, Copy, Default, Debug)]
 struct SideCapture {
-	seeded: bool,
-	armed: u8,
-	previous: u8,
+	armed: Option<Key>,
 }
 
-/// Records a side modifier when it is released without any other key, so Ctrl+K stays a combo.
-fn side_step(state: &mut SideCapture, now: u8, other_input: bool) -> Option<&'static str> {
-	let previous = std::mem::replace(&mut state.previous, now);
-	if !std::mem::replace(&mut state.seeded, true) {
-		return None;
-	}
-	let pressed = now & !previous;
-	if other_input || now.count_ones() > 1 {
-		state.armed = 0;
-	} else if pressed != 0 {
-		state.armed = pressed;
-	} else if state.armed != 0 && now & state.armed == 0 {
-		let bit = std::mem::take(&mut state.armed).trailing_zeros();
-		return model::keybinds::SIDE_MODIFIERS.get(bit as usize).copied();
+fn is_side_key(key: Key) -> bool {
+	model::keybinds::is_side_modifier(key.name())
+}
+
+/// Advances recording by one egui event and returns the side key to bind, if any.
+fn side_step(state: &mut SideCapture, event: &Event) -> Option<&'static str> {
+	match event {
+		Event::Key {
+			key,
+			pressed: true,
+			repeat: false,
+			..
+		} if is_side_key(*key) => {
+			// A second side key overlapping the first records neither.
+			state.armed = state.armed.is_none().then_some(*key);
+		}
+		Event::Key {
+			key,
+			pressed: false,
+			..
+		} if Some(*key) == state.armed => {
+			state.armed = None;
+			return Some(key.name());
+		}
+		Event::Key {
+			key, pressed: true, ..
+		} if !is_side_key(*key) => state.armed = None,
+		Event::PointerButton { pressed: true, .. } | Event::WindowFocused(false) => {
+			state.armed = None;
+		}
+		_ => {}
 	}
 	None
 }
@@ -211,12 +225,12 @@ fn side_capture_id() -> egui::Id {
 	egui::Id::unique("keybind_side_capture")
 }
 
-fn capture(
-	ui: &mut egui::Ui,
-	bindings: &mut Keybinds,
-	capturing: &mut Option<CaptureTarget>,
-	side_down: u8,
-) {
+/// The Wayland portal cannot fire an unmodified key, so a side modifier would be a dead binding.
+fn side_keys_supported() -> bool {
+	!(cfg!(target_os = "linux") && std::env::var_os("WAYLAND_DISPLAY").is_some())
+}
+
+fn capture(ui: &mut egui::Ui, bindings: &mut Keybinds, capturing: &mut Option<CaptureTarget>) {
 	let Some(target) = *capturing else {
 		return;
 	};
@@ -231,10 +245,16 @@ fn capture(
 		CaptureTarget::BuiltIn(action) => Some(action),
 		CaptureTarget::Custom(index) => bindings.custom.get(index).map(|binding| binding.action),
 	};
-	let side_allowed = action.is_some_and(KeybindAction::is_global);
+	let side_allowed = action.is_some_and(KeybindAction::is_global) && side_keys_supported();
+	let mut side =
+		ui.data_mut(|data| *data.get_temp_mut_or_default::<SideCapture>(side_capture_id()));
 	let mut captured = None;
 	let mut cancelled = false;
 	for event in ui.input(|input| input.events.clone()) {
+		if side_allowed && let Some(name) = side_step(&mut side, &event) {
+			captured = Some(KeyChord::new(name, 0));
+			break;
+		}
 		match event {
 			Event::Key {
 				key,
@@ -242,7 +262,7 @@ fn capture(
 				repeat: false,
 				modifiers,
 				..
-			} => {
+			} if !is_side_key(key) => {
 				if key == Key::Escape {
 					cancelled = true;
 				} else if let Some(name) = key_name(key) {
@@ -266,23 +286,7 @@ fn capture(
 			_ => {}
 		}
 	}
-	if side_allowed && !cancelled && captured.is_none() {
-		let other_input = ui.input(|input| {
-			input.events.iter().any(|event| {
-				matches!(
-					event,
-					Event::Key { pressed: true, .. } | Event::PointerButton { pressed: true, .. }
-				)
-			})
-		});
-		let mut state =
-			ui.data_mut(|data| *data.get_temp_mut_or_default::<SideCapture>(side_capture_id()));
-		captured = side_step(&mut state, side_down, other_input).map(|name| KeyChord::new(name, 0));
-		ui.data_mut(|data| data.insert_temp(side_capture_id(), state));
-		// Modifier state arrives by polling, not as events, so keep frames coming.
-		ui.ctx()
-			.request_repaint_after(std::time::Duration::from_millis(30));
-	}
+	ui.data_mut(|data| data.insert_temp(side_capture_id(), side));
 	if cancelled || captured.is_some() {
 		// The press that ended capture must not also act on the rest of this frame.
 		ui.input_mut(|input| {
@@ -1109,7 +1113,7 @@ mod tests {
 				..Default::default()
 			},
 			|ui| {
-				capture(ui, &mut bindings, &mut capturing, 0);
+				capture(ui, &mut bindings, &mut capturing);
 			},
 		);
 		output.textures_delta.clear();
@@ -1138,7 +1142,7 @@ mod tests {
 				events,
 				..Default::default()
 			},
-			|ui| capture(ui, bindings, capturing, 0),
+			|ui| capture(ui, bindings, capturing),
 		);
 		output.textures_delta.clear();
 	}
@@ -1287,59 +1291,107 @@ mod tests {
 		assert_eq!(bindings, Keybinds::default());
 	}
 
-	#[test]
-	fn side_modifier_records_on_release_only_when_alone() {
-		const RCTRL: u8 = 1 << 1;
-		const LSHIFT: u8 = 1 << 2;
-		let seeded = |now| {
-			let mut state = SideCapture::default();
-			assert_eq!(side_step(&mut state, now, false), None);
-			state
-		};
-		let mut state = seeded(0);
-		assert_eq!(side_step(&mut state, RCTRL, false), None);
-		assert_eq!(side_step(&mut state, 0, false), Some("ControlRight"));
-		// Ctrl+K: the key press disarms, so only the combo is recorded.
-		let mut state = seeded(0);
-		side_step(&mut state, RCTRL, false);
-		assert_eq!(side_step(&mut state, RCTRL, true), None);
-		assert_eq!(side_step(&mut state, 0, false), None);
-		// A release in the same frame as another press: the other press wins.
-		let mut state = seeded(0);
-		side_step(&mut state, RCTRL, false);
-		assert_eq!(side_step(&mut state, 0, true), None);
-		// Two side keys together record neither.
-		let mut state = seeded(0);
-		side_step(&mut state, RCTRL, false);
-		side_step(&mut state, RCTRL | LSHIFT, false);
-		assert_eq!(side_step(&mut state, RCTRL, false), None);
-		assert_eq!(side_step(&mut state, 0, false), None);
-		// Held before capture started: its release is not a new binding.
-		let mut state = seeded(RCTRL);
-		assert_eq!(side_step(&mut state, 0, false), None);
+	fn key(key: Key, pressed: bool, modifiers: Modifiers) -> Event {
+		Event::Key {
+			key,
+			physical_key: None,
+			pressed,
+			repeat: false,
+			modifiers,
+		}
+	}
+
+	/// Runs one frame per event list against a fresh capture of `action`.
+	fn record(action: KeybindAction, frames: Vec<Vec<Event>>) -> (Keybinds, bool) {
+		let mut bindings = Keybinds::default();
+		let mut capturing = Some(CaptureTarget::BuiltIn(action));
+		let ctx = egui::Context::default();
+		for events in frames {
+			capture_frame(&ctx, events, &mut bindings, &mut capturing);
+		}
+		(bindings, capturing.is_some())
 	}
 
 	#[test]
-	fn side_modifiers_bind_only_to_voice_rows() {
-		const RCTRL: u8 = 1 << 1;
-		let ctx = egui::Context::default();
-		for (action, recorded) in [
-			(KeybindAction::Bold, false),
-			(KeybindAction::PushToTalk, true),
+	fn lone_side_modifier_records_on_release() {
+		let down = key(Key::ControlRight, true, Modifiers::CTRL);
+		let up = key(Key::ControlRight, false, Modifiers::NONE);
+		// Press and release in separate frames, and in one frame.
+		for frames in [
+			vec![vec![down.clone()], vec![up.clone()]],
+			vec![vec![down.clone(), up.clone()]],
 		] {
-			let mut bindings = Keybinds::default();
-			let mut capturing = Some(CaptureTarget::BuiltIn(action));
-			for mask in [0, RCTRL, 0] {
-				let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
-					capture(ui, &mut bindings, &mut capturing, mask)
-				});
-				output.textures_delta.clear();
-			}
-			assert_eq!(capturing.is_none(), recorded);
+			let (bindings, still) = record(KeybindAction::PushToTalk, frames);
+			assert!(!still);
 			assert_eq!(
-				bindings.chord(action) == &KeyChord::new("ControlRight", 0),
-				recorded
+				bindings.chord(KeybindAction::PushToTalk),
+				&KeyChord::new("ControlRight", 0)
 			);
+			assert_eq!(
+				chord_parts(bindings.chord(KeybindAction::PushToTalk))
+					.last()
+					.map(String::as_str),
+				Some(if cfg!(target_os = "macos") {
+					"Right Control"
+				} else {
+					"Right Ctrl"
+				})
+			);
+		}
+		// Non-voice rows wait for a real shortcut.
+		let (bindings, still) = record(KeybindAction::Bold, vec![vec![down], vec![up]]);
+		assert!(still);
+		assert_eq!(bindings, Keybinds::default());
+	}
+
+	#[test]
+	fn side_modifier_does_not_record_with_other_input() {
+		let ctrl = |pressed| {
+			key(
+				Key::ControlLeft,
+				pressed,
+				if pressed {
+					Modifiers::CTRL
+				} else {
+					Modifiers::NONE
+				},
+			)
+		};
+		// Ctrl+K records the combo, not Left Ctrl.
+		let (bindings, still) = record(
+			KeybindAction::PushToTalk,
+			vec![
+				vec![ctrl(true)],
+				vec![key(Key::K, true, Modifiers::CTRL)],
+				vec![ctrl(false)],
+			],
+		);
+		assert!(!still);
+		assert_eq!(
+			bindings.chord(KeybindAction::PushToTalk),
+			&KeyChord::new("K", modifier_bits(Modifiers::CTRL))
+		);
+		let shift = |pressed| key(Key::ShiftRight, pressed, Modifiers::NONE);
+		for frames in [
+			// Two side keys overlapping record neither.
+			vec![
+				vec![ctrl(true)],
+				vec![shift(true)],
+				vec![shift(false)],
+				vec![ctrl(false)],
+			],
+			// Focus moving to another app, where egui sees nothing, disarms.
+			vec![
+				vec![ctrl(true)],
+				vec![Event::WindowFocused(false)],
+				vec![ctrl(false)],
+			],
+			// A key already down when capture started has no press to arm it.
+			vec![vec![ctrl(false)]],
+		] {
+			let (bindings, still) = record(KeybindAction::PushToTalk, frames);
+			assert!(still);
+			assert_eq!(bindings, Keybinds::default());
 		}
 	}
 }

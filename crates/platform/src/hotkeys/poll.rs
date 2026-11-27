@@ -2,9 +2,7 @@
 //! Registering a plain key or mouse button would take it from every other app, so like
 //! Discord's input hook this only watches: the key still reaches the focused app.
 use super::NativeInput;
-use model::keybinds::{
-	ALT, CTRL, PRIMARY, SHIFT, SIDE_MODIFIERS, is_mouse_button, is_side_modifier,
-};
+use model::keybinds::{ALT, CTRL, PRIMARY, SHIFT, is_mouse_button, is_side_modifier};
 use model::{KeyChord, KeybindAction};
 use std::sync::{
 	Arc,
@@ -33,29 +31,6 @@ pub(super) fn supported(name: &str) -> bool {
 	os::supported(name)
 }
 
-/// Bit `i` set while [`SIDE_MODIFIERS`]`[i]` is physically down, for recording a binding.
-/// Wayland reads nothing: XWayland would report the keys, but the portal cannot fire them.
-pub(super) fn side_modifiers_down() -> u8 {
-	#[cfg(target_os = "linux")]
-	if std::env::var_os("WAYLAND_DISPLAY").is_some() {
-		return 0;
-	}
-	os::with_keys(|keys| {
-		keys.refresh();
-		SIDE_MODIFIERS
-			.iter()
-			.enumerate()
-			.filter(|(_, name)| keys.codes(name).into_iter().any(|code| keys.down(code)))
-			.fold(0, |mask, (bit, _)| mask | (1 << bit))
-	})
-}
-
-/// Windows reports AltGr as Right Alt plus a synthetic Left Ctrl; that Ctrl is not a press.
-#[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
-fn left_ctrl_down(left_ctrl: bool, right_alt: bool) -> bool {
-	left_ctrl && !right_alt
-}
-
 /// Whether macOS lets Serein read keys typed into other apps (Input Monitoring). With `ask`,
 /// the first call in a process shows the system prompt, which also lists Serein in System
 /// Settings; Discord asks when a push-to-talk call starts too.
@@ -79,7 +54,8 @@ struct Watch<C> {
 	codes: Vec<C>,
 	modifiers: u8,
 	mouse: bool,
-	/// A lone side modifier: egui never sees it, and its own key sets the held modifiers.
+	/// A lone side modifier: focused input never matches it, and its own key sets the held
+	/// modifiers.
 	side: bool,
 }
 
@@ -187,7 +163,7 @@ impl Poller {
 	}
 
 	/// Whether this poller owns the chord even while Serein is focused. Keyboard keys are left
-	/// to focused input there, which knows when the user is typing; egui never sees mouse
+	/// to focused input there, which knows when the user is typing; focused input never sees
 	/// buttons outside the window or lone side modifiers at all.
 	pub(super) fn owns_focused(&self, action: KeybindAction, chord: &KeyChord) -> bool {
 		focus_independent(&chord.key)
@@ -341,10 +317,6 @@ mod os {
 
 	pub(super) struct Keys;
 
-	pub(super) fn with_keys<T>(read: impl FnOnce(&mut Keys) -> T) -> T {
-		read(&mut Keys)
-	}
-
 	pub(super) fn supported(name: &str) -> bool {
 		!codes(name).is_empty()
 	}
@@ -361,10 +333,8 @@ mod os {
 		pub(super) fn refresh(&mut self) {}
 
 		pub(super) fn down(&self, code: Code) -> bool {
-			if code == VK_LCONTROL {
-				return super::left_ctrl_down(key_down(VK_LCONTROL), key_down(VK_RMENU));
-			}
-			key_down(code)
+			// AltGr reports Right Alt plus a synthetic Left Ctrl; that Ctrl is not a press.
+			key_down(code) && !(code == VK_LCONTROL && key_down(VK_RMENU))
 		}
 
 		pub(super) fn modifiers(&self) -> Modifiers {
@@ -507,10 +477,6 @@ mod os {
 
 	pub(super) struct Keys;
 
-	pub(super) fn with_keys<T>(read: impl FnOnce(&mut Keys) -> T) -> T {
-		read(&mut Keys)
-	}
-
 	pub(super) fn supported(name: &str) -> bool {
 		!codes(name).is_empty()
 	}
@@ -641,19 +607,6 @@ mod os {
 	/// An X keycode, or [`MIDDLE`] for the one extra mouse button the core pointer reports.
 	pub(super) type Code = u16;
 	const MIDDLE: Code = 1 << 8;
-
-	/// The UI thread's display connection for recording, opened on first use.
-	pub(super) fn with_keys<T: Default>(read: impl FnOnce(&mut Keys) -> T) -> T {
-		thread_local! {
-			static KEYS: std::cell::RefCell<Option<Option<Keys>>> = const { std::cell::RefCell::new(None) };
-		}
-		KEYS.with_borrow_mut(|keys| {
-			keys.get_or_insert_with(Keys::open)
-				.as_mut()
-				.map(read)
-				.unwrap_or_default()
-		})
-	}
 
 	pub(super) struct Keys {
 		xlib: xlib::Xlib,
@@ -947,18 +900,11 @@ mod tests {
 				meta: false,
 			},
 		] {
-			// egui never sees a lone modifier, so the poller owns it while Serein is focused.
+			// Focused input never matches a lone modifier, so the poller owns it while focused.
 			assert_eq!(
 				step(&watched, 2, true, down, held)[0],
 				input(true, true, true)
 			);
 		}
-	}
-
-	#[test]
-	fn altgr_hides_synthetic_left_ctrl() {
-		assert!(!left_ctrl_down(true, true));
-		assert!(left_ctrl_down(true, false));
-		assert!(!left_ctrl_down(false, false));
 	}
 }

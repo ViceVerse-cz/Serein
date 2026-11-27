@@ -6265,12 +6265,6 @@ impl eframe::App for Desktop {
 			&self.runtime,
 		);
 		self.messaging.global_keybind_status = self.hotkeys.status();
-		// Read only while recording: the poller fires these keys itself.
-		self.messaging.side_modifiers_down = if self.messaging.keybind_capturing() {
-			platform::hotkeys::side_modifiers_down()
-		} else {
-			0
-		};
 		let voice_toggles = self.hotkeys.take_toggle_pending()
 			| self
 				.messaging

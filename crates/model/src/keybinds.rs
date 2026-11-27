@@ -46,9 +46,9 @@ pub fn is_mouse_button(name: &str) -> bool {
 	matches!(name, "MouseMiddle" | "MouseExtra1" | "MouseExtra2")
 }
 
-/// Left/right modifier keys a voice binding may use on their own. egui never reports these as
-/// keys, so only the platform key poller records and fires them. A bit mask over this order is
-/// what the platform reports while a binding is being recorded.
+/// Left/right modifier keys a voice binding may use on their own. egui reports them only as
+/// physical key presses that focused shortcuts never match, so the platform key poller fires
+/// them, even while Serein is focused.
 pub const SIDE_MODIFIERS: [&str; 6] = [
 	"ControlLeft",
 	"ControlRight",
