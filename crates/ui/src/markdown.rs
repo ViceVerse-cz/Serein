@@ -55,13 +55,30 @@ fn shortcode_emoji(name: &str) -> Option<&'static str> {
 	}
 }
 
+fn starts_with_www(word: &str) -> bool {
+	let bare = word.trim_start_matches(['(', '[', '{', '"', '\'', '*', '_', '~', '|']);
+	bare.get(..4)
+		.is_some_and(|prefix| prefix.eq_ignore_ascii_case("www."))
+}
+
+/// Source-text prefix of the current whitespace-delimited word before `start`, so URL
+/// detection survives pulldown-cmark splitting one word across decoded entities.
+fn source_word_prefix(source: &str, start: usize) -> &str {
+	let word_start = source[..start]
+		.char_indices()
+		.rfind(|(_, c)| c.is_whitespace())
+		.map_or(0, |(index, space)| index + space.len_utf8());
+	&source[word_start..start]
+}
+
 /// Expand `:name:` standard shortcodes in ordinary prose. Callers pass only non-code text.
 /// A colon glued to a preceding word or `<` is left alone, which keeps `<:name:id>`,
 /// `<a:name:id>`, `<t:100:R>`, `10:30` and URL paths intact; unknown names stay literal.
-fn expand_shortcodes(text: &str) -> std::borrow::Cow<'_, str> {
+fn expand_shortcodes<'a>(text: &'a str, source: &str, start: usize) -> std::borrow::Cow<'a, str> {
 	if !text.contains(':') {
 		return text.into();
 	}
+	let prefix = source_word_prefix(source, start);
 	let bytes = text.as_bytes();
 	let mut output = String::new();
 	let mut copied = 0;
@@ -70,8 +87,8 @@ fn expand_shortcodes(text: &str) -> std::borrow::Cow<'_, str> {
 	// incrementally so long runs without whitespace stay linear.
 	let mut word = 0;
 	let mut scanned = 0;
-	// Whether the current word holds `://`, also tracked incrementally.
-	let mut url = false;
+	// Whether the current word holds a URL (`://` or leading `www.` in the word prefix).
+	let mut url = prefix.contains("://") || starts_with_www(prefix);
 	while let Some(offset) = text[at..].find(':') {
 		let open = at + offset;
 		at = open + 1;
@@ -106,8 +123,7 @@ fn expand_shortcodes(text: &str) -> std::borrow::Cow<'_, str> {
 		url |= text[from..open].contains("://");
 		scanned = open;
 		// A URL is literal text; skip any word that looks like one.
-		let bare = text[word..].trim_start_matches(['(', '[', '{', '"', '\'']);
-		if url || bare.starts_with("www.") {
+		if url || ((word > 0 || prefix.is_empty()) && starts_with_www(&text[word..])) {
 			continue;
 		}
 		let Some(emoji) = shortcode_emoji(&text[at..close]) else {
@@ -1243,7 +1259,8 @@ impl Formatted {
 							text.chars().next().map_or(0, char::len_utf8)
 						};
 						output.push(&text[..escaped], style);
-						let expanded = expand_shortcodes(&text[escaped..]);
+						let expanded =
+							expand_shortcodes(&text[escaped..], input, range.start + escaped);
 						if !output.push_spoiler_literal(
 							&expanded,
 							style,
@@ -3634,6 +3651,11 @@ mod tests {
 		// Adjacent shortcodes in one long word each expand, and a URL word stays literal throughout.
 		assert_eq!(text(":x::x::x:"), "\u{274c}\u{274c}\u{274c}");
 		assert_eq!(text("https://a.example/:x::x:"), "https://a.example/:x::x:");
+		assert_eq!(text("WWW.example.com/:x:"), "WWW.example.com/:x:");
+		assert_eq!(
+			text("www.example.com/?q=&amp;/:x: :flag_fi:"),
+			"www.example.com/?q=&/:x: \u{1f1eb}\u{1f1ee}"
+		);
 		// Multi-byte whitespace before a shortcode must not split a UTF-8 sequence.
 		assert_eq!(text("a\u{a0}:flag_fi:"), "a\u{a0}\u{1f1eb}\u{1f1ee}");
 		for raw in [
