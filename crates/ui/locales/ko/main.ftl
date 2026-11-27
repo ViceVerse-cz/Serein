@@ -926,6 +926,8 @@ emoji-picker-search-emoji = 딱 맞는 이모지 찾기
 # Context: popup
 emoji-picker-search-emoji-label = 이름으로 이모지 검색
 # Context: popup
+emoji-picker-search-favorites = 즐겨찾기 검색
+emoji-picker-search-favorites-label = 즐겨찾기 GIF 검색
 emoji-picker-search-gifs-label = KLIPY에서 GIF 검색
 # Context: popup
 emoji-picker-search-klipy = KLIPY 검색

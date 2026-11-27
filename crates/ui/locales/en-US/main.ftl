@@ -926,6 +926,8 @@ emoji-picker-search-emoji = Find the perfect emoji
 # Context: popup
 emoji-picker-search-emoji-label = Search emoji by name
 # Context: popup
+emoji-picker-search-favorites = Search Favorites
+emoji-picker-search-favorites-label = Search favorite GIFs
 emoji-picker-search-gifs-label = Search GIFs on KLIPY
 # Context: popup
 emoji-picker-search-klipy = Search KLIPY

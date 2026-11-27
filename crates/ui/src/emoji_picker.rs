@@ -592,22 +592,28 @@ impl Picker {
 	pub(crate) fn preview(&mut self) {
 		self.pending_open = true;
 	}
-	/// Fixture-only: open the GIFs tab at `section` (`""`, `favorites`, `trending` or a query).
+	/// Fixture-only: open the GIFs tab at `section` (`""`, `favorites`, `favorites:<query>`,
+	/// `trending` or a query).
 	#[cfg(any(test, feature = "demo"))]
 	pub(crate) fn preview_gifs(&mut self, section: &str) {
 		self.pending_open = true;
 		self.tab = Tab::Gifs;
 		self.gif_query.clear();
 		self.gif_changed_at = None;
-		self.gif_section = match section {
-			"" => GifSection::Home,
-			"favorites" => GifSection::Favorites,
-			"trending" => GifSection::Trending,
-			query => {
-				self.gif_query = query.to_owned();
-				GifSection::Home
-			}
-		};
+		if let Some(query) = section.strip_prefix("favorites:") {
+			self.gif_query = query.chars().take(64).collect();
+			self.gif_section = GifSection::Favorites;
+		} else {
+			self.gif_section = match section {
+				"" => GifSection::Home,
+				"favorites" => GifSection::Favorites,
+				"trending" => GifSection::Trending,
+				query => {
+					self.gif_query = query.chars().take(64).collect();
+					GifSection::Home
+				}
+			};
+		}
 	}
 	pub(crate) fn open_emojis(&mut self) {
 		self.pending_open = true;
@@ -1350,11 +1356,19 @@ impl Picker {
 												colors.muted,
 											);
 											let (text, hint, label) = if gifs_tab {
-												(
-													&mut self.gif_query,
-													"emoji-picker-search-klipy",
-													"emoji-picker-search-gifs-label",
-												)
+												if self.gif_section == GifSection::Favorites {
+													(
+														&mut self.gif_query,
+														"emoji-picker-search-favorites",
+														"emoji-picker-search-favorites-label",
+													)
+												} else {
+													(
+														&mut self.gif_query,
+														"emoji-picker-search-klipy",
+														"emoji-picker-search-gifs-label",
+													)
+												}
 											} else if stickers_tab {
 												(
 													&mut self.stickers.query,
@@ -1403,8 +1417,10 @@ impl Picker {
 											);
 											if search.changed() {
 												if gifs_tab {
-													self.gif_changed_at =
-														Some(ui.input(|i| i.time));
+													if self.gif_section != GifSection::Favorites {
+														self.gif_changed_at =
+															Some(ui.input(|i| i.time));
+													}
 												} else if !stickers_tab {
 													self.filter();
 												}
@@ -2072,8 +2088,13 @@ impl Picker {
 		selected
 	}
 
-	/// Which GIF view is shown; typing pauses briefly before a search fires.
+	/// Which GIF view is shown; typing pauses briefly before a remote search fires, while
+	/// favorites filter locally on each keystroke.
 	fn gif_mode(&mut self, ui: &egui::Ui) -> GifMode {
+		if self.gif_section == GifSection::Favorites {
+			self.gif_changed_at = None;
+			return GifMode::Favorites;
+		}
 		let now = ui.input(|i| i.time);
 		if let Some(at) = self.gif_changed_at {
 			if now - at >= GIF_DEBOUNCE {
@@ -2182,18 +2203,47 @@ impl Picker {
 								),
 							);
 						} else {
-							let grid_action = gif_grid(
-								ui,
-								"favorites",
-								&state.gifs.favorites,
-								state,
-								avatars,
-								colors,
-								demo,
-								hovered,
-							);
-							if grid_action.is_some() {
-								action = grid_action;
+							let typed = self.gif_query.trim();
+							let filtered: Vec<model::Gif>;
+							let gifs: &[model::Gif] = if typed.is_empty() {
+								&state.gifs.favorites
+							} else {
+								let terms: Vec<String> = typed
+									.split_whitespace()
+									.map(str::to_lowercase)
+									.collect();
+								filtered = state
+									.gifs
+									.favorites
+									.iter()
+									.filter(|gif| gif_matches_favorite_query(gif, &terms))
+									.cloned()
+									.collect();
+								&filtered
+							};
+							if gifs.is_empty() {
+								crate::design::empty_state(
+									ui,
+									crate::icons::Icon::Star,
+									&crate::i18n::translate("emoji-picker-gif-body-no-gifs-found"),
+									&crate::i18n::translate(
+										"emoji-picker-gif-body-try-a-different-search-term",
+									),
+								);
+							} else {
+								let grid_action = gif_grid(
+									ui,
+									("favorites", typed),
+									gifs,
+									state,
+									avatars,
+									colors,
+									demo,
+									hovered,
+								);
+								if grid_action.is_some() {
+									action = grid_action;
+								}
 							}
 						}
 					}
@@ -2749,9 +2799,189 @@ fn cell(
 	response
 }
 
+fn hex_nibble(byte: u8) -> Option<u8> {
+	match byte {
+		b'0'..=b'9' => Some(byte - b'0'),
+		b'a'..=b'f' => Some(byte - b'a' + 10),
+		b'A'..=b'F' => Some(byte - b'A' + 10),
+		_ => None,
+	}
+}
+
+fn percent_decode_lossy(input: &str) -> std::borrow::Cow<'_, str> {
+	if !input.contains('%') {
+		return input.into();
+	}
+	let bytes = input.as_bytes();
+	let mut out = Vec::with_capacity(bytes.len());
+	let mut i = 0;
+	while i < bytes.len() {
+		if bytes[i] == b'%'
+			&& i + 2 < bytes.len()
+			&& let (Some(hi), Some(lo)) = (hex_nibble(bytes[i + 1]), hex_nibble(bytes[i + 2]))
+		{
+			out.push((hi << 4) | lo);
+			i += 3;
+		} else {
+			out.push(bytes[i]);
+			i += 1;
+		}
+	}
+	String::from_utf8_lossy(&out).into_owned().into()
+}
+
+fn strip_media_extension(segment: &str) -> &str {
+	const EXTENSIONS: [&str; 10] = [
+		"gif", "webp", "mp4", "webm", "png", "jpg", "jpeg", "apng", "avif", "mov",
+	];
+	let Some((stem, ext)) = segment.rsplit_once('.') else {
+		return segment;
+	};
+	if !stem.is_empty() && EXTENSIONS.iter().any(|known| ext.eq_ignore_ascii_case(known)) {
+		stem
+	} else {
+		segment
+	}
+}
+
+/// Descriptive last path segment (slug or filename stem) of a GIF URL, excluding scheme,
+/// hostname, query parameters and common media extensions so synced favorites without a
+/// title remain searchable without matching hosts or signed query tokens.
+fn gif_url_slug(url: &str) -> Option<String> {
+	let without_query = url.split(['?', '#']).next()?;
+	let path = if let Some((_, rest)) = without_query.split_once("://") {
+		let (_, path) = rest.split_once('/')?;
+		path
+	} else {
+		without_query
+	};
+	let segment = path.rsplit('/').find(|part| !part.is_empty())?;
+	let stem = strip_media_extension(segment);
+	if stem.is_empty() {
+		return None;
+	}
+	let lower = percent_decode_lossy(stem).to_lowercase();
+	(!lower.is_empty()).then_some(lower)
+}
+
+fn gif_matches_favorite_query(gif: &model::Gif, terms: &[String]) -> bool {
+	let title = gif.title.to_lowercase();
+	let url_slug = gif_url_slug(&gif.url);
+	let preview_slug = (gif.preview != gif.url)
+		.then(|| gif_url_slug(&gif.preview))
+		.flatten();
+	terms.iter().all(|term| {
+		title.contains(term.as_str())
+			|| url_slug
+				.as_deref()
+				.is_some_and(|slug| slug.contains(term.as_str()))
+			|| preview_slug
+				.as_deref()
+				.is_some_and(|slug| slug.contains(term.as_str()))
+	})
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[test]
+	fn gif_favorites_search_filters_locally_by_title_and_url_slug_without_remote_requests() {
+		let ctx = egui::Context::default();
+		crate::emoji::install(&ctx).unwrap();
+		let mut state = test_support::demo_state();
+		let channel = state.selected.unwrap();
+		let titled = model::Gif {
+			id: "titled".into(),
+			title: "Happy dance".into(),
+			url: "https://tenor.com/view/synthetic-3-gif-1003".into(),
+			preview: "https://media.tenor.com/synthetic/3/tenor.png".into(),
+			width: 320,
+			height: 240,
+		};
+		let synced = model::Gif {
+			id: "synced".into(),
+			title: String::new(),
+			url: "https://cdn.discordapp.com/attachments/111/222/party%20parrot.gif?ex=deadbeef&hm=happy"
+				.into(),
+			preview: "https://media.discordapp.net/attachments/111/222/party%20parrot.gif?hm=happy"
+				.into(),
+			width: 300,
+			height: 300,
+		};
+		state.restore_gif_favorites(vec![titled.clone(), synced.clone()]);
+		// Match helper checks title and URL filename stem while ignoring host, path prefix,
+		// media extension and signed query tokens.
+		let matches = |gif: &model::Gif, query: &str| {
+			let terms: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
+			gif_matches_favorite_query(gif, &terms)
+		};
+		assert!(matches(&titled, "happy dance"));
+		assert!(!matches(&synced, "happy"));
+		assert!(matches(&synced, "party parrot"));
+		assert!(!matches(&synced, "discordapp"));
+		assert!(!matches(&synced, "attachments"));
+		assert!(!matches(&synced, "gif"));
+		// Typing inside Favorites filters locally with zero remote KLIPY search commands.
+		let mut picker = Picker {
+			open: true,
+			focus: true,
+			channel: Some(channel),
+			generation: state.generation,
+			tab: Tab::Gifs,
+			gif_section: GifSection::Favorites,
+			..Picker::default()
+		};
+		let mut avatars = Avatars::default();
+		let mut commands = Vec::new();
+		let mut run = |picker: &mut Picker,
+		               state: &mut State,
+		               commands: &mut Vec<Command>,
+		               time: f64,
+		               events| {
+			ctx.run_ui(
+				egui::RawInput {
+					time: Some(time),
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(900.0, 700.0),
+					)),
+					events,
+					..Default::default()
+				},
+				|ui| {
+					picker.show(ui, state, channel, &mut avatars, commands);
+				},
+			)
+			.drop_without_applying_deltas();
+		};
+		run(&mut picker, &mut state, &mut commands, 0.0, vec![]);
+		run(
+			&mut picker,
+			&mut state,
+			&mut commands,
+			0.1,
+			vec![egui::Event::Text("parrot".into())],
+		);
+		// Past the remote debounce window, Favorites still emits no `Command::Gifs`.
+		run(&mut picker, &mut state, &mut commands, 1.0, vec![]);
+		assert_eq!(picker.gif_query, "parrot");
+		assert_eq!(picker.gif_section, GifSection::Favorites);
+		assert!(
+			!commands
+				.iter()
+				.any(|command| matches!(command, Command::Gifs { .. })),
+			"searching Favorites must not trigger a remote KLIPY search"
+		);
+		// Non-matching query stays in Favorites without emitting remote requests.
+		picker.gif_query = "no-such-favorite-xyz".into();
+		run(&mut picker, &mut state, &mut commands, 2.0, vec![]);
+		assert!(
+			!commands
+				.iter()
+				.any(|command| matches!(command, Command::Gifs { .. }))
+		);
+	}
+
 	#[test]
 	fn gif_favorite_loading_is_single_flight_and_video_placeholders_never_request_media() {
 		let ctx = egui::Context::default();

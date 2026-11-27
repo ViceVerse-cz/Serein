@@ -901,6 +901,8 @@ emoji-picker-search-emoji = Mükemmel emojiyi bulun
 # Context: popup
 emoji-picker-search-emoji-label = Emojiyi ada göre ara
 # Context: popup
+emoji-picker-search-favorites = Favorilerde ara
+emoji-picker-search-favorites-label = Favori GIF'lerde ara
 emoji-picker-search-gifs-label = KLIPY'de GIF arayın
 # Context: popup
 emoji-picker-search-klipy = KLIPY'de ara
