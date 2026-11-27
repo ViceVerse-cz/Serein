@@ -5,7 +5,8 @@ use super::{
 	MAX_FRAME_HEIGHT, MAX_FRAME_WIDTH, MAX_RAW_BYTES, MAX_SOURCE_HEIGHT, MAX_SOURCE_WIDTH,
 	MAX_SOURCES, bounded_name,
 };
-use crate::screen::{RawFrame, Settings, Source, SourceId};
+use crate::screen::{RawFrame, Settings, Source, SourceId, SourceList};
+use objc2_core_graphics::{CGPreflightScreenCaptureAccess, CGRequestScreenCaptureAccess};
 use screencapturekit::{
 	cm::{CMSampleBufferExt, CMSampleBufferSCExt},
 	content_sharing_picker::{
@@ -14,6 +15,7 @@ use screencapturekit::{
 	},
 	cv::CVPixelBufferLockFlags,
 	prelude::*,
+	screenshot_manager::{CGImageExt, SCScreenshotManager},
 	stream::delegate_trait::SCStreamDelegateTrait,
 };
 use std::sync::{
@@ -30,24 +32,42 @@ fn initialize() {
 	});
 }
 
-pub(crate) fn sources() -> Result<Vec<Source>, &'static str> {
-	if SCContentSharingPicker::is_available() {
-		return Ok(vec![Source {
-			id: SourceId::SystemPicker,
-			name: "Choose with the macOS system picker".into(),
-			width: 0,
-			height: 0,
-			refresh_hz: 0,
-		}]);
+pub(crate) fn sources(request_access: bool) -> Result<SourceList, &'static str> {
+	let system_picker = SCContentSharingPicker::is_available().then(|| Source {
+		id: SourceId::SystemPicker,
+		name: "Choose with the macOS system picker".into(),
+		width: 0,
+		height: 0,
+		refresh_hz: 0,
+	});
+	let mut authorized = CGPreflightScreenCaptureAccess();
+	if request_access && !authorized {
+		CGRequestScreenCaptureAccess();
+		authorized = CGPreflightScreenCaptureAccess();
+	}
+	let mut sources = SourceList {
+		items: Vec::with_capacity(MAX_SOURCES),
+		permission_required: !authorized,
+	};
+	if sources.permission_required {
+		sources.items.extend(system_picker);
+		return Ok(sources);
 	}
 	initialize();
-	let content = SCShareableContent::get().map_err(
-		|_| "Screen sources are unavailable. Allow screen recording in System Settings, then refresh.",
-	)?;
-	let snapshot = content.snapshot().ok_or("Screen sources are unavailable")?;
-	let mut sources = Vec::with_capacity(MAX_SOURCES);
+	let content = SCShareableContent::get()
+		.ok()
+		.and_then(|content| content.snapshot());
+	let Some(snapshot) = content else {
+		sources.items.extend(system_picker);
+		return if sources.items.is_empty() {
+			Err("Screen sources are unavailable")
+		} else {
+			Ok(sources)
+		};
+	};
+	let limit = MAX_SOURCES - usize::from(system_picker.is_some());
 
-	for display in snapshot.displays {
+	for display in snapshot.displays.into_iter().take(limit) {
 		let (Ok(width), Ok(height)) = (u32::try_from(display.width), u32::try_from(display.height))
 		else {
 			continue;
@@ -55,19 +75,19 @@ pub(crate) fn sources() -> Result<Vec<Source>, &'static str> {
 		if width == 0 || height == 0 || width > MAX_SOURCE_WIDTH || height > MAX_SOURCE_HEIGHT {
 			continue;
 		}
-		sources.push(Source {
+		sources.items.push(Source {
 			id: SourceId::Display(u64::from(display.display_id)),
 			name: format!("Display {}", display.display_id),
 			width,
 			height,
 			refresh_hz: 0,
 		});
-		if sources.len() == MAX_SOURCES {
-			return Ok(sources);
-		}
 	}
 
 	for window in snapshot.windows {
+		if sources.items.len() == limit {
+			break;
+		}
 		let Some(title) = window.title.filter(|title| !title.trim().is_empty()) else {
 			continue;
 		};
@@ -94,18 +114,63 @@ pub(crate) fn sources() -> Result<Vec<Source>, &'static str> {
 		) else {
 			continue;
 		};
-		sources.push(Source {
+		sources.items.push(Source {
 			id: SourceId::Window(u64::from(window.window_id)),
 			name: bounded_name(name),
 			width,
 			height,
 			refresh_hz: 0,
 		});
-		if sources.len() == MAX_SOURCES {
-			break;
-		}
 	}
+	sources.items.extend(system_picker);
 	Ok(sources)
+}
+
+pub(crate) fn thumbnail(source: SourceId) -> Option<image::RgbaImage> {
+	const WIDTH: u32 = 256;
+	const HEIGHT: u32 = 144;
+
+	if !CGPreflightScreenCaptureAccess() {
+		return None;
+	}
+	initialize();
+	let content = SCShareableContent::get().ok()?;
+	let filter = match source {
+		SourceId::Display(id) => {
+			let display = content
+				.displays()
+				.into_iter()
+				.find(|display| u64::from(display.display_id()) == id)?;
+			SCContentFilter::create()
+				.with_display(&display)
+				.with_excluding_windows(&[])
+				.build()
+		}
+		SourceId::Window(id) => {
+			let window = content.windows().into_iter().find(|window| {
+				u64::from(window.window_id()) == id
+					&& window.is_on_screen()
+					&& window.window_layer() == 0
+			})?;
+			SCContentFilter::create().with_window(&window).build()
+		}
+		_ => return None,
+	};
+	let configuration = SCStreamConfiguration::new()
+		.with_width(WIDTH)
+		.with_height(HEIGHT)
+		.with_preserves_aspect_ratio(true)
+		.with_scales_to_fit(true)
+		.with_shows_cursor(false);
+	let image = SCScreenshotManager::capture_image(&filter, &configuration).ok()?;
+	let (width, height) = (
+		u32::try_from(image.width()).ok()?,
+		u32::try_from(image.height()).ok()?,
+	);
+	if width == 0 || height == 0 || width > WIDTH || height > HEIGHT {
+		return None;
+	}
+	image::RgbaImage::from_raw(width, height, image.rgba_data().ok()?)
 }
 
 /// Wait for the picker until it answers, the deadline passes or any `stops` flag is set.
@@ -426,6 +491,11 @@ impl Capture {
 			|| settings.fps == 0
 		{
 			return Err("Invalid screen capture settings");
+		}
+		if matches!(settings.source, SourceId::Display(_) | SourceId::Window(_))
+			&& !CGPreflightScreenCaptureAccess()
+		{
+			return Err("Screen recording permission denied");
 		}
 		// Own the picker before selection so every later error/cancellation deactivates it.
 		let system_picker = PickerSession(settings.source == SourceId::SystemPicker);

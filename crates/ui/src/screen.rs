@@ -27,8 +27,13 @@ pub struct ScreenUi {
 	pub context: Option<(u64, Id, u64)>,
 	pub open: bool,
 	pub sources: Vec<Source>,
+	source_revision: u64,
+	visible_thumbnails: Vec<SourceId>,
+	source_thumbnails: Vec<(SourceId, Option<egui::TextureHandle>)>,
 	pub selected: Option<SourceId>,
 	pub refresh_requested: bool,
+	pub request_source_access: bool,
+	pub source_permission_required: bool,
 	pub request: Option<Request>,
 	pub busy: bool,
 	/// Capture has produced a frame for this device's live share.
@@ -55,8 +60,13 @@ impl Default for ScreenUi {
 			context: None,
 			open: false,
 			sources: Vec::new(),
+			source_revision: 0,
+			visible_thumbnails: Vec::new(),
+			source_thumbnails: Vec::new(),
 			selected: None,
 			refresh_requested: false,
+			request_source_access: false,
+			source_permission_required: false,
 			request: None,
 			busy: false,
 			sharing: false,
@@ -87,16 +97,35 @@ impl ScreenUi {
 		self.open = true;
 		self.selected = None;
 		self.quality_for = None;
+		self.request_source_access = false;
+		self.source_permission_required = false;
+		self.clear_source_thumbnails();
 		self.sources.clear();
 		if state.demo {
 			self.sources = if cfg!(target_os = "macos") {
-				vec![Source {
-					id: SourceId::SystemPicker,
-					name: "Choose with the macOS system picker".into(),
-					width: 0,
-					height: 0,
-					refresh_hz: 0,
-				}]
+				vec![
+					Source {
+						id: SourceId::Display(1),
+						name: "Built-in display".into(),
+						width: 0,
+						height: 0,
+						refresh_hz: 0,
+					},
+					Source {
+						id: SourceId::Window(2),
+						name: "Notes — Project plan".into(),
+						width: 0,
+						height: 0,
+						refresh_hz: 0,
+					},
+					Source {
+						id: SourceId::SystemPicker,
+						name: "Choose with the macOS system picker".into(),
+						width: 0,
+						height: 0,
+						refresh_hz: 0,
+					},
+				]
 			} else {
 				vec![
 					Source {
@@ -115,13 +144,84 @@ impl ScreenUi {
 					},
 				]
 			};
-			self.selected = self.sources.first().map(|source| source.id);
+			if !cfg!(target_os = "macos") {
+				self.selected = self.sources.first().map(|source| source.id);
+			}
 			self.status = "Offline preview · no screen is captured".into();
 		} else {
 			self.refresh_requested = true;
 			self.status = "Looking for screens and windows…".into();
 		}
 	}
+	pub fn set_sources(&mut self, sources: Vec<Source>) {
+		self.clear_source_thumbnails();
+		self.selected = self
+			.selected
+			.filter(|selected| sources.iter().any(|source| source.id == *selected))
+			.or_else(|| {
+				sources
+					.first()
+					.filter(|source| {
+						!cfg!(target_os = "macos") || source.id == SourceId::SystemPicker
+					})
+					.map(|source| source.id)
+			});
+		self.sources = sources;
+	}
+
+	fn clear_source_thumbnails(&mut self) {
+		self.source_revision = self.source_revision.wrapping_add(1);
+		self.visible_thumbnails.clear();
+		self.source_thumbnails.clear();
+	}
+
+	#[cfg(target_os = "macos")]
+	pub fn next_source_thumbnail(&self) -> Option<(u64, SourceId)> {
+		if !self.open {
+			return None;
+		}
+		self.visible_thumbnails
+			.iter()
+			.copied()
+			.find(|source| !self.source_thumbnails.iter().any(|(id, _)| id == source))
+			.map(|source| (self.source_revision, source))
+	}
+
+	#[cfg(target_os = "macos")]
+	pub fn cache_source_thumbnail(
+		&mut self,
+		revision: u64,
+		source: SourceId,
+		image: Option<image::RgbaImage>,
+		ctx: &egui::Context,
+	) {
+		if !self.open
+			|| revision != self.source_revision
+			|| !self.visible_thumbnails.contains(&source)
+		{
+			return;
+		}
+		let texture = image.map(|image| {
+			ctx.load_texture(
+				"screen-source-preview",
+				egui::ColorImage::from_rgba_premultiplied(
+					[image.width() as usize, image.height() as usize],
+					image.as_raw(),
+				),
+				egui::TextureOptions::LINEAR,
+			)
+		});
+		if self.source_thumbnails.len() == 8 {
+			let stale = self
+				.source_thumbnails
+				.iter()
+				.position(|(id, _)| !self.visible_thumbnails.contains(id))
+				.unwrap_or(0);
+			self.source_thumbnails.remove(stale);
+		}
+		self.source_thumbnails.push((source, texture));
+	}
+
 	fn selected_source(&self) -> Option<&Source> {
 		self.sources
 			.iter()
@@ -140,9 +240,22 @@ impl ScreenUi {
 			.is_some_and(|source| source.id.sized_after_pick())
 	}
 
+	fn offered_quality(&self) -> impl Iterator<Item = Resolution> + use<> {
+		let (width, height, _) = self.geometry();
+		let limit_to_1080p = cfg!(target_os = "macos")
+			&& self
+				.sources
+				.iter()
+				.any(|source| source.id == SourceId::SystemPicker);
+		offered_resolutions(width, height, self.sized_after_pick()).filter(move |resolution| {
+			!limit_to_1080p
+				|| matches!(resolution, Resolution::Preset { height, .. } if *height <= 1080)
+		})
+	}
+
 	fn align_quality(&mut self) {
-		let (width, height, refresh) = self.geometry();
-		let offered: Vec<_> = offered_resolutions(width, height, self.sized_after_pick()).collect();
+		let (_, _, refresh) = self.geometry();
+		let offered: Vec<_> = self.offered_quality().collect();
 		if offered.is_empty() {
 			return;
 		}
@@ -165,6 +278,12 @@ impl ScreenUi {
 
 	fn settings(&self) -> Option<Settings> {
 		let source = self.selected_source()?;
+		if !self
+			.offered_quality()
+			.any(|resolution| resolution == self.resolution)
+		{
+			return None;
+		}
 		let (width, height) = picture(
 			self.resolution,
 			source.width,
@@ -200,8 +319,12 @@ impl ScreenUi {
 			self.started = None;
 		}
 		if !self.open {
+			if !self.visible_thumbnails.is_empty() || !self.source_thumbnails.is_empty() {
+				self.clear_source_thumbnails();
+			}
 			return;
 		}
+		self.visible_thumbnails.clear();
 		let mut cancel = false;
 		let mut share = false;
 		let response = crate::dialog::Dialog::new(
@@ -250,6 +373,7 @@ impl ScreenUi {
 		}
 		if cancel || share {
 			self.open = false;
+			self.clear_source_thumbnails();
 		}
 	}
 
@@ -273,21 +397,42 @@ impl ScreenUi {
 					.inner
 					.clicked()
 				{
-					self.selected = None;
-					self.quality_for = None;
-					self.sources.clear();
 					self.refresh_requested = true;
 					self.status = "Looking for screens and windows…".into();
 				}
 			});
 		});
 		ui.add_space(6.0);
-		egui::ScrollArea::vertical()
-			.id_salt("screen-sources")
-			.max_height(196.0)
-			.show(ui, |ui| self.source_list(ui));
+		let system_picker = self
+			.sources
+			.iter()
+			.find(|source| source.id == SourceId::SystemPicker);
+		if system_picker.is_none() || self.sources.len() > 1 {
+			egui::ScrollArea::vertical()
+				.id_salt("screen-sources")
+				.max_height(196.0)
+				.show(ui, |ui| self.source_list(ui));
+		}
+		if let Some(source) = self
+			.sources
+			.iter()
+			.find(|source| source.id == SourceId::SystemPicker)
+			&& source_row(ui, source, self.selected == Some(source.id), None).clicked()
+		{
+			self.selected = Some(source.id);
+		}
+		if self.source_permission_required
+			&& crate::design::text_action(
+				ui,
+				&crate::i18n::translate("screen-macos-request-source-access"),
+			)
+			.clicked()
+		{
+			self.source_permission_required = false;
+			self.request_source_access = true;
+		}
 		self.align_quality();
-		let (width, height, refresh) = self.geometry();
+		let (_, _, refresh) = self.geometry();
 		ui.add_space(14.0);
 		ui.label(crate::design::eyebrow(
 			ui,
@@ -297,7 +442,7 @@ impl ScreenUi {
 		ui.add_space(6.0);
 		ui.horizontal_wrapped(|ui| {
 			ui.spacing_mut().item_spacing = egui::vec2(6.0, 6.0);
-			for resolution in offered_resolutions(width, height, self.sized_after_pick()) {
+			for resolution in self.offered_quality() {
 				let label = match resolution {
 					Resolution::Source => "screen-body-source".to_owned(),
 					Resolution::Preset { height, .. } => format!("{height}p"),
@@ -408,97 +553,172 @@ impl ScreenUi {
 					);
 				});
 		}
-		for source in &self.sources {
-			let selected = self.selected == Some(source.id);
-			let (rect, response) = ui
-				.allocate_exact_size(egui::vec2(ui.available_width(), 48.0), egui::Sense::click());
-			let fill = if selected {
-				colors.accent.gamma_multiply(0.18)
-			} else if response.hovered() || response.has_focus() {
-				colors.hover
-			} else {
-				colors.base
+		let mut last_group = None;
+		for source in self
+			.sources
+			.iter()
+			.filter(|source| source.id != SourceId::SystemPicker)
+		{
+			let group = match source.id {
+				SourceId::Display(_) => Some("screen-macos-source-group-screens"),
+				SourceId::Window(_) => Some("screen-macos-source-group-windows"),
+				_ => None,
 			};
-			ui.painter().rect_filled(rect, 8, fill);
-			if selected {
-				ui.painter().rect_stroke(
-					rect,
-					8,
-					egui::Stroke::new(1.0, colors.accent),
-					egui::StrokeKind::Inside,
-				);
+			if cfg!(target_os = "macos")
+				&& group != last_group
+				&& let Some(group) = group
+			{
+				ui.label(crate::design::eyebrow(
+					ui,
+					crate::i18n::translate(group),
+					colors.muted,
+				));
 			}
-			let display = matches!(source.id, SourceId::Display(_) | SourceId::X11Desktop);
-			crate::icons::paint(
-				ui.painter(),
-				if display {
-					crate::icons::Icon::Television
-				} else {
-					crate::icons::Icon::ScreenShare
-				},
-				egui::Rect::from_center_size(
-					egui::pos2(rect.left() + 26.0, rect.center().y),
-					egui::Vec2::splat(20.0),
-				),
-				if selected {
-					colors.accent
-				} else {
-					colors.muted
-				},
-			);
-			let text_left = rect.left() + 46.0;
-			let text_width = (rect.right() - 36.0 - text_left).max(40.0);
-			let source_name = if source.id == SourceId::SystemPicker {
-				crate::i18n::translate("screen-macos-system-picker")
-			} else {
-				source.name.clone()
-			};
-			let name = ui.painter().layout(
-				source_name.clone(),
-				egui::FontId::new(14.0, crate::design::medium_family(ui.ctx())),
-				colors.text_strong,
-				text_width,
-			);
-			let kind = ui.painter().layout_no_wrap(
-				match source.id {
-					SourceId::Display(_) | SourceId::X11Desktop => "Screen".to_owned(),
-					SourceId::Window(_) => "Window".to_owned(),
-					SourceId::SystemPicker => {
-						crate::i18n::translate("screen-macos-system-picker-kind")
-					}
-					#[allow(unreachable_patterns)] // Portal may be absent outside Linux.
-					_ => "System permission dialog".to_owned(),
-				},
-				egui::FontId::proportional(11.0),
-				colors.muted,
-			);
-			let total = name.size().y + kind.size().y;
-			let mut y = rect.center().y - total * 0.5;
-			ui.painter()
-				.galley(egui::pos2(text_left, y), name, colors.text_strong);
-			y += total - kind.size().y;
-			ui.painter()
-				.galley(egui::pos2(text_left, y), kind, colors.muted);
-			if selected {
-				crate::icons::paint(
-					ui.painter(),
-					crate::icons::Icon::Check,
-					egui::Rect::from_center_size(
-						egui::pos2(rect.right() - 20.0, rect.center().y),
-						egui::Vec2::splat(16.0),
-					),
-					colors.accent,
-				);
+			last_group = group;
+			let preview = self
+				.source_thumbnails
+				.iter()
+				.find(|(id, _)| *id == source.id)
+				.and_then(|(_, texture)| texture.as_ref());
+			let row = source_row(ui, source, self.selected == Some(source.id), preview);
+			if source_supports_preview(source.id) && ui.is_rect_visible(row.rect) {
+				self.visible_thumbnails.push(source.id);
 			}
-			response.widget_info(|| {
-				egui::WidgetInfo::selected(egui::Role::RadioButton, true, selected, &source_name)
-			});
-			if response.clicked() {
+			if row.clicked() {
 				self.selected = Some(source.id);
 			}
-			ui.add_space(4.0);
 		}
 	}
+}
+
+fn source_supports_preview(source: SourceId) -> bool {
+	cfg!(target_os = "macos") && matches!(source, SourceId::Window(_) | SourceId::Display(_))
+}
+
+fn source_row(
+	ui: &mut egui::Ui,
+	source: &Source,
+	selected: bool,
+	preview: Option<&egui::TextureHandle>,
+) -> egui::Response {
+	let colors = crate::design::palette(ui);
+	let preview_slot = source_supports_preview(source.id);
+	let height = if preview_slot { 68.0 } else { 48.0 };
+	let (rect, response) = ui.allocate_exact_size(
+		egui::vec2(ui.available_width(), height),
+		egui::Sense::click(),
+	);
+	let fill = if selected {
+		colors.accent.gamma_multiply(0.18)
+	} else if response.hovered() || response.has_focus() {
+		colors.hover
+	} else {
+		colors.base
+	};
+	ui.painter().rect_filled(rect, 8, fill);
+	if selected {
+		ui.painter().rect_stroke(
+			rect,
+			8,
+			egui::Stroke::new(1.0, colors.accent),
+			egui::StrokeKind::Inside,
+		);
+	}
+	let display = matches!(source.id, SourceId::Display(_) | SourceId::X11Desktop);
+	let preview_box = egui::Rect::from_center_size(
+		egui::pos2(rect.left() + 57.0, rect.center().y),
+		egui::vec2(96.0, 54.0),
+	);
+	if preview_slot {
+		ui.painter().rect_filled(preview_box, 4, colors.base);
+	}
+	if let Some(texture) = preview {
+		let size = texture.resolution_vec2();
+		let scale = (preview_box.width() / size.x).min(preview_box.height() / size.y);
+		ui.painter().image(
+			texture.id(),
+			egui::Rect::from_center_size(preview_box.center(), size * scale),
+			egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)),
+			egui::Color32::WHITE,
+		);
+	} else {
+		crate::icons::paint(
+			ui.painter(),
+			if display {
+				crate::icons::Icon::Television
+			} else {
+				crate::icons::Icon::ScreenShare
+			},
+			egui::Rect::from_center_size(
+				if preview_slot {
+					preview_box.center()
+				} else {
+					egui::pos2(rect.left() + 26.0, rect.center().y)
+				},
+				egui::Vec2::splat(20.0),
+			),
+			if selected {
+				colors.accent
+			} else {
+				colors.muted
+			},
+		);
+	}
+	let text_left = if preview_slot {
+		preview_box.right() + 12.0
+	} else {
+		rect.left() + 46.0
+	};
+	let text_width = (rect.right() - 36.0 - text_left).max(40.0);
+	let source_name = if source.id == SourceId::SystemPicker {
+		crate::i18n::translate("screen-macos-system-picker")
+	} else {
+		source.name.clone()
+	};
+	let mut name = egui::text::LayoutJob::simple(
+		source_name.clone(),
+		egui::FontId::new(14.0, crate::design::medium_family(ui.ctx())),
+		colors.text_strong,
+		text_width,
+	);
+	if preview_slot {
+		name.wrap.max_rows = 2;
+	}
+	let name = ui.painter().layout_job(name);
+	let kind = ui.painter().layout_no_wrap(
+		match source.id {
+			SourceId::Display(_) | SourceId::X11Desktop => "Screen".to_owned(),
+			SourceId::Window(_) => "Window".to_owned(),
+			SourceId::SystemPicker => crate::i18n::translate("screen-macos-system-picker-kind"),
+			#[allow(unreachable_patterns)] // Portal may be absent outside Linux.
+			_ => "System permission dialog".to_owned(),
+		},
+		egui::FontId::proportional(11.0),
+		colors.muted,
+	);
+	let total = name.size().y + kind.size().y;
+	let mut y = rect.center().y - total * 0.5;
+	ui.painter()
+		.galley(egui::pos2(text_left, y), name, colors.text_strong);
+	y += total - kind.size().y;
+	ui.painter()
+		.galley(egui::pos2(text_left, y), kind, colors.muted);
+	if selected {
+		crate::icons::paint(
+			ui.painter(),
+			crate::icons::Icon::Check,
+			egui::Rect::from_center_size(
+				egui::pos2(rect.right() - 20.0, rect.center().y),
+				egui::Vec2::splat(16.0),
+			),
+			colors.accent,
+		);
+	}
+	response.widget_info(|| {
+		egui::WidgetInfo::selected(egui::Role::RadioButton, true, selected, &source_name)
+	});
+	ui.add_space(4.0);
+	response
 }
 
 fn preferred_resolution(offered: &[Resolution]) -> Resolution {
@@ -588,6 +808,60 @@ mod tests {
 		assert!(picker.settings().is_some());
 		picker.sources.clear();
 		assert!(picker.settings().is_none());
+	}
+
+	#[cfg(target_os = "macos")]
+	#[test]
+	fn macos_direct_sources_require_selection_and_refresh_preserves_it() {
+		let window = Source {
+			id: SourceId::Window(7),
+			name: "Notes".into(),
+			width: 1080,
+			height: 2400,
+			refresh_hz: 0,
+		};
+		let system = Source {
+			id: SourceId::SystemPicker,
+			name: "System picker".into(),
+			width: 0,
+			height: 0,
+			refresh_hz: 0,
+		};
+		let mut picker = ScreenUi::default();
+		picker.set_sources(vec![window.clone(), system.clone()]);
+		assert!(picker.settings().is_none());
+		picker.selected = Some(window.id);
+		picker.align_quality();
+		let settings = picker.settings().unwrap();
+		assert_eq!(settings.source, window.id);
+		assert_eq!((settings.width, settings.height), (486, 1080));
+		picker.resolution = Resolution::Source;
+		assert!(picker.settings().is_none());
+		picker.align_quality();
+		picker.set_sources(vec![window, system.clone()]);
+		assert_eq!(picker.settings().unwrap().source, SourceId::Window(7));
+		picker.set_sources(vec![system]);
+		picker.align_quality();
+		assert_eq!(picker.settings().unwrap().source, SourceId::SystemPicker);
+	}
+
+	#[cfg(target_os = "macos")]
+	#[test]
+	fn thumbnails_ignore_results_from_previous_source_lists() {
+		let mut picker = ScreenUi {
+			open: true,
+			..Default::default()
+		};
+		let source = SourceId::Display(1);
+		let replacement = SourceId::Window(2);
+		picker.visible_thumbnails.push(source);
+		let (revision, requested) = picker.next_source_thumbnail().unwrap();
+		assert_eq!(requested, source);
+		picker.set_sources(Vec::new());
+		picker.visible_thumbnails.push(replacement);
+		picker.cache_source_thumbnail(revision, source, None, &egui::Context::default());
+		assert!(picker.source_thumbnails.is_empty());
+		assert_eq!(picker.next_source_thumbnail().unwrap().1, replacement);
 	}
 
 	#[test]

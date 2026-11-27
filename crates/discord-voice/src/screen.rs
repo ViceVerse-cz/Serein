@@ -91,7 +91,17 @@ pub fn supported() -> bool {
 	))
 }
 
-pub fn sources() -> Result<Vec<Source>, &'static str> {
+#[derive(Default)]
+pub struct SourceList {
+	pub items: Vec<Source>,
+	pub permission_required: bool,
+}
+
+pub fn sources(request_access: bool) -> Result<SourceList, &'static str> {
+	#[cfg(target_os = "macos")]
+	return capture::sources(request_access);
+	#[cfg(not(target_os = "macos"))]
+	let _ = request_access;
 	#[cfg(target_os = "linux")]
 	{
 		let mut sources = vec![Source {
@@ -110,10 +120,21 @@ pub fn sources() -> Result<Vec<Source>, &'static str> {
 				refresh_hz: 0,
 			});
 		}
-		Ok(sources)
+		Ok(SourceList {
+			items: sources,
+			..SourceList::default()
+		})
 	}
-	#[cfg(not(target_os = "linux"))]
-	capture::sources()
+	#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+	capture::sources().map(|items| SourceList {
+		items,
+		..SourceList::default()
+	})
+}
+
+#[cfg(target_os = "macos")]
+pub fn source_thumbnail(source: SourceId) -> Option<image::RgbaImage> {
+	capture::thumbnail(source)
 }
 
 pub struct Worker {

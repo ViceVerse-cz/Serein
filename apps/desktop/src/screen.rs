@@ -4,7 +4,10 @@ use client_core::{
 	screen::{self, Settings},
 	voice,
 };
-use discord_voice::{Identity, Status, screen::Worker};
+use discord_voice::{
+	Identity, Status,
+	screen::{SourceList, Worker},
+};
 use eframe::egui;
 use model::Id;
 use std::{
@@ -72,7 +75,14 @@ struct Closing {
 struct SourceScan {
 	generation: u64,
 	context: Option<(u64, Id, u64)>,
-	receive: mpsc::Receiver<Result<Vec<screen::Source>, &'static str>>,
+	receive: mpsc::Receiver<Result<SourceList, &'static str>>,
+}
+
+#[cfg(target_os = "macos")]
+struct SourceThumbnail {
+	revision: u64,
+	source: screen::SourceId,
+	receive: mpsc::Receiver<Option<image::RgbaImage>>,
 }
 
 #[derive(Default)]
@@ -82,6 +92,8 @@ pub(super) struct Screen {
 	closing: Option<Closing>,
 	retiring: Option<mpsc::Receiver<Result<(), Cow<'static, str>>>>,
 	source_scan: Option<SourceScan>,
+	#[cfg(target_os = "macos")]
+	source_thumbnail: Option<SourceThumbnail>,
 	command: Option<Command>,
 	sequence: u64,
 	/// Owned when it carries a run-time detail such as a Windows error code.
@@ -103,6 +115,42 @@ impl Screen {
 		// Keep one in-flight OS enumeration tracked until it completes.
 		self.retire_live();
 		self.status = "Screen sharing stopped".into();
+	}
+
+	#[cfg(target_os = "macos")]
+	fn poll_source_thumbnail(&mut self, screen: &mut ui::screen::ScreenUi, ctx: &egui::Context) {
+		if let Some(thumbnail) = &self.source_thumbnail {
+			let image = match thumbnail.receive.try_recv() {
+				Ok(image) => image,
+				Err(mpsc::TryRecvError::Disconnected) => None,
+				Err(mpsc::TryRecvError::Empty) => return,
+			};
+			screen.cache_source_thumbnail(thumbnail.revision, thumbnail.source, image, ctx);
+			self.source_thumbnail = None;
+		}
+		if self.source_scan.is_some() || !ctx.input(|input| input.focused) {
+			return;
+		}
+		let Some((revision, source)) = screen.next_source_thumbnail() else {
+			return;
+		};
+		let (send, receive) = mpsc::sync_channel(1);
+		let wake = ctx.clone();
+		match std::thread::Builder::new()
+			.name("screen-thumbnail".into())
+			.spawn(move || {
+				let _ = send.send(discord_voice::screen::source_thumbnail(source));
+				wake.request_repaint();
+			}) {
+			Ok(_) => {
+				self.source_thumbnail = Some(SourceThumbnail {
+					revision,
+					source,
+					receive,
+				})
+			}
+			Err(_) => screen.cache_source_thumbnail(revision, source, None, ctx),
+		}
 	}
 
 	fn retire_live(&mut self) {
@@ -282,16 +330,23 @@ impl Screen {
 			ui.screen.selected = None;
 		}
 
-		if ui.screen.refresh_requested {
+		if !ui.screen.open {
+			ui.screen.request_source_access = false;
+		}
+		if ui.screen.open
+			&& self.source_scan.is_none()
+			&& (ui.screen.refresh_requested || ui.screen.request_source_access)
+		{
 			ui.screen.refresh_requested = false;
-			if !state.demo && self.source_scan.is_none() && ui.screen.supported {
+			let request_access = std::mem::take(&mut ui.screen.request_source_access);
+			if !state.demo && ui.screen.supported {
 				let (send, receive) = mpsc::sync_channel(1);
 				let wake = ctx.clone();
 				self.status = "Looking for screens and windows…".into();
 				match std::thread::Builder::new()
 					.name("screen-sources".into())
 					.spawn(move || {
-						let _ = send.send(discord_voice::screen::sources());
+						let _ = send.send(discord_voice::screen::sources(request_access));
 						wake.request_repaint();
 					}) {
 					Ok(_) => {
@@ -321,18 +376,11 @@ impl Screen {
 					}
 				}
 				Ok(Ok(sources)) => {
-					ui.screen.sources = sources;
-					ui.screen.selected = ui
-						.screen
-						.selected
-						.filter(|selected| {
-							ui.screen
-								.sources
-								.iter()
-								.any(|source| source.id == *selected)
-						})
-						.or_else(|| ui.screen.sources.first().map(|source| source.id));
-					self.status = if ui.screen.sources.is_empty() {
+					ui.screen.source_permission_required = sources.permission_required;
+					ui.screen.set_sources(sources.items);
+					self.status = if ui.screen.source_permission_required {
+						ui::i18n::translate("screen-macos-source-access-settings").into()
+					} else if ui.screen.sources.is_empty() {
 						"No shareable screens or windows were found".into()
 					} else if cfg!(target_os = "linux") {
 						"Choose the system picker or, on X11, explicitly share the entire desktop"
@@ -353,6 +401,9 @@ impl Screen {
 				Err(mpsc::TryRecvError::Empty) => {}
 			}
 		}
+
+		#[cfg(target_os = "macos")]
+		self.poll_source_thumbnail(&mut ui.screen, ctx);
 
 		let call_context = call
 			.as_ref()
