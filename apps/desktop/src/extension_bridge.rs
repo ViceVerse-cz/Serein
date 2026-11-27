@@ -1,4 +1,5 @@
 //! Maps the bounded extension worker to native UI requests; no plugin runs here.
+use crate::extension_live_theme::{LiveThemeChanges, LiveThemeUpdate, LiveThemeWatcher};
 use crate::extensions::{Event, ExtensionHost, InstallSource, InstalledExtension, Job, Starter};
 use client_core::State;
 use eframe::egui;
@@ -190,6 +191,8 @@ pub struct Bridge {
 	picker: Option<mpsc::Receiver<Option<PathBuf>>>,
 	theme_picker: Option<mpsc::Receiver<ThemePickerResult>>,
 	theme_preview: Option<(Box<extensions::Theme>, Option<Arc<egui::ColorImage>>)>,
+	live_theme_watcher: Option<LiveThemeWatcher>,
+	live_theme: Option<(Box<extensions::Theme>, Option<Arc<egui::ColorImage>>)>,
 	message_events: VecDeque<QueuedEvent>,
 	message_event_at: Option<Instant>,
 	message_events_dropped: bool,
@@ -642,8 +645,24 @@ impl Bridge {
 				messaging.extensions.status = "Application data directory is unavailable.".into();
 				return;
 			};
+			if !demo {
+				match LiveThemeWatcher::new(&root, ctx.clone()) {
+					Ok(watcher) => self.live_theme_watcher = Some(watcher),
+					Err(error) => messaging.extensions.report_error(error),
+				}
+			}
 			self.start_screen = crate::extension_start_screen::DeviceStartScreen::load(&root, ctx);
 			self.host = Some(ExtensionHost::new(root));
+		}
+		if let Some(changes) = self
+			.live_theme_watcher
+			.as_ref()
+			.map(LiveThemeWatcher::take_changes)
+		{
+			self.apply_live_theme_changes(changes, ctx, messaging);
+		}
+		if messaging.extensions.take_live_theme_reset() {
+			self.clear_live_theme(ctx);
 		}
 		let scope = (state.generation, account.clone());
 		if self.scope.as_ref() != Some(&scope) {
@@ -1366,12 +1385,7 @@ impl Bridge {
 			messaging.set_plugin_interface(interface);
 		}
 		let max_texture = ctx.input(|input| input.max_texture_side);
-		if self
-			.installed
-			.iter()
-			.filter_map(|entry| entry.background_image.as_ref())
-			.any(|image| image.resolution().iter().any(|side| *side > max_texture))
-		{
+		if self.oversized_background(max_texture) {
 			messaging.extensions.status = format!(
 				"This device supports background images up to {max_texture} pixels per edge. Choose a smaller image."
 			);
@@ -1889,8 +1903,49 @@ impl Bridge {
 			);
 		}
 	}
-	fn apply_theme(&self, ctx: &egui::Context) {
+	fn apply_live_theme_changes(
+		&mut self,
+		changes: LiveThemeChanges,
+		ctx: &egui::Context,
+		messaging: &mut ui::MessagingUi,
+	) {
+		if let Some(update) = changes.update {
+			match update {
+				LiveThemeUpdate::Loaded {
+					theme,
+					background_image,
+				} => {
+					self.live_theme = Some((theme, background_image));
+					self.apply_theme(ctx);
+				}
+				LiveThemeUpdate::Cleared => {
+					self.clear_live_theme(ctx);
+				}
+			}
+		}
+		if let Some(error) = changes.error {
+			messaging.extensions.status = error.chars().take(512).collect();
+		}
+	}
+	fn clear_live_theme(&mut self, ctx: &egui::Context) {
+		if self.live_theme.take().is_some() {
+			self.apply_theme(ctx);
+		}
+	}
+	fn oversized_background(&self, max_texture: usize) -> bool {
+		self.installed
+			.iter()
+			.filter_map(|entry| entry.background_image.as_ref())
+			.chain(
+				self.live_theme
+					.as_ref()
+					.and_then(|(_, image)| image.as_ref()),
+			)
+			.any(|image| image.resolution().iter().any(|side| *side > max_texture))
+	}
+	fn resolved_theme(&self) -> (Option<extensions::Theme>, Option<Arc<egui::ColorImage>>) {
 		// Explicit theme first, then enabled plugin appearances in stable ID order.
+		let explicit_theme = self.theme_preview.as_ref().or(self.live_theme.as_ref());
 		let mut entries: Vec<_> = self
 			.installed
 			.iter()
@@ -1899,7 +1954,7 @@ impl Bridge {
 					&& !self.disabled.contains(&entry.manifest.id)
 					&& entry.theme.is_some()
 					&& (entry.manifest.kind == ExtensionKind::Plugin
-						|| entry.active_theme && self.theme_preview.is_none())
+						|| entry.active_theme && explicit_theme.is_none())
 			})
 			.collect();
 		entries.sort_by_key(|entry| {
@@ -1908,10 +1963,8 @@ impl Bridge {
 				&entry.manifest.id,
 			)
 		});
-		let mut appearance = self
-			.theme_preview
-			.as_ref()
-			.map_or_else(extensions::Theme::default, |(theme, _)| (**theme).clone());
+		let mut appearance =
+			explicit_theme.map_or_else(extensions::Theme::default, |(theme, _)| (**theme).clone());
 		for entry in &entries {
 			let blended = self.blended_theme(&entry.manifest.id);
 			appearance.overlay(
@@ -1920,21 +1973,22 @@ impl Bridge {
 					.unwrap_or_else(|| entry.theme.as_ref().unwrap()),
 			);
 		}
-		ui::design::set_extension_theme(
-			(!entries.is_empty() || self.theme_preview.is_some()).then_some(&appearance),
+		let theme = (!entries.is_empty() || explicit_theme.is_some()).then_some(appearance);
+		let background = explicit_theme.map_or_else(
+			|| {
+				entries
+					.iter()
+					.find(|entry| entry.active_theme)
+					.and_then(|entry| entry.background_image.clone())
+			},
+			|(_, image)| image.clone(),
 		);
-		ui::design::set_background_image(
-			ctx,
-			self.theme_preview.as_ref().map_or_else(
-				|| {
-					entries
-						.iter()
-						.find(|entry| entry.active_theme)
-						.and_then(|entry| entry.background_image.clone())
-				},
-				|(_, image)| image.clone(),
-			),
-		);
+		(theme, background)
+	}
+	fn apply_theme(&self, ctx: &egui::Context) {
+		let (theme, background) = self.resolved_theme();
+		ui::design::set_extension_theme(theme.as_ref());
+		ui::design::set_background_image(ctx, background);
 		ui::design::apply(ctx);
 	}
 }
@@ -2765,5 +2819,118 @@ mod tests {
 		assert!(bridge.source_for(&id, &"a".repeat(64), true).is_none());
 		assert!(bridge.source_for(&id, &"b".repeat(64), false).is_none());
 		assert!(bridge.source_for(&id, &"d".repeat(64), true).is_none());
+	}
+
+	#[test]
+	fn live_theme_precedence_plugin_overlay_emergency_reset_and_texture_check() {
+		let color_theme = |key: &str, value: &str| {
+			let mut theme = extensions::Theme::default();
+			theme.dark.colors.insert(key.into(), value.into());
+			theme
+		};
+		let solid_bg = |size: [usize; 2]| {
+			Arc::new(egui::ColorImage::new(
+				size,
+				vec![egui::Color32::BLACK; size[0] * size[1]],
+			))
+		};
+		let (mut bridge, _, _) = message_events_fixture();
+		let ctx = egui::Context::default();
+		let mut messaging = ui::MessagingUi::default();
+
+		// Active installed theme + enabled appearance plugin overlay.
+		let installed_bg = solid_bg([2, 2]);
+		let mut installed_theme = bridge.installed[0].clone();
+		installed_theme.manifest.id = "installed-theme".into();
+		installed_theme.manifest.kind = ExtensionKind::Theme;
+		installed_theme.manifest.capabilities.clear();
+		installed_theme.manifest.actions.clear();
+		installed_theme.active_theme = true;
+		installed_theme.theme = Some(color_theme("accent", "#111111"));
+		installed_theme.background_image = Some(installed_bg.clone());
+		bridge.installed.push(installed_theme);
+		bridge.installed[0].theme = Some(color_theme("chat", "#222222"));
+
+		// Live theme replaces installed theme while plugin overlay still applies above it.
+		let live_bg = solid_bg([4, 4]);
+		bridge.apply_live_theme_changes(
+			LiveThemeChanges {
+				update: Some(LiveThemeUpdate::Loaded {
+					theme: Box::new(color_theme("accent", "#333333")),
+					background_image: Some(live_bg.clone()),
+				}),
+				error: None,
+			},
+			&ctx,
+			&mut messaging,
+		);
+		let (theme, bg) = bridge.resolved_theme();
+		let theme = theme.expect("resolved theme");
+		assert_eq!(theme.dark.colors["accent"], "#333333");
+		assert_eq!(theme.dark.colors["chat"], "#222222");
+		assert!(Arc::ptr_eq(bg.as_ref().unwrap(), &live_bg));
+		assert!(bridge.oversized_background(3));
+		assert!(!bridge.oversized_background(4));
+
+		// In-app theme preview takes temporary precedence over the live theme.
+		let preview_bg = solid_bg([1, 1]);
+		bridge.theme_preview = Some((
+			Box::new(color_theme("accent", "#444444")),
+			Some(preview_bg.clone()),
+		));
+		let (theme, bg) = bridge.resolved_theme();
+		assert_eq!(theme.unwrap().dark.colors["accent"], "#444444");
+		assert!(Arc::ptr_eq(bg.as_ref().unwrap(), &preview_bg));
+		bridge.theme_preview = None;
+
+		// Error preserves active live theme and reports bounded status in Themes.
+		bridge.apply_live_theme_changes(
+			LiveThemeChanges {
+				update: None,
+				error: Some("x".repeat(600)),
+			},
+			&ctx,
+			&mut messaging,
+		);
+		assert_eq!(messaging.extensions.status.chars().count(), 512);
+		let (theme, _) = bridge.resolved_theme();
+		assert_eq!(theme.unwrap().dark.colors["accent"], "#333333");
+
+		// Emergency reset clears the active live theme and restores the selected theme.
+		bridge.clear_live_theme(&ctx);
+		let (theme, bg) = bridge.resolved_theme();
+		assert_eq!(theme.unwrap().dark.colors["accent"], "#111111");
+		assert!(Arc::ptr_eq(bg.as_ref().unwrap(), &installed_bg));
+
+		// Reloading and then clearing via watcher restores the selected theme again.
+		bridge.apply_live_theme_changes(
+			LiveThemeChanges {
+				update: Some(LiveThemeUpdate::Loaded {
+					theme: Box::new(color_theme("accent", "#555555")),
+					background_image: None,
+				}),
+				error: None,
+			},
+			&ctx,
+			&mut messaging,
+		);
+		assert_eq!(
+			bridge.resolved_theme().0.unwrap().dark.colors["accent"],
+			"#555555"
+		);
+		bridge.apply_live_theme_changes(
+			LiveThemeChanges {
+				update: Some(LiveThemeUpdate::Cleared),
+				error: None,
+			},
+			&ctx,
+			&mut messaging,
+		);
+		let (theme, bg) = bridge.resolved_theme();
+		assert_eq!(theme.unwrap().dark.colors["accent"], "#111111");
+		assert!(Arc::ptr_eq(bg.as_ref().unwrap(), &installed_bg));
+
+		ui::design::set_extension_theme(None);
+		ui::design::set_background_image(&ctx, None);
 	}
 }

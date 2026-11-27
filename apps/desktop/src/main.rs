@@ -24,6 +24,7 @@ mod extension_bridge;
 mod extension_data_events;
 mod extension_events;
 mod extension_forum_data;
+mod extension_live_theme;
 mod extension_member_details;
 mod extension_message_content;
 mod extension_start_screen;

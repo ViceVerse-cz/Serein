@@ -287,8 +287,12 @@ pub struct ExtensionUi {
 	theme_editor: Option<crate::theme_editor::ThemeEditor>,
 	theme_editor_visible: bool,
 	gallery_preview: Option<String>,
+	live_theme_reset: bool,
 }
 impl ExtensionUi {
+	pub fn take_live_theme_reset(&mut self) -> bool {
+		std::mem::take(&mut self.live_theme_reset)
+	}
 	pub fn editing_theme(&self) -> bool {
 		self.theme_editor.is_some()
 	}
@@ -2613,6 +2617,7 @@ impl ExtensionUi {
 		}
 	}
 	pub(crate) fn reset_theme(&mut self, ctx: &egui::Context) {
+		self.live_theme_reset = true;
 		self.stop_theme_preview(ctx);
 		self.theme_editor = None;
 		design::set_background_image(ctx, None);
@@ -2638,6 +2643,7 @@ impl ExtensionUi {
 		for id in disable {
 			self.queue(ctx, ExtensionRequest::Disable { id });
 		}
+		ctx.request_repaint();
 	}
 	/// Shows the result window of the last foreground plugin action: its panel, proposed draft
 	/// replacement and host effects, each applied only after the user confirms.
@@ -4744,5 +4750,19 @@ mod tests {
 		));
 		assert!(apply_proposal(&mut state, &context, "changed"));
 		assert_eq!(state.drafts[&Id(1)], "changed");
+	}
+	#[test]
+	fn reset_theme_signals_live_theme_reset_once() {
+		let mut extensions = ExtensionUi::default();
+		let ctx = egui::Context::default();
+		assert!(!extensions.take_live_theme_reset());
+		extensions.active_theme = Some("ocean".into());
+		extensions.reset_theme(&ctx);
+		assert!(extensions.take_live_theme_reset());
+		assert!(!extensions.take_live_theme_reset());
+		assert!(matches!(
+			extensions.requests.as_slice(),
+			[ExtensionRequest::SelectTheme { id: None }]
+		));
 	}
 }
