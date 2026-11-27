@@ -582,6 +582,11 @@ impl AvatarWorker {
 			}
 		}
 	}
+	pub fn has_inflight(&self, key: &str) -> bool {
+		self.inflight
+			.lock()
+			.is_ok_and(|inflight| inflight.contains_key(key))
+	}
 	pub fn poll(&mut self) -> Option<AvatarResult> {
 		let result = self.results.try_recv().ok()?;
 		if result.stage != DecodeStage::Preview
