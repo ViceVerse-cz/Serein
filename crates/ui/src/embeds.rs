@@ -176,11 +176,19 @@ fn clip_media(embed: &Embed) -> Option<&model::EmbedMedia> {
 
 /// A link embed's video file as inline-player media, streamed through Discord's media
 /// proxy. GIF videos keep their looping preview, and hosted players (YouTube and the
-/// like) carry no proxied file, so they keep the browser link.
+/// like) have no proxied video file, so they keep the browser link. The proxied path must
+/// name a container the native decoders open.
 /// The id is derived from the proxied URL, stable across frames and distinct per video.
 pub(crate) fn video_attachment(embed: &Embed) -> Option<model::Attachment> {
 	let video = embed.video.as_ref().filter(|_| embed.kind != "gifv")?;
-	let proxy = video.proxy_url.as_deref().filter(|url| !url.is_empty())?;
+	let proxy = video.proxy_url.as_deref().filter(|url| {
+		let path = url.split(['?', '#']).next().unwrap_or(url);
+		path.rsplit_once('.').is_some_and(|(_, extension)| {
+			["mp4", "mov", "m4v", "webm", "mkv"]
+				.iter()
+				.any(|kind| extension.eq_ignore_ascii_case(kind))
+		})
+	})?;
 	let mut hasher = DefaultHasher::new();
 	proxy.hash(&mut hasher);
 	let filename = video
@@ -1125,6 +1133,16 @@ mod tests {
 		embed.kind = "gifv".into();
 		assert!(video_attachment(&embed).is_none());
 		embed.kind = "video".into();
+		// A proxied hosted player page is not a file the decoders open; WebM is.
+		let proxied = |path: &str| {
+			let mut embed = embed.clone();
+			embed.video.as_mut().unwrap().proxy_url = Some(format!(
+				"https://images-ext-1.discordapp.net/external/synthetic/https/{path}"
+			));
+			video_attachment(&embed).is_some()
+		};
+		assert!(!proxied("www.youtube.com/embed/synthetic"));
+		assert!(proxied("example.org/clip.WebM?tag=1"));
 		// Without a proxied file the card asks the media worker for the clip's frames.
 		embed.video.as_mut().unwrap().proxy_url = None;
 		assert!(video_attachment(&embed).is_none());

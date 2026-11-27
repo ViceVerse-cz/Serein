@@ -3119,18 +3119,21 @@ offline embeds preview, not a live payload, so that link's exact wire shape stay
 ## Inline playback of link-embed videos — November 27, 2026
 
 A link embed whose [`video`](https://docs.discord.com/developers/resources/message#embed-object-embed-video-structure)
-carries a `proxy_url` (for example a Reddit `packaged-media.redd.it` MP4) now plays in the card's
-inline player instead of offering only "Open video…".
+carries a `proxy_url` naming an MP4, MOV, M4V, WebM or MKV file (for example a Reddit
+`packaged-media.redd.it` MP4) now plays in the card's inline player instead of offering only
+"Open video…".
 The player requests only that Discord media-proxy URL (`images-ext-*.discordapp.net/external/…`, or
 `media.discordapp.net/attachments/…`), never the third-party origin, with the same credential-free,
 redirect-free range reader as attachments. Embeds carry no byte size, so the first range response's
 `Content-Range` total supplies it, bounded by the existing 100 MiB preview limit; later ranges must
 report the same total. A server that ignores ranges plays only a file within one 256 KiB chunk.
-GIF videos (`gifv`) keep their looping preview, and hosted players without a proxied file (YouTube
-and similar) keep the browser link. Idle stages decode a first-frame poster as attachments do.
-Embed videos have no Download action; "Open original…" opens the video's own URL through the link
-confirmation. Range support on Discord's external media proxy is unverified: checks used synthetic
-embeds and a loopback server, not a live payload.
+GIF videos (`gifv`) keep their looping preview, and hosted players (YouTube and similar) or proxied
+paths without a video extension keep the browser link. Idle stages decode a first-frame poster as
+attachments do. Embed videos have no Download action; "Open original…" opens the video's own URL
+through the link confirmation. Range support on Discord's external media proxy is unverified: checks
+used synthetic embeds and a loopback server, not a live payload. Reddit's MP4s may be fragmented;
+the macOS demuxer rejects fragmented MP4, so such clips may fail there while Windows and Linux hand
+them to the system decoders (unverified on a real Reddit file).
 
 ## Opening an unloaded thread — October 26, 2026
 
