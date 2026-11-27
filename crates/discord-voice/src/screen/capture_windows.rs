@@ -1,7 +1,8 @@
 use super::{
-	MAX_FRAME_HEIGHT, MAX_FRAME_WIDTH, MAX_RAW_BYTES, MAX_SOURCE_HEIGHT, MAX_SOURCE_WIDTH,
+	MAX_FRAME_HEIGHT, MAX_FRAME_WIDTH, MAX_SOURCE_BYTES, MAX_SOURCE_HEIGHT, MAX_SOURCE_WIDTH,
 	MAX_SOURCES, bounded_name,
 };
+use crate::screen::convert::Picture;
 use crate::screen::{AudioChunk, RawFrame, Settings as CaptureSettings, Source, SourceId};
 use std::borrow::Cow;
 use std::sync::{
@@ -100,6 +101,8 @@ struct Flags {
 	pending: Arc<AtomicBool>,
 	next_frame: Instant,
 	interval: Duration,
+	/// The selected quality: a source over the sharing budget is fitted into it.
+	settings: CaptureSettings,
 }
 
 struct Handler(Flags);
@@ -129,26 +132,16 @@ impl GraphicsCaptureApiHandler for Handler {
 		}
 		self.0.next_frame = (self.0.next_frame + self.0.interval).max(now + self.0.interval / 2);
 		let (width, height) = (frame.width(), frame.height());
+		if width == 0 || height == 0 || width > MAX_SOURCE_WIDTH || height > MAX_SOURCE_HEIGHT {
+			self.0.stop.store(true, Ordering::Release);
+			control.stop();
+			return Err("Captured picture exceeds the capture limit");
+		}
 		let Some(row_bytes) = (width as usize).checked_mul(4) else {
 			self.0.stop.store(true, Ordering::Release);
 			control.stop();
 			return Err("Captured frame dimensions are invalid");
 		};
-		let Some(data_len) = row_bytes.checked_mul(height as usize) else {
-			self.0.stop.store(true, Ordering::Release);
-			control.stop();
-			return Err("Captured frame dimensions are invalid");
-		};
-		if width == 0
-			|| height == 0
-			|| width > MAX_FRAME_WIDTH
-			|| height > MAX_FRAME_HEIGHT
-			|| data_len > MAX_RAW_BYTES
-		{
-			self.0.stop.store(true, Ordering::Release);
-			control.stop();
-			return Err("Captured frame exceeds the 4K limit");
-		}
 		let mut buffer = frame.buffer().map_err(|_| {
 			self.0.stop.store(true, Ordering::Release);
 			"Captured frame could not be read"
@@ -158,26 +151,54 @@ impl GraphicsCaptureApiHandler for Handler {
 			self.0.stop.store(true, Ordering::Release);
 			return Err("Captured frame stride is invalid");
 		};
-		if stride < row_bytes || source_len > MAX_RAW_BYTES {
+		if stride < row_bytes || source_len > MAX_SOURCE_BYTES {
 			self.0.stop.store(true, Ordering::Release);
-			return Err("Captured frame stride exceeds the 4K limit");
+			return Err("Captured frame stride exceeds the capture limit");
 		}
 		let source = buffer.as_raw_buffer();
 		if source.len() < source_len {
 			self.0.stop.store(true, Ordering::Release);
 			return Err("Captured frame buffer is incomplete");
 		}
-		let mut data = Vec::with_capacity(data_len);
-		for row in source[..source_len].chunks_exact(stride) {
-			data.extend_from_slice(&row[..row_bytes]);
-		}
+		let source = &source[..source_len];
+		// A picture over the sharing budget — a display above 4K, a window spanning two
+		// displays, or a 4K window whose border and title bar push its rectangle past the
+		// budget — is fitted into the selected quality as it is copied out, so the queue, the
+		// local preview and the encoder keep that bound instead of the share failing.
+		let (picture_width, picture_height) = shared_picture(self.0.settings, width, height);
+		let data = if (picture_width, picture_height) == (width, height) {
+			let Some(data_len) = row_bytes.checked_mul(height as usize) else {
+				self.0.stop.store(true, Ordering::Release);
+				return Err("Captured frame dimensions are invalid");
+			};
+			let mut data = Vec::with_capacity(data_len);
+			for row in source.chunks_exact(stride) {
+				data.extend_from_slice(&row[..row_bytes]);
+			}
+			data
+		} else {
+			let picture = Picture {
+				data: source,
+				width,
+				height,
+				stride,
+			};
+			match picture.scaled(picture_width, picture_height) {
+				Ok(data) => data,
+				Err(reason) => {
+					self.0.stop.store(true, Ordering::Release);
+					control.stop();
+					return Err(reason);
+				}
+			}
+		};
 		if self
 			.0
 			.frames
 			.try_send(RawFrame {
-				width,
-				height,
-				stride: row_bytes,
+				width: picture_width,
+				height: picture_height,
+				stride: picture_width as usize * 4,
 				data,
 			})
 			.is_err()
@@ -309,6 +330,16 @@ impl NativeSource for Window {
 	}
 }
 
+/// The picture handed downstream: the captured size, or the selected quality that an
+/// over-budget source is fitted into with its aspect ratio kept.
+fn shared_picture(settings: CaptureSettings, width: u32, height: u32) -> (u32, u32) {
+	if width <= MAX_FRAME_WIDTH && height <= MAX_FRAME_HEIGHT {
+		return (width, height);
+	}
+	let fitted = settings.fitted_to(width, height);
+	(fitted.width, fitted.height)
+}
+
 #[allow(clippy::too_many_arguments)] // One capture's stop, readiness, audio and cancellation flags.
 fn start_item<T>(
 	settings: CaptureSettings,
@@ -324,8 +355,11 @@ where
 	let Some((width, height)) = item.dimensions() else {
 		return Err("Selected source dimensions are unavailable");
 	};
-	if width == 0 || height == 0 || width > MAX_FRAME_WIDTH || height > MAX_FRAME_HEIGHT {
-		return Err("Selected source exceeds the 4K capture limit");
+	// A window rectangle includes its border and title bar, so a 4K window measures more than
+	// 4K. Only the source bound applies here; the captured picture is fitted into the selected
+	// quality when it arrives.
+	if width == 0 || height == 0 || width > MAX_SOURCE_WIDTH || height > MAX_SOURCE_HEIGHT {
+		return Err("Selected screen or window is too large to share");
 	}
 	// Windows 11 keeps a per-application consent; an application that never asks is denied and
 	// the Settings page lists no request. Asking here shows the system prompt once.
@@ -338,6 +372,7 @@ where
 		pending,
 		next_frame: Instant::now(),
 		interval: Duration::from_secs_f64(1.0 / f64::from(settings.fps)),
+		settings,
 	};
 	let cursor =
 		if settings.cursor && GraphicsCaptureApi::is_cursor_settings_supported().unwrap_or(false) {
@@ -471,5 +506,39 @@ fn start_failure(
 		Error::NewHandlerError(_) | Error::FrameHandlerError(_) => {
 			"Screen capture could not be started"
 		}
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	fn quality(width: u32, height: u32) -> CaptureSettings {
+		CaptureSettings {
+			source: SourceId::Window(1),
+			width,
+			height,
+			fps: 30,
+			cursor: true,
+			audio: false,
+		}
+	}
+
+	#[test]
+	fn a_source_over_the_budget_shares_at_the_selected_quality() {
+		let settings = quality(1280, 720);
+		// A maximized window on a 4K display also measures its border and title bar, so its
+		// rectangle is over the budget while its picture is not: it is fitted, not refused.
+		assert_eq!(shared_picture(settings, 3856, 2176), (1276, 720));
+		// A 4K window plus its title bar keeps its full width and loses the chrome.
+		assert_eq!(
+			shared_picture(quality(3840, 2160), 3840, 2191),
+			(3786, 2160)
+		);
+		// A larger display scales into the same bound.
+		assert_eq!(shared_picture(settings, 5120, 2880), (1280, 720));
+		// A picture inside the budget keeps its captured size, chrome or not.
+		assert_eq!(shared_picture(settings, 1920, 1080), (1920, 1080));
+		assert_eq!(shared_picture(settings, 3840, 2160), (3840, 2160));
 	}
 }
