@@ -36,7 +36,18 @@ pub enum VideoState {
 	Ended,
 	Failed(&'static str),
 }
+/// Where the played video comes from; the desktop admits its URL accordingly.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum VideoOrigin {
+	/// A message attachment on Discord's CDN, of known byte size.
+	#[default]
+	Attachment,
+	/// A link embed's video file through Discord's media proxy; its byte size is learned
+	/// from the first range response.
+	Embed,
+}
 pub enum VideoCommand {
+	/// Plays [`VideoUi::active`] from [`VideoUi::origin`].
 	Play(Attachment),
 	Pause(bool),
 	Seek(f64),
@@ -45,6 +56,8 @@ pub enum VideoCommand {
 }
 pub struct VideoUi {
 	pub active: Option<(Id, Id, Attachment)>,
+	/// Origin of [`Self::active`]; the desktop admits a played URL by it.
+	pub origin: VideoOrigin,
 	pub state: VideoState,
 	pub position: f64,
 	pub duration: f64,
@@ -73,7 +86,7 @@ pub struct VideoUi {
 	/// Idle attachments awaiting one decoded poster. Drained by the desktop each
 	/// frame through its own queue so poster work never consumes the single
 	/// playback command slot (and a later click cannot strand a request).
-	pub poster_queue: Vec<Attachment>,
+	pub poster_queue: Vec<(Attachment, VideoOrigin)>,
 	/// Keyboard focus rested on an overlay control last frame, so keep the overlay visible.
 	controls_focused: bool,
 	/// The seek bar and timestamp were drawn this pass. While they are hidden a playing
@@ -90,6 +103,7 @@ impl Default for VideoUi {
 	fn default() -> Self {
 		Self {
 			active: None,
+			origin: VideoOrigin::Attachment,
 			state: VideoState::Idle,
 			position: 0.0,
 			duration: 0.0,
@@ -167,11 +181,21 @@ impl VideoUi {
 			.show(ctx, |ui| {
 				ui.set_min_size(screen.size());
 				ui.set_max_size(screen.size());
-				let response =
-					self.show_player(ui, message, attachment, true, download, opening, demo);
-				crate::attachments::media_context_menu(
-					&response, attachment, download, opening, demo,
+				let response = self.show_player(
+					ui,
+					message,
+					attachment,
+					self.origin,
+					true,
+					download,
+					opening,
+					demo,
 				);
+				if self.origin == VideoOrigin::Attachment {
+					crate::attachments::media_context_menu(
+						&response, attachment, download, opening, demo,
+					);
+				}
 			});
 		// The shared link confirmation is drawn before the timeline. Leave the video
 		// overlay when opening an original so that confirmation remains visible.
@@ -236,7 +260,13 @@ impl VideoUi {
 		self.texture = Some(texture);
 		true
 	}
-	fn toggle(&mut self, message: &Message, attachment: &Attachment, state: VideoState) {
+	fn toggle(
+		&mut self,
+		message: &Message,
+		attachment: &Attachment,
+		origin: VideoOrigin,
+		state: VideoState,
+	) {
 		self.command = Some(match state {
 			VideoState::Loading => {
 				self.stop();
@@ -246,6 +276,7 @@ impl VideoUi {
 			VideoState::Paused => VideoCommand::Pause(false),
 			_ => {
 				self.active = Some((message.channel, message.id, attachment.clone()));
+				self.origin = origin;
 				self.texture = None;
 				self.managed = None;
 				self.frame = None;
@@ -335,16 +366,20 @@ impl VideoUi {
 		}
 		self.poster_seen.insert(id);
 	}
+	#[allow(clippy::too_many_arguments)]
 	pub fn show(
 		&mut self,
 		ui: &mut egui::Ui,
 		message: &Message,
 		attachment: &Attachment,
+		origin: VideoOrigin,
 		download: &mut crate::DownloadUi,
 		opening: &mut Option<String>,
 		demo: bool,
 	) -> egui::Response {
-		self.show_player(ui, message, attachment, false, download, opening, demo)
+		self.show_player(
+			ui, message, attachment, origin, false, download, opening, demo,
+		)
 	}
 	#[allow(clippy::too_many_arguments)]
 	fn show_player(
@@ -352,15 +387,17 @@ impl VideoUi {
 		ui: &mut egui::Ui,
 		message: &Message,
 		attachment: &Attachment,
+		origin: VideoOrigin,
 		fullscreen: bool,
 		download: &mut crate::DownloadUi,
 		opening: &mut Option<String>,
 		demo: bool,
 	) -> egui::Response {
 		let colors = crate::design::palette(ui);
-		let active = self.active.as_ref().is_some_and(|(channel, id, file)| {
-			*channel == message.channel && *id == message.id && file == attachment
-		});
+		let active = self.origin == origin
+			&& self.active.as_ref().is_some_and(|(channel, id, file)| {
+				*channel == message.channel && *id == message.id && file == attachment
+			});
 		let state = if active { self.state } else { VideoState::Idle };
 		let width = ui.available_width().clamp(1.0, MAX_WIDTH);
 		let size = if fullscreen {
@@ -398,16 +435,17 @@ impl VideoUi {
 				}
 			} else if state == VideoState::Idle
 				&& !self.poster_seen.contains(&attachment.id)
-				&& attachment.size > 0
-				&& attachment.size <= 100 * 1024 * 1024
+				// Embed videos learn their size from the first range response.
+				&& (origin == VideoOrigin::Embed
+					|| (attachment.size > 0 && attachment.size <= 100 * 1024 * 1024))
 				&& ui.is_rect_visible(stage)
 				&& !self
 					.poster_queue
 					.iter()
-					.any(|queued| queued.id == attachment.id)
+					.any(|(queued, _)| queued.id == attachment.id)
 			{
 				// Queued, not commanded: playback clicks keep the command slot.
-				self.poster_queue.push(attachment.clone());
+				self.poster_queue.push((attachment.clone(), origin));
 			}
 		}
 		if let Some(texture) = self.texture.filter(|_| active) {
@@ -554,7 +592,7 @@ impl VideoUi {
 			painter.galley(badge.min + egui::vec2(6.0, 3.0), galley, white);
 		}
 		if action.clicked() {
-			self.toggle(message, attachment, state);
+			self.toggle(message, attachment, origin, state);
 		}
 		response = action | response;
 		let mut controls_focused = false;
@@ -657,7 +695,7 @@ impl VideoUi {
 			);
 			controls_focused |= play.has_focus();
 			if play.clicked() {
-				self.toggle(message, attachment, state);
+				self.toggle(message, attachment, origin, state);
 			}
 			response |= play;
 			let muted = self.volume <= 0.0;
@@ -799,25 +837,28 @@ impl VideoUi {
 				.layout(egui::Layout::right_to_left(egui::Align::Min)),
 			|ui| {
 				ui.spacing_mut().item_spacing.x = 6.0;
-				let idle = !demo && !download.busy();
-				if ui
-					.add_enabled_ui(idle, |ui| {
-						crate::attachments::glass_button(
-							ui,
-							crate::icons::Icon::Download,
-							28.0,
-							"Download",
-						)
-					})
-					.inner
-					.on_disabled_hover_text(crate::i18n::translate_if_key(if demo {
-						"video-show-player-downloads-are-disabled-for-synthetic-attachments"
-					} else {
-						"video-show-player-a-download-is-already-active"
-					}))
-					.clicked()
-				{
-					download.request = Some(attachment.clone());
+				// Embed videos have no attachment to save; "Open original…" covers them.
+				if origin == VideoOrigin::Attachment {
+					let idle = !demo && !download.busy();
+					if ui
+						.add_enabled_ui(idle, |ui| {
+							crate::attachments::glass_button(
+								ui,
+								crate::icons::Icon::Download,
+								28.0,
+								"Download",
+							)
+						})
+						.inner
+						.on_disabled_hover_text(crate::i18n::translate_if_key(if demo {
+							"video-show-player-downloads-are-disabled-for-synthetic-attachments"
+						} else {
+							"video-show-player-a-download-is-already-active"
+						}))
+						.clicked()
+					{
+						download.request = Some(attachment.clone());
+					}
 				}
 				if let Some(url) = attachment
 					.media
@@ -844,7 +885,9 @@ impl VideoUi {
 				egui::StrokeKind::Inside,
 			);
 		}
+		// Recomputed: a click this pass may have started this stage.
 		if ui.is_rect_visible(stage)
+			&& self.origin == origin
 			&& self.active.as_ref().is_some_and(|(channel, id, file)| {
 				*channel == message.channel && *id == message.id && file == attachment
 			}) {
@@ -856,6 +899,28 @@ impl VideoUi {
 impl Drop for VideoUi {
 	fn drop(&mut self) {
 		self.exit_fullscreen();
+	}
+}
+/// Whether `message` still draws the stage for `attachment` from `origin`. An embed video is
+/// drawn only with the consent the chat card needs: no spoiler-marked embed text, or
+/// `media_revealed` for this message.
+pub(crate) fn shown_in(
+	message: &Message,
+	attachment: &Attachment,
+	origin: VideoOrigin,
+	media_revealed: bool,
+) -> bool {
+	match origin {
+		VideoOrigin::Attachment => message.attachments.contains(attachment),
+		VideoOrigin::Embed => {
+			!message.embeds_suppressed
+				&& (media_revealed || !crate::embeds::has_embed_spoilers(message))
+				&& message
+					.embeds
+					.iter()
+					.filter_map(crate::embeds::video_attachment)
+					.any(|video| video == *attachment)
+		}
 	}
 }
 fn stage_size(attachment: &Attachment, width: f32) -> egui::Vec2 {
@@ -1283,6 +1348,7 @@ mod tests {
 						ui,
 						&message,
 						&attachment,
+						VideoOrigin::Attachment,
 						&mut crate::attachments::DownloadUi::default(),
 						&mut None,
 						false,
@@ -1295,7 +1361,10 @@ mod tests {
 		// One queued poster request, still idle: playback never starts on its own,
 		// and the playback command slot stays free for clicks.
 		assert_eq!(video.poster_queue.len(), 1);
-		assert_eq!(video.poster_queue[0], attachment);
+		assert_eq!(
+			video.poster_queue[0],
+			(attachment.clone(), VideoOrigin::Attachment)
+		);
 		assert!(video.command.is_none() && video.active.is_none());
 		// Draining (as the desktop does each frame) retries while unresolved;
 		// the desktop pending set absorbs the duplicates.
@@ -1326,5 +1395,40 @@ mod tests {
 		assert!(!video.posters.contains_key(&Id(4)));
 		assert!(!video.poster_seen.contains(&Id(3)));
 		assert!(video.poster_bytes <= POSTER_BUDGET);
+	}
+
+	#[test]
+	fn an_embed_video_stage_needs_the_cards_spoiler_consent() {
+		let embed = model::Embed {
+			kind: "video".into(),
+			video: Some(model::EmbedMedia {
+				proxy_url: Some(
+					"https://images-ext-1.discordapp.net/external/synthetic/https/example.org/clip.mp4".into(),
+				),
+				..Default::default()
+			}),
+			..Default::default()
+		};
+		let mut message = test_support::message(1, Id(2));
+		message.attachments.clear();
+		message.embeds = vec![embed.clone()];
+		let attachment = crate::embeds::video_attachment(&embed).unwrap();
+		assert!(shown_in(&message, &attachment, VideoOrigin::Embed, false));
+		assert!(!shown_in(
+			&message,
+			&attachment,
+			VideoOrigin::Attachment,
+			false
+		));
+		// Spoiler-marked embed text conceals the player until the media is revealed.
+		message.embeds[0].title = Some("||synthetic|| clip".into());
+		assert!(!shown_in(&message, &attachment, VideoOrigin::Embed, false));
+		assert!(shown_in(&message, &attachment, VideoOrigin::Embed, true));
+		// Suppressed embeds and a removed clip end the stage either way.
+		message.embeds_suppressed = true;
+		assert!(!shown_in(&message, &attachment, VideoOrigin::Embed, true));
+		message.embeds_suppressed = false;
+		message.embeds.clear();
+		assert!(!shown_in(&message, &attachment, VideoOrigin::Embed, true));
 	}
 }

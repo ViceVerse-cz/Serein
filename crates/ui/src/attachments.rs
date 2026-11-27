@@ -599,7 +599,15 @@ pub(crate) fn show_subset(
 			for attachment in group {
 				ui.push_id(("attachment", attachment.id), |ui| {
 					if attachment.is_video() {
-						let response = video.show(ui, message, attachment, download, opening, demo);
+						let response = video.show(
+							ui,
+							message,
+							attachment,
+							crate::video::VideoOrigin::Attachment,
+							download,
+							opening,
+							demo,
+						);
 						surface.keep(&response);
 						media_context_menu(&response, attachment, download, opening, demo);
 					} else if attachment.is_audio() {

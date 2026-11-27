@@ -213,6 +213,7 @@ fn main() {
 					ui,
 					message,
 					&message.attachments[0],
+					ui::VideoOrigin::Attachment,
 					&mut DownloadUi::default(),
 					&mut None,
 					false,

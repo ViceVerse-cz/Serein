@@ -8,7 +8,7 @@ use std::sync::{
 	Arc, Mutex,
 	atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
 };
-use ui::{VideoCommand, VideoState, VideoUi};
+use ui::{VideoCommand, VideoOrigin, VideoState, VideoUi};
 
 #[derive(Default)]
 struct Update {
@@ -49,13 +49,14 @@ impl Session {
 struct Request {
 	session: Arc<Session>,
 	url: Option<url::Url>,
-	size: usize,
+	/// `None` for embed videos: the first range response reports the length.
+	size: Option<usize>,
 }
 /// One idle-stage poster: decode a single first frame, never playback.
 struct PosterJob {
 	id: model::Id,
 	url: Option<url::Url>,
-	size: usize,
+	size: Option<usize>,
 	/// Set when the session ends; skips the job and aborts its range reads.
 	cancelled: Arc<AtomicBool>,
 }
@@ -206,7 +207,9 @@ impl Video {
 			VideoCommand::Stop => self.stop(),
 			VideoCommand::Play(attachment) => {
 				self.stop();
-				if let Err(error) = self.start(attachment, player.volume, runtime, ctx, demo) {
+				if let Err(error) =
+					self.start(attachment, player.origin, player.volume, runtime, ctx, demo)
+				{
 					player.state = VideoState::Failed(error);
 				}
 			}
@@ -238,22 +241,23 @@ impl Video {
 	fn start(
 		&mut self,
 		attachment: model::Attachment,
+		origin: VideoOrigin,
 		volume: f32,
 		runtime: &tokio::runtime::Handle,
 		ctx: &eframe::egui::Context,
 		demo: bool,
 	) -> Result<(), &'static str> {
-		if !attachment.is_video() || attachment.size == 0 || attachment.size > 100 * 1024 * 1024 {
+		if origin == VideoOrigin::Attachment
+			&& (!attachment.is_video()
+				|| attachment.size == 0
+				|| attachment.size > 100 * 1024 * 1024)
+		{
 			return Err("Video preview limit: 100 MiB");
 		}
-		let url = if demo {
-			None
-		} else {
-			Some(
-				crate::downloads::original_url(&attachment)
-					.ok_or("Video attachment unavailable")?,
-			)
-		};
+		let (url, size) = source_of(&attachment, origin, demo).ok_or(match origin {
+			VideoOrigin::Attachment => "Video attachment unavailable",
+			VideoOrigin::Embed => "Video unavailable",
+		})?;
 		if self.requests.is_none() {
 			let (sender, mut receiver) = tokio::sync::watch::channel::<Option<Request>>(None);
 			let runtime = runtime.clone();
@@ -289,7 +293,7 @@ impl Video {
 		requests.send_replace(Some(Request {
 			session: session.clone(),
 			url,
-			size: attachment.size as usize,
+			size,
 		}));
 		self.session = Some(session);
 		Ok(())
@@ -299,45 +303,35 @@ impl Video {
 	/// the ceiling the rest retry while still visible.
 	pub fn posters(
 		&mut self,
-		queue: Vec<model::Attachment>,
+		queue: Vec<(model::Attachment, VideoOrigin)>,
 		player: &mut VideoUi,
 		runtime: &tokio::runtime::Handle,
 		ctx: &eframe::egui::Context,
 		demo: bool,
 	) {
-		for attachment in queue {
+		for (attachment, origin) in queue {
 			if self.poster_pending.contains(&attachment.id)
 				|| self.poster_pending.len() >= POSTER_JOBS_MAX
 			{
 				continue;
 			}
-			self.poster(attachment, player, runtime, ctx, demo);
+			self.poster(attachment, origin, player, runtime, ctx, demo);
 		}
 	}
 	/// Queues one idle-stage poster; failures surface through `poll`, never playback state.
 	fn poster(
 		&mut self,
 		attachment: model::Attachment,
+		origin: VideoOrigin,
 		player: &mut VideoUi,
 		runtime: &tokio::runtime::Handle,
 		ctx: &eframe::egui::Context,
 		demo: bool,
 	) {
 		let id = attachment.id;
-		if attachment.size == 0 || attachment.size > 100 * 1024 * 1024 {
+		let Some((url, size)) = source_of(&attachment, origin, demo) else {
 			player.poster_failed(id);
 			return;
-		}
-		let url = if demo {
-			None
-		} else {
-			match crate::downloads::original_url(&attachment) {
-				Some(url) => Some(url),
-				None => {
-					player.poster_failed(id);
-					return;
-				}
-			}
 		};
 		if self.poster_jobs.is_none() {
 			let (sender, receiver) = std::sync::mpsc::channel::<PosterJob>();
@@ -390,7 +384,7 @@ impl Video {
 			jobs.send(PosterJob {
 				id,
 				url,
-				size: attachment.size as usize,
+				size,
 				cancelled: self.poster_cancelled.clone(),
 			})
 			.is_ok()
@@ -400,6 +394,36 @@ impl Video {
 		}
 		player.poster_failed(id);
 	}
+}
+
+/// The admitted URL and known byte size of a playable video; the demo plays its fixture.
+/// Attachments stream their signed CDN original; embeds stream Discord's proxied copy and
+/// learn the size on load.
+fn source_of(
+	attachment: &model::Attachment,
+	origin: VideoOrigin,
+	demo: bool,
+) -> Option<(Option<url::Url>, Option<usize>)> {
+	let size = match origin {
+		VideoOrigin::Attachment => {
+			let size = attachment.size as usize;
+			if size == 0 || size > 100 * 1024 * 1024 {
+				return None;
+			}
+			Some(size)
+		}
+		VideoOrigin::Embed => None,
+	};
+	if demo {
+		return Some((None, size));
+	}
+	let url = match origin {
+		VideoOrigin::Attachment => crate::downloads::original_url(attachment)?,
+		VideoOrigin::Embed => {
+			crate::avatars::embed_video_url(attachment.media.proxy_url.as_deref()?)?
+		}
+	};
+	Some((Some(url), size))
 }
 
 /// Opens the attachment and returns its first decoded video frame, downscaled for

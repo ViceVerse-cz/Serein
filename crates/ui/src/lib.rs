@@ -9,7 +9,7 @@ mod forwarding;
 mod role_names;
 pub use audio::{AudioCommand, AudioState, AudioUi};
 mod video;
-pub use video::{VideoCommand, VideoState, VideoUi};
+pub use video::{VideoCommand, VideoOrigin, VideoState, VideoUi};
 mod attachments;
 pub mod external_upload;
 pub use attachments::DownloadUi;
@@ -5502,7 +5502,10 @@ impl MessagingUi {
 				.rect_filled(ui.max_rect(), 0, egui::Color32::BLACK);
 			return commands;
 		}
-		if self.timeline.show_fullscreen_video(ui.ctx(), state) {
+		if self
+			.timeline
+			.show_fullscreen_video(ui.ctx(), state, &self.search.previews)
+		{
 			ui.painter()
 				.rect_filled(ui.max_rect(), 0, egui::Color32::BLACK);
 			return commands;

@@ -1,4 +1,4 @@
-//! Decoder-driven attachment ranges. No file cache or eager whole-video download.
+//! Decoder-driven video ranges. No file cache or eager whole-video download.
 use std::{
 	collections::VecDeque,
 	io::{self, Read, Seek, SeekFrom},
@@ -15,15 +15,18 @@ const CHUNK: usize = 256 * 1024;
 const CACHE_CHUNKS: usize = 8;
 const INVALID: &str = "Video download failed or changed; reload the conversation";
 const UNSUPPORTED: &str = "Video server does not support buffering; download to play externally";
+const TOO_LARGE: &str = "Video preview limit: 100 MiB";
 
+/// `expected` is the attachment's byte size; `None` (embed videos) learns it from the
+/// first range response, which stays cached as the first chunk.
 pub(super) fn source(
 	url: Option<url::Url>,
-	expected: usize,
+	expected: Option<usize>,
 	cancelled: Arc<AtomicBool>,
 	runtime: Handle,
 ) -> Result<Box<dyn platform::video::ReadSeek>, &'static str> {
-	if expected == 0 || expected > MAX_BYTES {
-		return Err("Video preview limit: 100 MiB");
+	if expected.is_some_and(|expected| expected == 0 || expected > MAX_BYTES) {
+		return Err(TOO_LARGE);
 	}
 	let (input, len) = if let Some(url) = url {
 		// The caller has validated the service URL; never let URL userinfo add credentials.
@@ -57,16 +60,26 @@ pub(super) fn source(
 			if bytes.is_empty() || bytes.len() > MAX_BYTES {
 				return Err(INVALID);
 			}
-			(Input::Demo(bytes), bytes.len())
+			(Input::Demo(bytes), Some(bytes.len()))
 		}
 	};
-	Ok(Box::new(Source {
+	let mut source = Source {
 		input,
 		cancelled,
-		len,
+		len: len.unwrap_or(0),
 		position: 0,
 		cache: VecDeque::new(),
-	}))
+	};
+	if len.is_none() {
+		let (bytes, len) = source.fetch(0, None).map_err(|error| match error.kind() {
+			io::ErrorKind::Unsupported => UNSUPPORTED,
+			io::ErrorKind::FileTooLarge => TOO_LARGE,
+			_ => INVALID,
+		})?;
+		source.len = len;
+		source.cache.push_back((0, bytes));
+	}
+	Ok(Box::new(source))
 }
 
 /// The demo attachment: the bundled fixture, or the local file named by
@@ -114,6 +127,35 @@ struct Source {
 fn invalid() -> io::Error {
 	io::Error::new(io::ErrorKind::InvalidData, INVALID)
 }
+/// Parses `bytes {first}-{last}/{total}` answering the chunk requested at `start`. A known
+/// `len` must match the total; an unknown one is learned within [`MAX_BYTES`]. Returns the
+/// chunk's byte count and the total.
+fn content_range(value: &str, start: usize, len: Option<usize>) -> io::Result<(usize, usize)> {
+	let number = |text: &str| {
+		(!text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit()))
+			.then(|| text.parse::<usize>().ok())
+			.flatten()
+	};
+	let (range, total) = value
+		.strip_prefix("bytes ")
+		.and_then(|rest| rest.split_once('/'))
+		.ok_or_else(invalid)?;
+	let (first, last) = range.split_once('-').ok_or_else(invalid)?;
+	let (Some(first), Some(last), Some(total)) = (number(first), number(last), number(total))
+	else {
+		return Err(invalid());
+	};
+	if len.is_some_and(|len| len != total) {
+		return Err(invalid());
+	}
+	if total > MAX_BYTES {
+		return Err(io::Error::new(io::ErrorKind::FileTooLarge, TOO_LARGE));
+	}
+	if first != start || start >= total || last != start + CHUNK.min(total - start) - 1 {
+		return Err(invalid());
+	}
+	Ok((last - start + 1, total))
+}
 impl Source {
 	fn check_cancelled(&self) -> io::Result<()> {
 		if self.cancelled.load(Ordering::Acquire) {
@@ -132,6 +174,15 @@ impl Source {
 		if self.cache.len() == CACHE_CHUNKS {
 			self.cache.pop_front();
 		}
+		let start = self.position / CHUNK * CHUNK;
+		let (bytes, _) = self.fetch(start, Some(self.len))?;
+		self.check_cancelled()?;
+		self.cache.push_back((start, bytes));
+		Ok(())
+	}
+	/// Transfers the chunk at `start`; `len` is the known total, or `None` to learn it.
+	/// Returns the chunk and the total.
+	fn fetch(&self, start: usize, len: Option<usize>) -> io::Result<(Vec<u8>, usize)> {
 		let (client, url, runtime) = match &self.input {
 			Input::Http {
 				client,
@@ -141,10 +192,8 @@ impl Source {
 			#[cfg(feature = "demo")]
 			Input::Demo(_) => return Err(invalid()),
 		};
-		let start = self.position / CHUNK * CHUNK;
-		let count = CHUNK.min(self.len - start);
-		let end = start + count - 1;
-		let bytes = runtime.block_on(async {
+		let end = start + len.map_or(CHUNK, |len| CHUNK.min(len - start)) - 1;
+		runtime.block_on(async {
 			let cancelled = async {
 				while !self.cancelled.load(Ordering::Acquire) {
 					tokio::time::sleep(Duration::from_millis(20)).await;
@@ -160,21 +209,31 @@ impl Source {
 				.send()
 				.await
 				.map_err(|_| invalid())?;
-				if response.status() == wreq::StatusCode::PARTIAL_CONTENT {
-					let range = format!("bytes {start}-{end}/{}", self.len);
-					if response
+				let (count, total) = if response.status() == wreq::StatusCode::PARTIAL_CONTENT {
+					let range = response
 						.headers()
 						.get(wreq::header::CONTENT_RANGE)
 						.and_then(|value| value.to_str().ok())
-						!= Some(range.as_str())
-					{
-						return Err(invalid());
+						.ok_or_else(invalid)?;
+					content_range(range, start, len)?
+				} else {
+					// Without range support only a file within one chunk plays: it arrives whole.
+					let total = len.or_else(|| {
+						response
+							.content_length()
+							.and_then(|len| usize::try_from(len).ok())
+					});
+					match total {
+						Some(total)
+							if response.status() == wreq::StatusCode::OK
+								&& start == 0 && total > 0
+								&& total <= CHUNK =>
+						{
+							(total, total)
+						}
+						_ => return Err(io::Error::new(io::ErrorKind::Unsupported, UNSUPPORTED)),
 					}
-				} else if !(response.status() == wreq::StatusCode::OK
-					&& start == 0 && count == self.len)
-				{
-					return Err(io::Error::new(io::ErrorKind::Unsupported, UNSUPPORTED));
-				}
+				};
 				if response
 					.headers()
 					.get(wreq::header::CONTENT_ENCODING)
@@ -200,16 +259,13 @@ impl Source {
 				if bytes.len() != count {
 					return Err(invalid());
 				}
-				Ok(bytes)
+				Ok((bytes, total))
 			};
 			tokio::select! { biased;
 				_ = cancelled => Err(io::Error::new(io::ErrorKind::ConnectionAborted, "Cancelled")),
 				result = transfer => result,
 			}
-		})?;
-		self.check_cancelled()?;
-		self.cache.push_back((start, bytes));
-		Ok(())
+		})
 	}
 }
 impl Read for Source {
@@ -312,7 +368,7 @@ mod tests {
 			.unwrap();
 		let mut input = source(
 			Some(url),
-			expected,
+			Some(expected),
 			Arc::new(AtomicBool::new(false)),
 			runtime.handle().clone(),
 		)
@@ -379,7 +435,8 @@ mod tests {
 			.enable_all()
 			.build()
 			.unwrap();
-		let mut input = source(Some(url), CHUNK, cancelled, runtime.handle().clone()).unwrap();
+		let mut input =
+			source(Some(url), Some(CHUNK), cancelled, runtime.handle().clone()).unwrap();
 		assert_eq!(
 			input.read(&mut [0]).unwrap_err().kind(),
 			io::ErrorKind::ConnectionAborted
@@ -439,7 +496,7 @@ mod tests {
 		let cancelled = Arc::new(AtomicBool::new(false));
 		let mut input = source(
 			Some(url.clone()),
-			expected,
+			Some(expected),
 			cancelled.clone(),
 			runtime.handle().clone(),
 		)
@@ -488,11 +545,103 @@ mod tests {
 		assert!(
 			source(
 				Some(url),
-				MAX_BYTES + 1,
+				Some(MAX_BYTES + 1),
 				cancelled,
 				runtime.handle().clone()
 			)
 			.is_err()
 		);
+	}
+
+	#[test]
+	fn unknown_length_is_learned_from_the_first_range_and_bounded() {
+		let total = CHUNK * 2 + 7;
+		let serve = |totals: Vec<usize>| {
+			let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+			let url = url::Url::parse(&format!(
+				"http://{}/embed.mp4",
+				listener.local_addr().unwrap()
+			))
+			.unwrap();
+			let server = std::thread::spawn(move || {
+				let mut starts = Vec::new();
+				for reported in totals {
+					let (mut socket, _) = listener.accept().unwrap();
+					socket
+						.set_read_timeout(Some(Duration::from_secs(2)))
+						.unwrap();
+					let mut header = Vec::new();
+					while !header.ends_with(b"\r\n\r\n") {
+						assert!(header.len() < 8192);
+						let mut byte = [0];
+						socket.read_exact(&mut byte).unwrap();
+						header.push(byte[0]);
+					}
+					let header = String::from_utf8(header).unwrap().to_ascii_lowercase();
+					let range = header
+						.lines()
+						.find_map(|line| line.strip_prefix("range: bytes="))
+						.unwrap();
+					let (start, end) = range.split_once('-').unwrap();
+					let start = start.parse::<usize>().unwrap();
+					// The probe asks for one whole chunk; the server clips it to the file.
+					let end = end.parse::<usize>().unwrap().min(reported - 1);
+					let count = end - start + 1;
+					starts.push(start);
+					write!(socket, "HTTP/1.1 206 Partial Content\r\nContent-Range: bytes {start}-{end}/{reported}\r\nContent-Length: {count}\r\nConnection: close\r\n\r\n").unwrap();
+					let _ = socket.write_all(&vec![(start / CHUNK) as u8 + 1; count]);
+				}
+				starts
+			});
+			(url, server)
+		};
+		let runtime = tokio::runtime::Builder::new_multi_thread()
+			.worker_threads(1)
+			.enable_all()
+			.build()
+			.unwrap();
+		let open = |url| {
+			source(
+				Some(url),
+				None,
+				Arc::new(AtomicBool::new(false)),
+				runtime.handle().clone(),
+			)
+		};
+		let (url, server) = serve(vec![total, total]);
+		let mut input = open(url).unwrap();
+		// The probed first chunk is kept: reading it costs no second request.
+		let mut bytes = [0; 16];
+		input.read_exact(&mut bytes).unwrap();
+		assert_eq!(bytes, [1; 16]);
+		assert_eq!(input.seek(SeekFrom::End(0)).unwrap(), total as u64);
+		input.seek(SeekFrom::End(-7)).unwrap();
+		let mut tail = [0; 7];
+		input.read_exact(&mut tail).unwrap();
+		assert_eq!(tail, [3; 7]);
+		assert_eq!(input.read(&mut tail).unwrap(), 0);
+		assert_eq!(server.join().unwrap(), [0, CHUNK * 2]);
+		// A reported size past the preview limit is refused before any playback read.
+		let (url, server) = serve(vec![MAX_BYTES + 1]);
+		assert_eq!(open(url).err(), Some(TOO_LARGE));
+		server.join().unwrap();
+		// A later range reporting another total means the file changed.
+		let (url, server) = serve(vec![total, total + 1]);
+		let mut input = open(url).unwrap();
+		input.seek(SeekFrom::Start(CHUNK as u64)).unwrap();
+		assert_eq!(
+			input.read(&mut bytes).unwrap_err().kind(),
+			io::ErrorKind::InvalidData
+		);
+		server.join().unwrap();
+		for malformed in [
+			"bytes 0-9/",
+			"bytes 1-10/20",
+			"bytes 0-8/20",
+			"bytes 0-+9/10",
+			"items 0-9/10",
+		] {
+			assert!(content_range(malformed, 0, None).is_err(), "{malformed}");
+		}
 	}
 }

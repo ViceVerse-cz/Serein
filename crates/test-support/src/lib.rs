@@ -1440,7 +1440,8 @@ pub fn code_demo_state() -> State {
 	state
 }
 
-/// Offline video attachment. Desktop substitutes its generated MOV fixture only in --demo.
+/// Offline video attachment and video link embed. Desktop substitutes its generated MOV
+/// fixture for both only in --demo.
 pub fn video_demo_state() -> State {
 	let mut state = chat_demo_state();
 	state.timeline.clear();
@@ -1463,6 +1464,29 @@ pub fn video_demo_state() -> State {
 			height: 180,
 			..Default::default()
 		},
+	}];
+	state.timeline.insert(message, false, false).unwrap();
+	let mut message = self::message(602, Id(20));
+	message.content = "https://video.example/synthetic/clip".into();
+	message.attachments.clear();
+	message.embeds = vec![Embed {
+		kind: "video".into(),
+		title: Some("Synthetic link with a video".into()),
+		url: Some("https://video.example/synthetic/clip".into()),
+		provider: Some(EmbedAuthor {
+			name: "Video Example (synthetic)".into(),
+			..Default::default()
+		}),
+		video: Some(EmbedMedia {
+			url: Some("https://media.video.example/synthetic/clip.mp4".into()),
+			proxy_url: Some(
+				"https://images-ext-1.discordapp.net/external/synthetic-video-proxy-hash/https/media.video.example/synthetic/clip.mp4".into(),
+			),
+			width: 320,
+			height: 180,
+			..Default::default()
+		}),
+		..Default::default()
 	}];
 	state.timeline.insert(message, false, false).unwrap();
 	state.revision += 1;
