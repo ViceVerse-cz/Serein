@@ -70,6 +70,8 @@ fn expand_shortcodes(text: &str) -> std::borrow::Cow<'_, str> {
 	// incrementally so long runs without whitespace stay linear.
 	let mut word = 0;
 	let mut scanned = 0;
+	// Whether the current word holds `://`, also tracked incrementally.
+	let mut url = false;
 	while let Some(offset) = text[at..].find(':') {
 		let open = at + offset;
 		at = open + 1;
@@ -94,11 +96,18 @@ fn expand_shortcodes(text: &str) -> std::borrow::Cow<'_, str> {
 			.rfind(|(_, c)| c.is_whitespace())
 		{
 			word = scanned + index + space.len_utf8();
+			url = false;
 		}
+		// Only the unscanned part of the word, plus two bytes for a `://` split at the seam.
+		let mut from = word.max(scanned.saturating_sub(2));
+		while !text.is_char_boundary(from) {
+			from -= 1;
+		}
+		url |= text[from..open].contains("://");
 		scanned = open;
 		// A URL is literal text; skip any word that looks like one.
 		let bare = text[word..].trim_start_matches(['(', '[', '{', '"', '\'']);
-		if text[word..open].contains("://") || bare.starts_with("www.") {
+		if url || bare.starts_with("www.") {
 			continue;
 		}
 		let Some(emoji) = shortcode_emoji(&text[at..close]) else {
@@ -3622,6 +3631,9 @@ mod tests {
 		);
 		assert_eq!(text("**:flag_fi:** bold"), "\u{1f1eb}\u{1f1ee} bold");
 		assert_eq!(text(":x: failed"), "\u{274c} failed");
+		// Adjacent shortcodes in one long word each expand, and a URL word stays literal throughout.
+		assert_eq!(text(":x::x::x:"), "\u{274c}\u{274c}\u{274c}");
+		assert_eq!(text("https://a.example/:x::x:"), "https://a.example/:x::x:");
 		// Multi-byte whitespace before a shortcode must not split a UTF-8 sequence.
 		assert_eq!(text("a\u{a0}:flag_fi:"), "a\u{a0}\u{1f1eb}\u{1f1ee}");
 		for raw in [
