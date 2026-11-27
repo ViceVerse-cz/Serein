@@ -59,40 +59,40 @@ pub(super) fn show(
 ) {
 	section(
 		ui,
-		"Navigation",
-		"Move around Serein without reaching for the mouse.",
+		"keybinds-section-navigation",
+		"keybinds-section-navigation-help",
 		NAVIGATION,
 		bindings,
 		capturing,
 	);
 	section(
 		ui,
-		"Chat",
-		"Act on the open conversation.",
+		"page-chat",
+		"keybinds-section-chat-help",
 		CHAT,
 		bindings,
 		capturing,
 	);
 	section(
 		ui,
-		"Messages",
-		"Composer shortcuts are only active while you are writing.",
+		"keybinds-section-messages",
+		"keybinds-section-messages-help",
 		MESSAGES,
 		bindings,
 		capturing,
 	);
 	section(
 		ui,
-		"Text Formatting",
-		"Apply or remove formatting in the composer.",
+		"keybinds-section-formatting",
+		"keybinds-section-formatting-help",
 		FORMATTING,
 		bindings,
 		capturing,
 	);
 	section(
 		ui,
-		"Development",
-		"Copy build and environment information for an issue report.",
+		"keybinds-section-development",
+		"keybinds-section-development-help",
 		&[KeybindAction::CopyIssueDiagnostics],
 		bindings,
 		capturing,
@@ -116,8 +116,8 @@ pub(super) fn show_voice(
 		.min(model::keybinds::MAX_PUSH_TO_TALK_RELEASE_MS);
 	design::slider_row(
 		ui,
-		"Push to Talk Release Delay",
-		Some("Keep transmitting briefly after you let go, so the end of a word is not cut off."),
+		"keybinds-push-to-talk-release-delay",
+		Some("keybinds-push-to-talk-release-delay-help"),
 		&mut release,
 		0..=model::keybinds::MAX_PUSH_TO_TALK_RELEASE_MS,
 		" ms",
@@ -148,8 +148,8 @@ fn voice_section(
 ) {
 	section(
 		ui,
-		"Voice",
-		"Control your microphone and incoming audio during a connected call.",
+		"keybinds-section-voice",
+		"keybinds-section-voice-help",
 		VOICE,
 		bindings,
 		capturing,
@@ -427,7 +427,7 @@ fn row(
 			egui::vec2((ui.available_width() - 210.0).max(0.0), 46.0),
 			egui::Layout::left_to_right(egui::Align::Center),
 			|ui| {
-				ui.label(action.label());
+				ui.label(action_label(action));
 				if action.is_global() && bindings.global_enabled {
 					ui.label(
 						RichText::new(crate::i18n::translate("keybinds-row-global"))
@@ -567,13 +567,13 @@ fn custom_row(
 			|ui| {
 				crate::design::Select::from_id_salt(("keybind-custom-action", index))
 					.width((ui.available_width() - 12.0).clamp(80.0, 210.0))
-					.selected_text(action.label())
+					.selected_text(action_label(action))
 					.show_ui(ui, |ui| {
 						for candidate in KeybindAction::ALL {
 							ui.selectable_value(
 								&mut bindings.custom[index].action,
 								candidate,
-								candidate.label(),
+								action_label(candidate),
 							);
 						}
 					});
@@ -650,9 +650,9 @@ fn conflict_visual(ui: &egui::Ui, target: CaptureTarget) -> (f32, f32, Option<St
 	(
 		blink_factor,
 		fade_alpha,
-		Some(format!(
-			"Already bound to {}.",
-			notice.conflicting_action.label()
+		Some(crate::i18n::translate_args(
+			"keybinds-already-bound",
+			&[("action", &action_label(notice.conflicting_action))],
 		)),
 	)
 }
@@ -818,7 +818,7 @@ fn shortcut_button(
 		ui.painter().text(
 			rect.center(),
 			egui::Align2::CENTER_CENTER,
-			"Press keys…",
+			crate::i18n::translate("keybinds-press-keys"),
 			egui::FontId::new(12.0, design::medium_family(ui.ctx())),
 			colors.text_strong,
 		);
@@ -1102,9 +1102,43 @@ const KEYS: &[(Key, &str)] = &[
 	(Key::Clear, "Clear"),
 ];
 
+/// Catalog key for an action, derived from the model's English label.
+fn action_key(action: KeybindAction) -> String {
+	let slug: String = action
+		.label()
+		.chars()
+		.map(|c| {
+			if c.is_ascii_alphanumeric() {
+				c.to_ascii_lowercase()
+			} else {
+				'-'
+			}
+		})
+		.collect();
+	format!("keybind-action-{slug}")
+}
+
+/// The action's name in the interface language; the model only knows its English label.
+fn action_label(action: KeybindAction) -> String {
+	crate::i18n::try_translate_args(&action_key(action), &[])
+		.unwrap_or_else(|| action.label().to_owned())
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn every_action_name_resolves_to_a_catalog_key() {
+		// A renamed model label would otherwise fall back to English in every language.
+		for action in KeybindAction::ALL {
+			assert!(
+				crate::i18n::try_translate_args(&action_key(action), &[]).is_some(),
+				"missing {}",
+				action_key(action)
+			);
+		}
+	}
 
 	#[test]
 	fn default_push_to_talk_does_not_consume_typing() {

@@ -712,7 +712,7 @@ impl VideoUi {
 				0.05,
 				true,
 				white,
-				"Video volume",
+				"video-show-player-video-volume",
 			);
 			controls_focused |= volume.response.has_focus();
 			if let Some(value) = volume.preview.or(volume.commit)
@@ -725,9 +725,9 @@ impl VideoUi {
 				.response
 				.on_hover_text(crate::i18n::translate("video-show-player-video-volume"));
 			let screen_label = if fullscreen {
-				"Exit fullscreen (Esc)"
+				"voice-exit-fullscreen-esc"
 			} else {
-				"Fullscreen"
+				"voice-fullscreen"
 			};
 			let screen_rect = slot(bar.right() - 22.0);
 			let screen = round_button(
@@ -806,7 +806,7 @@ impl VideoUi {
 							ui,
 							crate::icons::Icon::Download,
 							28.0,
-							"Download",
+							"attachments-download-button-download",
 						)
 					})
 					.inner
@@ -828,7 +828,7 @@ impl VideoUi {
 						ui,
 						crate::icons::Icon::External,
 						28.0,
-						"Open original…",
+						"attachments-media-menu-open-original",
 					)
 					.clicked()
 				{
@@ -897,6 +897,8 @@ fn track(
 	fill: egui::Color32,
 	label: &str,
 ) -> Track {
+	let label = crate::i18n::translate_if_key(label);
+	let label = label.as_str();
 	let response = ui.interact(
 		rect,
 		id,
@@ -1029,6 +1031,8 @@ fn round_button(
 	focus: egui::Color32,
 	glyph: impl FnOnce(&egui::Painter, egui::Rect, egui::Color32),
 ) -> egui::Response {
+	let label = crate::i18n::translate_if_key(label);
+	let label = label.as_str();
 	let response = ui.interact(rect, id, egui::Sense::click());
 	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), label));
 	let hot = response.hovered() || response.has_focus();

@@ -1812,7 +1812,8 @@ impl SearchUi {
 									ui.with_layout(
 										egui::Layout::right_to_left(egui::Align::Center),
 										|ui| {
-											let mut jump = Chip::text("Jump");
+											let jump_label = crate::i18n::translate("search-jump");
+											let mut jump = Chip::text(&jump_label);
 											jump.height = 24.0;
 											if chip(ui, jump).clicked() {
 												*target = Some(hit.id);

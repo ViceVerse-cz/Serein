@@ -387,7 +387,7 @@ fn upload_strip(ui: &mut egui::Ui, pending: &Pending, upload: Option<&Upload>, c
 				sent.saturating_mul(100) / total
 			),
 		),
-		Some((_, total)) if total > 0 => (1.0, "Sending message…".into()),
+		Some((_, total)) if total > 0 => (1.0, crate::i18n::translate("pending-sending-message")),
 		_ => (
 			0.0,
 			match upload {

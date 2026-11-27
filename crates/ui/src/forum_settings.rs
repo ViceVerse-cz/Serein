@@ -118,9 +118,9 @@ impl ForumSettingsUi {
 					.as_ref()
 					.map(|emoji| (emoji.id, emoji.name.clone()));
 				let label = if current.is_some() {
-					"Change emoji"
+					"polls-creator-change-emoji"
 				} else {
-					"Select emoji"
+					"forum-settings-select-emoji"
 				};
 				ui.horizontal(|ui| {
 					if let Some((id, name)) = &current {

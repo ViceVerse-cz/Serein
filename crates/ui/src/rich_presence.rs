@@ -243,16 +243,15 @@ fn preview_card(
 		crate::profiles::activity_card(ui, &activity, avatars, true, (colors.raised, colors.muted));
 		summary(ui, presence);
 		if presence.large_image.is_some() || presence.small_image.is_some() {
-			design::hint(
-				ui,
-				"Artwork resolves when applied. This draft preview uses placeholders.",
-			);
+			design::hint(ui, "rich-presence-artwork-placeholder");
 		}
 	} else {
 		design::card(ui, |ui| {
 			crate::icons::inline(ui, crate::icons::Icon::GameController, 32.0, colors.muted);
-			ui.label(egui::RichText::new("Your activity goes here").strong());
-			ui.label("Enter an application ID and activity name, then choose Preview.");
+			ui.label(
+				egui::RichText::new(crate::i18n::translate("rich-presence-empty-title")).strong(),
+			);
+			ui.label(crate::i18n::translate("rich-presence-empty-detail"));
 		});
 	}
 	ui.add_space(12.0);
@@ -261,7 +260,7 @@ fn preview_card(
 			crate::dialog::notice(
 				ui,
 				crate::dialog::Level::Warning,
-				"Activity sharing is off. Enable it in Settings > Registered Games to publish your presence.",
+				"rich-presence-sharing-off",
 			);
 		} else if !activity_status.0.is_empty() {
 			design::hint(ui, activity_status.0);
@@ -270,28 +269,31 @@ fn preview_card(
 	design::hint(
 		ui,
 		if state.demo {
-			"Offline demo. Nothing is published."
+			"rich-presence-offline-demo"
 		} else if !state.gateway_connected {
-			"Offline. Your saved activity will wait for a connection."
+			"rich-presence-offline"
 		} else {
-			"Enable activity sharing in Settings > Registered Games. Invisible hides your activity."
+			"rich-presence-enable-sharing"
 		},
 	);
 }
 
 pub(crate) fn summary(ui: &mut egui::Ui, presence: &CustomRichPresence) {
 	if let Some(party) = &presence.party {
-		ui.label(format!("Party: {} / {}", party.current, party.max));
+		ui.label(crate::i18n::translate_args(
+			"rich-presence-party",
+			&[
+				("current", &party.current.to_string()),
+				("max", &party.max.to_string()),
+			],
+		));
 	}
 	match presence.timer {
 		RichPresenceTimer::Elapsed => {
-			design::hint(
-				ui,
-				"Elapsed since starting; applying edits keeps the timer.",
-			);
+			design::hint(ui, "rich-presence-timer-elapsed");
 		}
 		RichPresenceTimer::LocalDay => {
-			design::hint(ui, "Timer starts at local midnight.");
+			design::hint(ui, "rich-presence-timer-local-day");
 		}
 		_ => {}
 	}

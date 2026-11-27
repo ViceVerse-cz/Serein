@@ -928,11 +928,13 @@ impl ExtensionUi {
 		ui.painter().text(
 			inset.center() + egui::vec2(0.0, 23.0),
 			egui::Align2::CENTER_CENTER,
-			if entry.preview.is_some() && !self.previews.contains_key(id) {
-				"Preview not loaded"
-			} else {
-				"Preview unavailable"
-			},
+			crate::i18n::translate(
+				if entry.preview.is_some() && !self.previews.contains_key(id) {
+					"extensions-ui-preview-not-loaded"
+				} else {
+					"extensions-ui-preview-unavailable"
+				},
+			),
 			egui::FontId::proportional(12.0),
 			colors.muted,
 		);
@@ -1375,7 +1377,7 @@ impl ExtensionUi {
 			if self.themes {
 				if toolbar_button(
 					ui,
-					"Create theme",
+					"extensions-ui-create-theme",
 					true,
 					!self.busy,
 					egui::vec2(132.0, height),
@@ -1386,8 +1388,14 @@ impl ExtensionUi {
 					self.status.clear();
 					self.theme_editor = Some(crate::theme_editor::ThemeEditor::new());
 				}
-				let more =
-					toolbar_button(ui, "More", false, true, egui::vec2(84.0, height), colors);
+				let more = toolbar_button(
+					ui,
+					"friends-more",
+					false,
+					true,
+					egui::vec2(84.0, height),
+					colors,
+				);
 				egui::Popup::menu(&more).show(|ui| {
 					ui.set_min_width(176.0);
 					if ui
@@ -1422,7 +1430,7 @@ impl ExtensionUi {
 			}
 			if toolbar_button(
 				ui,
-				"Refresh",
+				"native-login-qr-refresh",
 				false,
 				!self.busy,
 				egui::vec2(92.0, height),
@@ -1439,7 +1447,7 @@ impl ExtensionUi {
 			}
 			if toolbar_button(
 				ui,
-				"Import package…",
+				"extensions-ui-import-package",
 				true,
 				!self.busy,
 				egui::vec2(150.0, height),
@@ -2085,8 +2093,9 @@ impl ExtensionUi {
 			)
 			.on_hover_text(&entry.manifest.author);
 			ui.spacing_mut().item_spacing.y = 8.0;
+			let fallback = crate::i18n::translate("extensions-ui-default-description");
 			let description = if entry.description.is_empty() {
-				"Add a new tool to your conversations."
+				fallback.as_str()
 			} else {
 				&entry.description
 			};
@@ -2117,7 +2126,7 @@ impl ExtensionUi {
 			if entry.cleanup_pending {
 				if card_button(
 					ui,
-					"Retry cleanup",
+					"extensions-ui-details-modal-retry-cleanup",
 					egui::vec2(ui.available_width(), FOOTER_HEIGHT),
 					neutral,
 					outline,
@@ -2146,9 +2155,9 @@ impl ExtensionUi {
 						card_button(
 							ui,
 							if self.themes {
-								"Install theme"
+								"extensions-ui-install-theme"
 							} else {
-								"Review & enable"
+								"extensions-ui-details-modal-review-enable"
 							},
 							egui::vec2(width, FOOTER_HEIGHT),
 							if self.themes { neutral } else { colors.accent },
@@ -2220,7 +2229,7 @@ impl ExtensionUi {
 						.add_enabled_ui(!self.busy, |ui| {
 							card_button(
 								ui,
-								"Use theme",
+								"extensions-ui-use-theme",
 								egui::vec2(width, FOOTER_HEIGHT),
 								colors.accent,
 								egui::Stroke::NONE,
@@ -2247,7 +2256,7 @@ impl ExtensionUi {
 							card_button(
 								ui,
 								if entry.local_theme {
-									"Edit theme"
+									"extensions-ui-edit-theme"
 								} else {
 									"extensions-ui-theme-preview-bar-customize"
 								},
@@ -2960,7 +2969,7 @@ fn draw_native_preview(
 			painter.text(
 				at(0.5, 0.68),
 				egui::Align2::CENTER_CENTER,
-				"Image attachment",
+				crate::i18n::translate("extensions-ui-image-attachment"),
 				egui::FontId::proportional((rect.width() / 24.0).clamp(10.0, 20.0)),
 				colors.text_strong,
 			);
@@ -3029,9 +3038,9 @@ fn draw_native_preview(
 				at(0.41, y),
 				egui::Align2::LEFT_CENTER,
 				if deleted {
-					"Deleted message"
+					crate::i18n::translate("extensions-ui-deleted-message")
 				} else {
-					["Robin", "Alex", "You"][i]
+					["Robin", "Alex", "You"][i].to_owned()
 				},
 				font.clone(),
 				if deleted {

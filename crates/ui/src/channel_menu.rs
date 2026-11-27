@@ -909,19 +909,23 @@ impl Dialog {
 				for (kind, label, description) in [
 					(
 						CreateKind::Text,
-						"Text",
-						"Send messages, images, and files.",
+						"channel-menu-create-text",
+						"channel-menu-create-text-detail",
 					),
-					(CreateKind::Voice, "Voice", "Hang out and talk together."),
+					(
+						CreateKind::Voice,
+						"channel-menu-create-voice",
+						"channel-menu-create-voice-detail",
+					),
 					(
 						CreateKind::Announcement,
-						"Announcement",
-						"Share updates. Requires a Community server.",
+						"channel-menu-create-announcement",
+						"channel-menu-create-announcement-detail",
 					),
 					(
 						CreateKind::Forum,
-						"Forum",
-						"Organize discussions into separate posts.",
+						"channel-pill-forum",
+						"channel-menu-create-forum-detail",
 					),
 				] {
 					if design::radio_row(ui, self.create_kind == kind, label, Some(description))

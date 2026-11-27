@@ -1136,24 +1136,27 @@ impl Admin {
 		let ready = !state.server_admin.pending && !state.server_admin.needs_refresh;
 		let (title, subtitle) = match &*dialog {
 			Dialog::Rename { .. } => (
-				"Rename emoji".to_owned(),
-				"Names use letters, numbers and underscores.".to_owned(),
+				crate::i18n::translate("server-admin-rename-emoji-title"),
+				crate::i18n::translate("server-admin-rename-emoji-subtitle"),
 			),
 			Dialog::Delete { name, .. } => (
-				"Delete emoji?".to_owned(),
-				format!("Removing :{name}: cannot be undone."),
+				crate::i18n::translate("server-admin-delete-emoji-title"),
+				crate::i18n::translate_args(
+					"server-admin-delete-emoji-subtitle",
+					&[("name", name)],
+				),
 			),
 			Dialog::Nickname { .. } => (
-				"Change nickname".to_owned(),
-				"Only affects how this member appears in this server.".to_owned(),
+				crate::i18n::translate("server-admin-change-nickname-title"),
+				crate::i18n::translate("server-admin-change-nickname-subtitle"),
 			),
 			Dialog::Kick { name, .. } => (
-				format!("Kick {name}?"),
-				"They can rejoin using a new invite.".to_owned(),
+				crate::i18n::translate_args("server-admin-kick-title", &[("name", name)]),
+				crate::i18n::translate("server-admin-kick-subtitle"),
 			),
 			Dialog::Prune { .. } => (
-				"Prune members".to_owned(),
-				"Removes inactive members who hold no additional roles.".to_owned(),
+				crate::i18n::translate("server-admin-prune-title"),
+				crate::i18n::translate("server-admin-prune-subtitle"),
 			),
 		};
 		let destructive = matches!(

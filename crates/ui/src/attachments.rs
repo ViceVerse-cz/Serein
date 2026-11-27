@@ -917,6 +917,8 @@ pub(crate) fn glass_button(
 	diameter: f32,
 	label: &str,
 ) -> egui::Response {
+	let label = crate::i18n::translate_if_key(label);
+	let label = label.as_str();
 	let (rect, response) = ui.allocate_exact_size(egui::Vec2::splat(diameter), Sense::click());
 	let enabled = ui.is_enabled();
 	let hot = enabled && (response.hovered() || response.has_focus());

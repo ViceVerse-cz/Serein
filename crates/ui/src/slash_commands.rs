@@ -240,8 +240,9 @@ impl Menu {
 		let mut top = Top::new();
 		if matches!(self.filter, Filter::All | Filter::Builtins) {
 			for entry in slash_builtin::ALL {
+				let description = crate::i18n::translate(entry.description);
 				if entry.command.available(state, channel)
-					&& let Some(tier) = relevance(entry.name, entry.description, "", query)
+					&& let Some(tier) = relevance(entry.name, &description, "", query)
 					&& top.wants(tier)
 				{
 					top.push(
@@ -250,8 +251,8 @@ impl Menu {
 							id: None,
 							path: Vec::new(),
 							name: entry.name.into(),
-							description: entry.description.into(),
-							application: "Built-In".into(),
+							description,
+							application: crate::i18n::translate("slash-commands-built-in"),
 							application_id: None,
 							icon: None,
 						},
@@ -557,7 +558,7 @@ impl Menu {
 					Filter::All,
 					filter,
 					None,
-					"All commands",
+					"slash-commands-all-commands",
 					avatars,
 					state.demo,
 				)
@@ -599,7 +600,7 @@ impl Menu {
 							Filter::Builtins,
 							filter,
 							None,
-							"Built-In",
+							"slash-commands-built-in",
 							avatars,
 							state.demo,
 						)
@@ -1115,10 +1116,10 @@ impl Menu {
 		} else if let Some(error) = error {
 			(error, colors.danger)
 		} else if state.interactions.busy() {
-			("Waiting for the application…", colors.muted)
+			("slash-commands-waiting-for-application", colors.muted)
 		} else if option.is_some_and(|option| option.kind == 11) {
 			(
-				"Attachment arguments are not supported yet.",
+				"slash-commands-argument-attachment-arguments-are-not-supported-yet",
 				colors.warning,
 			)
 		} else {
@@ -1126,14 +1127,15 @@ impl Menu {
 				option
 					.map(|option| option.description.as_str())
 					.or_else(|| command.map(|command| command.description.as_str()))
-					.unwrap_or("This command is unavailable. Your arguments are kept."),
+					.unwrap_or("slash-commands-unavailable-arguments-kept"),
 				colors.muted,
 			)
 		};
+		let detail = crate::i18n::translate_if_key(detail);
 		let detail = if error.is_none() && option.is_some_and(|option| !option.required) {
-			format!("{detail} · Optional")
+			crate::i18n::translate_args("slash-commands-optional-detail", &[("detail", &detail)])
 		} else {
-			detail.to_owned()
+			detail
 		};
 		ui.add(egui::Label::new(egui::RichText::new(&detail).size(15.0).color(color)).truncate())
 			.on_hover_text(detail);
@@ -1162,6 +1164,8 @@ fn rail_button(
 	avatars: &mut Avatars,
 	demo: bool,
 ) -> egui::Response {
+	let label = crate::i18n::translate_if_key(label);
+	let label = label.as_str();
 	let (rect, response) = ui.allocate_exact_size(egui::Vec2::splat(40.0), egui::Sense::click());
 	let colors = design::palette(ui);
 	if target == selected || response.hovered() {
@@ -1280,7 +1284,7 @@ fn empty_row(ui: &mut egui::Ui) {
 	ui.painter().text(
 		rect.center(),
 		egui::Align2::CENTER_CENTER,
-		"No commands match",
+		crate::i18n::translate("slash-commands-no-commands-match"),
 		egui::FontId::proportional(14.0),
 		design::palette(ui).muted,
 	);
