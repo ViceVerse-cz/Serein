@@ -578,12 +578,26 @@ const MAX_PASS_CJK_CHARS: usize = 64;
 struct CjkScan {
 	checked: Vec<Weak<egui::text::LayoutJob>>,
 	layers: Vec<egui::LayerId>,
-	chars: Vec<char>,
+	chars: Vec<(FontFamily, char)>,
+	truncated: bool,
 }
 
 impl CjkScan {
+	fn push_cjk(&mut self, family: &FontFamily, text: &str) {
+		if text.is_ascii() {
+			return;
+		}
+		for ch in text.chars().filter(|c| is_cjk(*c)) {
+			if !self.chars.iter().any(|(existing_family, existing_ch)| {
+				*existing_ch == ch && existing_family == family
+			}) {
+				self.chars.push((family.clone(), ch));
+			}
+		}
+	}
+
 	fn scan_job(&mut self, job: &Arc<egui::text::LayoutJob>) {
-		if self.chars.len() >= MAX_PASS_CJK_CHARS {
+		if self.truncated {
 			return;
 		}
 		let index = match self
@@ -594,10 +608,19 @@ impl CjkScan {
 			Ok(_) => return,
 			Err(index) => index,
 		};
+		if self.chars.len() >= MAX_PASS_CJK_CHARS {
+			self.truncated = true;
+			return;
+		}
 		if !job.text.is_ascii() {
-			for ch in job.text.chars().filter(|c| is_cjk(*c)) {
-				if !self.chars.contains(&ch) {
-					self.chars.push(ch);
+			if job.sections.is_empty() {
+				self.push_cjk(&FontFamily::Proportional, &job.text);
+			} else {
+				for section in &job.sections {
+					let range = section.byte_range.start.0..section.byte_range.end.0;
+					if let Some(text) = job.text.get(range) {
+						self.push_cjk(&section.format.font_id.family, text);
+					}
 				}
 			}
 		}
@@ -619,12 +642,13 @@ impl CjkScan {
 	#[cfg(test)]
 	fn text(&mut self, job: &Arc<egui::text::LayoutJob>) -> bool {
 		self.chars.clear();
+		self.truncated = false;
 		self.scan_job(job);
 		!self.chars.is_empty()
 	}
 
 	fn shape(&mut self, shape: &egui::Shape) {
-		if self.chars.len() >= MAX_PASS_CJK_CHARS {
+		if self.truncated {
 			return;
 		}
 		match shape {
@@ -632,7 +656,7 @@ impl CjkScan {
 			egui::Shape::Vec(shapes) => {
 				for shape in shapes {
 					self.shape(shape);
-					if self.chars.len() >= MAX_PASS_CJK_CHARS {
+					if self.truncated {
 						break;
 					}
 				}
@@ -663,12 +687,13 @@ pub fn install(ctx: &Context) {
 			layers.clear();
 			ctx.memory(|memory| layers.extend(memory.layer_ids()));
 			scan.chars.clear();
+			scan.truncated = false;
 			ctx.graphics(|graphics| {
 				for layer in &layers {
 					if let Some(list) = graphics.get(*layer) {
 						for entry in list.all_entries() {
 							scan.shape(&entry.shape);
-							if scan.chars.len() >= MAX_PASS_CJK_CHARS {
+							if scan.truncated {
 								return;
 							}
 						}
@@ -676,11 +701,12 @@ pub fn install(ctx: &Context) {
 				}
 			});
 			// Prefer mmap'd system CJK fonts discovered by egui_system_font_provider; only
-			// inflate the 19 MiB bundled archive when a CJK character has no glyph yet.
+			// inflate the 19 MiB bundled archive when a required family lacks a glyph yet.
 			let needed = !scan.chars.is_empty()
 				&& ctx.fonts_mut(|fonts| {
-					let id = egui::FontId::proportional(14.0);
-					scan.chars.iter().any(|&ch| !fonts.has_glyph(&id, ch))
+					scan.chars.iter().any(|(family, ch)| {
+						!fonts.has_glyph(&egui::FontId::new(14.0, family.clone()), *ch)
+					})
 				});
 			if needed {
 				*scan = CjkScan::default();
@@ -701,6 +727,10 @@ pub fn install(ctx: &Context) {
 					ctx.request_repaint();
 				}
 			} else {
+				if scan.truncated {
+					ctx.request_repaint();
+				}
+				scan.chars.clear();
 				if scan.chars.capacity() > 256 {
 					scan.chars.shrink_to(256);
 				}
@@ -879,7 +909,7 @@ mod tests {
 			"cache rollover must not suppress new CJK text"
 		);
 
-		// Every unique CJK character in a checked job must be collected, and jobs past the
+		// Every unique (family, char) in a checked job must be collected, and jobs past the
 		// per-pass cap must stay unchecked so the next pass inspects them rather than dropping
 		// uncovered glyphs past an arbitrary prefix.
 		let mut scan = CjkScan::default();
@@ -888,8 +918,25 @@ mod tests {
 			..Default::default()
 		});
 		scan.scan_job(&mixed);
-		assert!(scan.chars.contains(&'한'));
-		assert!(scan.chars.contains(&'𠀀'));
+		assert!(!scan.truncated);
+		assert!(scan.chars.contains(&(FontFamily::Proportional, '한')));
+		assert!(scan.chars.contains(&(FontFamily::Proportional, '𠀀')));
+
+		let mut multi_section = egui::text::LayoutJob::default();
+		multi_section.append(
+			"日本語 ",
+			0.0,
+			egui::TextFormat::simple(FontId::proportional(14.0), egui::Color32::WHITE),
+		);
+		multi_section.append(
+			"日本語",
+			0.0,
+			egui::TextFormat::simple(FontId::monospace(14.0), egui::Color32::WHITE),
+		);
+		let mut scan = CjkScan::default();
+		scan.scan_job(&Arc::new(multi_section));
+		assert!(scan.chars.contains(&(FontFamily::Proportional, '日')));
+		assert!(scan.chars.contains(&(FontFamily::Monospace, '日')));
 
 		let mut scan = CjkScan::default();
 		let saturating = Arc::new(egui::text::LayoutJob {
@@ -904,15 +951,159 @@ mod tests {
 		});
 		scan.scan_job(&saturating);
 		assert_eq!(scan.chars.len(), MAX_PASS_CJK_CHARS);
+		assert!(
+			!scan.truncated,
+			"hitting the cap on the final job must not mark the pass truncated"
+		);
 		scan.scan_job(&deferred);
+		assert!(
+			scan.truncated,
+			"stopping before an unchecked job must mark the pass truncated"
+		);
 		assert_eq!(
 			scan.checked.len(),
 			1,
 			"uninspected job past per-pass cap must remain unchecked for the next pass"
 		);
 		scan.chars.clear();
+		scan.truncated = false;
 		scan.scan_job(&deferred);
-		assert!(scan.chars.contains(&'한'));
+		assert!(!scan.truncated);
+		assert!(scan.chars.contains(&(FontFamily::Proportional, '한')));
+	}
+
+	#[test]
+	fn cjk_fallback_checks_section_families_and_repaints_only_when_truncated() {
+		use std::time::Duration;
+
+		let ctx = Context::default();
+		install(&ctx);
+		let custom_cjk = CustomFont {
+			name: "Synthetic CJK".into(),
+			data: FontData::from_owned(cjk()),
+		};
+		apply_custom(&ctx, Some(&custom_cjk));
+
+		let pass = |ui_fn: &mut dyn FnMut(&mut egui::Ui)| -> Duration {
+			let output = ctx.run_ui(Default::default(), ui_fn);
+			let delay = output
+				.viewport_output
+				.get(&egui::ViewportId::ROOT)
+				.map_or(Duration::MAX, |viewport| viewport.repaint_delay);
+			output.drop_without_applying_deltas();
+			delay
+		};
+
+		// Settle initial font-install repaints before measuring scan-triggered repaints.
+		for _ in 0..4 {
+			if pass(&mut |ui| {
+				ui.label("ready");
+			}) != Duration::ZERO
+			{
+				break;
+			}
+		}
+		ctx.fonts(|fonts| {
+			let monospace = &fonts.definitions().families[&FontFamily::Monospace];
+			assert!(
+				!CUSTOM
+					.iter()
+					.any(|name| monospace.iter().any(|entry| entry == name)),
+				"apply_custom must not add the custom interface font to Monospace"
+			);
+		});
+
+		// A single job hitting MAX_PASS_CJK_CHARS with no skipped jobs must not request a repaint.
+		let exact_cap: String = (0x4e00..0x4e00 + MAX_PASS_CJK_CHARS as u32)
+			.filter_map(char::from_u32)
+			.collect();
+		let delay = pass(&mut |ui| {
+			ui.label(&exact_cap);
+		});
+		assert_ne!(
+			delay,
+			Duration::ZERO,
+			"pass that inspected every job must not request an extra repaint"
+		);
+		assert!(!ctx.fonts(|fonts| fonts.definitions().font_data.contains_key("Noto Sans CJK")));
+
+		// Stopping early before another unchecked job must request one additional repaint,
+		// then stop requesting repaints once the follow-up pass inspects the deferred job.
+		let second_cap: String = (0x4e40..0x4e40 + MAX_PASS_CJK_CHARS as u32)
+			.filter_map(char::from_u32)
+			.collect();
+		let delay = pass(&mut |ui| {
+			ui.label(&second_cap);
+			ui.label("日本語");
+		});
+		assert_eq!(
+			delay,
+			Duration::ZERO,
+			"truncated pass without fallback install must request one continuation repaint"
+		);
+		assert!(!ctx.fonts(|fonts| fonts.definitions().font_data.contains_key("Noto Sans CJK")));
+
+		let mut prev_causes = Vec::new();
+		let _ = pass(&mut |ui| {
+			prev_causes = ui.ctx().repaint_causes();
+			ui.label(&second_cap);
+			ui.label("日本語");
+		});
+		assert!(
+			!prev_causes.is_empty(),
+			"truncated pass must record a repaint request"
+		);
+		assert!(!ctx.fonts(|fonts| fonts.definitions().font_data.contains_key("Noto Sans CJK")));
+
+		// egui schedules one automatic settling pass after any immediate repaint; the
+		// follow-up pass itself must not record another repaint cause.
+		let delay = pass(&mut |ui| {
+			prev_causes = ui.ctx().repaint_causes();
+			ui.label(&second_cap);
+			ui.label("日本語");
+		});
+		assert!(
+			prev_causes.is_empty(),
+			"follow-up pass that finishes deferred jobs must not request another repaint"
+		);
+		assert_ne!(
+			delay,
+			Duration::ZERO,
+			"repainting must stop after the deferred jobs are inspected"
+		);
+		assert!(!ctx.fonts(|fonts| fonts.definitions().font_data.contains_key("Noto Sans CJK")));
+
+		// A Monospace code block with CJK must still install the bundled fallback even when
+		// the saved custom interface font covers the same characters in Proportional.
+		let (tx, rx) = std::sync::mpsc::channel();
+		ctx.set_request_repaint_callback(move |_| {
+			let _ = tx.send(());
+		});
+		let _ = pass(&mut |ui| {
+			ui.label("日本語");
+			ui.label(egui::RichText::new("日本語").monospace());
+		});
+		let deadline = std::time::Instant::now() + Duration::from_secs(10);
+		while !ctx.fonts(|fonts| fonts.definitions().font_data.contains_key("Noto Sans CJK")) {
+			let remaining = deadline
+				.checked_duration_since(std::time::Instant::now())
+				.expect("bundled CJK fallback worker must install Noto Sans CJK");
+			rx.recv_timeout(remaining)
+				.expect("bundled CJK fallback worker must request repaint");
+			let _ = pass(&mut |ui| {
+				ui.label(egui::RichText::new("日本語").monospace());
+			});
+		}
+		assert!(ctx.fonts_mut(|fonts| fonts.has_glyph(&FontId::monospace(14.0), '日')));
+		ctx.fonts(|fonts| {
+			let monospace = &fonts.definitions().families[&FontFamily::Monospace];
+			assert!(
+				!CUSTOM
+					.iter()
+					.any(|name| monospace.iter().any(|entry| entry == name)),
+				"Monospace must keep using fallback rather than the custom interface font"
+			);
+		});
 	}
 
 	#[test]
