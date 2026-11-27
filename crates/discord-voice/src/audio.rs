@@ -335,6 +335,7 @@ impl Audio {
 						heard_microphone(
 							&mut rebuild_devices_for_input,
 							active.input_opened.elapsed(),
+							worker_gate.input_failed_revision.load(Ordering::Acquire) == revision,
 						);
 					}
 					if active._input.is_some()
@@ -629,9 +630,10 @@ enum MicrophoneRetry<T> {
 	ReopenInput(T),
 }
 
-// A replacement that delivers a callback and then fails must not rebuild playback again.
-fn heard_microphone(rebuild_devices: &mut bool, input_age: Duration) {
-	if input_age >= MICROPHONE_SETTLED {
+// A replacement that delivers a callback and then fails must not rebuild playback again,
+// even when a paused worker only sees both events after the settle time.
+fn heard_microphone(rebuild_devices: &mut bool, input_age: Duration, failed: bool) {
+	if !failed && input_age >= MICROPHONE_SETTLED {
 		*rebuild_devices = true;
 	}
 }
@@ -1693,10 +1695,13 @@ mod tests {
 		let revision = || gate.revision.load(Ordering::Acquire);
 		let mut rebuild_devices = false;
 		// A replacement that delivers one callback and then fails keeps playback running.
-		heard_microphone(&mut rebuild_devices, Duration::from_millis(20));
+		heard_microphone(&mut rebuild_devices, Duration::from_millis(20), false);
+		assert!(!rebuild_devices);
+		// A worker paused by a rekey sees that callback and its failure only after settling.
+		heard_microphone(&mut rebuild_devices, MICROPHONE_SETTLED * 2, true);
 		assert!(!rebuild_devices);
 		// A microphone that was in use before it went quiet earns one pair rebuild.
-		heard_microphone(&mut rebuild_devices, MICROPHONE_SETTLED);
+		heard_microphone(&mut rebuild_devices, MICROPHONE_SETTLED, false);
 		assert!(rebuild_devices);
 		rebuild_devices = false;
 		let mut retry = |device: Option<&'static str>| {
