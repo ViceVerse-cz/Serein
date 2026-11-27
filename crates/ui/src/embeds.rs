@@ -165,13 +165,47 @@ fn inline_image(embed: &Embed) -> Option<&model::EmbedMedia> {
 
 /// A link that resolves to a hosted clip arrives as a video embed without a poster
 /// image. Discord draws the clip itself there, so the card shows its frames instead of
-/// an empty page; playback still opens in the browser through the card's video line.
+/// an empty page; without a proxied file to play, playback opens in the browser.
 fn clip_media(embed: &Embed) -> Option<&model::EmbedMedia> {
 	let clip = embed.video.as_ref()?;
 	(embed.image.is_none()
 		&& embed.thumbnail.is_none()
 		&& (clip.url.is_some() || clip.proxy_url.is_some()))
 	.then_some(clip)
+}
+
+/// A link embed's video file as inline-player media, streamed through Discord's media
+/// proxy. GIF videos keep their looping preview, and hosted players (YouTube and the
+/// like) carry no proxied file, so they keep the browser link.
+/// The id is derived from the proxied URL, stable across frames and distinct per video.
+pub(crate) fn video_attachment(embed: &Embed) -> Option<model::Attachment> {
+	let video = embed.video.as_ref().filter(|_| embed.kind != "gifv")?;
+	let proxy = video.proxy_url.as_deref().filter(|url| !url.is_empty())?;
+	let mut hasher = DefaultHasher::new();
+	proxy.hash(&mut hasher);
+	let filename = video
+		.url
+		.as_deref()
+		.unwrap_or(proxy)
+		.split(['?', '#'])
+		.next()
+		.and_then(|path| path.rsplit('/').next())
+		.filter(|name| !name.is_empty())
+		.map_or_else(
+			|| "video".to_owned(),
+			|name| name.chars().take(128).collect(),
+		);
+	Some(model::Attachment {
+		id: model::Id(hasher.finish()),
+		filename,
+		description: None,
+		content_type: None,
+		size: 0,
+		media: video.clone(),
+		spoiler: false,
+		duration_ms: None,
+		waveform: Vec::new(),
+	})
 }
 
 // Discord link previews carry additional images as same-URL embed entries.
@@ -555,6 +589,7 @@ pub fn show(
 	images: &mut Avatars,
 	opening: &mut Option<String>,
 	download: &mut DownloadUi,
+	video: &mut crate::video::VideoUi,
 	profile: &mut crate::profiles::ProfileSession,
 	state: &client_core::State,
 	card_surface: crate::design::MessageCardSurface,
@@ -677,11 +712,13 @@ pub fn show(
 						.auto_shrink([false, true])
 						.show(ui, |ui| {
 							let part = 1 + index as u16 * 64;
-							let large = large_thumbnail(embed).filter(|_| count == 1);
-							let thumbnail = embed
-								.thumbnail
-								.as_ref()
-								.filter(|_| large.is_none() && ui.available_width() >= 300.0);
+							let playable = video_attachment(embed).filter(|_| count == 1);
+							let large =
+								large_thumbnail(embed).filter(|_| count == 1 && playable.is_none());
+							let thumbnail = embed.thumbnail.as_ref().filter(|_| {
+								playable.is_none()
+									&& large.is_none() && ui.available_width() >= 300.0
+							});
 							let body_width = (ui.available_width()
 								- if thumbnail.is_some() { 96.0 } else { 0.0 })
 							.max(1.0);
@@ -792,6 +829,16 @@ pub fn show(
 							}
 							if count > 1 {
 								gallery(ui, group, images, message.id, download, demo);
+							} else if let Some(attachment) = &playable {
+								video.show(
+									ui,
+									message,
+									attachment,
+									crate::video::VideoOrigin::Embed,
+									download,
+									opening,
+									demo,
+								);
 							} else if let Some(image) = embed.image.as_ref().or(large) {
 								image_preview(
 									ui,
@@ -808,8 +855,9 @@ pub fn show(
 							} else if let Some(clip) = clip_media(embed) {
 								clip_preview(ui, clip, images, demo);
 							}
-							if thumbnail.is_none()
-								&& large.is_none() && let Some(image) = &embed.thumbnail
+							if playable.is_none()
+								&& thumbnail.is_none() && large.is_none()
+								&& let Some(image) = &embed.thumbnail
 							{
 								image_preview(
 									ui,
@@ -821,8 +869,9 @@ pub fn show(
 									demo,
 								);
 							}
-							if embed.video.is_some()
-								|| matches!(embed.kind.as_str(), "video" | "gifv")
+							if playable.is_none()
+								&& (embed.video.is_some()
+									|| matches!(embed.kind.as_str(), "video" | "gifv"))
 							{
 								ui.small(crate::i18n::translate(
 									"embeds-show-video-preview-playback-opens-in-your-browser",
@@ -947,8 +996,11 @@ pub fn estimated_height(embeds: &[Embed]) -> f32 {
 	while index < embeds.len() {
 		let count = gallery_len(&embeds[index..]);
 		let e = &embeds[index];
+		let video = video_attachment(e).filter(|_| count == 1);
 		let image_height = if count > 1 {
 			gallery_rect(count, count - 1, 456.0).bottom()
+		} else if let Some(video) = &video {
+			crate::video::estimated_height(video, 456.0)
 		} else if e.image.is_some() || large_thumbnail(e).is_some() || clip_media(e).is_some() {
 			200.0
 		} else {
@@ -998,7 +1050,8 @@ pub fn estimated_height(embeds: &[Embed]) -> f32 {
 				lines = 1.0;
 			}
 			let text = 24.0 + lines * 20.0 + 6.0;
-			let thumb = if e.thumbnail.is_some() && large_thumbnail(e).is_none() {
+			let thumb = if e.thumbnail.is_some() && large_thumbnail(e).is_none() && video.is_none()
+			{
 				114.0
 			} else {
 				0.0
@@ -1014,9 +1067,10 @@ pub fn estimated_height(embeds: &[Embed]) -> f32 {
 mod tests {
 	use super::*;
 
-	/// A link that resolves to a hosted clip carries no poster; the card paints the clip.
+	/// A link that resolves to a hosted clip carries no poster. Discord's proxied file plays
+	/// in the card; without one the card paints the clip's frames.
 	#[test]
-	fn a_video_card_without_a_poster_shows_its_clip() {
+	fn a_video_card_without_a_poster_plays_or_shows_its_clip() {
 		let mut embed = Embed {
 			kind: "video".into(),
 			url: Some("https://example.org/reels/synthetic/".into()),
@@ -1032,35 +1086,54 @@ mod tests {
 			}),
 			..Default::default()
 		};
-		let clip = clip_media(&embed).expect("the clip is the card's media");
-		assert_eq!((clip.width, clip.height), (640, 1136));
-		// The card asks the media worker for the clip through Discord's proxy.
-		let mut message = test_support::message(1, model::Id(2));
-		message.content = embed.url.clone().unwrap();
-		message.embeds = vec![embed.clone()];
-		let mut images = Avatars::default();
-		egui::Context::default()
-			.run_ui(egui::RawInput::default(), |ui| {
-				show(
-					ui,
-					&message,
-					&mut FormatCache::default(),
-					&mut images,
-					&mut None,
-					&mut DownloadUi::default(),
-					&mut crate::profiles::ProfileSession::default(),
-					&client_core::State::default(),
-					crate::design::MessageCardSurface::Conversation,
-					false,
-				);
-			})
-			.drop_without_applying_deltas();
-		let proxied = clip.proxy_url.as_deref().unwrap();
+		let render = |embed: &Embed| {
+			let mut message = test_support::message(1, model::Id(2));
+			message.content = embed.url.clone().unwrap();
+			message.embeds = vec![embed.clone()];
+			let mut images = Avatars::default();
+			let mut video = crate::video::VideoUi::default();
+			egui::Context::default()
+				.run_ui(egui::RawInput::default(), |ui| {
+					show(
+						ui,
+						&message,
+						&mut FormatCache::default(),
+						&mut images,
+						&mut None,
+						&mut DownloadUi::default(),
+						&mut video,
+						&mut crate::profiles::ProfileSession::default(),
+						&client_core::State::default(),
+						crate::design::MessageCardSurface::Conversation,
+						false,
+					);
+				})
+				.drop_without_applying_deltas();
+			(
+				images.take_requests(),
+				std::mem::take(&mut video.poster_queue),
+			)
+		};
+		// The proxied file is the card's player: one idle poster request, no image fetch.
+		let player = video_attachment(&embed).expect("a proxied file plays inline");
+		assert_eq!((player.media.width, player.media.height), (640, 1136));
+		assert_eq!(player.filename, "clip.mp4");
+		let (requests, posters) = render(&embed);
+		assert_eq!(posters, [(player, crate::video::VideoOrigin::Embed)]);
+		assert!(!requests.iter().any(|request| request.ends_with("clip.mp4")));
+		// A GIF video keeps its looping preview.
+		embed.kind = "gifv".into();
+		assert!(video_attachment(&embed).is_none());
+		embed.kind = "video".into();
+		// Without a proxied file the card asks the media worker for the clip's frames.
+		embed.video.as_mut().unwrap().proxy_url = None;
+		assert!(video_attachment(&embed).is_none());
+		let (requests, posters) = render(&embed);
+		assert!(posters.is_empty());
 		assert!(
-			images
-				.take_requests()
+			requests
 				.iter()
-				.any(|request| request.starts_with("media:") && request.ends_with(proxied))
+				.any(|request| request.starts_with("media:") && request.ends_with("clip.mp4"))
 		);
 		// A card with a picture keeps its poster or bot thumbnail instead.
 		embed.thumbnail = Some(model::EmbedMedia {
@@ -1198,6 +1271,7 @@ mod tests {
 								&mut images,
 								&mut opening,
 								&mut DownloadUi::default(),
+								&mut crate::video::VideoUi::default(),
 								&mut crate::profiles::ProfileSession::default(),
 								&client_core::State::default(),
 								crate::design::MessageCardSurface::Conversation,
@@ -1289,6 +1363,7 @@ mod tests {
 									&mut images,
 									&mut opening,
 									&mut download,
+									&mut crate::video::VideoUi::default(),
 									&mut profile,
 									&client_core::State::default(),
 									crate::design::MessageCardSurface::Conversation,

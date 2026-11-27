@@ -7066,6 +7066,7 @@ impl eframe::App for Desktop {
 			{
 				if player.active.is_none() {
 					player.active = Some((message.channel, message.id, attachment.clone()));
+					player.origin = ui::VideoOrigin::Attachment;
 					player.state = ui::VideoState::Loading;
 					player.seen = true;
 					player.command = Some(ui::VideoCommand::Play(attachment));

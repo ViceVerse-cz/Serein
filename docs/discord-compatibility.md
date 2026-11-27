@@ -3108,12 +3108,30 @@ pass exercised the picker but not live group creation.
 A link whose page answers with a clip arrives as a video embed that carries the clip and no poster
 image; the reported kkinstagram.com reels are one example, and Discord draws the clip itself there.
 Such a card now paints the clip in its own media area, using the clip's first frame when animation is
-off, instead of showing the video hint on an otherwise empty card. Playback still opens in the browser.
+off, instead of showing the video hint on an otherwise empty card. Without a proxied clip, playback
+still opens in the browser; with one, the card plays it inline (next section).
 
 The clip's own host is normally not a source this client fetches. When the payload carries Discord's
 media proxy beside the clip, that proxied URL is the one requested, and the still is decoded from the
 clip instead of asking the image proxy for a webp of a video. Issue #820 supplied screenshots and the
 offline embeds preview, not a live payload, so that link's exact wire shape stays unverified.
+
+## Inline playback of link-embed videos — November 27, 2026
+
+A link embed whose [`video`](https://docs.discord.com/developers/resources/message#embed-object-embed-video-structure)
+carries a `proxy_url` (for example a Reddit `packaged-media.redd.it` MP4) now plays in the card's
+inline player instead of offering only "Open video…".
+The player requests only that Discord media-proxy URL (`images-ext-*.discordapp.net/external/…`, or
+`media.discordapp.net/attachments/…`), never the third-party origin, with the same credential-free,
+redirect-free range reader as attachments. Embeds carry no byte size, so the first range response's
+`Content-Range` total supplies it, bounded by the existing 100 MiB preview limit; later ranges must
+report the same total. A server that ignores ranges plays only a file within one 256 KiB chunk.
+GIF videos (`gifv`) keep their looping preview, and hosted players without a proxied file (YouTube
+and similar) keep the browser link. Idle stages decode a first-frame poster as attachments do.
+Embed videos have no Download action; "Open original…" opens the video's own URL through the link
+confirmation. Range support on Discord's external media proxy is unverified: checks used synthetic
+embeds and a loopback server, not a live payload.
+
 ## Opening an unloaded thread — October 26, 2026
 
 The owner reported a private thread that opens in the official desktop and mobile clients but

@@ -2380,6 +2380,7 @@ impl TimelineView {
 			// Runs before the timeline lays out, so the tweak is read directly.
 			let hide_blocked =
 				crate::interface_tweaks::on(ctx, extensions::InterfaceTweak::HiddenBlockedMessages);
+			let origin = self.video.origin;
 			let current = self
 				.video
 				.active
@@ -2400,7 +2401,7 @@ impl TimelineView {
 								&& !(hide_blocked
 									&& state.user_blocked(message.author.id) == Some(true))
 								&& message.channel == *channel
-								&& message.attachments.contains(attachment)
+								&& crate::video::shown_in(message, attachment, origin)
 								&& (self.component_viewing
 									== Some((
 										message.id,
@@ -4233,6 +4234,7 @@ impl TimelineView {
 													avatars,
 													&mut self.opening,
 													&mut self.download,
+													&mut self.video,
 													profile,
 													state,
 													crate::design::MessageCardSurface::Conversation,
@@ -10801,6 +10803,7 @@ mod tests {
 					&mut crate::avatars::Avatars::default(),
 					&mut None,
 					&mut crate::attachments::DownloadUi::default(),
+					&mut crate::video::VideoUi::default(),
 					&mut profile,
 					&State {
 						demo: true,

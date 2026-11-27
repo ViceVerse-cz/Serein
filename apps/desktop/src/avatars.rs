@@ -1003,6 +1003,14 @@ fn proxy_query(
 	url.into()
 }
 
+/// An embed video's proxied file: only Discord's media proxy (`/external/`) or attachment
+/// paths on Discord hosts, never the third-party origin itself.
+pub(crate) fn embed_video_url(source: &str) -> Option<url::Url> {
+	proxy_base(source).filter(|url| {
+		url.path().starts_with("/external/") || url.path().starts_with("/attachments/")
+	})
+}
+
 fn proxy_base(source: &str) -> Option<url::Url> {
 	if source.len() > 2048 || source.bytes().any(|b| b.is_ascii_control() || b == b'\\') {
 		return None;
@@ -3296,6 +3304,18 @@ mod tests {
 				embed_url(source, ui::EMBED_EDGE).is_none(),
 				"Unsafe or unsupported test URL was accepted"
 			);
+		}
+		// Embed videos stream only through Discord's proxy, never from the linked origin.
+		assert!(embed_video_url(
+			"https://images-ext-1.discordapp.net/external/abcdefghijklmnopqrstuvwxyz/%3Fm%3DDASHPlaylist.mpd%26v%3D1/https/packaged-media.example/abc/pb/m2-res_1080p.mp4",
+		)
+		.is_some());
+		for source in [
+			"https://packaged-media.example/abc/pb/m2-res_1080p.mp4?m=DASHPlaylist.mpd",
+			"https://cdn.discordapp.com/avatars/1/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png",
+			"https://images-ext-1.discordapp.net.evil.test/external/abcdefghijklmnop/https/a/b.mp4",
+		] {
+			assert!(embed_video_url(source).is_none(), "{source}");
 		}
 		assert!(embed_url(
 			"https://cdn.discordapp.com/guilds/1/users/2/avatars/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png?size=2048",
