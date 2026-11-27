@@ -1605,6 +1605,7 @@ keybinds-custom-section-add-extra-shortcuts-for-any-action-each-key-or-mouse-but
 keybinds-custom-section-custom-bindings = 사용자 지정 단축키
 # Context: row
 keybinds-row-global = 전역
+keybinds-side-modifier-needs-global = 이 키를 사용하려면 전역 단축키 활성화를 켜세요.
 # Context: row
 keybinds-row-reset = 초기화
 # Context: show_voice

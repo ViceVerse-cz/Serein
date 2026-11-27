@@ -1635,6 +1635,7 @@ keybinds-custom-section-add-extra-shortcuts-for-any-action-each-key-or-mouse-but
 keybinds-custom-section-custom-bindings = Custom bindings
 # Context: row
 keybinds-row-global = GLOBAL
+keybinds-side-modifier-needs-global = Turn on Enable global keybinds to use this key.
 # Context: row
 keybinds-row-reset = Reset
 # Context: show_voice

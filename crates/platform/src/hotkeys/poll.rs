@@ -2,7 +2,7 @@
 //! Registering a plain key or mouse button would take it from every other app, so like
 //! Discord's input hook this only watches: the key still reaches the focused app.
 use super::NativeInput;
-use model::keybinds::{ALT, CTRL, PRIMARY, SHIFT, is_mouse_button};
+use model::keybinds::{ALT, CTRL, PRIMARY, SHIFT, is_mouse_button, is_side_modifier};
 use model::{KeyChord, KeybindAction};
 use std::sync::{
 	Arc,
@@ -54,6 +54,9 @@ struct Watch<C> {
 	codes: Vec<C>,
 	modifiers: u8,
 	mouse: bool,
+	/// A lone side modifier: focused input never matches it, and its own key sets the held
+	/// modifiers.
+	side: bool,
 }
 
 pub(super) struct Poller {
@@ -105,6 +108,7 @@ impl Poller {
 							codes,
 							modifiers: chord.modifiers,
 							mouse: is_mouse_button(&chord.key),
+							side: is_side_modifier(&chord.key),
 						})
 					})
 					.collect();
@@ -159,20 +163,22 @@ impl Poller {
 	}
 
 	/// Whether this poller owns the chord even while Serein is focused. Keyboard keys are left
-	/// to focused input there, which knows when the user is typing.
+	/// to focused input there, which knows when the user is typing; focused input never sees
+	/// buttons outside the window or lone side modifiers at all.
 	pub(super) fn owns_focused(&self, action: KeybindAction, chord: &KeyChord) -> bool {
-		is_mouse_button(&chord.key)
+		focus_independent(&chord.key)
 			&& self
 				.chords
 				.iter()
 				.any(|(watched, current)| *watched == action && current == chord)
 	}
 
-	/// Mute/deafen bits for mouse toggles, so focused input does not toggle them twice.
+	/// Mute/deafen bits for toggles the poller owns while focused, so focused input does not
+	/// toggle them twice.
 	pub(super) fn toggle_mask(&self) -> u8 {
 		self.chords
 			.iter()
-			.filter(|(_, chord)| is_mouse_button(&chord.key))
+			.filter(|(_, chord)| focus_independent(&chord.key))
 			.fold(0, |mask, (action, _)| {
 				mask | match action {
 					KeybindAction::ToggleMute => 1,
@@ -181,6 +187,10 @@ impl Poller {
 				}
 			})
 	}
+}
+
+fn focus_independent(key: &str) -> bool {
+	is_mouse_button(key) || is_side_modifier(key)
 }
 
 impl Drop for Poller {
@@ -224,12 +234,14 @@ fn step<C: Copy + PartialEq>(
 	for (watch, held) in watched.iter().zip(&held) {
 		let input = &mut result[watch.group];
 		input.down |= held;
-		input.eligible |= watch.mouse || !focused;
+		input.eligible |= watch.mouse || watch.side || !focused;
 	}
 	let matching: Vec<&Watch<C>> = watched
 		.iter()
 		.zip(&held)
-		.filter(|(watch, held)| **held && modifiers_match(watch.modifiers, modifiers))
+		.filter(|(watch, held)| {
+			**held && (watch.side || modifiers_match(watch.modifiers, modifiers))
+		})
 		.map(|(watch, _)| watch)
 		.collect();
 	for watch in &matching {
@@ -296,6 +308,13 @@ fn modifiers_match(bits: u8, held: Modifiers) -> bool {
 	command_matches && (bits & SHIFT == 0 || held.shift) && held.alt == (bits & ALT != 0)
 }
 
+/// Windows reports AltGr as Right Alt plus a synthetic Left Ctrl. Left Ctrl counts only when
+/// it was down before Right Alt, so AltGr never presses it and a real hold survives Right Alt.
+#[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
+fn left_ctrl_real(was: bool, left_ctrl: bool, right_alt: bool) -> bool {
+	left_ctrl && (was || !right_alt)
+}
+
 #[cfg(target_os = "windows")]
 mod os {
 	use super::Modifiers;
@@ -303,7 +322,10 @@ mod os {
 
 	pub(super) type Code = VIRTUAL_KEY;
 
-	pub(super) struct Keys;
+	pub(super) struct Keys {
+		/// Left Ctrl went down before Right Alt, so it is a real press, not AltGr's.
+		left_ctrl: bool,
+	}
 
 	pub(super) fn supported(name: &str) -> bool {
 		!codes(name).is_empty()
@@ -311,16 +333,22 @@ mod os {
 
 	impl Keys {
 		pub(super) fn open() -> Option<Self> {
-			Some(Self)
+			Some(Self { left_ctrl: false })
 		}
 
 		pub(super) fn codes(&self, name: &str) -> Vec<Code> {
 			codes(name)
 		}
 
-		pub(super) fn refresh(&mut self) {}
+		pub(super) fn refresh(&mut self) {
+			self.left_ctrl =
+				super::left_ctrl_real(self.left_ctrl, key_down(VK_LCONTROL), key_down(VK_RMENU));
+		}
 
 		pub(super) fn down(&self, code: Code) -> bool {
+			if code == VK_LCONTROL {
+				return self.left_ctrl;
+			}
 			key_down(code)
 		}
 
@@ -363,6 +391,12 @@ mod os {
 			"MouseMiddle" => &[VK_MBUTTON],
 			"MouseExtra1" => &[VK_XBUTTON1],
 			"MouseExtra2" => &[VK_XBUTTON2],
+			"ControlLeft" => &[VK_LCONTROL],
+			"ControlRight" => &[VK_RCONTROL],
+			"ShiftLeft" => &[VK_LSHIFT],
+			"ShiftRight" => &[VK_RSHIFT],
+			"AltLeft" => &[VK_LMENU],
+			"AltRight" => &[VK_RMENU],
 			"ArrowDown" => &[VK_DOWN],
 			"ArrowLeft" => &[VK_LEFT],
 			"ArrowRight" => &[VK_RIGHT],
@@ -531,6 +565,12 @@ mod os {
 			"MouseMiddle" => &[MOUSE | 2],
 			"MouseExtra1" => &[MOUSE | 3],
 			"MouseExtra2" => &[MOUSE | 4],
+			"ControlLeft" => &[0x3B],
+			"ControlRight" => &[0x3E],
+			"ShiftLeft" => &[0x38],
+			"ShiftRight" => &[0x3C],
+			"AltLeft" => &[0x3A],
+			"AltRight" => &[0x3D],
 			"ArrowLeft" => &[0x7B],
 			"ArrowRight" => &[0x7C],
 			"ArrowDown" => &[0x7D],
@@ -696,6 +736,13 @@ mod os {
 		}
 		let syms: &[u32] = match name {
 			"ArrowDown" => &[XK_Down],
+			"ControlLeft" => &[XK_Control_L],
+			"ControlRight" => &[XK_Control_R],
+			"ShiftLeft" => &[XK_Shift_L],
+			"ShiftRight" => &[XK_Shift_R],
+			"AltLeft" => &[XK_Alt_L],
+			// AltGr layouts map Right Alt to ISO Level 3 Shift.
+			"AltRight" => &[XK_Alt_R, XK_ISO_Level3_Shift],
 			"ArrowLeft" => &[XK_Left],
 			"ArrowRight" => &[XK_Right],
 			"ArrowUp" => &[XK_Up],
@@ -747,6 +794,7 @@ mod tests {
 			codes: vec![code],
 			modifiers,
 			mouse,
+			side: false,
 		}
 	}
 
@@ -843,6 +891,55 @@ mod tests {
 		assert_eq!(
 			tracker.advance(&[input(true, true, false), input(true, true, false)]),
 			vec![(1, false)]
+		);
+	}
+
+	#[test]
+	fn side_modifiers_hold_through_other_modifiers_and_work_focused() {
+		let side = Watch {
+			side: true,
+			..watch(0, 5, 0, false)
+		};
+		let watched = [side, watch(1, 1, 0, false)];
+		let down = |code| code == 5;
+		// The bound Right Ctrl reports Ctrl itself; Shift and Alt on top must not drop the hold.
+		for held in [
+			Modifiers {
+				ctrl: true,
+				..Modifiers::default()
+			},
+			Modifiers {
+				ctrl: true,
+				shift: true,
+				alt: true,
+				meta: false,
+			},
+		] {
+			// Focused input never matches a lone modifier, so the poller owns it while focused.
+			assert_eq!(
+				step(&watched, 2, true, down, held)[0],
+				input(true, true, true)
+			);
+		}
+	}
+
+	#[test]
+	fn altgr_never_presses_left_ctrl_and_real_holds_survive_it() {
+		let run = |samples: &[(bool, bool)]| {
+			samples
+				.iter()
+				.scan(false, |was, &(left_ctrl, right_alt)| {
+					*was = left_ctrl_real(*was, left_ctrl, right_alt);
+					Some(*was)
+				})
+				.collect::<Vec<_>>()
+		};
+		// AltGr: Windows reports Left Ctrl together with Right Alt; it is never a press.
+		assert_eq!(run(&[(true, true), (false, false)]), [false, false]);
+		// A real Left Ctrl hold stays down while Right Alt comes and goes.
+		assert_eq!(
+			run(&[(true, false), (true, true), (true, false), (false, false)]),
+			[true, true, true, false]
 		);
 	}
 }

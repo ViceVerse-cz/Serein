@@ -46,6 +46,22 @@ pub fn is_mouse_button(name: &str) -> bool {
 	matches!(name, "MouseMiddle" | "MouseExtra1" | "MouseExtra2")
 }
 
+/// Left/right modifier keys a voice binding may use on their own. egui reports them only as
+/// physical key presses that focused shortcuts never match, so the platform key poller fires
+/// them, even while Serein is focused.
+pub const SIDE_MODIFIERS: [&str; 6] = [
+	"ControlLeft",
+	"ControlRight",
+	"ShiftLeft",
+	"ShiftRight",
+	"AltLeft",
+	"AltRight",
+];
+
+pub fn is_side_modifier(name: &str) -> bool {
+	SIDE_MODIFIERS.contains(&name)
+}
+
 /// Upper bound on user-defined extra bindings, keeping saved preferences small.
 pub const MAX_CUSTOM_BINDINGS: usize = 32;
 

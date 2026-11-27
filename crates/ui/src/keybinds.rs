@@ -178,6 +178,90 @@ impl Default for ConflictNotice {
 #[derive(Clone, Copy, Default)]
 struct CaptureStarted;
 
+/// Lone side-modifier recording: the key that went down alone, recorded when it comes back up.
+/// egui reports side modifiers only as physical key presses, so Ctrl+K arrives as ControlLeft
+/// then K: the K press disarms and the combo is recorded instead.
+#[derive(Clone, Default, Debug)]
+struct SideCapture {
+	armed: Option<Key>,
+	/// Side keys seen down. A press while another is held is never alone, and nothing arms
+	/// again until every one of them is released.
+	held: u8,
+	tainted: bool,
+	/// Other keys held, tracked in event order, so a side press now is part of a combination.
+	others: Vec<Key>,
+}
+
+fn is_side_key(key: Key) -> bool {
+	model::keybinds::is_side_modifier(key.name())
+}
+
+fn side_bit(key: Key) -> u8 {
+	model::keybinds::SIDE_MODIFIERS
+		.iter()
+		.position(|name| *name == key.name())
+		.map_or(0, |index| 1 << index)
+}
+
+/// Advances recording by one egui event and returns the side key to bind, if any.
+fn side_step(state: &mut SideCapture, event: &Event) -> Option<&'static str> {
+	match event {
+		Event::Key {
+			key,
+			pressed: true,
+			repeat: false,
+			..
+		} if is_side_key(*key) => {
+			state.tainted |= state.held != 0;
+			state.held |= side_bit(*key);
+			state.armed = (!state.tainted && state.others.is_empty()).then_some(*key);
+		}
+		Event::Key {
+			key,
+			pressed: false,
+			..
+		} if is_side_key(*key) => {
+			state.held &= !side_bit(*key);
+			let recorded = (state.armed == Some(*key)).then(|| key.name());
+			state.armed = None;
+			if state.held == 0 {
+				state.tainted = false;
+			}
+			return recorded;
+		}
+		Event::Key {
+			key,
+			pressed,
+			repeat: false,
+			..
+		} if !is_side_key(*key) => {
+			// Bounded by the distinct keys a keyboard can hold at once.
+			state.others.retain(|held| held != key);
+			if *pressed {
+				state.others.push(*key);
+			}
+			state.armed = None;
+		}
+		// egui-winit turns Ctrl+C/X/V into these instead of key presses.
+		Event::PointerButton { pressed: true, .. } | Event::Copy | Event::Cut | Event::Paste(_) => {
+			state.armed = None;
+		}
+		// Releases made in another app never arrive, so forget every key, as egui does.
+		Event::WindowFocused(false) => *state = SideCapture::default(),
+		_ => {}
+	}
+	None
+}
+
+fn side_capture_id() -> egui::Id {
+	egui::Id::unique("keybind_side_capture")
+}
+
+/// The Wayland portal cannot fire an unmodified key, so a side modifier would be a dead binding.
+fn side_keys_supported() -> bool {
+	!(cfg!(target_os = "linux") && std::env::var_os("WAYLAND_DISPLAY").is_some())
+}
+
 fn capture(ui: &mut egui::Ui, bindings: &mut Keybinds, capturing: &mut Option<CaptureTarget>) {
 	let Some(target) = *capturing else {
 		return;
@@ -186,11 +270,45 @@ fn capture(ui: &mut egui::Ui, bindings: &mut Keybinds, capturing: &mut Option<Ca
 		.data_mut(|data| data.remove_temp::<CaptureStarted>(capture_started_id()))
 		.is_some()
 	{
+		// Keys already down when recording starts mean a later side press is not alone.
+		let (held, others) = ui.input(|input| {
+			let held = input
+				.keys_down
+				.iter()
+				.fold(0, |held, key| held | side_bit(*key));
+			let others = input
+				.keys_down
+				.iter()
+				.copied()
+				.filter(|key| !is_side_key(*key))
+				.collect();
+			(held, others)
+		});
+		let side = SideCapture {
+			held,
+			tainted: held != 0,
+			others,
+			..SideCapture::default()
+		};
+		ui.data_mut(|data| data.insert_temp(side_capture_id(), side));
 		return;
 	}
+	let action = match target {
+		CaptureTarget::BuiltIn(action) => Some(action),
+		CaptureTarget::Custom(index) => bindings.custom.get(index).map(|binding| binding.action),
+	};
+	let side_allowed = action.is_some_and(KeybindAction::is_global) && side_keys_supported();
+	let mut side = ui.data_mut(|data| {
+		data.get_temp_mut_or_default::<SideCapture>(side_capture_id())
+			.clone()
+	});
 	let mut captured = None;
 	let mut cancelled = false;
 	for event in ui.input(|input| input.events.clone()) {
+		if side_allowed && let Some(name) = side_step(&mut side, &event) {
+			captured = Some(KeyChord::new(name, 0));
+			break;
+		}
 		match event {
 			Event::Key {
 				key,
@@ -198,13 +316,17 @@ fn capture(ui: &mut egui::Ui, bindings: &mut Keybinds, capturing: &mut Option<Ca
 				repeat: false,
 				modifiers,
 				..
-			} => {
+			} if !is_side_key(key) => {
 				if key == Key::Escape {
 					cancelled = true;
 				} else if let Some(name) = key_name(key) {
 					captured = Some(KeyChord::new(name, modifier_bits(modifiers)));
 				}
-				break;
+				// A key with no binding name is ignored, and later events still update side
+				// recording, so its release is not missed.
+				if cancelled || captured.is_some() {
+					break;
+				}
 			}
 			// Left and right click stay reserved for pointing, so either one cancels.
 			Event::PointerButton {
@@ -222,6 +344,7 @@ fn capture(ui: &mut egui::Ui, bindings: &mut Keybinds, capturing: &mut Option<Ca
 			_ => {}
 		}
 	}
+	ui.data_mut(|data| data.insert_temp(side_capture_id(), side));
 	if cancelled || captured.is_some() {
 		// The press that ended capture must not also act on the rest of this frame.
 		ui.input_mut(|input| {
@@ -312,6 +435,7 @@ fn row(
 							.color(colors.accent),
 					);
 				}
+				side_needs_global_hint(ui, action, bindings.chord(action), bindings.global_enabled);
 				if let Some(msg) = &conflict_text {
 					let text_color = colors.danger.gamma_multiply(fade_alpha);
 					ui.add_space(6.0);
@@ -338,6 +462,24 @@ fn row(
 			}
 		});
 	});
+}
+
+/// Lone side modifiers are read only by the global key poller.
+fn side_needs_global_hint(
+	ui: &mut egui::Ui,
+	action: KeybindAction,
+	chord: &KeyChord,
+	global_enabled: bool,
+) {
+	if action.is_global() && !global_enabled && model::keybinds::is_side_modifier(&chord.key) {
+		ui.label(
+			RichText::new(crate::i18n::translate(
+				"keybinds-side-modifier-needs-global",
+			))
+			.size(11.0)
+			.color(design::palette(ui).muted),
+		);
+	}
 }
 
 /// Final card: extra bindings the user adds on top of the fixed rows above.
@@ -435,6 +577,13 @@ fn custom_row(
 							);
 						}
 					});
+				// A lone side modifier only works on voice actions.
+				let binding = &mut bindings.custom[index];
+				if !binding.action.is_global()
+					&& model::keybinds::is_side_modifier(&binding.chord.key)
+				{
+					binding.chord = KeyChord::new("", 0);
+				}
 				if action.is_global() && bindings.global_enabled {
 					ui.label(
 						RichText::new(crate::i18n::translate("keybinds-row-global"))
@@ -442,6 +591,12 @@ fn custom_row(
 							.color(colors.accent),
 					);
 				}
+				side_needs_global_hint(
+					ui,
+					action,
+					&bindings.custom[index].chord,
+					bindings.global_enabled,
+				);
 				if let Some(msg) = &conflict_text {
 					let text_color = colors.danger.gamma_multiply(fade_alpha);
 					ui.add_space(6.0);
@@ -743,6 +898,16 @@ fn display_key(name: &str) -> String {
 		"PrintScreen" => "PrtSc".into(),
 		"Menu" => "Menu".into(),
 		"Fn" => "Fn".into(),
+		"ControlLeft" if cfg!(target_os = "macos") => "Left Control".into(),
+		"ControlRight" if cfg!(target_os = "macos") => "Right Control".into(),
+		"AltLeft" if cfg!(target_os = "macos") => "Left Option".into(),
+		"AltRight" if cfg!(target_os = "macos") => "Right Option".into(),
+		"ControlLeft" => "Left Ctrl".into(),
+		"ControlRight" => "Right Ctrl".into(),
+		"ShiftLeft" => "Left Shift".into(),
+		"ShiftRight" => "Right Shift".into(),
+		"AltLeft" => "Left Alt".into(),
+		"AltRight" => "Right Alt".into(),
 		"MouseMiddle" => "Mouse 3".into(),
 		"MouseExtra1" => "Mouse 4".into(),
 		"MouseExtra2" => "Mouse 5".into(),
@@ -1182,5 +1347,209 @@ mod tests {
 			Some(CaptureTarget::BuiltIn(KeybindAction::PushToTalk))
 		);
 		assert_eq!(bindings, Keybinds::default());
+	}
+
+	fn key(key: Key, pressed: bool, modifiers: Modifiers) -> Event {
+		Event::Key {
+			key,
+			physical_key: None,
+			pressed,
+			repeat: false,
+			modifiers,
+		}
+	}
+
+	/// Runs `before` with no capture, starts capturing `action` as a click does, then runs one
+	/// frame per event list.
+	fn record_after(
+		action: KeybindAction,
+		before: Vec<Event>,
+		frames: Vec<Vec<Event>>,
+	) -> (Keybinds, bool) {
+		let mut bindings = Keybinds::default();
+		let mut capturing = None;
+		let ctx = egui::Context::default();
+		capture_frame(&ctx, before, &mut bindings, &mut capturing);
+		capturing = Some(CaptureTarget::BuiltIn(action));
+		ctx.data_mut(|data| data.insert_temp(capture_started_id(), CaptureStarted));
+		capture_frame(&ctx, Vec::new(), &mut bindings, &mut capturing);
+		for events in frames {
+			capture_frame(&ctx, events, &mut bindings, &mut capturing);
+		}
+		(bindings, capturing.is_some())
+	}
+
+	fn record(action: KeybindAction, frames: Vec<Vec<Event>>) -> (Keybinds, bool) {
+		record_after(action, Vec::new(), frames)
+	}
+
+	#[test]
+	fn lone_side_modifier_records_on_release() {
+		let down = key(Key::ControlRight, true, Modifiers::CTRL);
+		let up = key(Key::ControlRight, false, Modifiers::NONE);
+		// Press and release in separate frames, and in one frame.
+		for frames in [
+			vec![vec![down.clone()], vec![up.clone()]],
+			vec![vec![down.clone(), up.clone()]],
+		] {
+			let (bindings, still) = record(KeybindAction::PushToTalk, frames);
+			// Wayland cannot fire a lone modifier, so it is not offered there.
+			if !side_keys_supported() {
+				assert!(still);
+				assert_eq!(bindings, Keybinds::default());
+				continue;
+			}
+			assert!(!still);
+			assert_eq!(
+				bindings.chord(KeybindAction::PushToTalk),
+				&KeyChord::new("ControlRight", 0)
+			);
+			assert_eq!(
+				chord_parts(bindings.chord(KeybindAction::PushToTalk))
+					.last()
+					.map(String::as_str),
+				Some(if cfg!(target_os = "macos") {
+					"Right Control"
+				} else {
+					"Right Ctrl"
+				})
+			);
+		}
+		// Non-voice rows wait for a real shortcut.
+		let (bindings, still) = record(KeybindAction::Bold, vec![vec![down], vec![up]]);
+		assert!(still);
+		assert_eq!(bindings, Keybinds::default());
+	}
+
+	#[test]
+	fn side_modifier_does_not_record_with_other_input() {
+		let ctrl = |pressed| {
+			key(
+				Key::ControlLeft,
+				pressed,
+				if pressed {
+					Modifiers::CTRL
+				} else {
+					Modifiers::NONE
+				},
+			)
+		};
+		// Ctrl+K records the combo, not Left Ctrl.
+		let (bindings, still) = record(
+			KeybindAction::PushToTalk,
+			vec![
+				vec![ctrl(true)],
+				vec![key(Key::K, true, Modifiers::CTRL)],
+				vec![ctrl(false)],
+			],
+		);
+		assert!(!still);
+		assert_eq!(
+			bindings.chord(KeybindAction::PushToTalk),
+			&KeyChord::new("K", modifier_bits(Modifiers::CTRL))
+		);
+		let shift = |pressed| key(Key::ShiftRight, pressed, Modifiers::NONE);
+		let alt = |pressed| key(Key::AltLeft, pressed, Modifiers::NONE);
+		for frames in [
+			// Two side keys overlapping record neither.
+			vec![
+				vec![ctrl(true)],
+				vec![shift(true)],
+				vec![shift(false)],
+				vec![ctrl(false)],
+			],
+			// A third side key while the first is still held is not alone either.
+			vec![
+				vec![ctrl(true)],
+				vec![shift(true)],
+				vec![shift(false)],
+				vec![alt(true)],
+				vec![alt(false)],
+			],
+			// egui-winit reports Ctrl+C as Copy, not a C press.
+			vec![vec![ctrl(true)], vec![Event::Copy], vec![ctrl(false)]],
+			// Focus moving to another app, where egui sees nothing, disarms.
+			vec![
+				vec![ctrl(true)],
+				vec![Event::WindowFocused(false)],
+				vec![ctrl(false)],
+			],
+			// A key already down when capture started has no press to arm it.
+			vec![vec![ctrl(false)]],
+		] {
+			let (bindings, still) = record(KeybindAction::PushToTalk, frames);
+			assert!(still);
+			assert_eq!(bindings, Keybinds::default());
+		}
+		for before in [
+			// Left Ctrl held from before the click makes a Right Shift tap an overlap too.
+			vec![ctrl(true)],
+			// So does any other key held from before the click.
+			vec![key(Key::A, true, Modifiers::NONE)],
+		] {
+			let (bindings, still) = record_after(
+				KeybindAction::PushToTalk,
+				before,
+				vec![vec![shift(true)], vec![shift(false)]],
+			);
+			assert!(still);
+			assert_eq!(bindings, Keybinds::default());
+		}
+	}
+
+	#[test]
+	fn focus_loss_forgets_side_keys_released_elsewhere() {
+		let shift = |pressed| key(Key::ShiftRight, pressed, Modifiers::NONE);
+		// Left Ctrl goes down, focus leaves, and its release happens in another app.
+		let (bindings, still) = record(
+			KeybindAction::PushToTalk,
+			vec![
+				vec![key(Key::ControlLeft, true, Modifiers::CTRL)],
+				vec![Event::WindowFocused(false)],
+				vec![Event::WindowFocused(true)],
+				vec![shift(true)],
+				vec![shift(false)],
+			],
+		);
+		if side_keys_supported() {
+			assert!(!still);
+			assert_eq!(
+				bindings.chord(KeybindAction::PushToTalk),
+				&KeyChord::new("ShiftRight", 0)
+			);
+		}
+	}
+
+	#[test]
+	fn side_recording_follows_event_order_within_a_frame() {
+		let rctrl = |pressed| key(Key::ControlRight, pressed, Modifiers::NONE);
+		// F35 has no binding name, so only its effect on the side key is observed.
+		let other = |pressed| key(Key::F35, pressed, Modifiers::NONE);
+		for (frames, recorded) in [
+			// A complete lone tap, then another key in the same frame: the tap counts.
+			(vec![vec![rctrl(true), rctrl(false), other(true)]], true),
+			// Another key held through the tap: not alone, though it is up by frame end.
+			(
+				vec![vec![other(true), rctrl(true), rctrl(false), other(false)]],
+				false,
+			),
+			// An unbound key pressed and released in one frame leaves nothing held behind.
+			(
+				vec![
+					vec![other(true), other(false)],
+					vec![rctrl(true)],
+					vec![rctrl(false)],
+				],
+				true,
+			),
+		] {
+			let (bindings, still) = record(KeybindAction::PushToTalk, frames);
+			let recorded = recorded && side_keys_supported();
+			assert_eq!(still, !recorded);
+			assert_eq!(
+				bindings.chord(KeybindAction::PushToTalk) == &KeyChord::new("ControlRight", 0),
+				recorded
+			);
+		}
 	}
 }

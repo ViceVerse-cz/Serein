@@ -1635,6 +1635,7 @@ keybinds-custom-section-add-extra-shortcuts-for-any-action-each-key-or-mouse-but
 keybinds-custom-section-custom-bindings = Ràng buộc tùy chỉnh
 # Context: row
 keybinds-row-global = TOÀN CẦU
+keybinds-side-modifier-needs-global = Bật Kích hoạt tổ hợp phím chung để dùng phím này.
 # Context: row
 keybinds-row-reset = Đặt lại
 # Context: show_voice
