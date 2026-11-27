@@ -1817,13 +1817,18 @@ impl MessagingUi {
 		} else {
 			(egui::vec2(40.0, 20.0), 11.0, 8.0)
 		};
-		let live = egui::Rect::from_min_size(rect.left_top() + egui::Vec2::splat(margin), pill);
-		ui.painter().rect_filled(live, 4, colors.badge_fill());
-		ui.painter().text(
-			live.center(),
-			egui::Align2::CENTER_CENTER,
+		// Longer translations widen the pill instead of spilling past it, like `live_badge`.
+		let galley = ui.painter().layout_no_wrap(
 			crate::i18n::translate("voice-live-badge-live"),
 			egui::FontId::new(font, design::medium_family(ui.ctx())),
+			egui::Color32::WHITE,
+		);
+		let pill = egui::vec2(pill.x.max(galley.size().x + 8.0), pill.y);
+		let live = egui::Rect::from_min_size(rect.left_top() + egui::Vec2::splat(margin), pill);
+		ui.painter().rect_filled(live, 4, colors.badge_fill());
+		ui.painter().galley(
+			live.center() - galley.size() * 0.5,
+			galley,
 			egui::Color32::WHITE,
 		);
 		let enabled = self.can_watch(state, channel, streamer);
@@ -5337,8 +5342,16 @@ fn gain_controls(ui: &mut egui::Ui, gain: &mut crate::VoiceGain) -> [egui::Respo
 		})
 	} else {
 		[
-			slider(ui, &mut gain.input_percent, "Microphone gain"),
-			slider(ui, &mut gain.output_percent, "Speaker volume"),
+			slider(
+				ui,
+				&mut gain.input_percent,
+				"voice-voice-popup-content-microphone-gain",
+			),
+			slider(
+				ui,
+				&mut gain.output_percent,
+				"voice-voice-popup-content-speaker-volume",
+			),
 		]
 	}
 }

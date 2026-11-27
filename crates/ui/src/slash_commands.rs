@@ -558,7 +558,7 @@ impl Menu {
 					Filter::All,
 					filter,
 					None,
-					"slash-commands-all-commands",
+					&crate::i18n::translate("slash-commands-all-commands"),
 					avatars,
 					state.demo,
 				)
@@ -600,7 +600,7 @@ impl Menu {
 							Filter::Builtins,
 							filter,
 							None,
-							"slash-commands-built-in",
+							&crate::i18n::translate("slash-commands-built-in"),
 							avatars,
 							state.demo,
 						)
@@ -1111,31 +1111,33 @@ impl Menu {
 				.and_then(|(_, value)| option.problem(value))
 		});
 		let error = error.filter(|_| problem.is_none());
+		// Only Serein's own fallbacks are catalog keys; application text is shown as sent.
+		let waiting = crate::i18n::translate("slash-commands-waiting-for-application");
+		let attachments = crate::i18n::translate(
+			"slash-commands-argument-attachment-arguments-are-not-supported-yet",
+		);
+		let unavailable = crate::i18n::translate("slash-commands-unavailable-arguments-kept");
 		let (detail, color) = if let Some(problem) = problem.as_deref() {
 			(problem, colors.danger)
 		} else if let Some(error) = error {
 			(error, colors.danger)
 		} else if state.interactions.busy() {
-			("slash-commands-waiting-for-application", colors.muted)
+			(waiting.as_str(), colors.muted)
 		} else if option.is_some_and(|option| option.kind == 11) {
-			(
-				"slash-commands-argument-attachment-arguments-are-not-supported-yet",
-				colors.warning,
-			)
+			(attachments.as_str(), colors.warning)
 		} else {
 			(
 				option
 					.map(|option| option.description.as_str())
 					.or_else(|| command.map(|command| command.description.as_str()))
-					.unwrap_or("slash-commands-unavailable-arguments-kept"),
+					.unwrap_or(&unavailable),
 				colors.muted,
 			)
 		};
-		let detail = crate::i18n::translate_if_key(detail);
 		let detail = if error.is_none() && option.is_some_and(|option| !option.required) {
-			crate::i18n::translate_args("slash-commands-optional-detail", &[("detail", &detail)])
+			crate::i18n::translate_args("slash-commands-optional-detail", &[("detail", detail)])
 		} else {
-			detail
+			detail.to_owned()
 		};
 		ui.add(egui::Label::new(egui::RichText::new(&detail).size(15.0).color(color)).truncate())
 			.on_hover_text(detail);
@@ -1164,8 +1166,6 @@ fn rail_button(
 	avatars: &mut Avatars,
 	demo: bool,
 ) -> egui::Response {
-	let label = crate::i18n::translate_if_key(label);
-	let label = label.as_str();
 	let (rect, response) = ui.allocate_exact_size(egui::Vec2::splat(40.0), egui::Sense::click());
 	let colors = design::palette(ui);
 	if target == selected || response.hovered() {

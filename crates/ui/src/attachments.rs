@@ -1588,13 +1588,13 @@ pub fn viewer(
 						true,
 						egui::pos2(full.left() + side / 2.0, stage.center().y),
 						Icon::CaretLeft,
-						"Previous (←)",
+						"attachments-gallery-previous",
 					),
 					(
 						false,
 						egui::pos2(full.right() - side / 2.0, stage.center().y),
 						Icon::ChevronRight,
-						"Next (→)",
+						"attachments-gallery-next",
 					),
 				] {
 					ui.scope_builder(
