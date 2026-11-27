@@ -1275,10 +1275,19 @@ pub fn viewer(
 	let mut close = false;
 	// Modal input capture prevents clicks and keys reaching the conversation. No dialog frame.
 	let modal = egui::Id::unique("attachment-viewer");
-	// Cards and the full profile share the Foreground order and stay open beneath the viewer.
-	// Claiming the top every frame keeps it above them, at most one frame late when both ask in
-	// the same frame. Its own menus are newer popups, so it yields while one is open.
-	if !egui::Popup::is_any_open(ui.ctx()) {
+	// Cards and the full profile share the Foreground order and stay open beneath the viewer. A
+	// card raised by the click that opened the viewer asks for the top in the same frame, so the
+	// viewer claims it again for its first two frames. Only then: dialogs opened later (link
+	// confirmations, notices) and the viewer's own menus must stay above it.
+	let pass = ui.ctx().cumulative_pass_nr();
+	let opened = egui::Id::unique("attachment-viewer-opened");
+	let first = ui.ctx().data_mut(|data| {
+		let (first, last) = data.get_temp::<(u64, u64)>(opened).unwrap_or((pass, pass));
+		let first = if pass > last + 1 { pass } else { first };
+		data.insert_temp(opened, (first, pass));
+		first
+	});
+	if pass <= first + 1 {
 		ui.ctx().memory_mut(|memory| {
 			memory
 				.areas_mut()
