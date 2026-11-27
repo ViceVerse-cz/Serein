@@ -7685,6 +7685,7 @@ dependencies = [
  "image",
  "model",
  "pulldown-cmark",
+ "resvg",
  "ruzstd",
  "skrifa",
  "sys-locale",
