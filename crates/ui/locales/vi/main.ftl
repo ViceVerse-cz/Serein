@@ -927,6 +927,8 @@ emoji-picker-search-emoji = Tìm biểu tượng cảm xúc hoàn hảo
 # Context: popup
 emoji-picker-search-emoji-label = Tìm kiếm biểu tượng cảm xúc theo tên
 # Context: popup
+emoji-picker-search-favorites = Tìm kiếm mục yêu thích
+emoji-picker-search-favorites-label = Tìm kiếm ảnh GIF yêu thích
 emoji-picker-search-gifs-label = Tìm kiếm ảnh GIF trên KLIPY
 # Context: popup
 emoji-picker-search-klipy = Tìm kiếm KLIPY

@@ -2464,7 +2464,8 @@ impl Desktop {
 			messaging.preview_sending(&cc.egui_ctx, &mut state);
 			state.status = "Offline fixture · synthetic pending message; no upload or send";
 		}
-		// `--demo-gifs`, `--demo-gifs=favorites`, `--demo-gifs=trending` or `--demo-gifs=<query>`.
+		// `--demo-gifs`, `--demo-gifs=favorites`, `--demo-gifs=favorites:<query>`,
+		// `--demo-gifs=trending` or `--demo-gifs=<query>`.
 		#[cfg(feature = "demo")]
 		if demo
 			&& let Some(section) = std::env::args().find_map(|arg| {
