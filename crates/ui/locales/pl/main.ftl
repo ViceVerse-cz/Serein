@@ -2153,7 +2153,7 @@ profiles-show-edit-profile = Edytuj profil
 # Context: show
 profiles-show-loading-profile = Ładowanie profilu…
 # Context: show
-profiles-show-member-since = NA SERWERZE OD
+profiles-show-member-since = NA DISCORDZIE OD
 # Context: show
 profiles-show-message = Napisz wiadomość
 # Context: show
