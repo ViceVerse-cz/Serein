@@ -995,6 +995,8 @@ pub fn paint_backdrop(ctx: &egui::Context) {
 
 pub const SEMIBOLD: &str = "semibold";
 pub const MEDIUM: &str = "medium";
+/// The regular, medium and semibold families again, for text on accent fills; see [`ink_family`].
+pub const ON_ACCENT: [&str; 3] = ["on accent", "on accent medium", "on accent semibold"];
 const WEIGHTS_KEY: &str = "serein-font-weights";
 // Called by `fonts::install` for one context; until then the weight families resolve to
 // the default face so headless contexts (tests) never reference an unknown family.
@@ -1047,6 +1049,82 @@ pub fn semibold(ui: &egui::Ui, text: impl Into<String>, size: f32) -> RichText {
 }
 pub fn medium(ui: &egui::Ui, text: impl Into<String>, size: f32) -> RichText {
 	RichText::new(text).font(FontId::new(size, medium_family(ui.ctx())))
+}
+/// Stroke weight of interface text. egui has no synthetic bold, so each is its own face.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Weight {
+	Regular,
+	Medium,
+	Semibold,
+}
+
+/// The family that lays out `weight`.
+pub fn family(ctx: &egui::Context, weight: Weight) -> FontFamily {
+	match weight {
+		Weight::Regular => FontFamily::Proportional,
+		Weight::Medium => medium_family(ctx),
+		Weight::Semibold => semibold_family(ctx),
+	}
+}
+
+/// The family for `text` in `weight`, painted on a filled `surface`.
+///
+/// [`apply`] ramps glyph coverage once per appearance, for light text on dark surfaces in dark
+/// mode and for dark text on light ones in light mode. A theme whose accent text falls on the
+/// far side of its accent, such as black on a light purple, paints that text with the wrong
+/// ramp: too heavy in dark mode, too thin in light mode. While such a palette is active, the
+/// [`ON_ACCENT`] families repeat each weight with the other ramp, so text that runs against
+/// the appearance uses them and every other text keeps its family.
+pub fn ink_family(ui: &egui::Ui, weight: Weight, text: Color32, surface: Color32) -> FontFamily {
+	if ui.visuals().dark_mode == (luminance(text) < luminance(surface))
+		&& on_accent_ramp().is_some()
+	{
+		static NAMES: [std::sync::LazyLock<std::sync::Arc<str>>; 3] = [
+			std::sync::LazyLock::new(|| ON_ACCENT[0].into()),
+			std::sync::LazyLock::new(|| ON_ACCENT[1].into()),
+			std::sync::LazyLock::new(|| ON_ACCENT[2].into()),
+		];
+		let index = match weight {
+			Weight::Regular => 0,
+			Weight::Medium => 1,
+			Weight::Semibold => 2,
+		};
+		let family = FontFamily::Name(NAMES[index].clone());
+		// Headless contexts and palettes that need no twin keep the ordinary face.
+		if ui.fonts(|fonts| fonts.definitions().families.contains_key(&family)) {
+			return family;
+		}
+	}
+	family(ui.ctx(), weight)
+}
+
+/// Coverage ramp for light text on dark surfaces; [`apply`] gives it to dark mode.
+const DARK_RAMP: FontColorTransferFunction = FontColorTransferFunction::Gamma(0.5);
+thread_local! {
+	/// Coverage ramp of the installed on-accent faces; `None` while the active palette needs none.
+	static ON_ACCENT_RAMP: std::cell::Cell<Option<FontColorTransferFunction>> =
+		const { std::cell::Cell::new(None) };
+}
+/// The ramp of the installed on-accent faces; `None` while the active palette needs none.
+pub(crate) fn on_accent_ramp() -> Option<FontColorTransferFunction> {
+	ON_ACCENT_RAMP.with(std::cell::Cell::get)
+}
+
+/// Installs or drops the on-accent faces to match the active palette. [`crate::fonts::install`]
+/// runs this at the end of every pass, since an appearance or accent change does not always
+/// pass through [`apply`].
+pub(crate) fn sync_on_accent(ctx: &egui::Context) {
+	let dark = ctx.theme() == egui::Theme::Dark;
+	let p = palette_for(ctx);
+	let ramp = (dark == (luminance(p.accent_text) < luminance(p.accent))).then_some(if dark {
+		FontColorTransferFunction::Off
+	} else {
+		DARK_RAMP
+	});
+	if on_accent_ramp() != ramp {
+		ON_ACCENT_RAMP.with(|cell| cell.set(ramp));
+		crate::fonts::republish(ctx);
+	}
 }
 /// Emoji-only messages: Discord paints their artwork at about three times the body size.
 /// Scaling the body style grows every inline emoji slot with it, text included.
@@ -1148,7 +1226,7 @@ pub fn apply(ctx: &egui::Context) {
 		style.visuals.text_options.font_hinting = false;
 		style.visuals.text_options.subpixel_binning = true;
 		style.visuals.text_options.color_transfer_function = if theme == egui::Theme::Dark {
-			FontColorTransferFunction::Gamma(0.5)
+			DARK_RAMP
 		} else {
 			FontColorTransferFunction::Off
 		};
@@ -1215,6 +1293,7 @@ pub fn apply(ctx: &egui::Context) {
 		// instead of selecting a word.
 		options.input_options.max_double_click_delay = 0.5;
 	});
+	sync_on_accent(ctx);
 }
 /// Height of the messaging window's custom title strip, in egui points.
 pub const TITLE_BAR_HEIGHT: f32 = 36.0;
@@ -1640,6 +1719,7 @@ fn wide_button(
 	let (rect, response) =
 		ui.allocate_exact_size(egui::vec2(ui.available_width(), 44.0), egui::Sense::click());
 	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), &label));
+	let family = ink_family(ui, Weight::Medium, text, fill);
 	let enabled = ui.is_enabled();
 	let fill = if !enabled {
 		fill.gamma_multiply(0.5)
@@ -1665,11 +1745,7 @@ fn wide_button(
 			egui::StrokeKind::Outside,
 		);
 	}
-	let galley = painter.layout_no_wrap(
-		label.to_owned(),
-		FontId::new(15.0, medium_family(ui.ctx())),
-		text,
-	);
+	let galley = painter.layout_no_wrap(label.to_owned(), FontId::new(15.0, family), text);
 	let icon_size = if icon.is_some() { 20.0 } else { 0.0 };
 	let gap = if icon.is_some() { 10.0 } else { 0.0 };
 	let total = icon_size + gap + galley.size().x;
@@ -2403,7 +2479,7 @@ fn sized_button(ui: &mut egui::Ui, label: &str, kind: ButtonKind, full: bool) ->
 			p.text_strong,
 		),
 	};
-	let font = FontId::new(14.0, medium_family(ui.ctx()));
+	let font = FontId::new(14.0, ink_family(ui, Weight::Medium, text, fill));
 	let galley = ui
 		.painter()
 		.layout_no_wrap(label.to_owned(), font, Color32::WHITE);

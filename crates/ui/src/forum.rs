@@ -344,6 +344,12 @@ impl ForumUi {
 									crate::i18n::translate("forum-toolbar-new-post"),
 									14.0,
 								)
+								.family(design::ink_family(
+									ui,
+									design::Weight::Medium,
+									colors.accent_text,
+									colors.accent,
+								))
 								.color(colors.accent_text),
 							)
 							.fill(colors.accent)
@@ -784,6 +790,12 @@ impl ForumUi {
 												crate::i18n::translate("forum-composer-post"),
 												14.0,
 											)
+											.family(design::ink_family(
+												ui,
+												design::Weight::Medium,
+												colors.accent_text,
+												colors.accent,
+											))
 											.color(colors.accent_text),
 										)
 										.fill(colors.accent)
@@ -882,7 +894,15 @@ fn media_box(
 		badge.center(),
 		egui::Align2::CENTER_CENTER,
 		&count,
-		egui::FontId::new(12.0, design::semibold_family(ui.ctx())),
+		egui::FontId::new(
+			12.0,
+			design::ink_family(
+				ui,
+				design::Weight::Semibold,
+				colors.accent_text,
+				colors.accent,
+			),
+		),
 		colors.accent_text,
 	);
 	response.widget_info(|| {
@@ -1240,7 +1260,11 @@ fn post_tags(
 fn action_width(ui: &egui::Ui, label: &str, height: f32, icons: usize) -> f32 {
 	let text = ui
 		.painter()
-		.layout_no_wrap(label.to_owned(), tag_font(ui, height), egui::Color32::WHITE)
+		.layout_no_wrap(
+			label.to_owned(),
+			tag_font(ui, height, false),
+			egui::Color32::WHITE,
+		)
 		.size()
 		.x;
 	(height * 0.45).round() * 2.0 + text + icons as f32 * ((height * 0.5).round() + 6.0)
@@ -1307,7 +1331,7 @@ fn action_pill(
 		icons::paint(painter, icon, icon_rect(x), text);
 		x += icon_size + 6.0;
 	}
-	let galley = painter.layout_no_wrap(label, tag_font(ui, height), text);
+	let galley = painter.layout_no_wrap(label, tag_font(ui, height, false), text);
 	let width = galley.size().x;
 	painter.galley(
 		egui::pos2(x, rect.center().y - galley.size().y / 2.0),
@@ -1325,7 +1349,15 @@ fn count_badge(ui: &mut egui::Ui, count: usize) {
 	let colors = design::palette(ui);
 	let galley = ui.painter().layout_no_wrap(
 		count.to_string(),
-		egui::FontId::new(12.0, design::semibold_family(ui.ctx())),
+		egui::FontId::new(
+			12.0,
+			design::ink_family(
+				ui,
+				design::Weight::Semibold,
+				colors.accent_text,
+				colors.accent,
+			),
+		),
 		colors.accent_text,
 	);
 	let (rect, _) = ui.allocate_exact_size(
@@ -1340,11 +1372,21 @@ fn count_badge(ui: &mut egui::Ui, count: usize) {
 	);
 }
 
-fn tag_font(ui: &egui::Ui, height: f32) -> egui::FontId {
-	egui::FontId::new(
-		if height < TAG_HEIGHT { 12.0 } else { 14.0 },
-		design::semibold_family(ui.ctx()),
-	)
+/// The tag text at `height`; an accent-filled tag sets its ink against the theme, see
+/// `design::ink_family`.
+fn tag_font(ui: &egui::Ui, height: f32, on_accent: bool) -> egui::FontId {
+	let colors = design::palette(ui);
+	let family = if on_accent {
+		design::ink_family(
+			ui,
+			design::Weight::Semibold,
+			colors.accent_text,
+			colors.accent,
+		)
+	} else {
+		design::semibold_family(ui.ctx())
+	};
+	egui::FontId::new(if height < TAG_HEIGHT { 12.0 } else { 14.0 }, family)
 }
 
 /// Does this emoji have artwork to paint: a custom emoji, or a Unicode one in the atlas?
@@ -1372,7 +1414,11 @@ pub(crate) fn paint_emoji(
 pub(crate) fn pill_width(ui: &egui::Ui, tag: &Tag, height: f32) -> f32 {
 	let text = ui
 		.painter()
-		.layout_no_wrap(tag.name.clone(), tag_font(ui, height), egui::Color32::WHITE)
+		.layout_no_wrap(
+			tag.name.clone(),
+			tag_font(ui, height, false),
+			egui::Color32::WHITE,
+		)
 		.size()
 		.x;
 	let emoji = if has_emoji(ui.ctx(), tag.emoji_id, tag.emoji_name.as_deref()) {
@@ -1447,9 +1493,9 @@ pub(crate) fn tag_pill(
 		);
 		x += size + 6.0;
 	}
-	let galley = ui
-		.painter()
-		.layout_no_wrap(tag.name.clone(), tag_font(ui, height), text);
+	let galley =
+		ui.painter()
+			.layout_no_wrap(tag.name.clone(), tag_font(ui, height, selected), text);
 	ui.painter().galley(
 		egui::pos2(x, rect.center().y - galley.size().y / 2.0),
 		galley,

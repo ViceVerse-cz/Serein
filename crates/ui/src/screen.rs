@@ -520,7 +520,19 @@ fn segment(ui: &mut egui::Ui, label: &str, selected: bool) -> egui::Response {
 	let colors = crate::design::palette(ui);
 	let galley = ui.painter().layout_no_wrap(
 		label.to_owned(),
-		egui::FontId::new(13.0, crate::design::medium_family(ui.ctx())),
+		egui::FontId::new(
+			13.0,
+			if selected {
+				crate::design::ink_family(
+					ui,
+					crate::design::Weight::Medium,
+					colors.accent_text,
+					colors.accent,
+				)
+			} else {
+				crate::design::medium_family(ui.ctx())
+			},
+		),
 		colors.text_strong,
 	);
 	let (rect, response) = ui.allocate_exact_size(

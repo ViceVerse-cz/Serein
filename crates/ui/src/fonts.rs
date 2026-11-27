@@ -402,7 +402,7 @@ pub fn apply_custom(ctx: &Context, font: Option<&CustomFont>) {
 		}
 	}
 	sync_name_families(&mut definitions);
-	ctx.set_fonts(definitions.clone());
+	ctx.set_fonts(published(&definitions));
 	ctx.request_repaint();
 }
 
@@ -518,7 +518,7 @@ pub(crate) fn name_family(ctx: &Context, font: u32) -> Option<FontFamily> {
 	let mut definitions = shared.lock().expect("font definitions");
 	if !definitions.families.contains_key(family) {
 		add_name_font(&mut definitions, family.clone(), index);
-		ctx.set_fonts(definitions.clone());
+		ctx.set_fonts(published(&definitions));
 		ctx.request_repaint();
 	}
 	None
@@ -604,7 +604,11 @@ impl CjkScan {
 /// Install once during application creation, before the first UI pass.
 pub fn install(ctx: &Context) {
 	let shared = Arc::new(Mutex::new(definitions(false)));
-	ctx.set_fonts(shared.lock().expect("font definitions").clone());
+	ctx.set_fonts(published(&shared.lock().expect("font definitions")));
+	ctx.on_end_pass(
+		"On-accent text",
+		std::sync::Arc::new(|ui| crate::design::sync_on_accent(ui.ctx())),
+	);
 	ctx.data_mut(|data| data.insert_temp(egui::Id::unique(DEFINITIONS_KEY), shared.clone()));
 	let installed = std::sync::atomic::AtomicBool::new(false);
 	let scan = Mutex::new(CjkScan::default());
@@ -655,7 +659,7 @@ fn install_cjk(ctx: &Context, shared: &Mutex<FontDefinitions>) {
 	let mut definitions = shared.lock().expect("font definitions");
 	data.index = cjk_index(crate::i18n::current());
 	add_fallback(&mut definitions, "Noto Sans CJK", data);
-	ctx.set_fonts(definitions.clone());
+	ctx.set_fonts(published(&definitions));
 }
 
 fn cjk_index(language: crate::i18n::Language) -> u32 {
@@ -674,7 +678,7 @@ fn update_cjk(ctx: &Context, shared: &Mutex<FontDefinitions>, index: u32) {
 	};
 	if data.index != index {
 		Arc::make_mut(data).index = index;
-		ctx.set_fonts(definitions.clone());
+		ctx.set_fonts(published(&definitions));
 		ctx.request_repaint();
 	}
 }
@@ -698,6 +702,70 @@ fn add_fallback(definitions: &mut FontDefinitions, name: &str, data: FontData) {
 			list.push(name.into());
 		}
 	}
+}
+
+/// `definitions` as egui sees them: with twin faces for text on accent fills while
+/// [`crate::design::on_accent_ramp`] asks for them.
+fn published(definitions: &FontDefinitions) -> FontDefinitions {
+	let mut definitions = definitions.clone();
+	if let Some(ramp) = crate::design::on_accent_ramp() {
+		add_on_accent(&mut definitions, ramp);
+	}
+	definitions
+}
+
+/// Each weight family once more under its on-accent name, listing twin copies of the same faces
+/// with `ramp` as their coverage transfer. Text in a twin lays out exactly like its source's.
+fn add_on_accent(definitions: &mut FontDefinitions, ramp: egui::epaint::FontColorTransferFunction) {
+	for (family, twin) in [
+		(FontFamily::Proportional, crate::design::ON_ACCENT[0]),
+		(
+			FontFamily::Name(crate::design::MEDIUM.into()),
+			crate::design::ON_ACCENT[1],
+		),
+		(
+			FontFamily::Name(crate::design::SEMIBOLD.into()),
+			crate::design::ON_ACCENT[2],
+		),
+	] {
+		let faces = definitions.families.entry(family).or_default().clone();
+		let twins = faces
+			.iter()
+			.filter_map(|name| on_accent_face(definitions, name, ramp))
+			.collect();
+		definitions
+			.families
+			.insert(FontFamily::Name(twin.into()), twins);
+	}
+}
+
+/// The twin of the face installed as `name`; `None` when no face has that name.
+fn on_accent_face(
+	definitions: &mut FontDefinitions,
+	name: &str,
+	ramp: egui::epaint::FontColorTransferFunction,
+) -> Option<String> {
+	let mut data = definitions.font_data.get(name)?.as_ref().clone();
+	data.tweak.color_transfer_function = Some(ramp);
+	let twin = format!("{name} (on accent)");
+	definitions
+		.font_data
+		.entry(twin.clone())
+		.or_insert(Arc::new(data));
+	Some(twin)
+}
+
+/// Publish the active definitions again after the on-accent faces changed.
+pub(crate) fn republish(ctx: &Context) {
+	let shared = ctx.data(|data| {
+		data.get_temp::<Arc<Mutex<FontDefinitions>>>(egui::Id::unique(DEFINITIONS_KEY))
+	});
+	let Some(shared) = shared else {
+		return;
+	};
+	let definitions = shared.lock().expect("font definitions");
+	ctx.set_fonts(published(&definitions));
+	ctx.request_repaint();
 }
 
 fn latin(data: &'static [u8]) -> FontData {
@@ -905,6 +973,96 @@ mod tests {
 				.collect();
 			assert_eq!(*names, without_cjk);
 		}
+	}
+
+	#[test]
+	fn on_accent_faces_take_the_other_ramp_and_lay_out_like_their_sources() {
+		use egui::{Color32, epaint::FontColorTransferFunction};
+		struct Restore(Option<[u8; 3]>);
+		impl Drop for Restore {
+			fn drop(&mut self) {
+				crate::design::set_primary_color(self.0);
+			}
+		}
+		let _restore = Restore(crate::design::primary_color());
+		let ctx = Context::default();
+		ctx.set_theme(egui::ThemePreference::Dark);
+		install(&ctx);
+		crate::design::apply(&ctx);
+		ctx.run_ui(Default::default(), |ui| {
+			let ink = crate::design::ink_family(
+				ui,
+				crate::design::Weight::Medium,
+				Color32::BLACK,
+				Color32::WHITE,
+			);
+			assert_eq!(ink, crate::design::medium_family(ui.ctx()));
+			assert!(!ui.fonts(|fonts| {
+				fonts
+					.definitions()
+					.families
+					.contains_key(&FontFamily::Name(crate::design::ON_ACCENT[1].into()))
+			}));
+		})
+		.drop_without_applying_deltas();
+
+		// A light accent takes dark text, which runs against dark mode.
+		crate::design::set_primary_color(Some([0xc0, 0x84, 0xfc]));
+		crate::design::apply(&ctx);
+		ctx.run_ui(Default::default(), |ui| {
+			let accent = Color32::from_rgb(0xc0, 0x84, 0xfc);
+			let ink = crate::design::ink_family(
+				ui,
+				crate::design::Weight::Medium,
+				Color32::BLACK,
+				accent,
+			);
+			assert_eq!(ink, FontFamily::Name(crate::design::ON_ACCENT[1].into()));
+			// Light text on a dark surface keeps the ordinary face.
+			assert_eq!(
+				crate::design::ink_family(
+					ui,
+					crate::design::Weight::Medium,
+					Color32::WHITE,
+					Color32::BLACK,
+				),
+				crate::design::medium_family(ui.ctx())
+			);
+			ui.fonts(|fonts| {
+				let definitions = fonts.definitions();
+				let source = &definitions.families[&crate::design::medium_family(ui.ctx())];
+				let twin = &definitions.families[&ink];
+				assert_eq!(twin.len(), source.len());
+				for (source, twin) in source.iter().zip(twin) {
+					assert_eq!(twin, &format!("{source} (on accent)"));
+					let (source, twin) =
+						(&definitions.font_data[source], &definitions.font_data[twin]);
+					assert_eq!(source.tweak.color_transfer_function, None);
+					assert_eq!(
+						twin.tweak.color_transfer_function,
+						Some(FontColorTransferFunction::Off)
+					);
+					assert!(Arc::ptr_eq(&source.font, &twin.font));
+				}
+			});
+			let width = |ui: &mut egui::Ui, family: &FontFamily| {
+				ui.fonts_mut(|fonts| {
+					fonts
+						.layout_no_wrap(
+							"Send request".into(),
+							FontId::new(14.0, family.clone()),
+							Color32::WHITE,
+						)
+						.size()
+				})
+			};
+			assert_eq!(
+				width(ui, &ink),
+				width(ui, &crate::design::medium_family(ui.ctx())),
+				"the twin must not move or resize the label"
+			);
+		})
+		.drop_without_applying_deltas();
 	}
 
 	#[test]

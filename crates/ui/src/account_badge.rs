@@ -23,7 +23,15 @@ pub(super) fn name(
 		};
 		ui.painter().layout_no_wrap(
 			crate::i18n::translate_if_key(key),
-			egui::FontId::proportional(10.0),
+			egui::FontId::new(
+				10.0,
+				design::ink_family(
+					ui,
+					design::Weight::Regular,
+					colors.accent_text,
+					colors.accent,
+				),
+			),
 			colors.accent_text,
 		)
 	});

@@ -3638,11 +3638,15 @@ impl MessagingUi {
 				let button = |ui: &mut egui::Ui, label: String, fill, text| {
 					ui.add_enabled(
 						enabled,
-						egui::Button::new(design::medium(ui, &label, 14.0).color(text))
-							.fill(fill)
-							.stroke(egui::Stroke::NONE)
-							.corner_radius(6)
-							.min_size(egui::vec2(88.0, 32.0)),
+						egui::Button::new(
+							design::medium(ui, &label, 14.0)
+								.family(design::ink_family(ui, design::Weight::Medium, text, fill))
+								.color(text),
+						)
+						.fill(fill)
+						.stroke(egui::Stroke::NONE)
+						.corner_radius(6)
+						.min_size(egui::vec2(88.0, 32.0)),
 					)
 					.clicked()
 				};

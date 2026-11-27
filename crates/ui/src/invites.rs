@@ -730,7 +730,15 @@ fn action_button(ui: &mut egui::Ui, button: &Button) -> egui::Response {
 	}
 	let galley = painter.layout_no_wrap(
 		button.label.clone(),
-		egui::FontId::new(14.0, crate::design::medium_family(ui.ctx())),
+		egui::FontId::new(
+			14.0,
+			crate::design::ink_family(
+				ui,
+				crate::design::Weight::Medium,
+				colors.accent_text,
+				button.fill,
+			),
+		),
 		text,
 	);
 	let icon = if button.icon.is_some() {
