@@ -527,7 +527,7 @@ setting in the share dialog and the diagnostic log records the reason. The Windo
 permission applies to the exact executable path, so a build run from a new folder can be
 refused even when an installed copy was already allowed.
 
-Source discovery alone does not start streaming. Closing or minimizing a selected source may pause frames or end capture, according to the native API. The initial Windows adapter accepts source dimensions up to 3840×2160. Changes to screen-server metadata, lost video permission, leaving the call and logout stop sharing. The sender never starts itself after reconnection.
+Source discovery alone does not start streaming. Closing or minimizing a selected source may pause frames or end capture, according to the native API. Windows accepts source dimensions up to 7680×4320 and scales a picture over the 3840×2160 sharing budget into the selected quality as it captures it, so a display above 4K, a window spanning two displays, or a 4K window whose border and title bar push its rectangle past the budget still shares. Changes to screen-server metadata, lost video permission, leaving the call and logout stop sharing. The sender never starts itself after reconnection.
 
 Windows capture requests border removal when the native `IsBorderRequired` API is
 supported (Windows 11), and keeps the system's default border on Windows 10 builds
@@ -712,7 +712,9 @@ the local camera preview for an established call; new camera activation still re
 connected Gateway. Demo mode never requests camera or microphone access.
 
 An explicitly started screen share also shows a separate local tile while alone.
-The worker retains at most one RGBA preview at the captured size, up to 3840×2160
+The worker retains at most one RGBA preview at the captured picture size, which is the
+source size unless the source is over the 3840×2160 budget and is scaled into the selected
+quality, up to 3840×2160
 (33,177,600 bytes), updated at the chosen frame rate while the preview is showing, plus the bounded UI
 texture and upload copy. Color conversion runs on the capture worker and does not
 shrink the picture. Native raw-frame limits still apply; encoding and network

@@ -34,20 +34,8 @@ struct Axis {
 impl Axis {
 	fn new(source: usize, scaled: usize, destination: usize, step: usize) -> Self {
 		let start = (destination - scaled) / 2;
-		let taps = (0..scaled)
-			.map(|index| {
-				let position = ((index as f64 + 0.5) * source as f64 / scaled as f64 - 0.5)
-					.clamp(0.0, (source - 1) as f64);
-				let near = position as usize;
-				Tap {
-					near: near * step,
-					far: (near + 1).min(source - 1) * step,
-					weight: ((position - near as f64) * 256.0) as u32,
-				}
-			})
-			.collect();
 		Self {
-			taps,
+			taps: taps(source, scaled, step),
 			start,
 			end: start + scaled,
 		}
@@ -58,6 +46,22 @@ impl Axis {
 			.contains(&index)
 			.then(|| self.taps[index - self.start])
 	}
+}
+
+/// One bilinear tap per destination index, spanning the whole source axis.
+fn taps(source: usize, count: usize, step: usize) -> Vec<Tap> {
+	(0..count)
+		.map(|index| {
+			let position = ((index as f64 + 0.5) * source as f64 / count as f64 - 0.5)
+				.clamp(0.0, (source - 1) as f64);
+			let near = position as usize;
+			Tap {
+				near: near * step,
+				far: (near + 1).min(source - 1) * step,
+				weight: ((position - near as f64) * 256.0) as u32,
+			}
+		})
+		.collect()
 }
 
 /// Fit `frame` into `width`x`height` 4:2:0 `output` (exactly `width * height * 3 / 2` bytes).
@@ -135,6 +139,79 @@ pub(crate) fn bgra_to_yuv420(
 		}
 	});
 	Ok(())
+}
+
+/// A captured picture as a platform handed it over: BGRA rows at the source size, padded to
+/// a longer stride when the capture buffer is.
+#[cfg(any(test, target_os = "windows"))]
+pub(crate) struct Picture<'a> {
+	pub(crate) data: &'a [u8],
+	pub(crate) width: u32,
+	pub(crate) height: u32,
+	pub(crate) stride: usize,
+}
+
+#[cfg(any(test, target_os = "windows"))]
+impl Picture<'_> {
+	/// A tightly strided BGRA copy at `width`x`height`, scaled with the taps above. Capture
+	/// reduces a source over the sharing budget here, before the frame queue, so the queue,
+	/// the local preview and the encoder keep that budget.
+	pub(crate) fn scaled(&self, width: u32, height: u32) -> Result<Vec<u8>, &'static str> {
+		const INVALID: &str = "Screen capture returned an unsupported frame size";
+		let (source_width, source_height) = (self.width as usize, self.height as usize);
+		let (Some(row_bytes), Some(picture_row), Some(source_len)) = (
+			source_width.checked_mul(4),
+			(width as usize).checked_mul(4),
+			self.stride.checked_mul(source_height),
+		) else {
+			return Err(INVALID);
+		};
+		let Some(picture_len) = picture_row.checked_mul(height as usize) else {
+			return Err(INVALID);
+		};
+		if source_width == 0
+			|| source_height == 0
+			|| picture_row == 0
+			|| picture_len == 0
+			|| self.stride < row_bytes
+			|| source_len > self.data.len()
+		{
+			return Err(INVALID);
+		}
+		let columns = taps(source_width, width as usize, 4);
+		let rows = taps(source_height, height as usize, self.stride);
+		let mut picture = vec![0; picture_len];
+		let bands = std::thread::available_parallelism()
+			.map_or(1, |count| count.get())
+			.clamp(1, 4)
+			.min(height as usize / 64)
+			.max(1);
+		let band_rows = (height as usize).div_ceil(bands);
+		std::thread::scope(|scope| {
+			let mut rest = picture.as_mut_slice();
+			let mut first = 0;
+			while first < height as usize {
+				let count = band_rows.min(height as usize - first);
+				let (band, tail) = rest.split_at_mut(count * picture_row);
+				rest = tail;
+				let job = Scale {
+					source: self.data,
+					columns: &columns,
+					rows: &rows,
+					width: width as usize,
+					first,
+					out: band,
+				};
+				if first + count >= height as usize {
+					job.run();
+				} else {
+					scope.spawn(move || job.run());
+				}
+				first += count;
+			}
+		});
+		Ok(picture)
+	}
 }
 
 enum Out<'a> {
@@ -219,6 +296,44 @@ impl Band<'_> {
 				} else {
 					(upper * (256 - y.weight) + lerp(far) * y.weight + 32_768) >> 16
 				};
+			}
+		}
+	}
+}
+
+#[cfg(any(test, target_os = "windows"))]
+struct Scale<'a> {
+	source: &'a [u8],
+	columns: &'a [Tap],
+	rows: &'a [Tap],
+	width: usize,
+	first: usize,
+	out: &'a mut [u8],
+}
+
+#[cfg(any(test, target_os = "windows"))]
+impl Scale<'_> {
+	fn run(self) {
+		for (index, out) in self.out.chunks_exact_mut(self.width * 4).enumerate() {
+			let y = self.rows[self.first + index];
+			let (near, far) = (&self.source[y.near..], &self.source[y.far..]);
+			for (column, pixel) in out.as_chunks_mut::<4>().0.iter_mut().enumerate() {
+				let x = self.columns[column];
+				for (channel, value) in pixel.iter_mut().enumerate() {
+					let lerp = |line: &[u8]| {
+						let a = u32::from(line[x.near + channel]);
+						if x.weight == 0 {
+							return a << 8;
+						}
+						a * (256 - x.weight) + u32::from(line[x.far + channel]) * x.weight
+					};
+					let upper = lerp(near);
+					*value = if y.weight == 0 {
+						((upper + 128) >> 8) as u8
+					} else {
+						((upper * (256 - y.weight) + lerp(far) * y.weight + 32_768) >> 16) as u8
+					};
+				}
 			}
 		}
 	}
@@ -309,5 +424,80 @@ mod tests {
 			.run();
 			assert!(banded == single);
 		}
+	}
+
+	#[test]
+	fn a_picture_over_the_budget_scales_into_a_tight_copy() {
+		// Two padded rows of four grey pixels; a 2x1 picture averages each source pair.
+		let values = [0u8, 40, 80, 120, 160, 200, 240, 255];
+		let mut data = vec![0xee; 20 * 2];
+		for (row, pixels) in data
+			.as_chunks_mut::<20>()
+			.0
+			.iter_mut()
+			.zip(values.as_chunks::<4>().0)
+		{
+			for (pixel, value) in row[..16].as_chunks_mut::<4>().0.iter_mut().zip(pixels) {
+				pixel.copy_from_slice(&[*value, *value, *value, 255]);
+			}
+		}
+		let picture = Picture {
+			data: &data,
+			width: 4,
+			height: 2,
+			stride: 20,
+		};
+		let scaled = picture.scaled(2, 1).unwrap();
+		assert_eq!(scaled, [100, 100, 100, 255, 174, 174, 174, 255]);
+		// The same size still drops the row padding for a tight copy.
+		assert_eq!(
+			&picture.scaled(4, 2).unwrap()[..8],
+			&data[..8],
+			"padding is removed, not copied"
+		);
+
+		// A gradient keeps every row in order, so a band never skips or repeats one.
+		let mut rows = vec![0u8; 333 * 250 * 4];
+		for (index, row) in rows.as_chunks_mut::<{ 333 * 4 }>().0.iter_mut().enumerate() {
+			row.fill(index as u8);
+		}
+		let gradient = Picture {
+			data: &rows,
+			width: 333,
+			height: 250,
+			stride: 333 * 4,
+		}
+		.scaled(320, 180)
+		.unwrap();
+		let bands = gradient.as_chunks::<{ 320 * 4 }>().0;
+		assert_eq!(bands.len(), 180);
+		for row in bands {
+			assert!(row.iter().all(|byte| *byte == row[0]));
+		}
+		let steps: Vec<u8> = bands.iter().map(|row| row[0]).collect();
+		assert!(
+			steps
+				.windows(2)
+				.all(|pair| pair[1] >= pair[0] && pair[1] - pair[0] <= 2),
+			"scaled rows stay ordered"
+		);
+
+		let truncated = Picture {
+			data: &data[..30],
+			width: 4,
+			height: 2,
+			stride: 20,
+		};
+		assert!(truncated.scaled(2, 1).is_err());
+		assert!(picture.scaled(0, 1).is_err());
+		assert!(
+			Picture {
+				width: 4,
+				stride: 15,
+				..picture
+			}
+			.scaled(2, 1)
+			.is_err()
+		);
 	}
 }

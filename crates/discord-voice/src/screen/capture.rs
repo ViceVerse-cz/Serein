@@ -15,8 +15,13 @@ pub(super) const MAX_SOURCE_HEIGHT: u32 = 4320;
 pub(super) const MAX_FRAME_WIDTH: u32 = 3840;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 pub(super) const MAX_FRAME_HEIGHT: u32 = 2160;
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+/// macOS asks ScreenCaptureKit for the frame budget, so it keeps this bound on what arrives.
+#[cfg(target_os = "macos")]
 pub(super) const MAX_RAW_BYTES: usize = MAX_FRAME_WIDTH as usize * MAX_FRAME_HEIGHT as usize * 4;
+/// The largest picture Windows may hand over before it is scaled into the frame budget.
+#[cfg(target_os = "windows")]
+pub(super) const MAX_SOURCE_BYTES: usize =
+	MAX_SOURCE_WIDTH as usize * MAX_SOURCE_HEIGHT as usize * 4;
 
 #[cfg(any(test, target_os = "macos", target_os = "windows"))]
 pub(super) fn bounded_name(mut name: String) -> String {
