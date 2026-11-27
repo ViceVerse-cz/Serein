@@ -181,15 +181,15 @@ struct CaptureStarted;
 /// Lone side-modifier recording: the key that went down alone, recorded when it comes back up.
 /// egui reports side modifiers only as physical key presses, so Ctrl+K arrives as ControlLeft
 /// then K: the K press disarms and the combo is recorded instead.
-#[derive(Clone, Copy, Default, Debug)]
+#[derive(Clone, Default, Debug)]
 struct SideCapture {
 	armed: Option<Key>,
 	/// Side keys seen down. A press while another is held is never alone, and nothing arms
 	/// again until every one of them is released.
 	held: u8,
 	tainted: bool,
-	/// A non-side key is down, so a side press now would be part of a combination.
-	blocked: bool,
+	/// Other keys held, tracked in event order, so a side press now is part of a combination.
+	others: Vec<Key>,
 }
 
 fn is_side_key(key: Key) -> bool {
@@ -214,7 +214,7 @@ fn side_step(state: &mut SideCapture, event: &Event) -> Option<&'static str> {
 		} if is_side_key(*key) => {
 			state.tainted |= state.held != 0;
 			state.held |= side_bit(*key);
-			state.armed = (!state.tainted && !state.blocked).then_some(*key);
+			state.armed = (!state.tainted && state.others.is_empty()).then_some(*key);
 		}
 		Event::Key {
 			key,
@@ -230,8 +230,18 @@ fn side_step(state: &mut SideCapture, event: &Event) -> Option<&'static str> {
 			return recorded;
 		}
 		Event::Key {
-			key, pressed: true, ..
-		} if !is_side_key(*key) => state.armed = None,
+			key,
+			pressed,
+			repeat: false,
+			..
+		} if !is_side_key(*key) => {
+			// Bounded by the distinct keys a keyboard can hold at once.
+			state.others.retain(|held| held != key);
+			if *pressed {
+				state.others.push(*key);
+			}
+			state.armed = None;
+		}
 		// egui-winit turns Ctrl+C/X/V into these instead of key presses.
 		Event::PointerButton { pressed: true, .. } | Event::Copy | Event::Cut | Event::Paste(_) => {
 			state.armed = None;
@@ -261,15 +271,23 @@ fn capture(ui: &mut egui::Ui, bindings: &mut Keybinds, capturing: &mut Option<Ca
 		.is_some()
 	{
 		// Keys already down when recording starts mean a later side press is not alone.
-		let held = ui.input(|input| {
-			input
+		let (held, others) = ui.input(|input| {
+			let held = input
 				.keys_down
 				.iter()
-				.fold(0, |held, key| held | side_bit(*key))
+				.fold(0, |held, key| held | side_bit(*key));
+			let others = input
+				.keys_down
+				.iter()
+				.copied()
+				.filter(|key| !is_side_key(*key))
+				.collect();
+			(held, others)
 		});
 		let side = SideCapture {
 			held,
 			tainted: held != 0,
+			others,
 			..SideCapture::default()
 		};
 		ui.data_mut(|data| data.insert_temp(side_capture_id(), side));
@@ -280,11 +298,10 @@ fn capture(ui: &mut egui::Ui, bindings: &mut Keybinds, capturing: &mut Option<Ca
 		CaptureTarget::Custom(index) => bindings.custom.get(index).map(|binding| binding.action),
 	};
 	let side_allowed = action.is_some_and(KeybindAction::is_global) && side_keys_supported();
-	let mut side =
-		ui.data_mut(|data| *data.get_temp_mut_or_default::<SideCapture>(side_capture_id()));
-	// A key held from before the click (or one with no binding name) makes any side press part
-	// of a combination until it is released.
-	side.blocked = ui.input(|input| input.keys_down.iter().any(|key| !is_side_key(*key)));
+	let mut side = ui.data_mut(|data| {
+		data.get_temp_mut_or_default::<SideCapture>(side_capture_id())
+			.clone()
+	});
 	let mut captured = None;
 	let mut cancelled = false;
 	for event in ui.input(|input| input.events.clone()) {
@@ -305,7 +322,11 @@ fn capture(ui: &mut egui::Ui, bindings: &mut Keybinds, capturing: &mut Option<Ca
 				} else if let Some(name) = key_name(key) {
 					captured = Some(KeyChord::new(name, modifier_bits(modifiers)));
 				}
-				break;
+				// A key with no binding name is ignored, and later events still update side
+				// recording, so its release is not missed.
+				if cancelled || captured.is_some() {
+					break;
+				}
 			}
 			// Left and right click stay reserved for pointing, so either one cancels.
 			Event::PointerButton {
@@ -1495,6 +1516,39 @@ mod tests {
 			assert_eq!(
 				bindings.chord(KeybindAction::PushToTalk),
 				&KeyChord::new("ShiftRight", 0)
+			);
+		}
+	}
+
+	#[test]
+	fn side_recording_follows_event_order_within_a_frame() {
+		let rctrl = |pressed| key(Key::ControlRight, pressed, Modifiers::NONE);
+		// F35 has no binding name, so only its effect on the side key is observed.
+		let other = |pressed| key(Key::F35, pressed, Modifiers::NONE);
+		for (frames, recorded) in [
+			// A complete lone tap, then another key in the same frame: the tap counts.
+			(vec![vec![rctrl(true), rctrl(false), other(true)]], true),
+			// Another key held through the tap: not alone, though it is up by frame end.
+			(
+				vec![vec![other(true), rctrl(true), rctrl(false), other(false)]],
+				false,
+			),
+			// An unbound key pressed and released in one frame leaves nothing held behind.
+			(
+				vec![
+					vec![other(true), other(false)],
+					vec![rctrl(true)],
+					vec![rctrl(false)],
+				],
+				true,
+			),
+		] {
+			let (bindings, still) = record(KeybindAction::PushToTalk, frames);
+			let recorded = recorded && side_keys_supported();
+			assert_eq!(still, !recorded);
+			assert_eq!(
+				bindings.chord(KeybindAction::PushToTalk) == &KeyChord::new("ControlRight", 0),
+				recorded
 			);
 		}
 	}
