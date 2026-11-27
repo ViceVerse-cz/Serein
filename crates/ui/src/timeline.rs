@@ -5579,6 +5579,7 @@ impl TimelineView {
 				|| self.hold_read_ack
 				|| !(self.following
 					&& self.at_current_latest
+					&& newest_visible
 					&& state.live_edge_latest().is_some()
 					&& ui.input(|input| input.focused)));
 		// Once raised, the banner stays with its divider for the rest of the visit, unless the
@@ -9206,6 +9207,28 @@ mod tests {
 		assert_eq!(
 			view.unread_boundary, None,
 			"watched arrivals add no divider"
+		);
+		// A tall private reply lands below the next shared arrival and fills the view. The
+		// arrival is not seen, so it stays unread and keeps its banner until it is shown.
+		arrive(&mut state, 44);
+		let mut private = text_message(45);
+		private.ephemeral = true;
+		private.flags = 64;
+		private.content = "Synthetic tall private reply\n\n".repeat(30);
+		state.interactions.ephemeral.push(private);
+		let labels = plain(&settle_banner(&ctx, &mut view, &mut state));
+		assert!(view.following && view.mark_read.is_none());
+		assert!(
+			labels.iter().any(|text| text == "Mark as read"),
+			"an unseen arrival lost its banner: {labels:?}"
+		);
+		state.interactions.ephemeral.clear();
+		state.revision += 1;
+		let labels = plain(&settle_banner(&ctx, &mut view, &mut state));
+		assert_eq!(view.mark_read.take(), Some(Id(44)));
+		assert!(
+			!labels.iter().any(|text| text == "Mark as read"),
+			"a seen arrival kept its banner: {labels:?}"
 		);
 	}
 
