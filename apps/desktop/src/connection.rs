@@ -311,8 +311,6 @@ impl Connection {
                 // names the current web build from the first request on.
                 discord_api::ensure_build_number(&api_proxy).await;
                 let api=DiscordApi::with_proxy(secret.clone(), api_proxy)?.reporting_expiry(api_expiry);
-                // The Gateway identify below carries the installation ID once Discord has issued one.
-                api.ensure_installation().await;
                 // Like the web client (unofficial), nothing asks REST who this is or where the
                 // Gateway lives: the address is fixed and READY names the account. A rejected
                 // token ends the session through Gateway close 4004, a bot through READY.

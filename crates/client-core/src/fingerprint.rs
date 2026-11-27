@@ -344,29 +344,7 @@ pub fn identify_properties() -> String {
 		("is_fast_connect", "false".into()),
 		("gateway_connect_reasons", json("AppSkeleton")),
 	]);
-	if let Some(installation) = installation_id() {
-		fields.push(("installation_id", json(&installation)));
-	}
 	object(fields)
-}
-
-/// The installation ID Discord issued this device, once known.
-static INSTALLATION: std::sync::RwLock<Option<String>> = std::sync::RwLock::new(None);
-
-/// Discord's installation ID for this device, sent as `X-Installation-ID` on REST and as
-/// `installation_id` in the Gateway identify (unofficial, observed in SakuraCord's desktop
-/// metadata). Serein never makes one up; without one, both are left out.
-pub fn installation_id() -> Option<String> {
-	INSTALLATION.read().ok()?.clone()
-}
-
-/// Keeps `id` as this device's installation ID when it is a plausible header value.
-pub fn set_installation_id(id: &str) -> bool {
-	let valid = (1..=256).contains(&id.len()) && id.bytes().all(|b| b.is_ascii_graphic());
-	if valid && let Ok(mut slot) = INSTALLATION.write() {
-		*slot = Some(id.to_owned());
-	}
-	valid
 }
 
 /// `X-Super-Properties` header value: standard base64 of [`properties`].

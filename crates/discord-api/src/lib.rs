@@ -166,42 +166,6 @@ impl ProxyState {
 		Ok(client)
 	}
 }
-/// Asks Discord for this device's installation ID and keeps it. Best effort and bounded.
-async fn read_installation(client: &Client, base: &str) {
-	#[derive(serde::Deserialize)]
-	struct Apex {
-		installation: String,
-	}
-	let fetch = async {
-		let response = current_identity(client.get(format!("{base}/apex/experiments?surface=2")))
-			.send()
-			.await
-			.ok()?;
-		if !response.status().is_success()
-			|| response
-				.content_length()
-				.is_some_and(|n| n > MAX_WIRE as u64)
-		{
-			return None;
-		}
-		let mut bytes = Vec::new();
-		let mut body = std::pin::pin!(response.bytes_stream());
-		while let Some(chunk) = futures_util::StreamExt::next(&mut body)
-			.await
-			.transpose()
-			.ok()?
-		{
-			if bytes.len() + chunk.len() > MAX_WIRE {
-				return None;
-			}
-			bytes.extend_from_slice(&chunk);
-		}
-		decode::<Apex>(&bytes).ok()
-	};
-	if let Ok(Some(apex)) = tokio::time::timeout(Duration::from_secs(5), fetch).await {
-		device::set_installation(&apex.installation);
-	}
-}
 /// The document the desktop client loads at every start. Its text names the current web build.
 #[cfg(not(test))]
 const APP_PAGE: &str = "https://discord.com/app";
@@ -526,27 +490,6 @@ impl DiscordApi {
 			timeout_clock: std::sync::Mutex::new(None),
 		})
 	}
-	/// Asks Discord once for this device's installation ID and keeps it, before the Gateway
-	/// identifies. Unofficial: SakuraCord's desktop sign-in reads it from an unauthenticated
-	/// `GET /apex/experiments?surface=2`. Best effort and bounded; Serein works without it.
-	pub async fn ensure_installation(&self) {
-		// One attempt per process: a reconnect must not wait on an endpoint that gave no ID.
-		static ASKED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-		// Without a route yet the request could only wait; a later connection asks instead.
-		if client_core::fingerprint::installation_id().is_some()
-			|| self.proxy.lock().await.receiver.borrow().is_none()
-			|| ASKED.swap(true, std::sync::atomic::Ordering::Relaxed)
-		{
-			return;
-		}
-		#[cfg(not(test))]
-		let base = API_ORIGIN;
-		#[cfg(test)]
-		let base = self.base.as_str();
-		if let Ok(client) = self.rest_client().await {
-			read_installation(&client, base).await;
-		}
-	}
 	/// Credential-free client snapshot for Discord REST; authorization is added per request.
 	pub async fn rest_client(&self) -> Result<Client, Failure> {
 		self.proxy.lock().await.client(&self.client).await
@@ -845,12 +788,6 @@ impl DiscordApi {
 			if write {
 				request = request.header(wreq::header::ORIGIN, "https://discord.com");
 			}
-			if let Some(installation) = client_core::fingerprint::installation_id() {
-				request = request.header(
-					"x-installation-id",
-					HeaderValue::from_str(&installation).map_err(|_| Failure::Protocol)?,
-				);
-			}
 			if let Some(context) = context {
 				request = request.header(
 					"x-context-properties",
@@ -930,6 +867,13 @@ impl DiscordApi {
 				.get("retry-after")
 				.and_then(|v| v.to_str().ok())
 				.and_then(|s| s.parse::<f64>().ok());
+			// A user- or shared-scoped 429 limits one bucket; only a global or unscoped block is a
+			// reason to stop the whole session. The recorded client reads x-ratelimit-scope.
+			let route_scoped = response
+				.headers()
+				.get("x-ratelimit-scope")
+				.and_then(|v| v.to_str().ok())
+				.is_some_and(|scope| scope == "user" || scope == "shared");
 
 			if status == StatusCode::UNAUTHORIZED {
 				if advisory {
@@ -1045,13 +989,25 @@ impl DiscordApi {
 					self.stop_with(Failure::Challenged);
 					return Err(Failure::Challenged);
 				}
-				if error.code == Some(40333)
-					|| (status == StatusCode::TOO_MANY_REQUESTS
-						&& !error
-							.retry_after
-							.is_some_and(|s| s.is_finite() && s > 0.0 && s <= 86400.0))
-				{
+				let unusable_retry = status == StatusCode::TOO_MANY_REQUESTS
+					&& !error
+						.retry_after
+						.is_some_and(|s| s.is_finite() && s > 0.0 && s <= 86400.0);
+				if error.code == Some(40333) || (unusable_retry && !route_scoped) {
 					return Err(self.block_response(retry_header.or(reset)).await);
+				}
+				if unusable_retry {
+					// Route-scoped limit with no usable reset: wait the bucket out on a conservative
+					// cooldown without ending the session, as an unscoped block would.
+					let delay = match retry_header.or(reset) {
+						Some(seconds) => {
+							safe_delay(Some(seconds)).unwrap_or(Duration::from_secs(60))
+						}
+						None => Duration::from_secs(60),
+					};
+					let mut next = self.cooldown.lock().await;
+					*next = (*next).max(Instant::now() + delay);
+					return Err(Failure::RateLimited);
 				}
 				// Scoped restriction codes hold back the relevant writes and never reach
 				// the automatic resend of a rate-limited message.
@@ -2548,6 +2504,7 @@ impl DiscordApi {
 			"mobile_network_type": "unknown",
 			"content": content,
 			"nonce": nonce,
+			"enforce_nonce": true,
 			"tts": false,
 			"flags": if silent { message_options::SUPPRESS_NOTIFICATIONS } else { 0 },
 			"allowed_mentions": allowed_mentions(content, reply),
@@ -2556,13 +2513,16 @@ impl DiscordApi {
 			body["sticker_ids"] = serde_json::json!([sticker]);
 		}
 		if let Some(reply) = reply {
+			// type 0 (DEFAULT) is the reply reference the recorded client sends; forwards use 1.
 			body["message_reference"] =
-				serde_json::json!({"message_id":reply.target(),"channel_id":channel});
+				serde_json::json!({"type":0,"message_id":reply.target(),"channel_id":channel});
 		}
 		if let Some(attachment) = attachment {
 			body["attachments"] = serde_json::json!(attachment);
 		}
-		// No enforce_nonce claim until normal-user semantics are live verified. Never auto-retry writes.
+		// enforce_nonce matches the Phoenix binary, which carries the field; it makes a same-nonce
+		// resend idempotent instead of a duplicate. Normal-user semantics stay live-unverified, and
+		// writes are never auto-retried. The forward paths keep their constant nonce and omit it.
 		self.create_message(
 			channel,
 			body,
@@ -4182,6 +4142,51 @@ mod tests {
 				Err(Failure::ServiceBlocked)
 			);
 			assert_eq!(api.stop_reason(), Some(Failure::ServiceBlocked));
+			server.await.unwrap();
+		}
+	}
+
+	#[tokio::test]
+	async fn a_route_scoped_rate_limit_waits_without_stopping_the_session() {
+		// A 429 carrying no usable retry-after: a user/shared scope is one bucket and must not
+		// end the session, while a global or unscoped block still does.
+		for (scope, expected, stops) in [
+			("x-ratelimit-scope: user\r\n", Failure::RateLimited, false),
+			("x-ratelimit-scope: shared\r\n", Failure::RateLimited, false),
+			("", Failure::ServiceBlocked, true),
+			(
+				"x-ratelimit-scope: global\r\n",
+				Failure::ServiceBlocked,
+				true,
+			),
+		] {
+			let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+			let mut api = DiscordApi::new(Arc::new(
+				SessionSecret::from_owner_input("SYNTHETIC_SECRET_MARKER".into()).unwrap(),
+			))
+			.unwrap();
+			api.base = format!("http://{}", listener.local_addr().unwrap());
+			let server = tokio::spawn(async move {
+				let (mut socket, _) = listener.accept().await.unwrap();
+				let mut request = [0; 4096];
+				assert!(socket.read(&mut request).await.unwrap() > 0);
+				let response = format!(
+					"HTTP/1.1 429 Too Many Requests\r\nContent-Type: application/json\r\n{scope}Content-Length: 2\r\nConnection: close\r\n\r\n{{}}"
+				);
+				let _ = socket.write_all(response.as_bytes()).await;
+			});
+			assert_eq!(
+				api.request_with_content(
+					Method::POST,
+					"/channels/1/typing",
+					None,
+					64,
+					Extras::default()
+				)
+				.await,
+				Err(expected)
+			);
+			assert_eq!(api.stopped(), stops);
 			server.await.unwrap();
 		}
 	}

@@ -1028,9 +1028,9 @@ mod tests {
 	                assert!(head.contains("SYNTHETIC_UPLOAD_TOKEN"));
 	                let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
 	                assert_eq!(body, serde_json::json!({
-	                    "mobile_network_type":"unknown","content":"","nonce":"synthetic-upload","tts":false,"flags":0,
+	                    "mobile_network_type":"unknown","content":"","nonce":"synthetic-upload","enforce_nonce":true,"tts":false,"flags":0,
 	                    "allowed_mentions":{"parse":[],"users":[],"roles":[],"replied_user":true},
-	                    "message_reference":{"message_id":"2","channel_id":"1"},
+	                    "message_reference":{"type":0,"message_id":"2","channel_id":"1"},
 	                    "attachments":[{"id":"0","filename":filename,"uploaded_filename":"synthetic-upload/0/file.txt"},{"id":"1","filename":filename,"uploaded_filename":"synthetic-upload/1/file.txt","is_spoiler":true}],
 	                }));
 	                respond(&mut socket, "200 OK", r#"{"id":"3","channel_id":"1","author":{"id":"4","username":"Synthetic"},"nonce":"synthetic-upload","attachments":[{"id":"5","filename":"synthetic.txt","flags":0},{"id":"6","filename":"synthetic.txt","flags":8}]}"#).await;

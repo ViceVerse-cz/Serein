@@ -3247,6 +3247,36 @@ not assumed disabled. Contributions depending on that switch remain unknown unti
 count reconciliation. This is conservative local behavior, not a verified service-equivalence claim.
 No new service setting, protocol request or Identify capability is introduced.
 
+### Phoenix binary inspection and installation-ID removal — November 26
+
+**Unofficial; static string analysis of one extracted build, no execution.** The owner's
+`Discord Phoenix` AppImage (`discord-phoenix` 0.1.0.2233) was unpacked and its main Rust
+binary read with `strings`/`rizin` only; it was never run and no account was used. The
+binary is Bazel-built from a `libdiscord/crates/{gateway,http,voice,api,client}/src` tree,
+links BoringSSL statically (no `libssl` needed) and bundles CEF for its login webviews.
+
+- **Transport:** the binary carries a full HTTP/3 (QUIC) stack and ETF support
+  (`term_to_binary`, the gateway error `invalid gateway etf:`), alongside both
+  `zstd-stream` and `zlib-stream` and a literal `encoding=json` fallback; the Gateway
+  query is assembled at runtime (`/?encoding=`). This matches the November 19 recording:
+  Serein's JSON + `zlib-stream` + HTTP/2 is a shape the official client supports but does
+  not use by default. Super-properties field names (`client_build_number`,
+  `native_build_number`, `launch_signature`, `qos_token`, `is_fast_connect`,
+  `gateway_connect_reasons`, `has_client_mods`, `client_launch_id`) all appear.
+- **Voice:** both `aead_aes256_gcm_rtpsize` and `aead_xchacha20_poly1305_rtpsize` are
+  present. Serein offers only the latter; the official client appears to negotiate either.
+- **Installation ID and `/apex`:** `X-Installation-ID`, `installation_id` and
+  `/apex/experiments` are all present in the binary, so they are official-client features,
+  not behavior unique to Serein. The November 19 session simply did not exercise them.
+  Serein previously sent `GET /apex/experiments?surface=2` once per launch, an
+  `X-Installation-ID` header on REST and login, and an `installation_id` field in the
+  Gateway Identify, and persisted the issued ID. All of this is now removed so Serein
+  matches the recorded session, which sent none of it; old device files keep loading, with
+  any stored ID ignored.
+
+Static strings over one build do not show when the official client sends these, nor how
+Discord weighs any of them.
+
 ### Desktop Gateway identity — November 20
 
 **Unofficial; offline and recorded-payload checks only. Serein has not been run against
