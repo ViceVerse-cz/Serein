@@ -3090,6 +3090,7 @@ server-menu-header-reconnect-to-manage-this-server = 이 서버를 관리하려�
 server-menu-header-server-menu = 서버 메뉴
 # Context: leave_item
 server-menu-leave-item-leave-server = 서버 나가기
+server-menu-copy-id-item-copy-server-id = 서버 ID 복사
 # Context: read_item
 server-menu-read-item-mark-as-read = 읽음으로 표시
 # Context: all_read_item
@@ -3168,6 +3169,7 @@ server-roles-list-create-role = 역할 만들기
 server-roles-list-default-permissions-everyone-applies-to-all-server-members = 기본 권한 · @everyone · 모든 서버 멤버에 적용
 # Context: list
 server-roles-list-delete-role = 역할 삭제
+server-roles-list-copy-role-id = 역할 ID 복사
 # Context: list
 server-roles-list-edit-role = 역할 편집
 # Context: list

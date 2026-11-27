@@ -3030,6 +3030,7 @@ server-menu-header-reconnect-to-manage-this-server = Повторно подкл
 server-menu-header-server-menu = Меню сервера
 # Context: leave_item
 server-menu-leave-item-leave-server = Покинуть сервер
+server-menu-copy-id-item-copy-server-id = Копировать ID сервера
 # Context: read_item
 server-menu-read-item-mark-as-read = Отметить как прочитанное
 # Context: all_read_item
@@ -3109,6 +3110,7 @@ server-roles-list-default-permissions-everyone-applies-to-all-server-members = �
     @everyone · применяется ко всем участникам сервера
 # Context: list
 server-roles-list-delete-role = Удалить роль
+server-roles-list-copy-role-id = Копировать ID роли
 # Context: list
 server-roles-list-edit-role = Изменить роль
 # Context: list

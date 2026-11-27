@@ -1136,6 +1136,10 @@ fn more_menu(
 		copy_username_button(ui, state, user);
 	}
 	if user.webhook || own_profile {
+		if !user.webhook {
+			ui.separator();
+			copy_user_id_button(ui, user);
+		}
 		return action;
 	}
 	let enabled = actions_enabled(state);
@@ -1245,7 +1249,21 @@ fn more_menu(
 		ui.close();
 	}
 	report_button(ui, user);
+	ui.separator();
+	copy_user_id_button(ui, user);
 	action
+}
+
+fn copy_user_id_button(ui: &mut egui::Ui, user: &User) {
+	if ui
+		.button(crate::i18n::translate(
+			"server-admin-member-menu-copy-user-id",
+		))
+		.clicked()
+	{
+		ui.ctx().copy_text(user.id.to_string());
+		ui.close();
+	}
 }
 
 impl crate::MessagingUi {

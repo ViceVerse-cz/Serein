@@ -3030,6 +3030,7 @@ server-menu-header-reconnect-to-manage-this-server = Bu sunucuyu yönetmek için
 server-menu-header-server-menu = Sunucu menüsü
 # Context: leave_item
 server-menu-leave-item-leave-server = Sunucudan ayrıl
+server-menu-copy-id-item-copy-server-id = Sunucu Kimliğini Kopyala
 # Context: read_item
 server-menu-read-item-mark-as-read = Okundu Olarak İşaretle
 # Context: all_read_item
@@ -3109,6 +3110,7 @@ server-roles-list-default-permissions-everyone-applies-to-all-server-members = V
     @everyon · tüm sunucu üyeleri için geçerlidir
 # Context: list
 server-roles-list-delete-role = Rolü Sil
+server-roles-list-copy-role-id = Rol Kimliğini Kopyala
 # Context: list
 server-roles-list-edit-role = Rolü düzenle
 # Context: list

@@ -3059,6 +3059,7 @@ server-menu-header-reconnect-to-manage-this-server = Chcete-li tento server spra
 server-menu-header-server-menu = Nabídka serveru
 # Context: leave_item
 server-menu-leave-item-leave-server = Opustit server
+server-menu-copy-id-item-copy-server-id = Kopírovat ID serveru
 # Context: read_item
 server-menu-read-item-mark-as-read = Označit jako přečtené
 # Context: all_read_item
@@ -3138,6 +3139,7 @@ server-roles-list-default-permissions-everyone-applies-to-all-server-members = V
     @všichni · platí pro všechny členy serveru
 # Context: list
 server-roles-list-delete-role = Smazat roli
+server-roles-list-copy-role-id = Kopírovat ID role
 # Context: list
 server-roles-list-edit-role = Upravit roli
 # Context: list

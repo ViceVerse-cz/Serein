@@ -582,6 +582,14 @@ impl RolesUi {
 								self.delete = Some(role.id);
 								ui.close();
 							}
+							ui.separator();
+							if ui
+								.button(crate::i18n::translate("server-roles-list-copy-role-id"))
+								.clicked()
+							{
+								ui.ctx().copy_text(role.id.to_string());
+								ui.close();
+							}
 						});
 					})
 					.response;
