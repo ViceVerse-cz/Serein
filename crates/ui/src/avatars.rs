@@ -119,6 +119,9 @@ pub(crate) struct Avatars {
 	next_paint_only: Option<Duration>,
 	active_animations: Vec<String>,
 	freed_bytes: usize,
+	frame_id: u64,
+	viewport_pending: HashMap<String, u64>,
+	cancelled_requests: Vec<String>,
 	media: media::MediaLibrary,
 }
 
@@ -360,6 +363,7 @@ impl Avatars {
 	}
 	pub fn accept_animation(&mut self, key: String, frames: GifFrames) {
 		self.effect_decoding.remove(&key);
+		self.viewport_pending.remove(&key);
 		if key.starts_with("media:") {
 			if self.animate_gifs
 				&& let Some(rendition) = media::Rendition::parse(&key)
@@ -445,11 +449,90 @@ impl Avatars {
 		}
 		self.released.insert(key);
 	}
+	/// Whether the worker should decode animation frames for `key` on this request.
+	pub fn wants_animation(&self, key: &str) -> bool {
+		self.animate_gifs && (!is_hover_animated_key(key) || self.wanted.contains(key))
+	}
+	/// Marks a hover-only animated key as deferred (still-only) without marking it non-animated.
+	pub fn defer_animation(&mut self, key: String) {
+		self.viewport_pending.remove(&key);
+		if is_hover_animated_key(&key) && self.textures.contains_key(&key) {
+			self.release(key);
+		}
+	}
+	pub fn take_cancelled_requests(&mut self) -> Vec<String> {
+		std::mem::take(&mut self.cancelled_requests)
+	}
+	pub fn cancel_pending(&mut self, key: &str) {
+		self.viewport_pending.remove(key);
+		self.wanted.remove(key);
+		self.effect_decoding.remove(key);
+		if key.starts_with("media:") {
+			if let Some(rendition) = media::Rendition::parse(key) {
+				self.media.cancel_pending(rendition);
+			}
+			return;
+		}
+		if self.attempts.get(key).is_some_and(|(_, failed)| !*failed) {
+			self.attempts.remove(key);
+		}
+		if self.textures.contains_key(key)
+			&& !self.animations.contains_key(key)
+			&& !self.no_animations.contains(key)
+		{
+			self.release(key.to_owned());
+		}
+	}
+	fn want_animation(&mut self, key: &str) {
+		if self.wanted.len() >= REQUESTS {
+			self.wanted.clear();
+		}
+		self.wanted.insert(key.to_owned());
+	}
+	fn touch_viewport_pending(&mut self, key: &str) {
+		if let Some(last_seen) = self.viewport_pending.get_mut(key) {
+			*last_seen = self.frame_id;
+		}
+	}
+	fn track_viewport_pending(&mut self, key: String) {
+		if self.viewport_pending.len() >= ATTEMPTS {
+			self.viewport_pending.clear();
+		}
+		self.viewport_pending.insert(key, self.frame_id);
+	}
+	fn request_viewport_key(&mut self, key: String) {
+		self.track_viewport_pending(key.clone());
+		self.requests.push(key);
+	}
+	fn request_viewport(&mut self, key: String) {
+		let had = self.requests.len();
+		self.request(key.clone());
+		if self.requests.len() > had {
+			self.track_viewport_pending(key);
+		} else {
+			self.touch_viewport_pending(&key);
+		}
+	}
 	/// Drained once per frame after the UI pass.
 	pub fn take_requests(&mut self) -> Vec<String> {
 		let viewer_freed = self.media.end_frame();
 		self.freed_bytes = self.freed_bytes.saturating_add(viewer_freed);
 		self.release_idle(Instant::now());
+		let current = self.frame_id;
+		let mut stale = Vec::new();
+		self.viewport_pending.retain(|key, last_seen| {
+			if current.saturating_sub(*last_seen) >= 3 {
+				stale.push(key.clone());
+				false
+			} else {
+				true
+			}
+		});
+		self.frame_id = self.frame_id.saturating_add(1);
+		if self.cancelled_requests.len() + stale.len() > ATTEMPTS {
+			self.cancelled_requests.clear();
+		}
+		self.cancelled_requests.extend(stale);
 		std::mem::take(&mut self.requests)
 	}
 	/// Entries and bytes each working set charges against its own budget.
@@ -852,15 +935,22 @@ impl Avatars {
 	}
 	pub fn accept(&mut self, ctx: &egui::Context, key: String, image: Option<ColorImage>) {
 		if key.starts_with("media:") {
-			if let Some(rendition) = media::Rendition::parse(&key)
-				&& self.media.accept_still(ctx, rendition, image)
-			{
-				self.revision += 1;
+			if let Some(rendition) = media::Rendition::parse(&key) {
+				let animated_still = rendition.motion == media::Motion::Animated && image.is_some();
+				if self.media.accept_still(ctx, rendition, image) {
+					self.revision += 1;
+				}
+				if !animated_still {
+					self.viewport_pending.remove(&key);
+				}
 			}
 			return;
 		}
 		if !self.attempts.contains_key(&key) {
 			return;
+		}
+		if !is_hover_animated_key(&key) && !key.starts_with("anim:") {
+			self.viewport_pending.remove(&key);
 		}
 		let limit = if key.starts_with("frame-") {
 			FRAME_EDGE as usize
@@ -890,6 +980,7 @@ impl Avatars {
 				&& image.pixels().len() == image.resolution()[0] * image.resolution()[1]
 		}) else {
 			// A failed or rejected load ends any decode an effect layer was waiting for.
+			self.viewport_pending.remove(&key);
 			self.effect_decoding.remove(&key);
 			if let Some(attempt) = self.attempts.get_mut(&key) {
 				*attempt = (Instant::now(), true);
@@ -1027,6 +1118,7 @@ impl Avatars {
 		if let Some(key) = animated_emoji_key(id, animated && self.animate_gifs && !demo)
 			&& !self.no_animations.contains(&key)
 		{
+			self.touch_viewport_pending(&key);
 			let frame = self.advance_animation(ctx, &key, false);
 			// Frames evicted from the shared pool come back while the emoji is visible.
 			if frame.is_none()
@@ -1034,7 +1126,7 @@ impl Avatars {
 				&& !self.animations.contains_key(&key)
 				&& !self.released.contains(&key)
 			{
-				self.request(key.clone());
+				self.request_viewport(key.clone());
 			}
 			if let Some(entry) = self.textures.get_mut(&key) {
 				entry.0 = Instant::now();
@@ -1043,7 +1135,7 @@ impl Avatars {
 						.fit_to_exact_size(egui::Vec2::splat(size)),
 				);
 			}
-			self.request(key);
+			self.request_viewport(key);
 			// A still cached earlier bridges the download without fetching it as well.
 			return self
 				.emoji_textures
@@ -1113,6 +1205,7 @@ impl Avatars {
 			}
 			model::ImageShare::Sticker { id, format_type } => {
 				let key = self.sticker_key(ctx, id, format_type, demo);
+				self.touch_viewport_pending(&key);
 				let animated = self.advance_animation(ctx, &key, false);
 				if let Some(entry) = self.textures.get_mut(&key) {
 					entry.0 = Instant::now();
@@ -1129,7 +1222,7 @@ impl Avatars {
 									.max(Duration::from_secs(1)),
 							);
 						}
-						self.request(key);
+						self.request_viewport(key);
 					}
 					None
 				}
@@ -1210,6 +1303,7 @@ impl Avatars {
 			return response;
 		}
 		let key = self.sticker_key(ui.ctx(), sticker.id, sticker.format_type, demo);
+		self.touch_viewport_pending(&key);
 		if !self.paint(ui, &key, rect, 0) {
 			let failed = self.attempts.get(&key).is_some_and(|(_, failed)| *failed);
 			let supported = sticker.id.0 != 0 && matches!(sticker.format_type, 1..=4);
@@ -1230,7 +1324,7 @@ impl Avatars {
 							.max(Duration::from_secs(1)),
 					);
 				}
-				self.request(key);
+				self.request_viewport(key);
 			}
 		}
 		response
@@ -1372,14 +1466,18 @@ impl Avatars {
 		#[cfg(not(any(test, feature = "demo")))]
 		let _ = color;
 		let is_animated = is_hover_animated_key(&key);
-		if self.animate_gifs
+		if play || !self.textures.contains_key(&key) {
+			self.touch_viewport_pending(&key);
+		}
+		if play
+			&& self.animate_gifs
 			&& is_animated
 			&& !self.animations.contains_key(&key)
 			&& !self.no_animations.contains(&key)
 			&& !self.released.contains(&key)
 			&& !demo
 		{
-			self.request(key.clone());
+			self.request_viewport(key.clone());
 		}
 		let animated_texture = self.advance_animation(ctx, &key, play);
 		#[cfg(any(test, feature = "demo"))]
@@ -1600,16 +1698,13 @@ impl Avatars {
 			return texture;
 		}
 		if is_hover_animated_key(key) {
-			if self.wanted.len() >= REQUESTS {
-				self.wanted.clear();
-			}
-			self.wanted.insert(key.to_owned());
+			self.want_animation(key);
 		}
 		if self.released.contains(key)
 			&& self.textures.contains_key(key)
 			&& !self.no_animations.contains(key)
 		{
-			self.request(key.to_owned());
+			self.request_viewport(key.to_owned());
 		}
 		None
 	}
@@ -1653,17 +1748,21 @@ impl Avatars {
 	) -> bool {
 		let mut animated_texture = None;
 		if ui.is_rect_visible(rect) {
-			let is_animated = key.starts_with("anim:") || is_hover_animated_key(key);
-			if is_animated
-				&& self.animate_gifs
+			self.touch_viewport_pending(key);
+			let hovered = ui.rect_contains_pointer(rect);
+			let hover_only = is_hover_animated_key(key);
+			let want_frames = !hover_only || hovered || self.avatar_animation;
+			let need_initial_still = hover_only && !self.textures.contains_key(key);
+			let want_animation_request = key.starts_with("anim:") || (hover_only && want_frames);
+			if self.animate_gifs
+				&& (need_initial_still || want_animation_request)
 				&& !self.animations.contains_key(key)
 				&& !self.no_animations.contains(key)
 				&& !self.released.contains(key)
 			{
-				self.request(key.to_string());
+				self.request_viewport(key.to_string());
 			}
-			animated_texture =
-				self.advance_animation(ui.ctx(), key, ui.rect_contains_pointer(rect));
+			animated_texture = self.advance_animation(ui.ctx(), key, hovered);
 		}
 		let animated = animated_texture.is_some();
 		let full = {
@@ -2117,13 +2216,14 @@ impl Avatars {
 					.insert(key.to_string(), (Instant::now(), false));
 				self.accept(ui.ctx(), key.to_string(), Some(image));
 			}
+			self.touch_viewport_pending(&key);
 			if !self.paint(ui, &key, rect, (size * 0.5) as u8) {
 				// Initials stand in only once the picture (custom or default) failed or stalled.
 				if !self.paint_loading(ui, &key, demo, rect, size * 0.5) {
 					crate::design::paint_avatar(ui, &user.name, size, rect);
 				}
 				if !demo {
-					self.request(key.to_string());
+					self.request_viewport(key.to_string());
 				}
 			}
 			self.paint_decoration(ui, user, size, rect, demo);
@@ -3291,7 +3391,16 @@ mod tests {
 		};
 		paint(&mut images, false);
 		assert_eq!(images.take_requests(), vec![key.clone()]);
-		deliver(&mut images);
+		assert!(
+			!images.wants_animation(&key),
+			"Un-hovered avatar requests still-only decode"
+		);
+		images.accept(
+			&ctx,
+			key.clone(),
+			Some(ColorImage::filled([2, 2], egui::Color32::RED)),
+		);
+		images.defer_animation(key.clone());
 		assert!(
 			images.animations.is_empty(),
 			"An avatar that is not hovered keeps only its still"
@@ -3300,9 +3409,10 @@ mod tests {
 		paint(&mut images, false);
 		assert!(
 			images.take_requests().is_empty(),
-			"Declined frames are not decoded again until they would play"
+			"Deferred frames are not decoded again until they would play"
 		);
 		paint(&mut images, true);
+		assert!(images.wants_animation(&key));
 		assert_eq!(images.take_requests(), vec![key.clone()]);
 		deliver(&mut images);
 		assert!(images.animations.contains_key(&key));
@@ -3310,6 +3420,108 @@ mod tests {
 		assert!(images.animations.is_empty());
 		paint(&mut images, false);
 		assert!(images.take_requests().is_empty());
+	}
+
+	#[test]
+	fn offscreen_pending_inline_requests_cancel_and_reload_when_visible() {
+		let ctx = egui::Context::default();
+		let mut images = Avatars::default();
+		images.set_animation(true);
+		let media = model::EmbedMedia {
+			url: Some(
+				"https://cdn.discordapp.com/attachments/1/2/fast-scroll.gif?hm=signed".into(),
+			),
+			width: 64,
+			height: 32,
+			..Default::default()
+		};
+		let paint = |images: &mut Avatars, visible: bool| {
+			ctx.run_ui(
+				egui::RawInput {
+					focused: true,
+					..Default::default()
+				},
+				|ui| {
+					if !visible {
+						ui.set_clip_rect(egui::Rect::NOTHING);
+					}
+					images.show_media(ui, &media, egui::vec2(64.0, 32.0), false, Surface::Inline);
+				},
+			)
+			.drop_without_applying_deltas();
+		};
+		paint(&mut images, true);
+		let key = images.take_requests().pop().expect("inline media request");
+		assert!(images.take_cancelled_requests().is_empty());
+		// Survives two off-screen frames and cancels on the third without marking it failed.
+		for _ in 0..2 {
+			paint(&mut images, false);
+			assert!(images.take_requests().is_empty());
+			assert!(images.take_cancelled_requests().is_empty());
+		}
+		paint(&mut images, false);
+		assert!(images.take_requests().is_empty());
+		assert_eq!(images.take_cancelled_requests(), vec![key.clone()]);
+		images.cancel_pending(&key);
+		// Returning to the viewport re-requests the cancelled item cleanly.
+		paint(&mut images, true);
+		assert_eq!(images.take_requests(), vec![key]);
+	}
+
+	#[test]
+	fn banner_initial_load_survives_unhover_while_cached_banner_gates_frames_on_play() {
+		let ctx = egui::Context::default();
+		let mut images = Avatars::default();
+		images.set_animation(true);
+		let key = "banner-123-a_0123456789abcdef0123456789abcdef".to_owned();
+		let paint = |images: &mut Avatars, hovered: bool| {
+			ctx.run_ui(
+				egui::RawInput {
+					focused: true,
+					..Default::default()
+				},
+				|ui| {
+					let _ = images.guild_banner(
+						ui.ctx(),
+						key.clone(),
+						hovered,
+						egui::Color32::GRAY,
+						false,
+					);
+				},
+			)
+			.drop_without_applying_deltas();
+		};
+		// Hovering starts initial load with viewport tracking.
+		paint(&mut images, true);
+		assert_eq!(images.take_requests(), vec![key.clone()]);
+		// Leaving hover while still visible must not cancel the initial still load.
+		for _ in 0..4 {
+			paint(&mut images, false);
+			assert!(images.take_requests().is_empty());
+			assert!(images.take_cancelled_requests().is_empty());
+		}
+		// Once the still is cached and deferred, unhovered paints do not request frames.
+		images.accept(
+			&ctx,
+			key.clone(),
+			Some(ColorImage::filled([8, 4], egui::Color32::BLUE)),
+		);
+		images.defer_animation(key.clone());
+		paint(&mut images, false);
+		assert!(images.take_requests().is_empty());
+		// Hovering queues animation frames; leaving hover for 3 frames cancels the frame decode.
+		paint(&mut images, true);
+		assert_eq!(images.take_requests(), vec![key.clone()]);
+		assert!(images.wants_animation(&key));
+		for _ in 0..2 {
+			paint(&mut images, false);
+			assert!(images.take_requests().is_empty());
+			assert!(images.take_cancelled_requests().is_empty());
+		}
+		paint(&mut images, false);
+		assert!(images.take_requests().is_empty());
+		assert_eq!(images.take_cancelled_requests(), vec![key]);
 	}
 
 	#[test]

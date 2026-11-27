@@ -5,12 +5,12 @@ use model::Id;
 use rasterlottie::{Animation as Lottie, RenderConfig, Renderer, Rgba8};
 use sha2::{Digest, Sha256};
 use std::{
-	collections::{BinaryHeap, VecDeque},
+	collections::{BinaryHeap, HashMap, VecDeque},
 	fs::{self, OpenOptions},
 	io::{self, Cursor, Read, Write},
 	path::{Path, PathBuf},
 	sync::{
-		Arc, LazyLock,
+		Arc, LazyLock, Mutex,
 		atomic::{AtomicBool, AtomicU64, Ordering},
 		mpsc,
 	},
@@ -309,11 +309,13 @@ const CACHE_ERROR: &str = "Images could not be cached; they remain available in 
 pub type Cleanup = mpsc::Receiver<Result<(), &'static str>>;
 
 pub struct AvatarResult {
+	id: u64,
 	pub key: String,
 	pub image: Option<egui::ColorImage>,
 	pub frames: ui::GifFrames,
 	pub error: Option<&'static str>,
 	pub stage: DecodeStage,
+	pub animated: bool,
 	// Stays charged until the UI has consumed or discarded the complete result.
 	_reservation: Option<OwnedSemaphorePermit>,
 }
@@ -398,15 +400,27 @@ impl ResultSender {
 	}
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum DecodeStage {
 	Preview,
 	Settled,
+	Cancelled,
 }
 
+struct WorkRequest {
+	id: u64,
+	key: String,
+	animate: bool,
+	cancel: Arc<AtomicBool>,
+}
+
+type InflightMap = HashMap<String, Vec<(u64, Arc<AtomicBool>)>>;
+
 pub struct AvatarWorker {
-	requests: async_mpsc::Sender<String>,
+	requests: async_mpsc::Sender<WorkRequest>,
 	results: async_mpsc::Receiver<AvatarResult>,
+	next_id: AtomicU64,
+	inflight: Mutex<InflightMap>,
 	wake: egui::Context,
 	cancel: watch::Sender<bool>,
 	clear: Arc<AtomicBool>,
@@ -492,6 +506,8 @@ impl AvatarWorker {
 		Ok(Self {
 			requests,
 			results,
+			next_id: AtomicU64::new(0),
+			inflight: Mutex::new(HashMap::new()),
 			wake,
 			cancel,
 			clear,
@@ -525,12 +541,59 @@ impl AvatarWorker {
 	pub fn usage(&self) -> Option<Usage> {
 		*self.usage.borrow()
 	}
+	#[cfg(test)]
 	pub fn request(&self, key: String) -> bool {
-		(ui::emoji::bundled_svg(&key).is_some() || (!self.bundled_only && cdn_url(&key).is_some()))
-			&& self.requests.try_send(key).is_ok()
+		self.request_with_animation(key, true)
+	}
+	pub fn request_with_animation(&self, key: String, animate: bool) -> bool {
+		let allowed = ui::emoji::bundled_svg(&key).is_some()
+			|| (!self.bundled_only && cdn_url(&key).is_some());
+		if !allowed {
+			return false;
+		}
+		let id = self.next_id.fetch_add(1, Ordering::Relaxed) + 1;
+		let cancel = Arc::new(AtomicBool::new(false));
+		if let Ok(mut inflight) = self.inflight.lock() {
+			inflight
+				.entry(key.clone())
+				.or_default()
+				.push((id, cancel.clone()));
+		}
+		let ok = self
+			.requests
+			.try_send(WorkRequest {
+				id,
+				key: key.clone(),
+				animate,
+				cancel,
+			})
+			.is_ok();
+		if !ok && let Ok(mut inflight) = self.inflight.lock() {
+			remove_inflight(&mut inflight, &key, id);
+		}
+		ok
+	}
+	pub fn cancel(&self, key: &str) {
+		if let Ok(inflight) = self.inflight.lock()
+			&& let Some(entries) = inflight.get(key)
+		{
+			for (_, flag) in entries {
+				flag.store(true, Ordering::Release);
+			}
+		}
+	}
+	pub fn has_inflight(&self, key: &str) -> bool {
+		self.inflight
+			.lock()
+			.is_ok_and(|inflight| inflight.contains_key(key))
 	}
 	pub fn poll(&mut self) -> Option<AvatarResult> {
 		let result = self.results.try_recv().ok()?;
+		if result.stage != DecodeStage::Preview
+			&& let Ok(mut inflight) = self.inflight.lock()
+		{
+			remove_inflight(&mut inflight, &result.key, result.id);
+		}
 		if !self.results.is_empty() {
 			self.wake.request_repaint();
 		}
@@ -554,6 +617,15 @@ impl AvatarWorker {
 impl Drop for AvatarWorker {
 	fn drop(&mut self) {
 		self.cancel.send_replace(true);
+	}
+}
+
+fn remove_inflight(inflight: &mut InflightMap, key: &str, id: u64) {
+	if let Some(entries) = inflight.get_mut(key) {
+		entries.retain(|(entry_id, _)| *entry_id != id);
+		if entries.is_empty() {
+			inflight.remove(key);
+		}
 	}
 }
 
@@ -1203,9 +1275,84 @@ fn open_disks(root: Option<&Path>, limits: model::CachePreferences) -> [Option<D
 	]
 }
 
+#[derive(Default)]
+struct Queues {
+	viewer_still: VecDeque<WorkRequest>,
+	viewer_anim: VecDeque<WorkRequest>,
+	artwork: VecDeque<WorkRequest>,
+	inline_still: VecDeque<WorkRequest>,
+	inline_anim: VecDeque<WorkRequest>,
+}
+
+impl Queues {
+	fn len(&self) -> usize {
+		self.viewer_still.len()
+			+ self.viewer_anim.len()
+			+ self.artwork.len()
+			+ self.inline_still.len()
+			+ self.inline_anim.len()
+	}
+
+	fn is_empty(&self) -> bool {
+		self.len() == 0
+	}
+
+	fn push(&mut self, req: WorkRequest) {
+		let anim = req.animate && budget(&req.key).frames.is_some();
+		if Rendition::parse(&req.key).is_some_and(|rendition| rendition.lane == Lane::Viewer) {
+			if anim {
+				self.viewer_anim.push_back(req);
+			} else {
+				self.viewer_still.push_back(req);
+			}
+		} else if partition(&req.key) == model::CachePartition::Artwork && !anim {
+			// Animated decorations decode every frame; they must not delay server icons.
+			self.artwork.push_back(req);
+		} else if anim {
+			self.inline_anim.push_back(req);
+		} else {
+			self.inline_still.push_back(req);
+		}
+	}
+
+	fn pop_cancelled(&mut self) -> Option<WorkRequest> {
+		for queue in [
+			&mut self.viewer_still,
+			&mut self.viewer_anim,
+			&mut self.artwork,
+			&mut self.inline_still,
+			&mut self.inline_anim,
+		] {
+			if queue
+				.front()
+				.is_some_and(|req| req.cancel.load(Ordering::Acquire))
+			{
+				return queue.pop_front();
+			}
+		}
+		None
+	}
+
+	fn pop_next(&mut self, allow_animation: bool) -> Option<WorkRequest> {
+		if allow_animation {
+			self.viewer_still
+				.pop_front()
+				.or_else(|| self.viewer_anim.pop_front())
+				.or_else(|| self.artwork.pop_front())
+				.or_else(|| self.inline_still.pop_front())
+				.or_else(|| self.inline_anim.pop_front())
+		} else {
+			self.viewer_still
+				.pop_front()
+				.or_else(|| self.artwork.pop_front())
+				.or_else(|| self.inline_still.pop_front())
+		}
+	}
+}
+
 async fn run(
 	root: Option<&Path>,
-	mut requests: async_mpsc::Receiver<String>,
+	mut requests: async_mpsc::Receiver<WorkRequest>,
 	results: ResultSender,
 	mut cancelled: watch::Receiver<bool>,
 	bundled_only: bool,
@@ -1231,23 +1378,69 @@ async fn run(
 	let mut cooldown = Instant::now();
 	// Eight bounded loads overlap; each downloads and decodes off this loop, which owns the disk.
 	let mut jobs = tokio::task::JoinSet::new();
+	// Cap active animation jobs to the animation decode concurrency limit so animations waiting
+	// for ANIMATION_DECODE_SLOTS never occupy JOBS capacity reserved for still jobs.
+	let max_animation_jobs = animation_decode_slots().min(JOBS);
+	let mut active_animations = 0usize;
 	// Each partition's clear generation. Every job carries the generation it began in, so a
 	// download started before a clear still reaches the UI but is not written back to disk.
 	let mut cleared = [0u64; 2];
 	// Opened pictures first, then small shared artwork, then everything else in order.
-	let (mut viewer, mut artwork, mut inline) = (
-		VecDeque::<String>::new(),
-		VecDeque::<String>::new(),
-		VecDeque::<String>::new(),
-	);
+	let mut queues = Queues::default();
 	loop {
+		while !*cancelled.borrow()
+			&& let Some(req) = queues.pop_cancelled()
+		{
+			let sent = tokio::select! {
+				biased;
+				_ = cancelled.changed() => false,
+				sent = results.send(AvatarResult {
+					id: req.id,
+					key: req.key,
+					image: None,
+					frames: Vec::new(),
+					error: None,
+					stage: DecodeStage::Cancelled,
+					animated: false,
+					_reservation: None,
+				}) => sent,
+			};
+			if !sent {
+				jobs.abort_all();
+				return;
+			}
+		}
 		while jobs.len() < JOBS
 			&& !*cancelled.borrow()
-			&& let Some(key) = viewer
-				.pop_front()
-				.or_else(|| artwork.pop_front())
-				.or_else(|| inline.pop_front())
+			&& let Some(req) = queues.pop_next(active_animations < max_animation_jobs)
 		{
+			if req.cancel.load(Ordering::Acquire) {
+				let sent = tokio::select! {
+					biased;
+					_ = cancelled.changed() => false,
+					sent = results.send(AvatarResult {
+						id: req.id,
+						key: req.key,
+						image: None,
+						frames: Vec::new(),
+						error: None,
+						stage: DecodeStage::Cancelled,
+						animated: false,
+						_reservation: None,
+					}) => sent,
+				};
+				if !sent {
+					jobs.abort_all();
+					return;
+				}
+				continue;
+			}
+			let WorkRequest {
+				id,
+				key,
+				animate,
+				cancel: job_cancel,
+			} = req;
 			if let Some((source, edge)) = ui::emoji::bundled_svg(&key) {
 				jobs.spawn(async move {
 					let image =
@@ -1257,21 +1450,40 @@ async fn run(
 							.flatten();
 					// Bundled shapes are never written to disk.
 					let loaded = Loaded {
+						id,
 						key,
 						fetched: None,
 						image,
 						frames: Vec::new(),
 						error: None,
 						until: Instant::now(),
+						animated: false,
+						cancelled: false,
 					};
-					(u64::MAX, loaded)
+					(u64::MAX, false, loaded)
 				});
 				continue;
 			}
-			if bundled_only {
-				continue;
-			}
-			let Some(MediaUrls { primary, fallback }) = job_urls(&key) else {
+			let urls = (!bundled_only).then(|| job_urls(&key)).flatten();
+			let Some(MediaUrls { primary, fallback }) = urls else {
+				let sent = tokio::select! {
+					biased;
+					_ = cancelled.changed() => false,
+					sent = results.send(AvatarResult {
+						id,
+						key,
+						image: None,
+						frames: Vec::new(),
+						error: None,
+						stage: DecodeStage::Settled,
+						animated: false,
+						_reservation: None,
+					}) => sent,
+				};
+				if !sent {
+					jobs.abort_all();
+					return;
+				}
 				continue;
 			};
 			let persistent = disk_key(&key).is_some();
@@ -1280,8 +1492,17 @@ async fn run(
 			// The job reads its cached copy, so a large stored clip never stalls dispatch.
 			let cache = disk.as_ref().filter(|_| persistent).map(Disk::reader);
 			let generation = cleared[partition(&key) as usize];
+			let mut job_budget = budget(&key);
+			if !animate {
+				job_budget.frames = None;
+			}
+			let is_animation = job_budget.frames.is_some();
+			if is_animation {
+				active_animations += 1;
+			}
 			let job = load(Job {
-				budget: budget(&key),
+				id,
+				budget: job_budget,
 				key,
 				url: primary,
 				fallback,
@@ -1290,8 +1511,9 @@ async fn run(
 				client: client.clone(),
 				cooldown,
 				early: results.clone(),
+				cancel: job_cancel,
 			});
-			jobs.spawn(async move { (generation, job.await) });
+			jobs.spawn(async move { (generation, is_animation, job.await) });
 		}
 		let loaded = tokio::select! {
 			biased;
@@ -1300,17 +1522,10 @@ async fn run(
 				let Some(Ok(loaded)) = completed else { break };
 				loaded
 			},
-			key = requests.recv(), if viewer.len() + artwork.len() + inline.len() < QUEUED => {
-				let Some(key) = key else { break };
+			req = requests.recv(), if queues.len() < QUEUED => {
+				let Some(req) = req else { break };
 				if *cancelled.borrow() { break; }
-				if Rendition::parse(&key).is_some_and(|rendition| rendition.lane == Lane::Viewer) {
-					viewer.push_back(key);
-				} else if partition(&key) == model::CachePartition::Artwork && !is_animated_key(&key) {
-					// Animated decorations decode every frame; they must not delay server icons.
-					artwork.push_back(key);
-				} else {
-					inline.push_back(key);
-				}
+				queues.push(req);
 				continue;
 			},
 			changed = control.limits.changed() => {
@@ -1342,20 +1557,28 @@ async fn run(
 		};
 		let (
 			generation,
+			was_animation,
 			Loaded {
+				id,
 				key,
 				fetched,
 				image,
 				frames,
 				mut error,
 				until,
+				animated,
+				cancelled: job_cancelled,
 			},
 		) = loaded;
+		if was_animation {
+			active_animations = active_animations.saturating_sub(1);
+		}
 		cooldown = cooldown.max(until);
 		if *cancelled.borrow() {
 			break;
 		}
-		if generation == cleared[partition(&key) as usize]
+		if !job_cancelled
+			&& generation == cleared[partition(&key) as usize]
 			&& disk_key(&key).is_some()
 			&& let (Some(disk), Some(bytes)) = (&mut disks[partition(&key) as usize], &fetched)
 		{
@@ -1366,19 +1589,26 @@ async fn run(
 		}
 		// Decoded results can wait for the UI; the encoded source is no longer needed.
 		drop(fetched);
+		let stage = if job_cancelled {
+			DecodeStage::Cancelled
+		} else {
+			DecodeStage::Settled
+		};
 		tokio::select! {
 			biased;
 			_ = cancelled.changed() => break,
 			result = results.send(AvatarResult {
+			id,
 			key,
 			image,
 			frames,
 			error,
-			stage: DecodeStage::Settled,
+			stage,
+			animated,
 			_reservation: None,
 		}) => if !result { break },
 		}
-		if jobs.is_empty() && viewer.is_empty() && artwork.is_empty() && inline.is_empty() {
+		if jobs.is_empty() && queues.is_empty() {
 			platform::memory::release_freed_memory();
 		}
 	}
@@ -1429,6 +1659,14 @@ const JOBS: usize = 8;
 // Blocking decoders outlive an aborted async waiter. Share admission across
 // worker/account replacements and retain each permit in the actual decoder.
 static DECODE_SLOTS: LazyLock<Arc<Semaphore>> = LazyLock::new(|| Arc::new(Semaphore::new(JOBS)));
+fn animation_decode_slots() -> usize {
+	std::thread::available_parallelism().map_or(2, |n| (n.get() / 2).clamp(1, 2))
+}
+
+// Cap multi-frame animation decodes separately so a burst of clips leaves CPU headroom for UI,
+// audio, and still images.
+static ANIMATION_DECODE_SLOTS: LazyLock<Arc<Semaphore>> =
+	LazyLock::new(|| Arc::new(Semaphore::new(animation_decode_slots())));
 
 async fn bounded_decode<T: Send + 'static>(
 	slots: Arc<Semaphore>,
@@ -1443,6 +1681,7 @@ async fn bounded_decode<T: Send + 'static>(
 }
 
 struct Job {
+	id: u64,
 	key: String,
 	url: String,
 	fallback: Option<String>,
@@ -1453,8 +1692,10 @@ struct Job {
 	cooldown: Instant,
 	/// Animated sources post their first frame here while the remaining frames decode.
 	early: ResultSender,
+	cancel: Arc<AtomicBool>,
 }
 struct Loaded {
+	id: u64,
 	key: String,
 	/// Downloaded source that decoded; the worker stores it on disk.
 	fetched: Option<Vec<u8>>,
@@ -1462,10 +1703,29 @@ struct Loaded {
 	frames: ui::GifFrames,
 	error: Option<&'static str>,
 	until: Instant,
+	animated: bool,
+	cancelled: bool,
+}
+
+impl Loaded {
+	fn cancelled(id: u64, key: String, until: Instant) -> Self {
+		Self {
+			id,
+			key,
+			fetched: None,
+			image: None,
+			frames: Vec::new(),
+			error: None,
+			until,
+			animated: false,
+			cancelled: true,
+		}
+	}
 }
 
 async fn load(job: Job) -> Loaded {
 	let Job {
+		id,
 		key,
 		url,
 		fallback,
@@ -1475,7 +1735,11 @@ async fn load(job: Job) -> Loaded {
 		client,
 		cooldown,
 		early,
+		cancel,
 	} = job;
+	if cancel.load(Ordering::Acquire) {
+		return Loaded::cancelled(id, key, cooldown);
+	}
 	let cached = match cache {
 		Some(cache) => {
 			let name = key.clone();
@@ -1494,18 +1758,36 @@ async fn load(job: Job) -> Loaded {
 	let mut early = animated.then_some(early);
 	let mut stale = None;
 	if let Some(bytes) = cached {
+		if cancel.load(Ordering::Acquire) {
+			return Loaded::cancelled(id, key, until);
+		}
 		let clip = is_isobmff(&bytes);
-		let (image, frames, _) = decode_blocking(&key, bytes, false, budget, early.clone()).await;
+		let (image, frames, _, cancelled) = decode_blocking(
+			id,
+			&key,
+			bytes,
+			false,
+			budget,
+			early.clone(),
+			cancel.clone(),
+		)
+		.await;
+		if cancelled || cancel.load(Ordering::Acquire) {
+			return Loaded::cancelled(id, key, until);
+		}
 		// A single stored frame is fetched again: a static rendition may share its cache name.
 		// A cached clip is already the full source; fetching it again cannot improve decoding.
 		if image.is_some() && (!animated || frames.len() >= 2 || clip) {
 			return Loaded {
+				id,
 				key,
 				fetched: None,
 				image,
 				frames,
 				error,
 				until,
+				animated,
+				cancelled: false,
 			};
 		}
 		if image.is_some() {
@@ -1518,25 +1800,46 @@ async fn load(job: Job) -> Loaded {
 		&& Instant::now() >= cooldown
 	{
 		for url in std::iter::once(url).chain(fallback) {
+			if cancel.load(Ordering::Acquire) {
+				return Loaded::cancelled(id, key, until);
+			}
 			let Some(bytes) = fetch(client, &key, url, &mut until).await else {
 				continue;
 			};
-			(image, frames, fetched) =
-				decode_blocking(&key, bytes, lottie_key(&key), budget, early.clone()).await;
+			let cancelled;
+			(image, frames, fetched, cancelled) = decode_blocking(
+				id,
+				&key,
+				bytes,
+				lottie_key(&key),
+				budget,
+				early.clone(),
+				cancel.clone(),
+			)
+			.await;
+			if cancelled || cancel.load(Ordering::Acquire) {
+				return Loaded::cancelled(id, key, until);
+			}
 			if image.is_some() {
 				break;
 			}
 		}
 	}
+	if cancel.load(Ordering::Acquire) {
+		return Loaded::cancelled(id, key, until);
+	}
 	let fetched = fetched.filter(|_| image.is_some());
 	let image = image.or(stale);
 	Loaded {
+		id,
 		key,
 		fetched,
 		image,
 		frames,
 		error,
 		until,
+		animated,
+		cancelled: false,
 	}
 }
 
@@ -1563,42 +1866,66 @@ async fn fetch(
 /// Decode on a blocking thread so loads decode in parallel. Returns the stored bytes too:
 /// a fetched Lottie source is replaced by its rendered PNG.
 async fn decode_blocking(
+	id: u64,
 	key: &str,
 	bytes: Vec<u8>,
 	lottie: bool,
 	budget: Budget,
 	early: Option<ResultSender>,
-) -> (Option<egui::ColorImage>, ui::GifFrames, Option<Vec<u8>>) {
+	cancel: Arc<AtomicBool>,
+) -> (
+	Option<egui::ColorImage>,
+	ui::GifFrames,
+	Option<Vec<u8>>,
+	bool,
+) {
 	let key = key.to_owned();
-	bounded_decode(DECODE_SLOTS.clone(), move || {
+	let slots = if budget.frames.is_some() {
+		ANIMATION_DECODE_SLOTS.clone()
+	} else {
+		DECODE_SLOTS.clone()
+	};
+	bounded_decode(slots, move || {
+		if cancel.load(Ordering::Acquire) {
+			return (None, Vec::new(), None, true);
+		}
 		let Some(bytes) = (if lottie {
 			render_lottie(&bytes)
 		} else {
 			Some(bytes)
 		}) else {
-			return (None, Vec::new(), None);
+			return (None, Vec::new(), None, false);
 		};
 		let Some(frame_budget) = budget.frames else {
-			return (decode(&bytes, &budget), Vec::new(), Some(bytes));
+			return (decode(&bytes, &budget), Vec::new(), Some(bytes), false);
 		};
 		let preview = std::sync::Mutex::new(None);
 		let post = |image: &egui::ColorImage| {
+			if cancel.load(Ordering::Relaxed) {
+				return;
+			}
 			// Keep the opening frame if decoding the rest fails, without opening the clip again.
 			if is_isobmff(&bytes) {
 				*preview.lock().expect("preview decode owns its mutex") = Some(image.clone());
 			}
 			if let Some(results) = &early {
 				results.preview(AvatarResult {
+					id,
 					key: key.clone(),
 					image: Some(image.clone()),
 					frames: Vec::new(),
 					error: None,
 					stage: DecodeStage::Preview,
+					animated: false,
 					_reservation: None,
 				});
 			}
 		};
-		let mut frames = decode_animation(&bytes, &frame_budget, post).unwrap_or_default();
+		let mut frames =
+			decode_animation_with_cancel(&bytes, &frame_budget, &cancel, post).unwrap_or_default();
+		if cancel.load(Ordering::Acquire) {
+			return (None, Vec::new(), None, true);
+		}
 		// A profile effect layer that plays its file once keeps the last frame for the rest of
 		// its duration, as browsers do, instead of jumping back to the first frame.
 		if Cosmetic::parse(&key) == Some(Cosmetic::Effect)
@@ -1619,10 +1946,10 @@ async fn decode_blocking(
 					decode(&bytes, &budget)
 				}
 			});
-		(image, frames, Some(bytes))
+		(image, frames, Some(bytes), false)
 	})
 	.await
-	.unwrap_or((None, Vec::new(), None))
+	.unwrap_or((None, Vec::new(), None, false))
 }
 
 /// Render one bounded static preview; the resulting PNG is what enters the disk cache.
@@ -1791,21 +2118,58 @@ fn decode(bytes: &[u8], budget: &Budget) -> Option<egui::ColorImage> {
 }
 
 fn resize_to(image: image::RgbaImage, fit: u32) -> image::RgbaImage {
-	let (width, height) = ui::fit_edge(image.width(), image.height(), fit);
-	if (width, height) == image.dimensions() {
+	let (src_w, src_h) = image.dimensions();
+	let (width, height) = ui::fit_edge(src_w, src_h, fit);
+	if (width, height) == (src_w, src_h) {
 		return image;
 	}
-	let filter = if image.width().max(image.height()) <= 2 * width.max(height) {
-		image::imageops::FilterType::Triangle
-	} else {
-		image::imageops::FilterType::Lanczos3
+	let mut premul = image.as_raw().to_vec();
+	for px in premul.as_chunks_mut::<4>().0 {
+		let a = u16::from(px[3]);
+		if a == 0 {
+			*px = [0, 0, 0, 0];
+		} else if a < 255 {
+			px[0] = ((u16::from(px[0]) * a + 127) / 255) as u8;
+			px[1] = ((u16::from(px[1]) * a + 127) / 255) as u8;
+			px[2] = ((u16::from(px[2]) * a + 127) / 255) as u8;
+		}
+	}
+	let Some(mut scaled) = ui::downscale_rgba(src_w, src_h, &premul, width, height) else {
+		return image;
 	};
-	// The generic `imageops::resize` would be instantiated in this unoptimized dev crate, about
-	// 30 times slower per animation frame; the `DynamicImage` method runs the same filter
-	// compiled in the optimized `image` crate.
-	image::DynamicImage::ImageRgba8(image)
-		.resize_exact(width, height, filter)
-		.into_rgba8()
+	for px in scaled.as_chunks_mut::<4>().0 {
+		let a = u16::from(px[3]);
+		if a == 0 {
+			*px = [0, 0, 0, 0];
+		} else if a < 255 {
+			px[0] = ((u16::from(px[0]) * 255 + a / 2) / a).min(255) as u8;
+			px[1] = ((u16::from(px[1]) * 255 + a / 2) / a).min(255) as u8;
+			px[2] = ((u16::from(px[2]) * 255 + a / 2) / a).min(255) as u8;
+		}
+	}
+	image::RgbaImage::from_raw(width, height, scaled).unwrap_or(image)
+}
+
+fn shrink_color_image(image: &egui::ColorImage, fit: u32) -> egui::ColorImage {
+	let [src_w, src_h] = image.resolution();
+	let (dst_w, dst_h) = ui::fit_edge(src_w as u32, src_h as u32, fit);
+	if (dst_w as usize, dst_h as usize) == (src_w, src_h) {
+		return image.clone();
+	}
+	let Some(scaled) = ui::downscale_rgba(src_w as u32, src_h as u32, image.as_raw(), dst_w, dst_h)
+	else {
+		return image.clone();
+	};
+	egui::ColorImage::from_rgba_premultiplied([dst_w as usize, dst_h as usize], &scaled)
+}
+
+fn shrink_frames<T>(frames: &mut [(T, Arc<egui::ColorImage>)], fit: u32) -> usize {
+	let mut total = 0;
+	for (_, image) in frames.iter_mut() {
+		*image = Arc::new(shrink_color_image(image, fit));
+		total += image.pixels().len() * 4;
+	}
+	total
 }
 
 /// The opening picture of a clip: the still for provider video Discord cannot proxy, and for a
@@ -1852,106 +2216,105 @@ fn open_preview_decoder(bytes: Arc<[u8]>, started: Instant) -> Option<platform::
 		.filter(|_| started.elapsed() < Duration::from_secs(3))
 }
 
-fn decode_motion_video(
+fn decode_motion_video_with_cancel(
 	bytes: &[u8],
 	budget: &FrameBudget,
+	cancel: &AtomicBool,
 	first: impl Fn(&egui::ColorImage),
 ) -> Option<ui::GifFrames> {
 	let started = Instant::now();
 	let mut fit = budget.fit;
 	let mut shrinks = budget.shrinks;
 	let mut posted = false;
-	// One owned copy for the decoder's 'static stream, shared by every shrink pass.
 	let bytes: Arc<[u8]> = bytes.into();
-	'decode: loop {
-		let mut decoder = open_preview_decoder(bytes.clone(), started)?;
-		let duration = decoder.info().duration;
-		let mut frames: Vec<(f64, Arc<egui::ColorImage>)> = Vec::new();
-		let mut total = 0usize;
-		let mut stride = 1usize;
-		let mut index = 0usize;
-		loop {
-			// A partial clip would loop with a visible jump; the embed falls back to its GIF instead.
-			if index >= 600 || started.elapsed() > Duration::from_secs(3) {
-				return None;
-			}
-			match decoder.poll_video() {
-				Ok(std::task::Poll::Pending) => {
-					let _ = decoder.poll_audio();
-					std::thread::sleep(Duration::from_millis(2));
-				}
-				Ok(std::task::Poll::Ready(Some(platform::video::Sample::Video {
-					pts,
-					picture,
-				}))) => {
-					if !index.is_multiple_of(stride) {
-						#[cfg(target_os = "linux")]
-						decoder.recycle(picture);
-						index += 1;
-						continue;
-					}
-					// Clip frames are resized and cached once, so the CPU conversion stays.
-					let (width, height, rgba) = picture.to_rgba()?;
-					#[cfg(target_os = "linux")]
-					decoder.recycle(picture);
-					let pixels = (width as usize).checked_mul(height as usize)?;
-					if width == 0 || height == 0 || rgba.len() != pixels.checked_mul(4)? {
-						return None;
-					}
-					let image = image::RgbaImage::from_raw(width, height, rgba)?;
-					let image = resize_to(image, fit);
-					let frame_bytes = image.width() as usize * image.height() as usize * 4;
-					// accept_frames also keeps one playback texture the size of this frame.
-					if total + 2 * frame_bytes > budget.bytes && shrinks > 0 {
-						shrinks -= 1;
-						fit = ((fit as f32 * 0.707) as u32).max(1);
-						posted = false;
-						continue 'decode;
-					}
-					if frames.len() >= budget.count || total + 2 * frame_bytes > budget.bytes {
-						frames = frames.chunks(2).map(|pair| pair[0].clone()).collect();
-						total = frames
-							.iter()
-							.map(|(_, image)| image.pixels().len() * 4)
-							.sum();
-						stride *= 2;
-					}
-					let stored = Arc::new(egui::ColorImage::from_rgba_unmultiplied(
-						[image.width() as usize, image.height() as usize],
-						image.as_raw(),
-					));
-					if !posted {
-						first(&stored);
-						posted = true;
-					}
-					total += frame_bytes;
-					frames.push((pts, stored));
-					index += 1;
-				}
-				Ok(std::task::Poll::Ready(Some(_))) => {}
-				Ok(std::task::Poll::Ready(None)) => break,
-				Err(_) => return None,
-			}
-		}
-		if frames.len() < 2 {
+	let mut decoder = open_preview_decoder(bytes, started)?;
+	let duration = decoder.info().duration;
+	let mut frames: Vec<(f64, Arc<egui::ColorImage>)> = Vec::new();
+	let mut total = 0usize;
+	let mut stride = 1usize;
+	let mut index = 0usize;
+	loop {
+		// A partial clip would loop with a visible jump; the embed falls back to its GIF instead.
+		if cancel.load(Ordering::Relaxed)
+			|| index >= 600
+			|| started.elapsed() > Duration::from_secs(3)
+		{
 			return None;
 		}
-		let mut timed = Vec::with_capacity(frames.len());
-		for pair in frames.windows(2) {
-			timed.push((frame_delay(pair[1].0 - pair[0].0), pair[0].1.clone()));
+		match decoder.poll_video() {
+			Ok(std::task::Poll::Pending) => {
+				let _ = decoder.poll_audio();
+				std::thread::sleep(Duration::from_millis(2));
+			}
+			Ok(std::task::Poll::Ready(Some(platform::video::Sample::Video { pts, picture }))) => {
+				if !index.is_multiple_of(stride) {
+					#[cfg(target_os = "linux")]
+					decoder.recycle(picture);
+					index += 1;
+					continue;
+				}
+				// Clip frames are resized and cached once, so the CPU conversion stays.
+				let (width, height, rgba) = picture.to_rgba()?;
+				#[cfg(target_os = "linux")]
+				decoder.recycle(picture);
+				let pixels = (width as usize).checked_mul(height as usize)?;
+				if width == 0 || height == 0 || rgba.len() != pixels.checked_mul(4)? {
+					return None;
+				}
+				let image = image::RgbaImage::from_raw(width, height, rgba)?;
+				let image = resize_to(image, fit);
+				let mut stored = Arc::new(egui::ColorImage::from_rgba_unmultiplied(
+					[image.width() as usize, image.height() as usize],
+					image.as_raw(),
+				));
+				let mut frame_bytes = stored.pixels().len() * 4;
+				// accept_frames also keeps one playback texture the size of this frame.
+				while total + 2 * frame_bytes > budget.bytes && shrinks > 0 {
+					shrinks -= 1;
+					fit = ((fit as f32 * 0.707) as u32).max(1);
+					stored = Arc::new(shrink_color_image(&stored, fit));
+					frame_bytes = stored.pixels().len() * 4;
+					total = shrink_frames(&mut frames, fit);
+				}
+				if frames.len() >= budget.count || total + 2 * frame_bytes > budget.bytes {
+					frames = frames.chunks(2).map(|pair| pair[0].clone()).collect();
+					total = frames
+						.iter()
+						.map(|(_, image)| image.pixels().len() * 4)
+						.sum();
+					stride *= 2;
+				}
+				if !posted {
+					first(&stored);
+					posted = true;
+				}
+				total += frame_bytes;
+				frames.push((pts, stored));
+				index += 1;
+			}
+			Ok(std::task::Poll::Ready(Some(_))) => {}
+			Ok(std::task::Poll::Ready(None)) => break,
+			Err(_) => return None,
 		}
-		let (pts, image) = frames.last()?;
-		let tail = if duration.is_finite() && duration > *pts {
-			frame_delay(duration - *pts)
-		} else {
-			timed
-				.last()
-				.map(|(delay, _)| *delay)
-				.unwrap_or_else(|| Duration::from_millis(50))
-		};
-		timed.push((tail, image.clone()));
-		return Some(timed);
 	}
+	if frames.len() < 2 {
+		return None;
+	}
+	let mut timed = Vec::with_capacity(frames.len());
+	for pair in frames.windows(2) {
+		timed.push((frame_delay(pair[1].0 - pair[0].0), pair[0].1.clone()));
+	}
+	let (pts, image) = frames.last()?;
+	let tail = if duration.is_finite() && duration > *pts {
+		frame_delay(duration - *pts)
+	} else {
+		timed
+			.last()
+			.map(|(delay, _)| *delay)
+			.unwrap_or_else(|| Duration::from_millis(50))
+	};
+	timed.push((tail, image.clone()));
+	Some(timed)
 }
 
 fn is_isobmff(bytes: &[u8]) -> bool {
@@ -1971,18 +2334,28 @@ fn frame_delay(seconds: f64) -> Duration {
 	Duration::from_millis(millis.clamp(20, 10_000))
 }
 
+#[cfg(test)]
 fn decode_animation(
 	bytes: &[u8],
 	budget: &FrameBudget,
 	first: impl Fn(&egui::ColorImage) + Send,
 ) -> Option<ui::GifFrames> {
-	if bytes.len() > MAX_ANIMATED_ENCODED {
+	decode_animation_with_cancel(bytes, budget, &AtomicBool::new(false), first)
+}
+
+fn decode_animation_with_cancel(
+	bytes: &[u8],
+	budget: &FrameBudget,
+	cancel: &AtomicBool,
+	first: impl Fn(&egui::ColorImage) + Send,
+) -> Option<ui::GifFrames> {
+	if bytes.len() > MAX_ANIMATED_ENCODED || cancel.load(Ordering::Relaxed) {
 		return None;
 	}
 	if is_isobmff(bytes) {
 		return std::thread::scope(|scope| {
 			scope
-				.spawn(move || decode_motion_video(bytes, budget, first))
+				.spawn(move || decode_motion_video_with_cancel(bytes, budget, cancel, first))
 				.join()
 				.ok()
 				.flatten()
@@ -1992,63 +2365,65 @@ fn decode_animation(
 	let mut fit = budget.fit;
 	let mut shrinks = budget.shrinks;
 	let mut posted = false;
-	'decode: loop {
-		let mut frames: ui::GifFrames = Vec::new();
-		let mut total = 0;
-		let mut stride = 1;
-		for (index, frame) in animation_frames(bytes)?.enumerate() {
-			// A partial clip would loop with a visible jump; keep the still first frame instead.
-			// The deadline waits for two frames so one slow resize of a short GIF still animates.
-			if index == 600 || (frames.len() >= 2 && started.elapsed() > Duration::from_secs(3)) {
-				return None;
-			}
-			let frame = frame.ok()?;
-			let (numerator, denominator) = frame.delay().numer_denom_ms();
-			let delay = Duration::from_millis(
-				(u64::from(numerator) / u64::from(denominator.max(1))).clamp(20, 10_000),
-			);
-			if !index.is_multiple_of(stride) {
-				frames.last_mut()?.0 += delay;
-				continue;
-			}
-			let image = resize_to(frame.into_buffer(), fit);
-			let frame_bytes = image.width() as usize * image.height() as usize * 4;
-			// accept_frames also keeps one playback texture the size of this frame.
-			if total + 2 * frame_bytes > budget.bytes && shrinks > 0 {
-				shrinks -= 1;
-				fit = ((fit as f32 * 0.707) as u32).max(1);
-				posted = false;
-				continue 'decode;
-			}
-			if frames.len() >= budget.count || total + 2 * frame_bytes > budget.bytes {
-				frames = frames
-					.chunks(2)
-					.map(|pair| {
-						(
-							pair.iter().map(|(delay, _)| *delay).sum(),
-							pair[0].1.clone(),
-						)
-					})
-					.collect();
-				total = frames
-					.iter()
-					.map(|(_, image)| image.pixels().len() * 4)
-					.sum();
-				stride *= 2;
-			}
-			let image = Arc::new(egui::ColorImage::from_rgba_unmultiplied(
-				[image.width() as usize, image.height() as usize],
-				image.as_raw(),
-			));
-			if !posted {
-				first(&image);
-				posted = true;
-			}
-			total += frame_bytes;
-			frames.push((delay, image));
+	let mut frames: ui::GifFrames = Vec::new();
+	let mut total = 0;
+	let mut stride = 1;
+	for (index, frame) in animation_frames(bytes)?.enumerate() {
+		// A partial clip would loop with a visible jump; keep the still first frame instead.
+		// The deadline waits for two frames so one slow resize of a short GIF still animates.
+		if cancel.load(Ordering::Relaxed)
+			|| index == 600
+			|| (frames.len() >= 2 && started.elapsed() > Duration::from_secs(3))
+		{
+			return None;
 		}
-		return Some(frames);
+		let frame = frame.ok()?;
+		let (numerator, denominator) = frame.delay().numer_denom_ms();
+		let delay = Duration::from_millis(
+			(u64::from(numerator) / u64::from(denominator.max(1))).clamp(20, 10_000),
+		);
+		if !index.is_multiple_of(stride) {
+			frames.last_mut()?.0 += delay;
+			continue;
+		}
+		let image = resize_to(frame.into_buffer(), fit);
+		let mut stored = Arc::new(egui::ColorImage::from_rgba_unmultiplied(
+			[image.width() as usize, image.height() as usize],
+			image.as_raw(),
+		));
+		let mut frame_bytes = stored.pixels().len() * 4;
+		// accept_frames also keeps one playback texture the size of this frame.
+		while total + 2 * frame_bytes > budget.bytes && shrinks > 0 {
+			shrinks -= 1;
+			fit = ((fit as f32 * 0.707) as u32).max(1);
+			stored = Arc::new(shrink_color_image(&stored, fit));
+			frame_bytes = stored.pixels().len() * 4;
+			total = shrink_frames(&mut frames, fit);
+		}
+		if frames.len() >= budget.count || total + 2 * frame_bytes > budget.bytes {
+			frames = frames
+				.chunks(2)
+				.map(|pair| {
+					(
+						pair.iter().map(|(delay, _)| *delay).sum(),
+						pair[0].1.clone(),
+					)
+				})
+				.collect();
+			total = frames
+				.iter()
+				.map(|(_, image)| image.pixels().len() * 4)
+				.sum();
+			stride *= 2;
+		}
+		if !posted {
+			first(&stored);
+			posted = true;
+		}
+		total += frame_bytes;
+		frames.push((delay, stored));
 	}
+	Some(frames)
 }
 
 /// The APNG play count from `acTL`, where 0 means forever; `None` for other images.
@@ -2512,11 +2887,13 @@ mod tests {
 
 	fn queued_image(edge: usize) -> AvatarResult {
 		AvatarResult {
+			id: 0,
 			key: "synthetic".into(),
 			image: Some(egui::ColorImage::filled([edge, edge], egui::Color32::RED)),
 			frames: Vec::new(),
 			error: None,
 			stage: DecodeStage::Settled,
+			animated: false,
 			_reservation: None,
 		}
 	}
@@ -2613,6 +2990,8 @@ mod tests {
 		let mut worker = AvatarWorker {
 			requests,
 			results,
+			next_id: AtomicU64::new(0),
+			inflight: Mutex::new(HashMap::new()),
 			wake: ctx.clone(),
 			cancel,
 			clear: Arc::new(AtomicBool::new(false)),
@@ -3710,4 +4089,248 @@ fn provider_clip_stills_fetch_the_clip_and_unknown_hosts_stay_unfetched() {
 	assert_eq!(still(proxied), Some((proxied.to_owned(), None)));
 	assert!(is_isobmff(b"\0\0\0\x18ftypmp42"));
 	assert!(decode(b"\0\0\0\x18ftypmp42 not a clip", &budget("gif:x")).is_none());
+}
+
+#[test]
+fn still_only_request_skips_animation_frames_and_cancel_aborts_pending_work() {
+	let dir = tempfile_dir("still_and_cancel");
+	let key = "decoration-a_0123456789abcdef0123456789abcdef";
+	// Synthetic 2-frame 1x1 APNG.
+	let apng = [
+		137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 6,
+		0, 0, 0, 31, 21, 196, 137, 0, 0, 0, 8, 97, 99, 84, 76, 0, 0, 0, 2, 0, 0, 0, 0, 243, 141,
+		147, 112, 0, 0, 0, 26, 102, 99, 84, 76, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0,
+		0, 0, 0, 0, 1, 0, 10, 0, 0, 90, 127, 48, 208, 0, 0, 0, 13, 73, 68, 65, 84, 120, 156, 99,
+		248, 207, 192, 240, 31, 0, 5, 0, 1, 255, 137, 153, 61, 29, 0, 0, 0, 26, 102, 99, 84, 76, 0,
+		0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 5, 0, 0, 202, 80, 157,
+		57, 0, 0, 0, 17, 102, 100, 65, 84, 0, 0, 0, 2, 120, 156, 99, 96, 248, 207, 240, 31, 0, 4,
+		1, 1, 255, 98, 231, 233, 156, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
+	];
+	let mut artwork = Disk::open(partition_root(&dir, partition(key))).unwrap();
+	artwork.write(key, &apng).unwrap();
+	drop(artwork);
+	let runtime = tokio::runtime::Runtime::new().unwrap();
+	let mut worker =
+		AvatarWorker::start_at(&runtime, Some(dir.clone()), egui::Context::default()).unwrap();
+	assert!(worker.request_with_animation(key.into(), false));
+	let deadline = Instant::now() + Duration::from_secs(5);
+	let result = loop {
+		if let Some(result) = worker.poll() {
+			break result;
+		}
+		assert!(Instant::now() < deadline);
+		std::thread::sleep(Duration::from_millis(5));
+	};
+	assert_eq!(result.stage, DecodeStage::Settled);
+	assert!(!result.animated);
+	assert!(result.image.is_some());
+	assert!(result.frames.is_empty());
+
+	assert!(worker.request_with_animation(key.into(), true));
+	worker.cancel(key);
+	let deadline = Instant::now() + Duration::from_secs(5);
+	let cancelled = loop {
+		if let Some(result) = worker.poll()
+			&& result.stage != DecodeStage::Preview
+		{
+			break result;
+		}
+		assert!(Instant::now() < deadline);
+		std::thread::sleep(Duration::from_millis(5));
+	};
+	assert!(matches!(
+		cancelled.stage,
+		DecodeStage::Cancelled | DecodeStage::Settled
+	));
+	worker
+		.shutdown()
+		.recv_timeout(Duration::from_secs(5))
+		.unwrap()
+		.unwrap();
+	let _ = fs::remove_dir_all(dir);
+}
+
+#[cfg(test)]
+fn tempfile_dir(label: &str) -> PathBuf {
+	let dir = std::env::temp_dir().join(format!("serein-{label}-{}", std::process::id()));
+	let _ = fs::remove_dir_all(&dir);
+	fs::create_dir_all(&dir).unwrap();
+	dir
+}
+
+#[tokio::test]
+async fn overlapping_requests_preserve_per_job_cancellation_across_poll() {
+	let ctx = egui::Context::default();
+	let (sender, results) = result_channel(ctx.clone());
+	let (requests, mut receive) = async_mpsc::channel(4);
+	let (cancel, _) = watch::channel(false);
+	let mut worker = AvatarWorker {
+		requests,
+		results,
+		next_id: AtomicU64::new(0),
+		inflight: Mutex::new(HashMap::new()),
+		wake: ctx,
+		cancel,
+		clear: Arc::new(AtomicBool::new(false)),
+		cleanup: None,
+		bundled_only: false,
+		limits: watch::channel(Default::default()).0,
+		clear_partition: async_mpsc::channel(1).0,
+		usage: watch::channel(None).1,
+	};
+	let key = "123-a_0123456789abcdef0123456789abcdef";
+	assert!(worker.request_with_animation(key.into(), false));
+	assert!(worker.request_with_animation(key.into(), true));
+	let first = receive.try_recv().unwrap();
+	let second = receive.try_recv().unwrap();
+	assert_ne!(first.id, second.id);
+	// Settling the first load removes only its registration; the second stays cancellable.
+	assert!(
+		sender
+			.send(AvatarResult {
+				id: first.id,
+				key: key.into(),
+				image: None,
+				frames: Vec::new(),
+				error: None,
+				stage: DecodeStage::Settled,
+				animated: false,
+				_reservation: None,
+			})
+			.await
+	);
+	let polled = worker.poll().unwrap();
+	assert_eq!(polled.id, first.id);
+	assert!(!second.cancel.load(Ordering::Acquire));
+	worker.cancel(key);
+	assert!(second.cancel.load(Ordering::Acquire));
+	assert!(
+		sender
+			.send(AvatarResult {
+				id: second.id,
+				key: key.into(),
+				image: None,
+				frames: Vec::new(),
+				error: None,
+				stage: DecodeStage::Cancelled,
+				animated: false,
+				_reservation: None,
+			})
+			.await
+	);
+	assert_eq!(worker.poll().unwrap().id, second.id);
+	assert!(worker.inflight.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn load_returns_cancelled_when_flagged_without_fetch() {
+	let (early, _) = result_channel(egui::Context::default());
+	let cancel = Arc::new(AtomicBool::new(false));
+	// Populate a single-frame cached image so `stale` is non-None and cooldown skips network.
+	let dir = tempfile_dir("post_fetch_cancel");
+	let key = "decoration-a_0123456789abcdef0123456789abcdef";
+	let mut disk = Disk::open(partition_root(&dir, partition(key))).unwrap();
+	let mut png_bytes = Cursor::new(Vec::new());
+	image::DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(
+		2,
+		2,
+		image::Rgba([1, 2, 3, 255]),
+	))
+	.write_to(&mut png_bytes, image::ImageFormat::Png)
+	.unwrap();
+	disk.write(key, png_bytes.get_ref()).unwrap();
+	let cache = Some(disk.reader());
+	let cancel_for_preview = cancel.clone();
+	// Trigger cancellation when the single-frame cache decode is skipped due to cooldown.
+	let loaded = load(Job {
+		id: 7,
+		key: key.into(),
+		url: cdn_url(key).unwrap(),
+		fallback: None,
+		budget: budget(key),
+		cache,
+		error: None,
+		client: None,
+		cooldown: Instant::now() + Duration::from_secs(60),
+		early,
+		cancel: cancel_for_preview,
+	})
+	.await;
+	// Without cancellation, the cached still falls through as `stale`.
+	assert!(!loaded.cancelled);
+	assert!(loaded.image.is_some());
+
+	// Now cancel after cache decode completes by flagging before returning terminal result:
+	// with `client: None` and `cancel` already flipped while waiting, `load` returns cancelled.
+	cancel.store(true, Ordering::Release);
+	let (early2, _) = result_channel(egui::Context::default());
+	let cancelled = load(Job {
+		id: 8,
+		key: key.into(),
+		url: cdn_url(key).unwrap(),
+		fallback: None,
+		budget: budget(key),
+		cache: Some(disk.reader()),
+		error: None,
+		client: None,
+		cooldown: Instant::now() + Duration::from_secs(60),
+		early: early2,
+		cancel,
+	})
+	.await;
+	assert!(cancelled.cancelled);
+	assert!(cancelled.fetched.is_none());
+	assert!(cancelled.image.is_none());
+	assert!(cancelled.frames.is_empty());
+	drop(disk);
+	let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
+fn queues_keep_still_capacity_when_animation_admission_is_full() {
+	let mut queues = Queues::default();
+	let make = |id, key: &str, animate| WorkRequest {
+		id,
+		key: key.into(),
+		animate,
+		cancel: Arc::new(AtomicBool::new(false)),
+	};
+	let anim_key = "anim:emoji-42";
+	let still_key = "emoji-42";
+	let viewer_still = "media:vs:64x64:https://cdn.discordapp.com/attachments/1/2/a.png";
+	let viewer_anim = "media:va:64x64:https://cdn.discordapp.com/attachments/1/2/a.gif";
+	let cancelled_anim = make(1, anim_key, true);
+	cancelled_anim.cancel.store(true, Ordering::Release);
+	queues.push(cancelled_anim);
+	queues.push(make(2, viewer_anim, true));
+	queues.push(make(3, still_key, false));
+	queues.push(make(4, viewer_still, false));
+
+	// Cancelled animations drain immediately even when animation slots are full.
+	assert_eq!(queues.pop_cancelled().unwrap().id, 1);
+	// When animation admission is full (`allow_animation = false`), still jobs proceed.
+	assert_eq!(queues.pop_next(false).unwrap().id, 4);
+	assert_eq!(queues.pop_next(false).unwrap().id, 3);
+	assert!(queues.pop_next(false).is_none());
+	// Once an animation slot opens (`allow_animation = true`), queued animations run.
+	assert_eq!(queues.pop_next(true).unwrap().id, 2);
+}
+
+#[test]
+fn resize_to_premultiplies_straight_alpha_and_handles_zero_alpha() {
+	// Left column opaque red, right column transparent green (non-zero RGB with alpha 0).
+	let mut src = image::RgbaImage::new(2, 2);
+	src.put_pixel(0, 0, image::Rgba([255, 0, 0, 255]));
+	src.put_pixel(0, 1, image::Rgba([255, 0, 0, 255]));
+	src.put_pixel(1, 0, image::Rgba([0, 255, 0, 0]));
+	src.put_pixel(1, 1, image::Rgba([0, 255, 0, 0]));
+	let out = resize_to(src, 1);
+	assert_eq!(out.dimensions(), (1, 1));
+	// Premultiplied downscale prevents transparent green from bleeding into opaque red.
+	assert_eq!(out.get_pixel(0, 0).0, [255, 0, 0, 128]);
+
+	// Fully transparent pixels with non-zero RGB normalize to [0, 0, 0, 0].
+	let zero = image::RgbaImage::from_pixel(2, 2, image::Rgba([120, 200, 40, 0]));
+	let out_zero = resize_to(zero, 1);
+	assert_eq!(out_zero.get_pixel(0, 0).0, [0, 0, 0, 0]);
 }

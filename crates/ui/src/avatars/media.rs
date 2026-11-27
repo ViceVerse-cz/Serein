@@ -610,6 +610,14 @@ impl MediaLibrary {
 		freed
 	}
 
+	pub(super) fn cancel_pending(&mut self, rendition: Rendition) {
+		if let Some(slot) = self.slots.get_mut(&rendition.source)
+			&& slot.pending(rendition.motion, rendition.size)
+		{
+			slot.forget(rendition.motion, rendition.size);
+		}
+	}
+
 	pub(super) fn accept_still(
 		&mut self,
 		ctx: &egui::Context,
@@ -1424,11 +1432,21 @@ impl Avatars {
 		// A shown still waits for playback before asking for frames, so an unfocused window
 		// does not decode frames that would only be released again unplayed.
 		let deferred = want.motion == Motion::Animated && !playing && choice.base.is_some();
-		if choice.request && !deferred && !demo && self.requests.len() < REQUESTS {
-			self.requests.push(want.key());
-			self.media
-				.slot(&source)
-				.record(want.motion, want.size, Attempt::Pending);
+		if !self.viewport_pending.is_empty() || (choice.request && !deferred && !demo) {
+			let key = want.key();
+			if surface != Surface::Viewer {
+				self.touch_viewport_pending(&key);
+			}
+			if choice.request && !deferred && !demo && self.requests.len() < REQUESTS {
+				if surface == Surface::Viewer {
+					self.requests.push(key);
+				} else {
+					self.request_viewport_key(key);
+				}
+				self.media
+					.slot(&source)
+					.record(want.motion, want.size, Attempt::Pending);
+			}
 		}
 		self.sync_pass(pass);
 		let paint_only = self.paint_only;

@@ -179,6 +179,9 @@ impl Avatars {
 			Vec2::splat(size * model::DECORATION_TO_AVATAR),
 		);
 		self.cosmetic(ui.ctx(), &key, demo);
+		if !demo && self.attempts.contains_key(&key) {
+			self.track_viewport_pending(key.clone());
+		}
 		self.paint_fitted(ui, &key, rect, 0, false);
 	}
 
@@ -222,6 +225,7 @@ impl Avatars {
 		let mut texture = self.cosmetic(ui.ctx(), &still, demo);
 		if hovered && !demo && self.animate_gifs {
 			let animated = nameplate.animated_key();
+			self.touch_viewport_pending(&animated);
 			if self.textures.contains_key(&animated) {
 				if let Some((used, _)) = self.textures.get_mut(&animated) {
 					*used = Instant::now();
@@ -230,7 +234,8 @@ impl Avatars {
 					texture = Some(frame);
 				}
 			} else if !self.no_animations.contains(&animated) {
-				self.request(animated);
+				self.want_animation(&animated);
+				self.request_viewport(animated);
 			}
 		}
 		let Some(texture) = texture else {
@@ -747,5 +752,76 @@ mod tests {
 		assert_eq!(avatars.take_requests(), std::slice::from_ref(&key));
 		avatars.accept(&ctx, key.clone(), None);
 		assert!(!avatars.effect_decoding.contains(&key));
+	}
+
+	#[test]
+	fn hovered_nameplate_keeps_loading_after_preview_and_retries_after_cancel() {
+		let ctx = egui::Context::default();
+		let mut user = test_support::message(1, Id(1)).author;
+		let cosmetics = test_support::synthetic_cosmetics();
+		let animated = cosmetics.nameplate.as_ref().unwrap().animated_key();
+		let still = cosmetics.nameplate.as_ref().unwrap().key();
+		user.cosmetics = Some(Box::new(cosmetics));
+		let row = Rect::from_min_size(pos2(0.0, 0.0), vec2(240.0, 44.0));
+		let mut avatars = Avatars {
+			cosmetics: model::CosmeticPreferences::SHOWN,
+			..Avatars::default()
+		};
+		avatars.set_animation(true);
+		let paint = |avatars: &mut Avatars, hovered: bool| {
+			ctx.run_ui(
+				egui::RawInput {
+					focused: true,
+					..Default::default()
+				},
+				|ui| {
+					avatars.paint_nameplate(ui, &user, row, 6, hovered, false, false);
+				},
+			)
+			.drop_without_applying_deltas();
+		};
+		// Initial hover queues still and animated nameplate loads.
+		paint(&mut avatars, true);
+		let requests = avatars.take_requests();
+		assert!(requests.contains(&still));
+		assert!(requests.contains(&animated));
+		assert!(avatars.wants_animation(&animated));
+		// Preview frame arrives while full animation is still decoding.
+		avatars.accept(
+			&ctx,
+			animated.clone(),
+			Some(ColorImage::filled([4, 4], Color32::RED)),
+		);
+		// Continued hover refreshes viewport tracking in the cached-texture branch.
+		for _ in 0..4 {
+			paint(&mut avatars, true);
+			assert!(avatars.take_requests().is_empty());
+			assert!(avatars.take_cancelled_requests().is_empty());
+		}
+		// Leaving hover lets the pending animation decode cancel on the 3rd unhovered frame.
+		for _ in 0..2 {
+			paint(&mut avatars, false);
+			let _ = avatars.take_requests();
+			assert!(avatars.take_cancelled_requests().is_empty());
+		}
+		paint(&mut avatars, false);
+		let _ = avatars.take_requests();
+		assert_eq!(avatars.take_cancelled_requests(), vec![animated.clone()]);
+		avatars.cancel_pending(&animated);
+		assert!(
+			avatars.texture_id(&animated).is_some(),
+			"cancelled preview texture stays cached"
+		);
+		// Next hover queues one reload for the missing frames without duplicating.
+		paint(&mut avatars, true);
+		assert_eq!(avatars.take_requests(), vec![animated.clone()]);
+		assert!(avatars.wants_animation(&animated));
+		paint(&mut avatars, true);
+		assert!(avatars.take_requests().is_empty());
+		// A nameplate identified as non-animated is not retried on later hovers.
+		avatars.accept_animation(animated.clone(), Vec::new());
+		avatars.cancel_pending(&animated);
+		paint(&mut avatars, true);
+		assert!(avatars.take_requests().is_empty());
 	}
 }

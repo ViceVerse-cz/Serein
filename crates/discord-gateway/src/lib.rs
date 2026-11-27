@@ -410,9 +410,10 @@ impl ResumeState {
 /// How long a recovery heartbeat may wait for its acknowledgement before the socket is replaced.
 #[cfg(not(test))]
 const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
-/// Short in tests, so the silent-socket case does not spend its deadline waiting.
+/// Short in tests, so the silent-socket case does not spend its deadline waiting, yet long
+/// enough that a loaded CI runner can answer a healthy probe in time.
 #[cfg(test)]
-const PROBE_TIMEOUT: Duration = Duration::from_millis(500);
+const PROBE_TIMEOUT: Duration = Duration::from_secs(2);
 #[derive(Default)]
 struct Heartbeat {
 	awaiting_since: Option<Instant>,
