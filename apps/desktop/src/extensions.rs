@@ -23,7 +23,7 @@ use sha2::{Digest, Sha256};
 /// Generated from `extensions/` and pinned to a merged commit by the catalog workflow.
 const CATALOG_URL: &str =
 	"https://raw.githubusercontent.com/ViceVerse-cz/Serein/main/extensions/catalog.json";
-const MAX_PACKAGE: usize = 16 * 1024 * 1024;
+pub(crate) const MAX_PACKAGE: usize = 16 * 1024 * 1024;
 const MAX_RECORD: usize = MAX_PACKAGE + 64 * 1024;
 const MAX_CATALOG: usize = 1024 * 1024;
 const MAX_STORAGE: usize = 1024 * 1024;
@@ -1576,7 +1576,9 @@ pub fn decode_background(bytes: &[u8]) -> Result<eframe::egui::ColorImage, Strin
 	))
 }
 
-fn package_background(package: &Package) -> Result<Option<Arc<eframe::egui::ColorImage>>, String> {
+pub(crate) fn package_background(
+	package: &Package,
+) -> Result<Option<Arc<eframe::egui::ColorImage>>, String> {
 	if package.background_image.is_empty() {
 		Ok(None)
 	} else {
@@ -1628,7 +1630,7 @@ fn decode_preview(bytes: &[u8], preview: &Preview) -> Option<eframe::egui::Color
 	))
 }
 
-fn digest(bytes: &[u8]) -> String {
+pub(crate) fn digest(bytes: &[u8]) -> String {
 	format!("{:x}", Sha256::digest(bytes))
 }
 
