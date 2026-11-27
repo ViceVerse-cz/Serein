@@ -29,6 +29,10 @@ struct Animation {
 	started: Instant,
 	played: Instant,
 	next_upload: Instant,
+	/// Pass on which `texture` was first created; later same-size frames update in place.
+	created_pass: u64,
+	/// Most recent UI pass on which `advance` painted this animation.
+	painted_pass: u64,
 	frame: usize,
 	bytes: usize,
 }
@@ -60,6 +64,8 @@ const ATTEMPTS: usize = 2048;
 struct Fit {
 	edge: u32,
 	frame: Option<usize>,
+	created_pass: u64,
+	painted_pass: u64,
 	texture: TextureHandle,
 }
 
@@ -108,22 +114,24 @@ pub(crate) struct Avatars {
 	/// flickering back to the loading placeholder; a successful load clears the mark.
 	failed: HashSet<String>,
 	requests: Vec<String>,
+	paint_only: bool,
+	last_pass: Option<u64>,
+	next_paint_only: Option<Duration>,
+	active_animations: Vec<String>,
+	freed_bytes: usize,
 	media: media::MediaLibrary,
 }
 
 impl Animation {
-	fn advance(&mut self, ctx: &egui::Context) -> Option<TextureHandle> {
+	fn elapsed_at(&self, now: Instant) -> Option<Duration> {
 		let total_nanos = self.total.as_nanos();
-		if total_nanos == 0 {
-			return None;
-		}
-		let elapsed_nanos = (self.started.elapsed().as_nanos() % total_nanos) as u64;
-		self.seek(ctx, Duration::from_nanos(elapsed_nanos))
+		(total_nanos > 0).then(|| {
+			let elapsed =
+				(now.saturating_duration_since(self.started).as_nanos() % total_nanos) as u64;
+			Duration::from_nanos(elapsed)
+		})
 	}
-	/// Shows the frame at `elapsed` into the clip, which must be shorter than `total`.
-	fn seek(&mut self, ctx: &egui::Context, mut elapsed: Duration) -> Option<TextureHandle> {
-		let now = Instant::now();
-		self.played = now;
+	fn frame_at(&self, mut elapsed: Duration) -> (usize, Duration) {
 		let mut target_index = self.frames.len().saturating_sub(1);
 		let mut frame_remaining = Duration::ZERO;
 		for (index, (delay, _)) in self.frames.iter().enumerate() {
@@ -134,28 +142,93 @@ impl Animation {
 			}
 			elapsed -= *delay;
 		}
-
+		(target_index, frame_remaining.max(Duration::from_millis(1)))
+	}
+	/// Advances during a normal UI pass. When `paint_only` is enabled and the GPU texture
+	/// already exists from an earlier pass, returns the next frame delay instead of requesting
+	/// a full UI repaint.
+	fn advance(
+		&mut self,
+		ctx: &egui::Context,
+		paint_only: bool,
+	) -> (Option<TextureHandle>, Option<Duration>) {
+		let now = Instant::now();
+		let Some(elapsed) = self.elapsed_at(now) else {
+			return (None, None);
+		};
+		self.painted_pass = ctx.cumulative_pass_nr();
+		self.seek_at(ctx, now, elapsed, paint_only)
+	}
+	/// Shows the frame at `elapsed` into the clip, which must be shorter than `total`.
+	fn seek(&mut self, ctx: &egui::Context, elapsed: Duration) -> Option<TextureHandle> {
+		self.seek_at(ctx, Instant::now(), elapsed, false).0
+	}
+	fn seek_at(
+		&mut self,
+		ctx: &egui::Context,
+		now: Instant,
+		elapsed: Duration,
+		paint_only: bool,
+	) -> (Option<TextureHandle>, Option<Duration>) {
+		let pass = ctx.cumulative_pass_nr();
+		self.played = now;
+		let (target_index, mut next_delay) = self.frame_at(elapsed);
 		if self.frame != target_index {
 			if now < self.next_upload {
-				ctx.request_repaint_after(self.next_upload - now);
-				return self.texture.clone();
-			}
-			let image = &self.frames[target_index].1;
-			if let Some(texture) = &mut self.texture {
-				texture.set(image.clone(), egui::TextureOptions::LINEAR);
+				next_delay = (self.next_upload - now).max(Duration::from_millis(1));
 			} else {
-				self.texture = Some(ctx.load_texture(
-					"service-animation",
-					image.clone(),
-					egui::TextureOptions::LINEAR,
-				));
+				let image = &self.frames[target_index].1;
+				if let Some(texture) = &mut self.texture {
+					// Reuse the allocated GPU texture and bind group when dimensions match.
+					if texture.resolution() == image.resolution() && pass > self.created_pass {
+						texture.set_partial([0, 0], image.clone(), egui::TextureOptions::LINEAR);
+					} else {
+						texture.set(image.clone(), egui::TextureOptions::LINEAR);
+						self.created_pass = pass;
+					}
+				} else {
+					self.texture = Some(ctx.load_texture(
+						"service-animation",
+						image.clone(),
+						egui::TextureOptions::LINEAR,
+					));
+					self.created_pass = pass;
+				}
+				self.frame = target_index;
+				self.next_upload = now + ANIMATION_INTERVAL;
+			}
+		}
+
+		if paint_only && self.texture.is_some() && pass > self.created_pass {
+			(self.texture.clone(), Some(next_delay))
+		} else {
+			ctx.request_repaint_after(next_delay);
+			(self.texture.clone(), None)
+		}
+	}
+	/// Updates the existing GPU texture in place without running a UI pass.
+	/// Returns `None` if a full pass is required (e.g. texture not yet created or size changed).
+	fn paint_only(
+		&mut self,
+		now: Instant,
+		update: &mut impl FnMut(egui::TextureId, &ColorImage) -> bool,
+	) -> Option<Duration> {
+		let elapsed = self.elapsed_at(now)?;
+		self.played = now;
+		let (target_index, next_delay) = self.frame_at(elapsed);
+		if self.frame != target_index {
+			if now < self.next_upload {
+				return Some((self.next_upload - now).max(Duration::from_millis(1)));
+			}
+			let texture = self.texture.as_ref()?;
+			let image = &self.frames[target_index].1;
+			if texture.resolution() != image.resolution() || !update(texture.id(), image) {
+				return None;
 			}
 			self.frame = target_index;
 			self.next_upload = now + ANIMATION_INTERVAL;
 		}
-
-		ctx.request_repaint_after(frame_remaining.max(Duration::from_millis(1)));
-		self.texture.clone()
+		Some(next_delay)
 	}
 }
 
@@ -202,7 +275,8 @@ fn animated_emoji_key(id: model::Id, play: bool) -> Option<String> {
 	(play && id.0 != 0).then(|| format!("anim:emoji-{id}"))
 }
 
-fn is_animated_profile_or_avatar_key(key: &str) -> bool {
+/// Whether `key` names hover-gated animated profile or avatar artwork.
+pub fn is_hover_animated_key(key: &str) -> bool {
 	// Decorations and nameplates animate while hovered, like the avatar beside them.
 	if let Some(asset) = key.strip_prefix("decoration-") {
 		return asset.starts_with("a_");
@@ -261,12 +335,19 @@ impl Avatars {
 		self.wanted.clear();
 		self.effect_decoding.clear();
 		self.effect_reloaded.clear();
-		self.media.set_animation(enabled);
+		let mut freed = self.media.set_animation(enabled);
 		if !enabled {
+			self.active_animations.clear();
+			self.next_paint_only = None;
+			for animation in self.animations.values() {
+				freed = freed.saturating_add(animation.bytes);
+			}
 			self.animations.clear();
 			self.textures.retain(|key, (_, texture)| {
 				if key.starts_with("anim:") {
-					self.bytes -= texture.byte_size();
+					let tex_bytes = texture.byte_size();
+					self.bytes -= tex_bytes;
+					freed = freed.saturating_add(tex_bytes);
 					false
 				} else {
 					true
@@ -275,6 +356,7 @@ impl Avatars {
 			self.attempts.retain(|key, _| !key.starts_with("anim:"));
 			self.requests.retain(|key| !key.starts_with("anim:"));
 		}
+		self.freed_bytes = self.freed_bytes.saturating_add(freed);
 	}
 	pub fn accept_animation(&mut self, key: String, frames: GifFrames) {
 		self.effect_decoding.remove(&key);
@@ -303,7 +385,7 @@ impl Avatars {
 		self.no_animations.remove(&key);
 		// The worker decodes an animated avatar's frames with its still. Hover-only artwork keeps
 		// them only when it is about to play; otherwise they would sit unused in the pool.
-		if is_animated_profile_or_avatar_key(&key) && !self.wanted.remove(&key) {
+		if is_hover_animated_key(&key) && !self.wanted.remove(&key) {
 			self.release(key);
 			return;
 		}
@@ -350,6 +432,8 @@ impl Avatars {
 				started: Instant::now(),
 				played: Instant::now(),
 				next_upload: Instant::now(),
+				created_pass: u64::MAX,
+				painted_pass: u64::MAX,
 				frame: usize::MAX,
 				bytes,
 			},
@@ -363,7 +447,8 @@ impl Avatars {
 	}
 	/// Drained once per frame after the UI pass.
 	pub fn take_requests(&mut self) -> Vec<String> {
-		self.media.end_frame();
+		let viewer_freed = self.media.end_frame();
+		self.freed_bytes = self.freed_bytes.saturating_add(viewer_freed);
 		self.release_idle(Instant::now());
 		std::mem::take(&mut self.requests)
 	}
@@ -395,6 +480,7 @@ impl Avatars {
 	}
 	/// Releases idle decoded frames and artwork textures; visible artwork refreshes its deadline.
 	fn release_idle(&mut self, now: Instant) {
+		let mut freed = 0usize;
 		let idle: Vec<String> = self
 			.animations
 			.iter()
@@ -402,7 +488,9 @@ impl Avatars {
 			.map(|(key, _)| key.clone())
 			.collect();
 		for key in idle {
-			self.animations.remove(&key);
+			if let Some(animation) = self.animations.remove(&key) {
+				freed = freed.saturating_add(animation.bytes);
+			}
 			self.release(key);
 		}
 		if self.wanted.len() > REQUESTS {
@@ -416,23 +504,123 @@ impl Avatars {
 				if now.saturating_duration_since(*used) < IDLE_TEXTURES {
 					return true;
 				}
-				*bytes -= texture.byte_size();
+				let tex_bytes = texture.byte_size();
+				*bytes -= tex_bytes;
+				freed = freed.saturating_add(tex_bytes);
 				self.revision += 1;
-				self.animations.remove(key);
+				if let Some(animation) = self.animations.remove(key) {
+					freed = freed.saturating_add(animation.bytes);
+				}
 				self.released.remove(key);
 				self.wanted.remove(key);
 				if let Some(image) = self.sources.remove(key) {
-					self.source_bytes = self.source_bytes.saturating_sub(image.pixels().len() * 4);
+					let src_bytes = image.pixels().len() * 4;
+					self.source_bytes = self.source_bytes.saturating_sub(src_bytes);
+					freed = freed.saturating_add(src_bytes);
 				}
 				if let Some(fits) = self.fits.remove(key) {
 					for fit in fits {
-						self.fit_bytes = self.fit_bytes.saturating_sub(fit.texture.byte_size());
+						let fit_bytes = fit.texture.byte_size();
+						self.fit_bytes = self.fit_bytes.saturating_sub(fit_bytes);
+						freed = freed.saturating_add(fit_bytes);
 					}
 				}
 				false
 			});
 		}
-		self.media.release_idle(now);
+		freed = freed.saturating_add(self.media.release_idle(now));
+		self.freed_bytes = self.freed_bytes.saturating_add(freed);
+	}
+	pub(crate) fn sync_pass(&mut self, pass: u64) {
+		if self.last_pass != Some(pass) {
+			self.last_pass = Some(pass);
+			self.next_paint_only = None;
+			self.active_animations.clear();
+			self.media.clear_active();
+		}
+	}
+	pub(crate) fn begin_pass(&mut self, pass: u64, paint_only: bool) {
+		self.paint_only = paint_only;
+		self.sync_pass(pass);
+	}
+	pub(crate) fn record_paint_only_delay(&mut self, delay: Option<Duration>) {
+		if let Some(delay) = delay {
+			self.next_paint_only = Some(self.next_paint_only.map_or(delay, |cur| cur.min(delay)));
+		}
+	}
+	pub(crate) fn take_paint_only_delay(&mut self) -> Option<Duration> {
+		self.next_paint_only.take()
+	}
+	pub(crate) fn take_freed_bytes(&mut self) -> usize {
+		std::mem::take(&mut self.freed_bytes)
+	}
+	pub(crate) fn has_active_animations(&self) -> bool {
+		self.paint_only
+			&& self.animate_gifs
+			&& (!self.active_animations.is_empty() || self.media.has_active_animations())
+	}
+	pub(crate) fn paint_only_animations(
+		&mut self,
+		ctx: &egui::Context,
+		mut update: impl FnMut(egui::TextureId, &ColorImage) -> bool,
+	) -> (bool, Option<Duration>) {
+		let Some(completed_pass) = ctx.cumulative_pass_nr().checked_sub(1) else {
+			return (true, None);
+		};
+		if self.last_pass != Some(completed_pass) {
+			self.sync_pass(completed_pass);
+			return (true, None);
+		}
+		if !self.has_active_animations() {
+			return (true, None);
+		}
+		if !ctx.input(|input| input.focused) {
+			return (false, None);
+		}
+		let now = Instant::now();
+		let mut next: Option<Duration> = None;
+		for key in &self.active_animations {
+			let Some(animation) = self.animations.get_mut(key) else {
+				continue;
+			};
+			if animation.painted_pass != completed_pass {
+				continue;
+			}
+			let prev_frame = animation.frame;
+			let Some(delay) = animation.paint_only(now, &mut update) else {
+				return (false, None);
+			};
+			if let Some((used, _)) = self.textures.get_mut(key) {
+				*used = now;
+			}
+			if animation.frame != prev_frame
+				&& let Some(fits) = self.fits.get_mut(key)
+			{
+				let image = &animation.frames[animation.frame].1;
+				for fit in fits {
+					if fit.frame.is_some() && fit.painted_pass == completed_pass {
+						let scaled = crate::resample::downscale(image, fit.edge);
+						if fit.texture.resolution() != scaled.resolution()
+							|| !update(fit.texture.id(), &scaled)
+						{
+							return (false, None);
+						}
+						fit.frame = Some(animation.frame);
+					}
+				}
+			}
+			next = Some(next.map_or(delay, |cur| cur.min(delay)));
+		}
+		let (media_ok, media_next) =
+			self.media
+				.paint_only_animations(completed_pass, now, &mut update);
+		if !media_ok {
+			return (false, None);
+		}
+		if let Some(delay) = media_next {
+			next = Some(next.map_or(delay, |cur| cur.min(delay)));
+		}
+		(true, next)
 	}
 	/// Next idle frame/artwork release or request stall; the host wakes then to trim an idle
 	/// window, or to swap a stalled image's loading placeholder for its fallback art.
@@ -569,15 +757,16 @@ impl Avatars {
 		let Some(edge) = crate::resample::fitted_edge(source, physical) else {
 			return full.clone();
 		};
+		let pass = ctx.cumulative_pass_nr();
 		let frame = animated
 			.then(|| self.animations.get(key).map(|animation| animation.frame))
 			.flatten();
-		if let Some(texture) = self.fits.get(key).and_then(|fits| {
-			fits.iter()
+		if let Some(fit) = self.fits.get_mut(key).and_then(|fits| {
+			fits.iter_mut()
 				.find(|fit| fit.edge == edge && fit.frame == frame)
-				.map(|fit| fit.texture.clone())
 		}) {
-			return texture;
+			fit.painted_pass = pass;
+			return fit.texture.clone();
 		}
 		let Some(pixels) = self.raster_pixels(key, animated) else {
 			return full.clone();
@@ -593,6 +782,7 @@ impl Avatars {
 		frame: Option<usize>,
 		image: ColorImage,
 	) -> TextureHandle {
+		let pass = ctx.cumulative_pass_nr();
 		if self.fit_bytes > FIT_BYTES {
 			self.fits.clear();
 			self.fit_bytes = 0;
@@ -602,18 +792,37 @@ impl Avatars {
 				.any(|fit| fit.edge == edge && fit.frame.is_some() == frame.is_some())
 		});
 		if has_slot {
-			let (texture, before, after) = {
+			let (texture, before, after, recreated) = {
 				let fits = self.fits.get_mut(key).expect("fit slot");
 				let slot = fits
 					.iter_mut()
 					.find(|fit| fit.edge == edge && fit.frame.is_some() == frame.is_some())
 					.expect("fit slot");
 				let before = slot.texture.byte_size();
-				slot.texture.set(image, egui::TextureOptions::LINEAR);
+				let recreated = if slot.texture.resolution() == image.resolution()
+					&& pass > slot.created_pass
+				{
+					slot.texture
+						.set_partial([0, 0], image, egui::TextureOptions::LINEAR);
+					false
+				} else {
+					slot.texture.set(image, egui::TextureOptions::LINEAR);
+					slot.created_pass = pass;
+					true
+				};
 				slot.frame = frame;
-				(slot.texture.clone(), before, slot.texture.byte_size())
+				slot.painted_pass = pass;
+				(
+					slot.texture.clone(),
+					before,
+					slot.texture.byte_size(),
+					recreated,
+				)
 			};
 			self.fit_bytes = self.fit_bytes.saturating_sub(before) + after;
+			if frame.is_some() && recreated {
+				ctx.request_repaint_after(self.next_paint_only.unwrap_or(ANIMATION_INTERVAL));
+			}
 			return texture;
 		}
 		let dropped = {
@@ -632,8 +841,13 @@ impl Avatars {
 		self.fits.entry(key.to_owned()).or_default().push(Fit {
 			edge,
 			frame,
+			created_pass: pass,
+			painted_pass: pass,
 			texture: texture.clone(),
 		});
+		if frame.is_some() {
+			ctx.request_repaint_after(self.next_paint_only.unwrap_or(ANIMATION_INTERVAL));
+		}
 		texture
 	}
 	pub fn accept(&mut self, ctx: &egui::Context, key: String, image: Option<ColorImage>) {
@@ -1157,7 +1371,7 @@ impl Avatars {
 	) -> Option<TextureHandle> {
 		#[cfg(not(any(test, feature = "demo")))]
 		let _ = color;
-		let is_animated = is_animated_profile_or_avatar_key(&key);
+		let is_animated = is_hover_animated_key(&key);
 		if self.animate_gifs
 			&& is_animated
 			&& !self.animations.contains_key(&key)
@@ -1371,14 +1585,21 @@ impl Avatars {
 	) -> Option<TextureHandle> {
 		if !self.animate_gifs
 			|| !ctx.input(|input| input.focused)
-			|| !(hovered || self.avatar_animation || !is_animated_profile_or_avatar_key(key))
+			|| !(hovered || self.avatar_animation || !is_hover_animated_key(key))
 		{
 			return None;
 		}
+		let pass = ctx.cumulative_pass_nr();
+		self.sync_pass(pass);
 		if let Some(animation) = self.animations.get_mut(key) {
-			return animation.advance(ctx);
+			let (texture, delay) = animation.advance(ctx, self.paint_only);
+			if delay.is_some() && !self.active_animations.iter().any(|k| k == key) {
+				self.active_animations.push(key.to_owned());
+			}
+			self.record_paint_only_delay(delay);
+			return texture;
 		}
-		if is_animated_profile_or_avatar_key(key) {
+		if is_hover_animated_key(key) {
 			if self.wanted.len() >= REQUESTS {
 				self.wanted.clear();
 			}
@@ -1432,7 +1653,7 @@ impl Avatars {
 	) -> bool {
 		let mut animated_texture = None;
 		if ui.is_rect_visible(rect) {
-			let is_animated = key.starts_with("anim:") || is_animated_profile_or_avatar_key(key);
+			let is_animated = key.starts_with("anim:") || is_hover_animated_key(key);
 			if is_animated
 				&& self.animate_gifs
 				&& !self.animations.contains_key(key)
@@ -3503,5 +3724,174 @@ mod tests {
 			.collect();
 		avatars.accept_animation("effect-c-test".into(), frames);
 		assert!(avatars.animations.contains_key("effect-c-test"));
+	}
+
+	#[test]
+	fn paint_only_animations_update_existing_texture_in_place_and_fallback_when_unfocused() {
+		let ctx = egui::Context::default();
+		let mut avatars = Avatars::default();
+		avatars.set_animation(true);
+		avatars.begin_pass(0, true);
+		let key = "anim:emoji-42".to_owned();
+		avatars.request(key.clone());
+		avatars.take_requests();
+		avatars.accept(
+			&ctx,
+			key.clone(),
+			Some(ColorImage::filled([32, 32], egui::Color32::WHITE)),
+		);
+		let frames: crate::avatars::GifFrames = vec![
+			(
+				Duration::from_millis(40),
+				Arc::new(ColorImage::filled([32, 32], egui::Color32::RED)),
+			),
+			(
+				Duration::from_millis(40),
+				Arc::new(ColorImage::filled([32, 32], egui::Color32::BLUE)),
+			),
+		];
+		avatars.accept_animation(key.clone(), frames);
+
+		let focused = egui::RawInput {
+			focused: true,
+			..Default::default()
+		};
+		// Pass 1 creates the GPU texture, so it schedules a normal pass rather than paint-only.
+		ctx.run_ui(focused.clone(), |ui| {
+			let _ = avatars.advance_animation(ui.ctx(), &key, false);
+		})
+		.drop_without_applying_deltas();
+		assert!(avatars.take_paint_only_delay().is_none());
+		assert!(!avatars.has_active_animations());
+
+		// Pass 2 reuses the allocated texture and schedules paint-only instead of a full UI pass.
+		ctx.run_ui(focused.clone(), |ui| {
+			let _ = avatars.advance_animation(ui.ctx(), &key, false);
+		})
+		.drop_without_applying_deltas();
+		assert!(avatars.take_paint_only_delay().is_some());
+		assert!(avatars.has_active_animations());
+
+		// Force the animation onto frame 1 and advance in place via paint_only_animations.
+		{
+			let anim = avatars.animations.get_mut(&key).unwrap();
+			anim.started = Instant::now() - Duration::from_millis(50);
+			anim.next_upload = Instant::now() - Duration::from_millis(1);
+			anim.frame = 0;
+		}
+		let expected_id = avatars.animations[&key].texture.as_ref().unwrap().id();
+		let mut updated = Vec::new();
+		let (ok, next) = avatars.paint_only_animations(&ctx, |id, image| {
+			updated.push((id, image.pixels()[0]));
+			true
+		});
+		assert!(ok);
+		assert!(next.is_some());
+		assert_eq!(updated, vec![(expected_id, egui::Color32::BLUE)]);
+
+		// Declining an in-place upload (e.g., renderer missing texture) falls back to a full pass.
+		{
+			let anim = avatars.animations.get_mut(&key).unwrap();
+			anim.started = Instant::now() - Duration::from_millis(10);
+			anim.next_upload = Instant::now() - Duration::from_millis(1);
+			anim.frame = 1;
+		}
+		assert_eq!(
+			avatars.paint_only_animations(&ctx, |_, _| false),
+			(false, None)
+		);
+
+		// Unfocused windows fall back to a full pass so animations pause cleanly.
+		ctx.run_ui(
+			egui::RawInput {
+				focused: false,
+				..Default::default()
+			},
+			|ui| {
+				// The animation was painted on this pass; focus is lost before the next frame.
+				let pass = ui.ctx().cumulative_pass_nr();
+				avatars.begin_pass(pass, true);
+				avatars.active_animations.push(key.clone());
+				avatars.animations.get_mut(&key).unwrap().painted_pass = pass;
+			},
+		)
+		.drop_without_applying_deltas();
+		assert_eq!(
+			avatars.paint_only_animations(&ctx, |_, _| true),
+			(false, None)
+		);
+
+		// A subsequent UI pass without the animation stops paint-only updates and frees kept state.
+		ctx.run_ui(focused.clone(), |ui| {
+			avatars.begin_pass(ui.ctx().cumulative_pass_nr(), true);
+		})
+		.drop_without_applying_deltas();
+		assert!(!avatars.has_active_animations());
+		let mut stale_updates = 0;
+		assert_eq!(
+			avatars.paint_only_animations(&ctx, |_, _| {
+				stale_updates += 1;
+				true
+			}),
+			(true, None)
+		);
+		assert_eq!(stale_updates, 0);
+
+		// Downscaled (`coverage` / `Fit`) animations also update their fitted texture in place.
+		let sticker_key = "anim:sticker-99-4".to_owned();
+		avatars.request(sticker_key.clone());
+		avatars.take_requests();
+		avatars.accept(
+			&ctx,
+			sticker_key.clone(),
+			Some(ColorImage::filled([256, 256], egui::Color32::WHITE)),
+		);
+		avatars.accept_animation(
+			sticker_key.clone(),
+			vec![
+				(
+					Duration::from_millis(40),
+					Arc::new(ColorImage::filled([256, 256], egui::Color32::RED)),
+				),
+				(
+					Duration::from_millis(40),
+					Arc::new(ColorImage::filled([256, 256], egui::Color32::GREEN)),
+				),
+			],
+		);
+		let rect = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(48.0, 48.0));
+		for _ in 0..2 {
+			ctx.run_ui(focused.clone(), |ui| {
+				avatars.begin_pass(ui.ctx().cumulative_pass_nr(), true);
+				assert!(avatars.paint(ui, &sticker_key, rect, 0));
+			})
+			.drop_without_applying_deltas();
+		}
+		assert!(avatars.take_paint_only_delay().is_some());
+		let fit_id = avatars.fits[&sticker_key][0].texture.id();
+		let full_id = avatars.animations[&sticker_key]
+			.texture
+			.as_ref()
+			.unwrap()
+			.id();
+		{
+			let anim = avatars.animations.get_mut(&sticker_key).unwrap();
+			anim.started = Instant::now() - Duration::from_millis(50);
+			anim.next_upload = Instant::now() - Duration::from_millis(1);
+			anim.frame = 0;
+		}
+		let mut fitted_updates = Vec::new();
+		let (ok, _) = avatars.paint_only_animations(&ctx, |id, image| {
+			fitted_updates.push((id, image.resolution(), image.pixels()[0]));
+			true
+		});
+		assert!(ok);
+		assert!(fitted_updates.contains(&(full_id, [256, 256], egui::Color32::GREEN)));
+		assert!(fitted_updates.contains(&(fit_id, [48, 48], egui::Color32::GREEN)));
+
+		// Disabling animations reports freed animation bytes for prompt allocator trimming.
+		let _ = avatars.take_freed_bytes();
+		avatars.set_animation(false);
+		assert!(avatars.take_freed_bytes() > 256 * 256 * 4);
 	}
 }

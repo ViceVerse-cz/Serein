@@ -558,23 +558,48 @@ const _: () = assert!(
 	CHECKED_JOBS * (size_of::<egui::text::LayoutJob>() + 3 * size_of::<usize>()) <= CHECKED_BYTES
 );
 
+fn is_cjk(c: char) -> bool {
+	matches!(
+		c as u32,
+		0x1100..=0x11ff
+			| 0x2e80..=0xa4cf
+			| 0xa960..=0xa97f
+			| 0xac00..=0xd7af
+			| 0xd7b0..=0xd7ff
+			| 0xf900..=0xfaff
+			| 0xfe30..=0xffef
+			| 0x20000..=0x323af
+	)
+}
+
+const MAX_PASS_CJK_CHARS: usize = 64;
+
 #[derive(Default)]
 struct CjkScan {
 	checked: Vec<Weak<egui::text::LayoutJob>>,
+	layers: Vec<egui::LayerId>,
+	chars: Vec<char>,
 }
 
 impl CjkScan {
-	fn text(&mut self, job: &Arc<egui::text::LayoutJob>) -> bool {
+	fn scan_job(&mut self, job: &Arc<egui::text::LayoutJob>) {
+		if self.chars.len() >= MAX_PASS_CJK_CHARS {
+			return;
+		}
 		let index = match self
 			.checked
 			.binary_search_by_key(&(Arc::as_ptr(job) as usize), |entry| {
 				entry.as_ptr() as usize
 			}) {
-			Ok(_) => return false,
+			Ok(_) => return,
 			Err(index) => index,
 		};
-		if !job.text.is_ascii() && job.text.chars().any(|c| matches!(c as u32, 0x1100..=0x11ff | 0x2e80..=0xa4cf | 0xa960..=0xa97f | 0xac00..=0xd7af | 0xd7b0..=0xd7ff | 0xf900..=0xfaff | 0xfe30..=0xffef | 0x20000..=0x323af)) {
-			return true;
+		if !job.text.is_ascii() {
+			for ch in job.text.chars().filter(|c| is_cjk(*c)) {
+				if !self.chars.contains(&ch) {
+					self.chars.push(ch);
+				}
+			}
 		}
 		// Keep allocation identities alive so allocator address reuse cannot hide new text.
 		// Arc::make_mut also dissociates these weak references before editing a job.
@@ -589,14 +614,30 @@ impl CjkScan {
 			index
 		};
 		self.checked.insert(index, Arc::downgrade(job));
-		false
 	}
 
-	fn shape(&mut self, shape: &egui::Shape) -> bool {
+	#[cfg(test)]
+	fn text(&mut self, job: &Arc<egui::text::LayoutJob>) -> bool {
+		self.chars.clear();
+		self.scan_job(job);
+		!self.chars.is_empty()
+	}
+
+	fn shape(&mut self, shape: &egui::Shape) {
+		if self.chars.len() >= MAX_PASS_CJK_CHARS {
+			return;
+		}
 		match shape {
-			egui::Shape::Text(text) => self.text(&text.galley.job),
-			egui::Shape::Vec(shapes) => shapes.iter().any(|shape| self.shape(shape)),
-			_ => false,
+			egui::Shape::Text(text) => self.scan_job(&text.galley.job),
+			egui::Shape::Vec(shapes) => {
+				for shape in shapes {
+					self.shape(shape);
+					if self.chars.len() >= MAX_PASS_CJK_CHARS {
+						break;
+					}
+				}
+			}
+			_ => {}
 		}
 	}
 }
@@ -618,14 +659,29 @@ pub fn install(ctx: &Context) {
 			}
 			let mut scan = scan.lock().expect("CJK scan");
 			let ctx = ui.ctx();
-			let layers: Vec<_> = ctx.memory(|memory| memory.layer_ids().collect());
-			let needed = ctx.graphics(|graphics| {
-				layers.iter().any(|layer| {
-					graphics.get(*layer).is_some_and(|list| {
-						list.all_entries().any(|entry| scan.shape(&entry.shape))
-					})
-				})
+			let mut layers = std::mem::take(&mut scan.layers);
+			layers.clear();
+			ctx.memory(|memory| layers.extend(memory.layer_ids()));
+			scan.chars.clear();
+			ctx.graphics(|graphics| {
+				for layer in &layers {
+					if let Some(list) = graphics.get(*layer) {
+						for entry in list.all_entries() {
+							scan.shape(&entry.shape);
+							if scan.chars.len() >= MAX_PASS_CJK_CHARS {
+								return;
+							}
+						}
+					}
+				}
 			});
+			// Prefer mmap'd system CJK fonts discovered by egui_system_font_provider; only
+			// inflate the 19 MiB bundled archive when a CJK character has no glyph yet.
+			let needed = !scan.chars.is_empty()
+				&& ctx.fonts_mut(|fonts| {
+					let id = egui::FontId::proportional(14.0);
+					scan.chars.iter().any(|&ch| !fonts.has_glyph(&id, ch))
+				});
 			if needed {
 				*scan = CjkScan::default();
 				installed.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -644,6 +700,14 @@ pub fn install(ctx: &Context) {
 					install_cjk(ctx, &shared);
 					ctx.request_repaint();
 				}
+			} else {
+				if scan.chars.capacity() > 256 {
+					scan.chars.shrink_to(256);
+				}
+				if layers.capacity() > 64 {
+					layers.shrink_to(64);
+				}
+				scan.layers = layers;
 			}
 		}),
 	);
@@ -789,7 +853,13 @@ mod tests {
 			scan.text(&job),
 			"editing an already checked job must detect CJK"
 		);
-		assert!(scan.checked[0].upgrade().is_none());
+		assert_eq!(
+			scan.checked
+				.iter()
+				.filter(|entry| entry.upgrade().is_none())
+				.count(),
+			1
+		);
 		for index in 0..CHECKED_JOBS * 2 {
 			let job = Arc::new(egui::text::LayoutJob {
 				text: format!("Synthetic {index}"),
@@ -808,6 +878,41 @@ mod tests {
 			scan.text(&job),
 			"cache rollover must not suppress new CJK text"
 		);
+
+		// Every unique CJK character in a checked job must be collected, and jobs past the
+		// per-pass cap must stay unchecked so the next pass inspects them rather than dropping
+		// uncovered glyphs past an arbitrary prefix.
+		let mut scan = CjkScan::default();
+		let mixed = Arc::new(egui::text::LayoutJob {
+			text: "一二三四五六七八九十한국어𠀀".into(),
+			..Default::default()
+		});
+		scan.scan_job(&mixed);
+		assert!(scan.chars.contains(&'한'));
+		assert!(scan.chars.contains(&'𠀀'));
+
+		let mut scan = CjkScan::default();
+		let saturating = Arc::new(egui::text::LayoutJob {
+			text: (0x4e00..0x4e00 + MAX_PASS_CJK_CHARS as u32)
+				.filter_map(char::from_u32)
+				.collect(),
+			..Default::default()
+		});
+		let deferred = Arc::new(egui::text::LayoutJob {
+			text: "Deferred 한글".into(),
+			..Default::default()
+		});
+		scan.scan_job(&saturating);
+		assert_eq!(scan.chars.len(), MAX_PASS_CJK_CHARS);
+		scan.scan_job(&deferred);
+		assert_eq!(
+			scan.checked.len(),
+			1,
+			"uninspected job past per-pass cap must remain unchecked for the next pass"
+		);
+		scan.chars.clear();
+		scan.scan_job(&deferred);
+		assert!(scan.chars.contains(&'한'));
 	}
 
 	#[test]

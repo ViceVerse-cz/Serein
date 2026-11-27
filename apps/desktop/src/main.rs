@@ -5911,10 +5911,10 @@ impl Desktop {
 	/// Clip the finished frame to a rounded window shape for the custom Linux title bar.
 	#[cfg(target_os = "linux")]
 	fn round_window_corners(&self, ctx: &egui::Context, frame: &eframe::Frame) {
-		let square = ctx.input(|i| {
-			i.viewport().maximized.unwrap_or(false) || i.viewport().fullscreen.unwrap_or(false)
-		});
-		if !self.messaging.uses_custom_title_bar() || square || !self.window_transparent {
+		if !self.messaging.uses_custom_title_bar()
+			|| viewport_is_square(ctx)
+			|| !self.window_transparent
+		{
 			return;
 		}
 		let Some(state) = frame.wgpu_render_state() else {
@@ -5934,22 +5934,34 @@ impl Desktop {
 			radius,
 		));
 	}
-	fn sync_window_effects(&mut self) {
-		if !self.transparency_available {
-			return;
-		}
+	fn sync_window_effects(&mut self, ctx: &egui::Context) {
 		let effects = ui::design::window_effects();
-		// The custom Linux title bar keeps alpha for its rounded corners.
-		let transparent = effects_transparent() || self.messaging.uses_custom_title_bar();
+		let user_transparent = self.transparency_available && effects_transparent();
+		// The custom Linux title bar keeps alpha only while floating so its rounded corners clip
+		// cleanly; maximized/fullscreen/native-decoration windows stay opaque for direct scanout.
+		let custom_alpha = {
+			#[cfg(target_os = "linux")]
+			{
+				self.messaging.uses_custom_title_bar() && !viewport_is_square(ctx)
+			}
+			#[cfg(not(target_os = "linux"))]
+			{
+				let _ = ctx;
+				false
+			}
+		};
+		let transparent = user_transparent || custom_alpha;
 		if transparent != self.window_transparent {
 			self.window.set_transparent(transparent);
 			self.window_transparent = transparent;
 		}
+		if !self.transparency_available {
+			return;
+		}
 		if let Some(window_blur) = &mut self.window_blur {
 			#[cfg(target_os = "linux")]
 			{
-				let square = self.window.is_maximized() || self.window.fullscreen().is_some();
-				let shape = (self.messaging.uses_custom_title_bar() && !square).then(|| {
+				let shape = custom_alpha.then(|| {
 					let size = self
 						.window
 						.inner_size()
@@ -6016,11 +6028,26 @@ fn audio_attachment_rendered(
 	})
 }
 
+#[cfg(target_os = "linux")]
+fn viewport_is_square(ctx: &egui::Context) -> bool {
+	ctx.input(|i| {
+		i.viewport().maximized.unwrap_or(false) || i.viewport().fullscreen.unwrap_or(false)
+	})
+}
+
 /// Whether the user's transparency settings, not just the rounded-corner mask, show through.
 fn effects_transparent() -> bool {
 	let (enabled, transparency, _) = ui::design::window_effects();
 	enabled && transparency > 0
 }
+fn paint_only_requester(frame: &eframe::Frame) -> Option<eframe::PaintOnlyRequester> {
+	// `--demo-full-repaints` keeps a repaint per picture, to measure against.
+	static FULL_REPAINTS: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+	let full_repaints = cfg!(feature = "demo")
+		&& *FULL_REPAINTS.get_or_init(|| std::env::args().any(|arg| arg == "--demo-full-repaints"));
+	frame.paint_only_requester().filter(|_| !full_repaints)
+}
+
 impl eframe::App for Desktop {
 	fn clear_color(&self, visuals: &egui::Visuals) -> [f32; 4] {
 		if self.window_transparent && effects_transparent() {
@@ -6162,26 +6189,36 @@ impl eframe::App for Desktop {
 		}
 	}
 	/// One UI frame: pumps workers, expires challenges, renders and drains commands.
-	/// A playing attachment's next picture goes into the texture the last pass drew and
-	/// that pass's shapes are presented again: no layout or tessellation per video frame.
-	fn paint_only(&mut self, ctx: &egui::Context, _: &mut eframe::Frame) -> bool {
+	/// Playing video and animated artwork update their textures in place and present
+	/// the last pass's shapes again: no layout or tessellation per frame.
+	fn paint_only(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) -> bool {
 		// The demo's pending automatic pause is decided in the ui pass.
-		self.demo_video_autoplay.is_none()
-			&& self.video.paint_only(self.messaging.video(), ctx)
-			&& self.voice.paint_only(ctx)
+		if self.demo_video_autoplay.is_some()
+			|| !self.video.paint_only(self.messaging.video(), ctx)
+			|| !self.voice.paint_only(ctx)
+		{
+			return false;
+		}
+		let (ok, next) = self
+			.messaging
+			.paint_only_animations(ctx, gpu_video::update_egui_texture);
+		if !ok {
+			return false;
+		}
+		if let Some(delay) = next
+			&& let Some(presenter) = paint_only_requester(frame)
+		{
+			presenter.request_after(delay);
+		}
+		true
 	}
 	fn keep_paint(&self) -> bool {
-		self.video.active() || self.voice.shows_video()
+		self.video.active() || self.voice.shows_video() || self.messaging.has_active_animations()
 	}
 	fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
 		// Last frame's shapes are painted; video textures retired since then can go.
 		gpu_video::collect();
-		// `--demo-full-repaints` keeps a repaint per picture, to measure against.
-		static FULL_REPAINTS: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-		let full_repaints = cfg!(feature = "demo")
-			&& *FULL_REPAINTS
-				.get_or_init(|| std::env::args().any(|arg| arg == "--demo-full-repaints"));
-		let presenter = frame.paint_only_requester().filter(|_| !full_repaints);
+		let presenter = paint_only_requester(frame);
 		self.video.set_presenter(presenter.clone());
 		self.voice.set_presenter(presenter);
 		// `raw_input_hook` samples placements before the pass begins, where a requested repaint
@@ -6600,6 +6637,10 @@ impl eframe::App for Desktop {
 	}
 	fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
 		let ctx = ui.ctx().clone();
+		self.messaging.begin_animation_pass(
+			ctx.cumulative_pass_nr(),
+			paint_only_requester(frame).is_some(),
+		);
 		let title_bar_height = if self.login.is_some() {
 			platform::LOGIN_HEADER_HEIGHT
 		} else if self.state.user.is_some() {
@@ -6610,7 +6651,7 @@ impl eframe::App for Desktop {
 		self.tray_window.ui(&ctx);
 		// Change native hints before drawing, so the clear color and panel alpha
 		// agree for the whole frame. OS calls happen only when an effect changes.
-		self.sync_window_effects();
+		self.sync_window_effects(&ctx);
 		let (close_requested, dropped) = ctx.input_mut(|input| {
 			(
 				input.viewport().close_requested(),
@@ -7436,6 +7477,15 @@ impl eframe::App for Desktop {
 				{
 					self.messaging.accept_avatar(&ctx, key, None);
 				}
+			}
+			// Return freed heap pages promptly after large idle artwork/animation evictions.
+			if self.messaging.take_freed_memory_bytes() >= 4 * 1024 * 1024 {
+				platform::memory::release_freed_memory();
+			}
+			if let Some(delay) = self.messaging.take_animation_paint_only()
+				&& let Some(presenter) = paint_only_requester(frame)
+			{
+				presenter.request_after(delay);
 			}
 			// Idle frames are freed, and stalled image placeholders give way to fallback art, on a
 			// pass, so an otherwise idle window wakes once for them.

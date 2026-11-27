@@ -1,13 +1,13 @@
 //! Linux live H.264/H.265/AV1 decoding through GStreamer. `decodebin` auto-plugs the highest-ranked
 //! decoder, which is the VA-API or NVDEC plugin when one is installed and `avdec_h264`
 //! otherwise. Callers supply complete decrypted Annex-B or AV1 OBU temporal units.
-use super::{BUSY, INVALID, UNSUPPORTED};
+use super::{BUSY, INVALID, Picture, UNSUPPORTED};
 pub use super::{LiveFrame as Frame, LiveSink as Sink, MAX_ACCESS_UNIT};
 use gstreamer as gst;
 use gstreamer::prelude::*;
 use gstreamer_app as gst_app;
 use std::sync::{
-	Arc,
+	Arc, Mutex,
 	atomic::{AtomicBool, AtomicU64, Ordering},
 };
 
@@ -126,19 +126,28 @@ impl H264Decoder {
 				.new_sample({
 					let failed = failed.clone();
 					let delivered = delivered.clone();
+					let scratch = Mutex::new(Vec::new());
 					move |appsink| {
 						let Ok(sample) = appsink.pull_sample() else {
 							return Err(gst::FlowError::Eos);
 						};
-						match picture(&sample) {
+						let data =
+							std::mem::take(&mut *scratch.lock().unwrap_or_else(|e| e.into_inner()));
+						match picture(&sample, data) {
 							Ok(frame) => {
 								sink(
-									frame,
+									frame.borrow(),
 									sample
 										.buffer()
 										.and_then(|buffer| buffer.pts())
 										.map_or(0, |pts| pts.mseconds()),
 								);
+								let len = frame.data.len();
+								if frame.data.capacity() <= 1024 * 1024
+									|| frame.data.capacity() <= len.saturating_mul(4)
+								{
+									*scratch.lock().unwrap_or_else(|e| e.into_inner()) = frame.data;
+								}
 								delivered.fetch_add(1, Ordering::Release);
 								Ok(gst::FlowSuccess::Ok)
 							}
@@ -259,8 +268,8 @@ fn make(name: &str) -> Result<gst::Element, &'static str> {
 		.map_err(|_| UNSUPPORTED)
 }
 
-fn picture(sample: &gst::Sample) -> Result<Frame, &'static str> {
-	super::gst::picture(sample, super::check_live_dimensions)
+fn picture(sample: &gst::Sample, data: Vec<u8>) -> Result<Picture, &'static str> {
+	super::gst::picture_into(sample, super::check_live_dimensions, data)
 }
 
 #[cfg(test)]

@@ -965,7 +965,7 @@ impl Backend {
 					sink(RemoteFrame {
 						presentation,
 						user,
-						picture: frame.borrow(),
+						picture: frame,
 					});
 				}
 			});
