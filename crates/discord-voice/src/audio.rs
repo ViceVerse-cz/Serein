@@ -290,6 +290,8 @@ impl Audio {
 								if !worker_gate.acknowledge(revision) {
 									continue;
 								}
+								// A microphone missing at open still earns its input-first rebuild.
+								rebuild_devices_for_input |= value.input_missing;
 								streams = Some((revision, value));
 								worker_gate.echo_reset.store(true, Ordering::Release);
 								worker_gate.devices_missing.store(false, Ordering::Release);
@@ -670,6 +672,8 @@ struct Streams {
 	input_callbacks: u64,
 	input_activity: Instant,
 	input_opened: Instant,
+	/// The pair opened while no microphone could be selected.
+	input_missing: bool,
 	_input: Option<cpal::Stream>,
 	_output: cpal::Stream,
 	input: rtrb::Consumer<Frame>,
@@ -737,9 +741,11 @@ impl Streams {
 			return Err("Call changed before audio devices could open");
 		}
 		let host = cpal::default_host();
+		let mut input_missing = false;
 		let (input_stream, input_read, input_id) = if gate.input_enabled.load(Ordering::Acquire) {
 			match gate.reopen_input(revision, || {
-				let input = choose(&host, settings.input.as_deref(), true)?;
+				let input = choose(&host, settings.input.as_deref(), true)
+					.inspect_err(|_| input_missing = true)?;
 				open_input_stream(&host, &input, &gate, revision)
 			}) {
 				Ok((stream, read, id)) => (Some(stream), read, id),
@@ -798,6 +804,7 @@ impl Streams {
 			input_callbacks: gate.input_callbacks.load(Ordering::Acquire),
 			input_activity: Instant::now(),
 			input_opened: Instant::now(),
+			input_missing,
 			_input: input_stream,
 			_output: output_stream,
 			input: input_read,
