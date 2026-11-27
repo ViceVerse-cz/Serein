@@ -48,7 +48,7 @@ pub(super) struct Menu {
 	channel: Option<Id>,
 	generation: u64,
 	query: Option<String>,
-	stamp: (u64, bool, usize, bool, bool, bool),
+	stamp: (u64, bool, usize, bool, bool, bool, crate::i18n::Language),
 	filter: Filter,
 	items: Vec<Pick>,
 	applications: std::collections::BTreeSet<Id>,
@@ -211,6 +211,8 @@ impl Menu {
 			state.can_compose(channel),
 			state.can_request_application_commands(channel),
 			state.can_view(channel),
+			// Rows cache translated built-in text, so a language switch must rebuild them.
+			crate::i18n::current(),
 		);
 		if self.query == query && self.stamp == stamp {
 			return;
