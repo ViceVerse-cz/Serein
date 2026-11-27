@@ -100,7 +100,13 @@ pub struct TimelineView {
 	/// The reader dismissed the unread banner while this was the channel's latest message.
 	unread_dismissed: Option<Option<Id>>,
 	/// The unread banner asked to acknowledge this channel up to its latest message.
-	pub(super) mark_channel_read: Option<Id>,
+	/// Channels waiting for a read acknowledgement (banner button or Escape) with the latest
+	/// message each had when it was asked for, oldest first. A read already in flight defers
+	/// them, so they are kept, deduplicated, and drained in order; at `MARK_READ_QUEUE` entries
+	/// the oldest is dropped. Later arrivals are never acknowledged by an earlier request.
+	pub(super) mark_channel_reads: Vec<(Id, Id)>,
+	/// Escape asked to return to the present in this channel; the next paint decides how far.
+	pub(super) present_requested: Option<Id>,
 	pub(super) reaction_picker: Option<(Id, egui::Rect, egui::Id)>,
 	pub(super) reaction: Option<(Id, Option<model::ReactionEmoji>)>,
 	pub(super) reaction_users: Option<(Id, model::ReactionEmoji, bool)>,
@@ -161,7 +167,7 @@ pub struct TimelineView {
 	// revealing edits, without cloning payloads. Pruned with the active window: at most 500 records.
 	revealed: BTreeMap<Id, Revealed>,
 	pub(super) viewing: Option<(Id, Id)>,
-	embed_viewing: Option<(Id, u64, model::Attachment)>,
+	pub(super) embed_viewing: Option<(Id, u64, model::Attachment)>,
 	/// Fixture-only: viewer to open once its message has arrived in the timeline.
 	pending_viewer: Option<(Id, Id)>,
 	pub(super) download: crate::attachments::DownloadUi,
@@ -2374,6 +2380,8 @@ fn show_system(
 		});
 	}
 }
+const MARK_READ_QUEUE: usize = 4;
+
 impl TimelineView {
 	pub(super) fn show_fullscreen_video(&mut self, ctx: &egui::Context, state: &State) -> bool {
 		if self.video.is_fullscreen() {
@@ -2504,6 +2512,36 @@ impl TimelineView {
 		self.mark_unread = None;
 		self.seen_latest = None;
 	}
+	/// Queues an acknowledgement of the selected channel up to its latest message now. A repeat
+	/// for the same channel replaces the earlier entry: the reader has seen at least as much.
+	pub(super) fn queue_mark_channel_read(&mut self, state: &State) {
+		let Some(channel) = state.selected else {
+			return;
+		};
+		let Some(message) = state.channel(channel).and_then(|c| c.last_message) else {
+			return;
+		};
+		self.mark_channel_reads
+			.retain(|(queued, _)| *queued != channel);
+		if self.mark_channel_reads.len() >= MARK_READ_QUEUE {
+			self.mark_channel_reads.remove(0);
+		}
+		self.mark_channel_reads.push((channel, message));
+	}
+	/// Escape: dismiss the unread banner like its "Mark as read" button and head back to the
+	/// present like the round control. Returns the channel to acknowledge when one is selected.
+	pub(super) fn escape_to_present(&mut self, state: &State) -> Option<Id> {
+		let channel = state.selected?;
+		let latest = state.channel(channel).and_then(|c| c.last_message);
+		self.unread_dismissed = Some(latest);
+		self.hold_read_ack = false;
+		self.mark_read = None;
+		// The same hand-off as the banner's button, so the acknowledgement is queued in the
+		// place that already waits out a pending one.
+		self.queue_mark_channel_read(state);
+		self.present_requested = Some(channel);
+		Some(channel)
+	}
 	pub(super) fn follow_latest(&mut self, state: &State) {
 		self.latest |= state.history_targeted
 			|| state.history_before.is_some()
@@ -2569,6 +2607,11 @@ impl TimelineView {
 		session: &mut crate::scroll::Session,
 	) {
 		let width = ui.available_width();
+		// Escape's request is for this paint only; a loading or hidden view drops it.
+		let escaped = self
+			.present_requested
+			.take()
+			.is_some_and(|channel| state.selected == Some(channel));
 		let channel_changed = self.channel != state.selected;
 		if channel_changed {
 			if let Some(previous) = self.channel {
@@ -2587,6 +2630,15 @@ impl TimelineView {
 			}
 			let restored = state.selected.and_then(|id| state.reading(id));
 			let following = restored.is_none_or(|cursor| cursor.message.is_none());
+			let mark_channel_reads = std::mem::take(&mut self.mark_channel_reads);
+			let leave_read = self
+				.channel
+				.filter(|channel| {
+					!mark_channel_reads
+						.iter()
+						.any(|(queued, _)| queued == channel)
+				})
+				.zip(self.seen_latest);
 			*self = Self {
 				extension_actions: self.extension_actions.clone(),
 				quick_reactions: self.quick_reactions,
@@ -2617,7 +2669,8 @@ impl TimelineView {
 				truncated_translation: self.truncated_translation.take(),
 				pending_viewer: self.pending_viewer.take(),
 				jump: following,
-				leave_read: self.channel.zip(self.seen_latest),
+				leave_read,
+				mark_channel_reads,
 				..Self::default()
 			};
 		}
@@ -2953,7 +3006,7 @@ impl TimelineView {
 				}
 				if mark_read {
 					self.hold_read_ack = false;
-					self.mark_channel_read = state.selected;
+					self.queue_mark_channel_read(state);
 				}
 			}
 			return;
@@ -5559,7 +5612,7 @@ impl TimelineView {
 			if mark_read {
 				self.unread_dismissed = Some(channel_latest);
 				self.hold_read_ack = false;
-				self.mark_channel_read = state.selected;
+				self.queue_mark_channel_read(state);
 			}
 		}
 		// Older pages appended to the live timeline keep their cursor after loading; that
@@ -5580,6 +5633,7 @@ impl TimelineView {
 				})
 		};
 		self.present_control = None;
+		let mut go_present = false;
 		if (!self.following && distance_from_bottom > PRESENT_CONTROL_SCREENS * area.height())
 			|| (self.target_browsing && !(at_bottom && unread))
 			|| detached_page
@@ -5596,19 +5650,26 @@ impl TimelineView {
 			});
 			let (rect, present) = present_control(ui, area, unread, label.as_deref());
 			self.present_control = Some(rect);
-			if present {
-				if browsing_history {
-					self.latest = true;
-				}
-				if distance_from_bottom > 0.5 && !browsing_history && !self.instant_scrolling {
-					// Glide back so the reader keeps their place in the conversation.
-					self.target_browsing = false;
-					self.present_scroll = Some((output.state.clamped_offset().y, 0.0));
-				} else {
-					self.follow_latest(state);
-				}
-				ui.ctx().request_repaint();
+			go_present |= present;
+		}
+		// Escape takes the same way back, but does nothing when the reader is already there.
+		go_present |= escaped
+			&& (browsing_history
+				|| distance_from_bottom > 0.5
+				|| !self.following
+				|| !self.at_current_latest);
+		if go_present {
+			if browsing_history {
+				self.latest = true;
 			}
+			if distance_from_bottom > 0.5 && !browsing_history && !self.instant_scrolling {
+				// Glide back so the reader keeps their place in the conversation.
+				self.target_browsing = false;
+				self.present_scroll = Some((output.state.clamped_offset().y, 0.0));
+			} else {
+				self.follow_latest(state);
+			}
+			ui.ctx().request_repaint();
 		}
 		if let Some((message_id, attachment_id)) = self.pending_viewer
 			&& state.timeline.get(message_id).is_some()
@@ -5730,6 +5791,12 @@ impl TimelineView {
 				)
 				.map(|id| (message_id, id))
 			});
+			if self.viewing.is_none()
+				&& !self.video.active.as_ref().is_some_and(|(_, id, _)| {
+					Some(*id) == self.component_viewing.map(|(message, _)| message)
+				}) {
+				self.component_viewing = None;
+			}
 		}
 	}
 }
@@ -9008,7 +9075,10 @@ mod tests {
 			.map(|(_, rect)| rect.center())
 			.expect("the held unread banner offers Mark as read");
 		click_at(&ctx, &mut view, &mut state, pos);
-		assert_eq!(view.mark_channel_read.take(), Some(Id(20)));
+		assert_eq!(
+			std::mem::take(&mut view.mark_channel_reads),
+			[(Id(20), Id(40))]
+		);
 		let labels = banner_frame(&ctx, &mut view, &mut state, vec![], false);
 		assert!(
 			!labels.iter().any(|(text, _)| text == "Mark as read"),

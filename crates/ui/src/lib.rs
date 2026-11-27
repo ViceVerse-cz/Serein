@@ -645,6 +645,22 @@ pub struct MessagingUi {
 	edit_sent: Option<SubmittedEdit>,
 	deleting: Option<(Id, Id)>,
 	ime_active: bool,
+	/// The composer's widget id this frame while it holds focus and could take Escape; the
+	/// one field that may hold focus when Escape returns to the present.
+	composer_escape_frame: Option<egui::Id>,
+	/// End-of-previous-frame snapshot (see `end_frame_snapshot`): keyboard focus and a chat
+	/// selection.
+	focus_prev_frame: Option<egui::Id>,
+	selection_prev_frame: bool,
+	/// A visible call stage cleared its enlarged tile on Escape during this frame.
+	tile_focus_escape_frame: bool,
+	/// A middle-click autoscroll was driving at the end of the previous frame; its Escape
+	/// (seen, not consumed, so dialogs keep first claim) only stops the drive.
+	drive_prev_frame: bool,
+	/// The channel whose timeline was painted this frame: Escape only acts on it.
+	conversation_shown: Option<Id>,
+	/// A popup or menu was open when the frame began, so its Escape was not for the chat.
+	popup_open_frame: bool,
 	/// A composer picker pick returns focus to the draft next frame, once its click is over.
 	refocus_composer: bool,
 	/// The one draft undo history held by the composer.
@@ -4518,6 +4534,7 @@ impl MessagingUi {
                             && ctx.memory(|m| {
                                 m.has_focus(composer_id) || m.had_focus_last_frame(composer_id)
                             });
+                        self.composer_escape_frame = composer_escape.then_some(composer_id);
                         cancel_edit |= editing_here
                             && composer_escape
                             && ctx.input_mut(|i| {
@@ -5372,6 +5389,27 @@ impl MessagingUi {
 	/// service layer.
 	pub fn show(&mut self, ui: &mut egui::Ui, state: &mut State) -> Vec<Command> {
 		self.avatars.sync_pass(ui.ctx().cumulative_pass_nr());
+		let commands = self.show_frame(ui, state);
+		self.end_frame_snapshot(ui.ctx());
+		commands
+	}
+	/// What Escape's handler needs from the end of the previous frame, recorded on every path
+	/// out of `show`: egui drops a text field's focus and clears a bidi selection on Escape
+	/// before we run, so only the earlier frame shows the key was meant for them.
+	fn end_frame_snapshot(&mut self, ctx: &egui::Context) {
+		let escaped = ctx.input(|input| input.key_pressed(egui::Key::Escape));
+		self.focus_prev_frame = ctx.memory(|m| m.focused());
+		// An Escape frame clears the selection, so a second press is free.
+		self.selection_prev_frame = !escaped && select::has_selection(ctx);
+		self.tile_focus_escape_frame = false;
+		self.drive_prev_frame = self.scroll.tracking();
+		self.composer_escape_frame = None;
+		if self.conversation_shown.is_none() {
+			self.timeline.present_requested = None;
+		}
+		self.conversation_shown = None;
+	}
+	fn show_frame(&mut self, ui: &mut egui::Ui, state: &mut State) -> Vec<Command> {
 		self.clear_inactive_composer_undo(ui.ctx(), state.generation, state.selected);
 		interface_tweaks::publish(ui.ctx(), &self.interface_tweaks);
 		rtl::scope(
@@ -5505,6 +5543,7 @@ impl MessagingUi {
 			data.remove::<egui::Rect>(profiles::profile_opener_id());
 		});
 		let ctx = ui.ctx().clone();
+		self.popup_open_frame = egui::Popup::is_any_open(&ctx);
 		user_menu::set_voice_available(&ctx, self.voice_available);
 		self.extensions.reset_theme_shortcut(&ctx);
 		self.extensions.context_menus(&ctx, state);
@@ -6216,6 +6255,61 @@ impl MessagingUi {
 			Some(selected_forum),
 		)
 	}
+	/// Escape, once nothing else wanted it: acknowledge the open channel and return to the
+	/// present, as Discord does. It runs after every overlay, the composer's edit/reply
+	/// cancel and the other Escape consumers, which all consume the key, so it only sees a
+	/// press that is left over. Other text fields keep Escape, and a reply or edit is
+	/// cancelled first, so a second press gets here.
+	fn escape_to_present(&mut self, ctx: &egui::Context, state: &mut State, settings_open: bool) {
+		let focused = ctx.memory(|m| m.focused());
+		let before = self.focus_prev_frame;
+		// The composer, or the edit field an Escape just closed, may still hold focus.
+		let owned = |id: Option<egui::Id>| {
+			id.is_none() || id == self.composer_escape_frame || id == self.edit_widget_id
+		};
+		// Bound to the channel painted this frame: a pending channel reference can still select
+		// another one later in the frame, and Escape must not acknowledge a channel never shown.
+		if self.conversation_shown.is_none()
+			|| self.conversation_shown != state.selected
+			|| settings_open
+			|| !owned(focused)
+			|| !owned(before)
+			|| select::has_selection(ctx)
+			|| self.selection_prev_frame
+			|| self.tile_focus_escape_frame
+			|| self.drive_prev_frame
+			|| self.ime_active
+			|| self.popup_open_frame
+			|| egui::Popup::is_any_open(ctx)
+			|| ctx.memory(|m| m.top_modal_layer().is_some())
+			|| self.editing.is_some()
+			|| state.reply.is_some()
+			|| self.deleting.is_some()
+			|| self.search.open
+			|| state.archives.is_some()
+			|| self.switcher.is_open()
+			|| self.switcher_frame
+			|| self.emoji_picker.is_open()
+			|| self.timestamp_picker.is_open()
+			|| self.profile.open_user().is_some()
+			|| self.profile_image.is_some()
+			|| self.attachment_view_open.is_some()
+			|| self.timeline.viewing.is_some()
+			|| self.timeline.embed_viewing.is_some()
+			|| self.timeline.opening.is_some()
+			|| state.interactions.modal.is_some()
+			|| state.selected.is_none()
+		{
+			return;
+		}
+		if !ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
+			return;
+		}
+		// The acknowledgement goes out next frame through the banner's own hand-off.
+		if self.timeline.escape_to_present(state).is_some() {
+			ctx.request_repaint();
+		}
+	}
 	/// A text conversation's composer, notices and timeline below whatever header the caller
 	/// drew, with the requests they raise. The usual layout and a plugin's chat window share it.
 	/// `message_fill` is the caller's reserved backdrop shape and its top edge.
@@ -6332,6 +6426,7 @@ impl MessagingUi {
 				if let Some(command) = state.request_author_members(&author_lookup) {
 					commands.push(command);
 				}
+				self.conversation_shown = state.selected;
 				self.timeline.show_with_scroll(
 					ui,
 					state,
@@ -6659,17 +6754,34 @@ impl MessagingUi {
 		{
 			commands.push(command);
 		}
+		// Deferred acknowledgements go out in order as the single read slot frees, each up to
+		// the message captured when it was asked for. Entries that can no longer be sent
+		// (read since, channel gone or offline) are dropped. Leaving a channel above has first
+		// call on the slot, because its request is one-shot.
+		for (channel, message) in std::mem::take(&mut self.timeline.mark_channel_reads) {
+			if Some(channel) == state.selected {
+				self.timeline.mark_read = None;
+			}
+			if let Some(command) = state.prepare_mark_left_channel_read(channel, message) {
+				commands.push(command);
+			} else if state.auth == client_core::auth::AuthState::Authenticated
+				&& state.gateway_connected
+				&& state
+					.read_marker(channel)
+					.is_some_and(|read| read.is_none_or(|read| message > read))
+				&& state
+					.channel(channel)
+					.and_then(|c| c.last_message)
+					.is_some_and(|latest| message <= latest)
+			{
+				self.timeline.mark_channel_reads.push((channel, message));
+			}
+		}
 		if forum_pane
 			&& !settings_open
 			&& let Some(command) = state.prepare_forum_visit_read()
 		{
 			commands.push(command);
-		}
-		if let Some(channel) = self.timeline.mark_channel_read.take() {
-			self.timeline.mark_read = None;
-			if let Some(command) = state.prepare_mark_channel_read(channel) {
-				commands.push(command);
-			}
 		}
 		if let Some(message) = self.timeline.mark_unread.take() {
 			self.timeline.mark_read = None;
@@ -6972,6 +7084,7 @@ impl MessagingUi {
 			profile_guild,
 			&mut commands,
 		);
+		self.escape_to_present(&ctx, state, settings_open);
 		if !commands.is_empty() {
 			ctx.request_repaint();
 		}
@@ -8641,6 +8754,248 @@ mod composer_tests {
 		assert!(view.timeline.opening.is_none());
 	}
 
+	#[test]
+	fn escape_returns_to_present_only_for_a_shown_chat_nothing_else_claims() {
+		let ctx = egui::Context::default();
+		let mut view = MessagingUi::default();
+		let mut state = edit_state();
+		state.channels[0].last_message = Some(Id(20));
+		state
+			.apply_read_state(client_core::read_state::Event::Snapshot {
+				entries: Some(vec![(Id(10), Some(Id(1)), 0)]),
+				version: Some(1),
+				partial: false,
+			})
+			.unwrap();
+		let frame = |view: &mut MessagingUi, state: &mut State, events| {
+			let mut commands = Vec::new();
+			let output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(1000.0, 700.0),
+					)),
+					events,
+					..Default::default()
+				},
+				|ui| commands.extend(view.show(ui, state)),
+			);
+			output.drop_without_applying_deltas();
+			commands
+		};
+		let escape = || vec![edit_key(egui::Key::Escape)];
+		let marks = |commands: &[Command]| {
+			commands.iter().any(|command| {
+				matches!(
+					command,
+					Command::MarkRead {
+						channel: Id(10),
+						..
+					}
+				)
+			})
+		};
+		for _ in 0..3 {
+			frame(&mut view, &mut state, vec![]);
+		}
+		// A reply keeps the first Escape.
+		state.reply = Some(client_core::Reply::to(Id(20)));
+		frame(&mut view, &mut state, vec![]);
+		frame(&mut view, &mut state, escape());
+		assert!(state.reply.is_none());
+		assert_eq!(view.timeline.present_requested, None);
+		// Focus another text field last frame: egui already dropped it, the key was its own.
+		view.focus_prev_frame = Some(egui::Id::unique("docked-note"));
+		frame(&mut view, &mut state, escape());
+		assert_eq!(view.timeline.present_requested, None);
+		assert!(view.timeline.mark_channel_reads.is_empty());
+		// A visible call-stage tile focus that Escape just cleared, or a chat selection
+		// egui cleared before we ran, claims the key; stale `voice_focus` outside the stage
+		// does not.
+		for tile in [true, false] {
+			view.tile_focus_escape_frame = tile;
+			view.selection_prev_frame = !tile;
+			frame(&mut view, &mut state, escape());
+			assert_eq!(view.timeline.present_requested, None);
+		}
+		// An autoscroll drive still running last frame takes the press that stops it.
+		view.drive_prev_frame = true;
+		frame(&mut view, &mut state, escape());
+		assert_eq!(view.timeline.present_requested, None);
+		// A closing component viewer clears its marker so later Escapes are not blocked.
+		view.timeline.viewing = Some((Id(20), Id(999)));
+		view.timeline.component_viewing = Some((Id(20), 42));
+		frame(&mut view, &mut state, vec![]);
+		assert!(view.timeline.viewing.is_none());
+		assert!(view.timeline.component_viewing.is_none());
+		// A hidden chat (voice channel without chat) is not the target either.
+		state.channels[0].kind = 2;
+		frame(&mut view, &mut state, vec![]);
+		frame(&mut view, &mut state, escape());
+		assert_eq!(view.timeline.present_requested, None);
+		assert!(view.timeline.mark_channel_reads.is_empty());
+		state.channels[0].kind = 1;
+		frame(&mut view, &mut state, vec![]);
+		// Stale call-tile focus from another stage does not block Escape in a text channel.
+		view.voice_focus = Some(voice::StageFocus::LocalScreen);
+		frame(&mut view, &mut state, vec![]);
+		// Another read in flight holds Escape's acknowledgement across channel switches,
+		// while a frame with no timeline expires its pending return-to-present request.
+		let mut other = state.channels[0].clone();
+		other.id = Id(11);
+		other.kind = 1;
+		other.last_message = Some(Id(30));
+		state.channels.push(other);
+		state
+			.apply_read_state(client_core::read_state::Event::Snapshot {
+				entries: Some(vec![(Id(10), Some(Id(1)), 0), (Id(11), Some(Id(1)), 0)]),
+				version: Some(2),
+				partial: false,
+			})
+			.unwrap();
+		let pending_request = match state.prepare_mark_channel_read(Id(11)) {
+			Some(Command::MarkRead { request, .. }) => request,
+			_ => panic!("expected pending read request for Id(11)"),
+		};
+		frame(&mut view, &mut state, escape());
+		assert_eq!(view.timeline.present_requested, Some(Id(10)));
+		state.channels[1].kind = 2;
+		state.selected = Some(Id(11));
+		assert!(!marks(&frame(&mut view, &mut state, vec![])));
+		assert_eq!(view.timeline.present_requested, None);
+		assert_eq!(view.timeline.mark_channel_reads, [(Id(10), Id(20))]);
+		// A second Escape in another channel queues behind the first instead of replacing it.
+		let mut third = state.channels[0].clone();
+		third.id = Id(13);
+		third.kind = 1;
+		third.last_message = Some(Id(50));
+		state.channels.push(third);
+		state
+			.apply_read_state(client_core::read_state::Event::Ack {
+				channel: Id(13),
+				message: Some(Id(1)),
+				manual: false,
+				mention_count: None,
+				version: Some(3),
+			})
+			.unwrap();
+		state.selected = Some(Id(13));
+		frame(&mut view, &mut state, vec![]);
+		frame(&mut view, &mut state, escape());
+		assert_eq!(
+			view.timeline.mark_channel_reads,
+			[(Id(10), Id(20)), (Id(13), Id(50))]
+		);
+		let read = |commands: &[Command]| {
+			commands.iter().find_map(|command| match command {
+				Command::MarkRead {
+					channel,
+					message,
+					request,
+					..
+				} => Some((*channel, *message, *request)),
+				_ => None,
+			})
+		};
+		// A message arriving while the request waits is not part of what was acknowledged.
+		state.channels[0].last_message = Some(Id(25));
+		let mut pending = pending_request;
+		let mut marked = Vec::new();
+		let mut done = (Id(11), Id(30));
+		for _ in 0..2 {
+			state
+				.apply_read_state(client_core::read_state::Event::Result {
+					channel: done.0,
+					message: done.1,
+					request: pending,
+					result: Ok(()),
+				})
+				.unwrap();
+			let (channel, message, request) =
+				read(&frame(&mut view, &mut state, vec![])).expect("the next queued read goes out");
+			marked.push((channel, message));
+			(pending, done) = (request, (channel, message));
+		}
+		assert_eq!(
+			marked,
+			[(Id(10), Id(20)), (Id(13), Id(50))],
+			"both channels are acknowledged up to what was seen at request time"
+		);
+		assert!(view.timeline.mark_channel_reads.is_empty());
+		// A deferred read that frees the slot in the frame a chat is left does not take the
+		// one-shot leave acknowledgement's place.
+		state
+			.apply_read_state(client_core::read_state::Event::Result {
+				channel: done.0,
+				message: done.1,
+				request: pending,
+				result: Ok(()),
+			})
+			.unwrap();
+		let mut left = state.channels[0].clone();
+		left.id = Id(14);
+		left.last_message = Some(Id(60));
+		state.channels.push(left);
+		state
+			.apply_read_state(client_core::read_state::Event::Ack {
+				channel: Id(14),
+				message: Some(Id(1)),
+				manual: false,
+				mention_count: None,
+				version: Some(4),
+			})
+			.unwrap();
+		view.timeline.mark_channel_reads = vec![(Id(10), Id(25))];
+		view.timeline.leave_read = Some((Id(14), Id(60)));
+		let sent = frame(&mut view, &mut state, vec![]);
+		assert_eq!(read(&sent).map(|(c, m, _)| (c, m)), Some((Id(14), Id(60))));
+		assert_eq!(view.timeline.mark_channel_reads, [(Id(10), Id(25))]);
+		view.voice_focus = None;
+		state.selected = Some(Id(10));
+		frame(&mut view, &mut state, vec![]);
+		// Cancelling an edit takes the first Escape; the next one is not blocked by its widget.
+		view.editing = Some((Id(10), Id(20), "Original".into()));
+		for _ in 0..3 {
+			frame(&mut view, &mut state, vec![]);
+		}
+		frame(&mut view, &mut state, escape());
+		assert!(!view.has_edit());
+		assert_eq!(view.timeline.present_requested, None);
+		frame(&mut view, &mut state, escape());
+		assert_eq!(view.timeline.present_requested, Some(Id(10)));
+		// A channel reference resolved after the timeline painted selects another channel in the
+		// same frame; Escape must not acknowledge or jump in a channel that was never shown.
+		frame(&mut view, &mut state, vec![]);
+		view.timeline.mark_channel_reads.clear();
+		state.guilds.push(model::Guild {
+			banner: None,
+			default_message_notifications: None,
+			stickers: None,
+			id: Id(5),
+			name: "Synthetic linked server".into(),
+			icon: None,
+			emojis: None,
+		});
+		let mut linked = state.channels[0].clone();
+		linked.id = Id(12);
+		linked.kind = 0;
+		linked.guild = Some(Id(5));
+		linked.last_message = Some(Id(40));
+		state.channels.push(linked);
+		state
+			.permissions
+			.replace(test_support::permission_snapshot(&state))
+			.unwrap();
+		view.timeline.pending_channel_reference = Some(Id(12));
+		frame(&mut view, &mut state, escape());
+		assert_eq!(
+			state.selected,
+			Some(Id(12)),
+			"the reference resolved this frame"
+		);
+		assert_eq!(view.timeline.present_requested, None);
+		assert!(view.timeline.mark_channel_reads.is_empty());
+	}
 	#[test]
 	fn staged_viewer_escape_preserves_background_search() {
 		let ctx = egui::Context::default();

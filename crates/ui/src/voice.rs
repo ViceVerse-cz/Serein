@@ -1319,7 +1319,11 @@ impl MessagingUi {
 				.iter()
 				.any(|tile| tile.focus() == *focus && self.tile_has_video(state, channel, tile))
 		});
+		let had_focus = focus.is_some();
 		let focus = focus.filter(|_| !ui.input(|input| input.key_pressed(egui::Key::Escape)));
+		if had_focus && focus.is_none() {
+			self.tile_focus_escape_frame = true;
+		}
 		self.voice_focus = focus;
 		// A live share turns the avatar-only DM stage into boxed tiles, as in Discord.
 		let video = tiles.iter().any(|tile| {
