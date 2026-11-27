@@ -518,6 +518,12 @@ fn preferred_resolution(offered: &[Resolution]) -> Resolution {
 fn segment(ui: &mut egui::Ui, label: &str, selected: bool) -> egui::Response {
 	let label = crate::i18n::translate_if_key(label);
 	let colors = crate::design::palette(ui);
+	// The galley keeps the colour it is laid out in, so it must be the one painted.
+	let color = if selected {
+		colors.accent_text
+	} else {
+		colors.text_strong
+	};
 	let galley = ui.painter().layout_no_wrap(
 		label.to_owned(),
 		egui::FontId::new(
@@ -533,7 +539,7 @@ fn segment(ui: &mut egui::Ui, label: &str, selected: bool) -> egui::Response {
 				crate::design::medium_family(ui.ctx())
 			},
 		),
-		colors.text_strong,
+		color,
 	);
 	let (rect, response) = ui.allocate_exact_size(
 		egui::vec2(galley.size().x + 24.0, 32.0),
@@ -547,11 +553,6 @@ fn segment(ui: &mut egui::Ui, label: &str, selected: bool) -> egui::Response {
 		colors.base
 	};
 	ui.painter().rect_filled(rect, 8, fill);
-	let color = if selected {
-		colors.accent_text
-	} else {
-		colors.text
-	};
 	ui.painter().galley(
 		egui::pos2(
 			rect.center().x - galley.size().x * 0.5,

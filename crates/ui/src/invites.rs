@@ -732,12 +732,7 @@ fn action_button(ui: &mut egui::Ui, button: &Button) -> egui::Response {
 		button.label.clone(),
 		egui::FontId::new(
 			14.0,
-			crate::design::ink_family(
-				ui,
-				crate::design::Weight::Medium,
-				colors.accent_text,
-				button.fill,
-			),
+			crate::design::ink_family(ui, crate::design::Weight::Medium, text, fill),
 		),
 		text,
 	);

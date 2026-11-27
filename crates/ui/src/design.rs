@@ -1074,11 +1074,10 @@ pub fn family(ctx: &egui::Context, weight: Weight) -> FontFamily {
 /// far side of its accent, such as black on a light purple, paints that text with the wrong
 /// ramp: too heavy in dark mode, too thin in light mode. While such a palette is active, the
 /// [`ON_ACCENT`] families repeat each weight with the other ramp, so text that runs against
-/// the appearance uses them and every other text keeps its family.
+/// the appearance uses them and every other text keeps its family. A transparent `surface`
+/// shows the control behind it, so the ordinary family applies.
 pub fn ink_family(ui: &egui::Ui, weight: Weight, text: Color32, surface: Color32) -> FontFamily {
-	if ui.visuals().dark_mode == (luminance(text) < luminance(surface))
-		&& on_accent_ramp().is_some()
-	{
+	if surface.a() > 0 && ui.visuals().dark_mode == (luminance(text) < luminance(surface)) {
 		static NAMES: [std::sync::LazyLock<std::sync::Arc<str>>; 3] = [
 			std::sync::LazyLock::new(|| ON_ACCENT[0].into()),
 			std::sync::LazyLock::new(|| ON_ACCENT[1].into()),
@@ -1090,7 +1089,8 @@ pub fn ink_family(ui: &egui::Ui, weight: Weight, text: Color32, surface: Color32
 			Weight::Semibold => 2,
 		};
 		let family = FontFamily::Name(NAMES[index].clone());
-		// Headless contexts and palettes that need no twin keep the ordinary face.
+		// Only a palette whose accent text runs against the appearance publishes the twins;
+		// every other context keeps the ordinary face.
 		if ui.fonts(|fonts| fonts.definitions().families.contains_key(&family)) {
 			return family;
 		}
@@ -1100,15 +1100,6 @@ pub fn ink_family(ui: &egui::Ui, weight: Weight, text: Color32, surface: Color32
 
 /// Coverage ramp for light text on dark surfaces; [`apply`] gives it to dark mode.
 const DARK_RAMP: FontColorTransferFunction = FontColorTransferFunction::Gamma(0.5);
-thread_local! {
-	/// Coverage ramp of the installed on-accent faces; `None` while the active palette needs none.
-	static ON_ACCENT_RAMP: std::cell::Cell<Option<FontColorTransferFunction>> =
-		const { std::cell::Cell::new(None) };
-}
-/// The ramp of the installed on-accent faces; `None` while the active palette needs none.
-pub(crate) fn on_accent_ramp() -> Option<FontColorTransferFunction> {
-	ON_ACCENT_RAMP.with(std::cell::Cell::get)
-}
 
 /// Installs or drops the on-accent faces to match the active palette. [`crate::fonts::install`]
 /// runs this at the end of every pass, since an appearance or accent change does not always
@@ -1121,10 +1112,7 @@ pub(crate) fn sync_on_accent(ctx: &egui::Context) {
 	} else {
 		DARK_RAMP
 	});
-	if on_accent_ramp() != ramp {
-		ON_ACCENT_RAMP.with(|cell| cell.set(ramp));
-		crate::fonts::republish(ctx);
-	}
+	crate::fonts::set_on_accent(ctx, ramp);
 }
 /// Emoji-only messages: Discord paints their artwork at about three times the body size.
 /// Scaling the body style grows every inline emoji slot with it, text included.
@@ -1719,7 +1707,6 @@ fn wide_button(
 	let (rect, response) =
 		ui.allocate_exact_size(egui::vec2(ui.available_width(), 44.0), egui::Sense::click());
 	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), &label));
-	let family = ink_family(ui, Weight::Medium, text, fill);
 	let enabled = ui.is_enabled();
 	let fill = if !enabled {
 		fill.gamma_multiply(0.5)
@@ -1745,7 +1732,11 @@ fn wide_button(
 			egui::StrokeKind::Outside,
 		);
 	}
-	let galley = painter.layout_no_wrap(label.to_owned(), FontId::new(15.0, family), text);
+	let galley = painter.layout_no_wrap(
+		label.to_owned(),
+		FontId::new(15.0, ink_family(ui, Weight::Medium, text, fill)),
+		text,
+	);
 	let icon_size = if icon.is_some() { 20.0 } else { 0.0 };
 	let gap = if icon.is_some() { 10.0 } else { 0.0 };
 	let total = icon_size + gap + galley.size().x;
@@ -2479,6 +2470,18 @@ fn sized_button(ui: &mut egui::Ui, label: &str, kind: ButtonKind, full: bool) ->
 			p.text_strong,
 		),
 	};
+	let enabled = ui.is_enabled();
+	// A disabled label is dimmed with its fill, so the family follows the colours as painted.
+	let fill = if enabled {
+		fill
+	} else {
+		fill.gamma_multiply(0.4)
+	};
+	let text = if enabled {
+		text
+	} else {
+		text.gamma_multiply(0.5)
+	};
 	let font = FontId::new(14.0, ink_family(ui, Weight::Medium, text, fill));
 	let galley = ui
 		.painter()
@@ -2495,10 +2498,9 @@ fn sized_button(ui: &mut egui::Ui, label: &str, kind: ButtonKind, full: bool) ->
 	let (rect, response) =
 		ui.allocate_exact_size(egui::vec2(width, BUTTON_HEIGHT), egui::Sense::click());
 	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), &label));
-	let enabled = ui.is_enabled();
 	let hot = response.hovered() || response.has_focus();
 	let fill = if !enabled {
-		fill.gamma_multiply(0.4)
+		fill
 	} else if response.is_pointer_button_down_on() {
 		fill.gamma_multiply(0.82)
 	} else if hot {
@@ -2508,11 +2510,6 @@ fn sized_button(ui: &mut egui::Ui, label: &str, kind: ButtonKind, full: bool) ->
 		}
 	} else {
 		fill
-	};
-	let text = if enabled {
-		text
-	} else {
-		text.gamma_multiply(0.5)
 	};
 	let painter = ui.painter();
 	painter.rect(rect, 8, fill, stroke, egui::StrokeKind::Inside);

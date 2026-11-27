@@ -3185,7 +3185,6 @@ fn paint_button(
 	enabled: bool,
 ) -> egui::Response {
 	let label = crate::i18n::translate_if_key(label);
-	let family = design::ink_family(ui, design::Weight::Medium, text, fill);
 	let (rect, response) = ui.allocate_exact_size(
 		size,
 		if enabled {
@@ -3211,7 +3210,14 @@ fn paint_button(
 	};
 	let painter = ui.painter();
 	painter.rect(rect, 8, fill, stroke, egui::StrokeKind::Inside);
-	let galley = painter.layout_no_wrap(label, egui::FontId::new(13.5, family), text);
+	let galley = painter.layout_no_wrap(
+		label,
+		egui::FontId::new(
+			13.5,
+			design::ink_family(ui, design::Weight::Medium, text, fill),
+		),
+		text,
+	);
 	painter.galley(rect.center() - galley.size() / 2.0, galley, text);
 	if enabled && response.hovered() {
 		ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);

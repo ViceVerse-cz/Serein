@@ -10,6 +10,13 @@ const CUSTOM: [&str; 3] = [
 ];
 const DEFINITIONS_KEY: &str = "serein-font-definitions";
 
+/// The font definitions in use, and the coverage ramp that text on accent fills needs from them.
+struct Shared {
+	definitions: FontDefinitions,
+	/// The ramp of the twin faces for text on accent fills; `None` publishes none.
+	on_accent: Option<egui::epaint::FontColorTransferFunction>,
+}
+
 #[derive(Clone)]
 pub struct CustomFont {
 	pub name: String,
@@ -365,11 +372,11 @@ pub fn revision(ctx: &Context) -> (usize, usize, u32) {
 }
 
 pub fn apply_custom(ctx: &Context, font: Option<&CustomFont>) {
-	let shared = ctx.data(|data| {
-		data.get_temp::<Arc<Mutex<FontDefinitions>>>(egui::Id::unique(DEFINITIONS_KEY))
-	});
+	let shared =
+		ctx.data(|data| data.get_temp::<Arc<Mutex<Shared>>>(egui::Id::unique(DEFINITIONS_KEY)));
 	let Some(shared) = shared else { return };
-	let mut definitions = shared.lock().expect("font definitions");
+	let mut shared = shared.lock().expect("font definitions");
+	let definitions = &mut shared.definitions;
 	for (family, name, weight) in [
 		(FontFamily::Proportional, CUSTOM[0], 400.0),
 		(
@@ -401,8 +408,8 @@ pub fn apply_custom(ctx: &Context, font: Option<&CustomFont>) {
 				.insert(0, name.into());
 		}
 	}
-	sync_name_families(&mut definitions);
-	ctx.set_fonts(published(&definitions));
+	sync_name_families(definitions);
+	ctx.set_fonts(published(&shared));
 	ctx.request_repaint();
 }
 
@@ -512,13 +519,12 @@ pub(crate) fn name_family(ctx: &Context, font: u32) -> Option<FontFamily> {
 	if ctx.fonts(|fonts| fonts.definitions().families.contains_key(family)) {
 		return Some(family.clone());
 	}
-	let shared = ctx.data(|data| {
-		data.get_temp::<Arc<Mutex<FontDefinitions>>>(egui::Id::unique(DEFINITIONS_KEY))
-	})?;
-	let mut definitions = shared.lock().expect("font definitions");
-	if !definitions.families.contains_key(family) {
-		add_name_font(&mut definitions, family.clone(), index);
-		ctx.set_fonts(published(&definitions));
+	let shared =
+		ctx.data(|data| data.get_temp::<Arc<Mutex<Shared>>>(egui::Id::unique(DEFINITIONS_KEY)))?;
+	let mut shared = shared.lock().expect("font definitions");
+	if !shared.definitions.families.contains_key(family) {
+		add_name_font(&mut shared.definitions, family.clone(), index);
+		ctx.set_fonts(published(&shared));
 		ctx.request_repaint();
 	}
 	None
@@ -603,7 +609,10 @@ impl CjkScan {
 
 /// Install once during application creation, before the first UI pass.
 pub fn install(ctx: &Context) {
-	let shared = Arc::new(Mutex::new(definitions(false)));
+	let shared = Arc::new(Mutex::new(Shared {
+		definitions: definitions(false),
+		on_accent: None,
+	}));
 	ctx.set_fonts(published(&shared.lock().expect("font definitions")));
 	ctx.on_end_pass(
 		"On-accent text",
@@ -654,12 +663,12 @@ pub fn install(ctx: &Context) {
 	crate::design::weights_installed(ctx);
 }
 
-fn install_cjk(ctx: &Context, shared: &Mutex<FontDefinitions>) {
+fn install_cjk(ctx: &Context, shared: &Mutex<Shared>) {
 	let mut data = FontData::from_owned(cjk());
-	let mut definitions = shared.lock().expect("font definitions");
+	let mut shared = shared.lock().expect("font definitions");
 	data.index = cjk_index(crate::i18n::current());
-	add_fallback(&mut definitions, "Noto Sans CJK", data);
-	ctx.set_fonts(published(&definitions));
+	add_fallback(&mut shared.definitions, "Noto Sans CJK", data);
+	ctx.set_fonts(published(&shared));
 }
 
 fn cjk_index(language: crate::i18n::Language) -> u32 {
@@ -671,14 +680,14 @@ fn cjk_index(language: crate::i18n::Language) -> u32 {
 	}
 }
 
-fn update_cjk(ctx: &Context, shared: &Mutex<FontDefinitions>, index: u32) {
-	let mut definitions = shared.lock().expect("font definitions");
-	let Some(data) = definitions.font_data.get_mut("Noto Sans CJK") else {
+fn update_cjk(ctx: &Context, shared: &Mutex<Shared>, index: u32) {
+	let mut shared = shared.lock().expect("font definitions");
+	let Some(data) = shared.definitions.font_data.get_mut("Noto Sans CJK") else {
 		return;
 	};
 	if data.index != index {
 		Arc::make_mut(data).index = index;
-		ctx.set_fonts(published(&definitions));
+		ctx.set_fonts(published(&shared));
 		ctx.request_repaint();
 	}
 }
@@ -704,11 +713,11 @@ fn add_fallback(definitions: &mut FontDefinitions, name: &str, data: FontData) {
 	}
 }
 
-/// `definitions` as egui sees them: with twin faces for text on accent fills while
-/// [`crate::design::on_accent_ramp`] asks for them.
-fn published(definitions: &FontDefinitions) -> FontDefinitions {
-	let mut definitions = definitions.clone();
-	if let Some(ramp) = crate::design::on_accent_ramp() {
+/// `shared` as egui sees it: its definitions with twin faces for text on accent fills while a
+/// ramp is set.
+fn published(shared: &Shared) -> FontDefinitions {
+	let mut definitions = shared.definitions.clone();
+	if let Some(ramp) = shared.on_accent {
 		add_on_accent(&mut definitions, ramp);
 	}
 	definitions
@@ -755,17 +764,21 @@ fn on_accent_face(
 	Some(twin)
 }
 
-/// Publish the active definitions again after the on-accent faces changed.
-pub(crate) fn republish(ctx: &Context) {
-	let shared = ctx.data(|data| {
-		data.get_temp::<Arc<Mutex<FontDefinitions>>>(egui::Id::unique(DEFINITIONS_KEY))
-	});
+/// Publish the definitions with the twin faces for `ramp`, when it changed. Any thread may
+/// publish the definitions, including the one that decodes the CJK face, so the ramp lives
+/// with them instead of on the thread that chose it.
+pub(crate) fn set_on_accent(ctx: &Context, ramp: Option<egui::epaint::FontColorTransferFunction>) {
+	let shared =
+		ctx.data(|data| data.get_temp::<Arc<Mutex<Shared>>>(egui::Id::unique(DEFINITIONS_KEY)));
 	let Some(shared) = shared else {
 		return;
 	};
-	let definitions = shared.lock().expect("font definitions");
-	ctx.set_fonts(published(&definitions));
-	ctx.request_repaint();
+	let mut shared = shared.lock().expect("font definitions");
+	if shared.on_accent != ramp {
+		shared.on_accent = ramp;
+		ctx.set_fonts(published(&shared));
+		ctx.request_repaint();
+	}
 }
 
 fn latin(data: &'static [u8]) -> FontData {
@@ -1028,6 +1041,16 @@ mod tests {
 				),
 				crate::design::medium_family(ui.ctx())
 			);
+			// An unfilled control shows the surface behind it, which is not the accent.
+			assert_eq!(
+				crate::design::ink_family(
+					ui,
+					crate::design::Weight::Medium,
+					Color32::BLACK,
+					Color32::TRANSPARENT,
+				),
+				crate::design::medium_family(ui.ctx())
+			);
 			ui.fonts(|fonts| {
 				let definitions = fonts.definitions();
 				let source = &definitions.families[&crate::design::medium_family(ui.ctx())];
@@ -1061,6 +1084,33 @@ mod tests {
 				width(ui, &crate::design::medium_family(ui.ctx())),
 				"the twin must not move or resize the label"
 			);
+		})
+		.drop_without_applying_deltas();
+
+		// The CJK face is installed from a worker thread. It must publish the twins as well.
+		let shared = ctx
+			.data(|data| data.get_temp::<Arc<Mutex<Shared>>>(egui::Id::unique(DEFINITIONS_KEY)))
+			.expect("font definitions");
+		let worker = ctx.clone();
+		std::thread::spawn(move || install_cjk(&worker, &shared))
+			.join()
+			.expect("cjk-font worker");
+		ctx.run_ui(Default::default(), |ui| {
+			let ink = crate::design::ink_family(
+				ui,
+				crate::design::Weight::Medium,
+				Color32::BLACK,
+				Color32::from_rgb(0xc0, 0x84, 0xfc),
+			);
+			assert_eq!(ink, FontFamily::Name(crate::design::ON_ACCENT[1].into()));
+			ui.fonts(|fonts| {
+				assert!(
+					fonts.definitions().families[&ink]
+						.iter()
+						.any(|face| face == "Noto Sans CJK (on accent)"),
+					"the worker must publish the fallback in the twin family too"
+				);
+			});
 		})
 		.drop_without_applying_deltas();
 	}
