@@ -246,11 +246,11 @@ impl Session {
 			return false;
 		};
 		let middle = std::mem::take(&mut self.middle);
-		let (focused, egui_pressed, escape, wheel, hover) = ui.input_mut(|input| {
+		let (focused, egui_pressed, escape, wheel, hover) = ui.input(|input| {
 			(
 				input.focused,
 				input.pointer.any_pressed(),
-				input.consume_key(egui::Modifiers::NONE, egui::Key::Escape),
+				input.key_pressed(egui::Key::Escape),
 				input.smooth_scroll_delta() != egui::Vec2::ZERO,
 				input.pointer.hover_pos(),
 			)

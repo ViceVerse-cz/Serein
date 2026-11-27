@@ -651,6 +651,9 @@ pub struct MessagingUi {
 	selection_prev_frame: bool,
 	/// A visible call stage cleared its enlarged tile on Escape during this frame.
 	tile_focus_escape_frame: bool,
+	/// A middle-click autoscroll was driving at the end of the previous frame; its Escape
+	/// (seen, not consumed, so dialogs keep first claim) only stops the drive.
+	drive_prev_frame: bool,
 	/// The channel whose timeline was painted this frame: Escape only acts on it.
 	conversation_shown: Option<Id>,
 	/// A popup or menu was open when the frame began, so its Escape was not for the chat.
@@ -5368,6 +5371,7 @@ impl MessagingUi {
 		// An Escape frame clears the selection, so a second press is free.
 		self.selection_prev_frame = !escaped && select::has_selection(ctx);
 		self.tile_focus_escape_frame = false;
+		self.drive_prev_frame = self.scroll.tracking();
 		self.composer_escape_frame = None;
 		if self.conversation_shown.is_none() {
 			self.timeline.present_requested = None;
@@ -6242,6 +6246,7 @@ impl MessagingUi {
 			|| select::has_selection(ctx)
 			|| self.selection_prev_frame
 			|| self.tile_focus_escape_frame
+			|| self.drive_prev_frame
 			|| self.ime_active
 			|| self.popup_open_frame
 			|| egui::Popup::is_any_open(ctx)
@@ -8778,6 +8783,10 @@ mod composer_tests {
 			frame(&mut view, &mut state, escape());
 			assert_eq!(view.timeline.present_requested, None);
 		}
+		// An autoscroll drive still running last frame takes the press that stops it.
+		view.drive_prev_frame = true;
+		frame(&mut view, &mut state, escape());
+		assert_eq!(view.timeline.present_requested, None);
 		// A closing component viewer clears its marker so later Escapes are not blocked.
 		view.timeline.viewing = Some((Id(20), Id(999)));
 		view.timeline.component_viewing = Some((Id(20), 42));
