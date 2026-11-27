@@ -101,6 +101,8 @@ pub struct TimelineView {
 	unread_dismissed: Option<Option<Id>>,
 	/// The unread banner asked to acknowledge this channel up to its latest message.
 	pub(super) mark_channel_read: Option<Id>,
+	/// Escape asked to return to the present in this channel; the next paint decides how far.
+	pub(super) present_requested: Option<Id>,
 	pub(super) reaction_picker: Option<(Id, egui::Rect, egui::Id)>,
 	pub(super) reaction: Option<(Id, Option<model::ReactionEmoji>)>,
 	pub(super) reaction_users: Option<(Id, model::ReactionEmoji, bool)>,
@@ -161,7 +163,7 @@ pub struct TimelineView {
 	// revealing edits, without cloning payloads. Pruned with the active window: at most 500 records.
 	revealed: BTreeMap<Id, Revealed>,
 	pub(super) viewing: Option<(Id, Id)>,
-	embed_viewing: Option<(Id, u64, model::Attachment)>,
+	pub(super) embed_viewing: Option<(Id, u64, model::Attachment)>,
 	/// Fixture-only: viewer to open once its message has arrived in the timeline.
 	pending_viewer: Option<(Id, Id)>,
 	pub(super) download: crate::attachments::DownloadUi,
@@ -2504,6 +2506,20 @@ impl TimelineView {
 		self.mark_unread = None;
 		self.seen_latest = None;
 	}
+	/// Escape: dismiss the unread banner like its "Mark as read" button and head back to the
+	/// present like the round control. Returns the channel to acknowledge when one is selected.
+	pub(super) fn escape_to_present(&mut self, state: &State) -> Option<Id> {
+		let channel = state.selected?;
+		let latest = state.channel(channel).and_then(|c| c.last_message);
+		self.unread_dismissed = Some(latest);
+		self.hold_read_ack = false;
+		self.mark_read = None;
+		// The same hand-off as the banner's button, so the acknowledgement is queued in the
+		// place that already waits out a pending one.
+		self.mark_channel_read = Some(channel);
+		self.present_requested = Some(channel);
+		Some(channel)
+	}
 	pub(super) fn follow_latest(&mut self, state: &State) {
 		self.latest |= state.history_targeted
 			|| state.history_before.is_some()
@@ -2569,6 +2585,11 @@ impl TimelineView {
 		session: &mut crate::scroll::Session,
 	) {
 		let width = ui.available_width();
+		// Escape's request is for this paint only; a loading or hidden view drops it.
+		let escaped = self
+			.present_requested
+			.take()
+			.is_some_and(|channel| state.selected == Some(channel));
 		let channel_changed = self.channel != state.selected;
 		if channel_changed {
 			if let Some(previous) = self.channel {
@@ -5580,6 +5601,7 @@ impl TimelineView {
 				})
 		};
 		self.present_control = None;
+		let mut go_present = false;
 		if (!self.following && distance_from_bottom > PRESENT_CONTROL_SCREENS * area.height())
 			|| (self.target_browsing && !(at_bottom && unread))
 			|| detached_page
@@ -5596,19 +5618,26 @@ impl TimelineView {
 			});
 			let (rect, present) = present_control(ui, area, unread, label.as_deref());
 			self.present_control = Some(rect);
-			if present {
-				if browsing_history {
-					self.latest = true;
-				}
-				if distance_from_bottom > 0.5 && !browsing_history && !self.instant_scrolling {
-					// Glide back so the reader keeps their place in the conversation.
-					self.target_browsing = false;
-					self.present_scroll = Some((output.state.clamped_offset().y, 0.0));
-				} else {
-					self.follow_latest(state);
-				}
-				ui.ctx().request_repaint();
+			go_present |= present;
+		}
+		// Escape takes the same way back, but does nothing when the reader is already there.
+		go_present |= escaped
+			&& (browsing_history
+				|| distance_from_bottom > 0.5
+				|| !self.following
+				|| !self.at_current_latest);
+		if go_present {
+			if browsing_history {
+				self.latest = true;
 			}
+			if distance_from_bottom > 0.5 && !browsing_history && !self.instant_scrolling {
+				// Glide back so the reader keeps their place in the conversation.
+				self.target_browsing = false;
+				self.present_scroll = Some((output.state.clamped_offset().y, 0.0));
+			} else {
+				self.follow_latest(state);
+			}
+			ui.ctx().request_repaint();
 		}
 		if let Some((message_id, attachment_id)) = self.pending_viewer
 			&& state.timeline.get(message_id).is_some()

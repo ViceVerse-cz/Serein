@@ -642,6 +642,18 @@ pub struct MessagingUi {
 	edit_sent: Option<SubmittedEdit>,
 	deleting: Option<(Id, Id)>,
 	ime_active: bool,
+	/// The composer's widget id this frame while it holds focus and could take Escape; the
+	/// one field that may hold focus when Escape returns to the present.
+	composer_escape_frame: Option<egui::Id>,
+	/// End-of-previous-frame snapshot (see `end_frame_snapshot`): keyboard focus, a chat
+	/// selection, and a focused call-stage tile.
+	focus_prev_frame: Option<egui::Id>,
+	selection_prev_frame: bool,
+	tile_focus_prev_frame: bool,
+	/// The timeline painted a conversation this frame, so Escape's target is on screen.
+	conversation_shown: bool,
+	/// A popup or menu was open when the frame began, so its Escape was not for the chat.
+	popup_open_frame: bool,
 	/// A composer picker pick returns focus to the draft next frame, once its click is over.
 	refocus_composer: bool,
 	/// The one draft undo history held by the composer.
@@ -4488,6 +4500,7 @@ impl MessagingUi {
                             && ctx.memory(|m| {
                                 m.has_focus(composer_id) || m.had_focus_last_frame(composer_id)
                             });
+                        self.composer_escape_frame = composer_escape.then_some(composer_id);
                         cancel_edit |= editing_here
                             && composer_escape
                             && ctx.input_mut(|i| {
@@ -5341,6 +5354,23 @@ impl MessagingUi {
 	/// Draws one frame of the signed-in client and returns the commands it produced for the
 	/// service layer.
 	pub fn show(&mut self, ui: &mut egui::Ui, state: &mut State) -> Vec<Command> {
+		let commands = self.show_frame(ui, state);
+		self.end_frame_snapshot(ui.ctx());
+		commands
+	}
+	/// What Escape's handler needs from the end of the previous frame, recorded on every path
+	/// out of `show`: egui drops a text field's focus and clears a bidi selection on Escape
+	/// before we run, so only the earlier frame shows the key was meant for them.
+	fn end_frame_snapshot(&mut self, ctx: &egui::Context) {
+		let escaped = ctx.input(|input| input.key_pressed(egui::Key::Escape));
+		self.focus_prev_frame = ctx.memory(|m| m.focused());
+		// An Escape frame clears the selection and the tile focus, so a second press is free.
+		self.selection_prev_frame = !escaped && select::has_selection(ctx);
+		self.tile_focus_prev_frame = self.voice_focus.is_some();
+		self.composer_escape_frame = None;
+		self.conversation_shown = false;
+	}
+	fn show_frame(&mut self, ui: &mut egui::Ui, state: &mut State) -> Vec<Command> {
 		self.clear_inactive_composer_undo(ui.ctx(), state.generation, state.selected);
 		interface_tweaks::publish(ui.ctx(), &self.interface_tweaks);
 		rtl::scope(
@@ -5474,6 +5504,7 @@ impl MessagingUi {
 			data.remove::<egui::Rect>(profiles::profile_opener_id());
 		});
 		let ctx = ui.ctx().clone();
+		self.popup_open_frame = egui::Popup::is_any_open(&ctx);
 		user_menu::set_voice_available(&ctx, self.voice_available);
 		self.extensions.reset_theme_shortcut(&ctx);
 		self.extensions.context_menus(&ctx, state);
@@ -6185,6 +6216,58 @@ impl MessagingUi {
 			Some(selected_forum),
 		)
 	}
+	/// Escape, once nothing else wanted it: acknowledge the open channel and return to the
+	/// present, as Discord does. It runs after every overlay, the composer's edit/reply
+	/// cancel and the other Escape consumers, which all consume the key, so it only sees a
+	/// press that is left over. Other text fields keep Escape, and a reply or edit is
+	/// cancelled first, so a second press gets here.
+	fn escape_to_present(&mut self, ctx: &egui::Context, state: &mut State, settings_open: bool) {
+		let focused = ctx.memory(|m| m.focused());
+		let before = self.focus_prev_frame;
+		// The composer, or the edit field an Escape just closed, may still hold focus.
+		let owned = |id: Option<egui::Id>| {
+			id.is_none() || id == self.composer_escape_frame || id == self.edit_widget_id
+		};
+		if !self.conversation_shown
+			|| settings_open
+			|| !owned(focused)
+			|| !owned(before)
+			|| select::has_selection(ctx)
+			|| self.selection_prev_frame
+			|| self.tile_focus_prev_frame
+			|| self.ime_active
+			|| self.popup_open_frame
+			|| egui::Popup::is_any_open(ctx)
+			|| ctx.memory(|m| m.top_modal_layer().is_some())
+			|| self.editing.is_some()
+			|| state.reply.is_some()
+			|| self.deleting.is_some()
+			|| self.search.open
+			|| state.archives.is_some()
+			|| self.switcher.is_open()
+			|| self.switcher_frame
+			|| self.emoji_picker.is_open()
+			|| self.timestamp_picker.is_open()
+			|| self.profile.open_user().is_some()
+			|| self.profile_image.is_some()
+			|| self.attachment_view_open.is_some()
+			|| self.timeline.viewing.is_some()
+			|| self.timeline.embed_viewing.is_some()
+			|| self.timeline.component_viewing.is_some()
+			|| self.timeline.opening.is_some()
+			|| state.interactions.modal.is_some()
+			|| state.selected.is_none()
+		{
+			return;
+		}
+		if !ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
+			return;
+		}
+		// The acknowledgement goes out next frame through the banner's own hand-off.
+		if self.timeline.escape_to_present(state).is_some() {
+			ctx.request_repaint();
+		}
+	}
 	/// A text conversation's composer, notices and timeline below whatever header the caller
 	/// drew, with the requests they raise. The usual layout and a plugin's chat window share it.
 	/// `message_fill` is the caller's reserved backdrop shape and its top edge.
@@ -6301,6 +6384,7 @@ impl MessagingUi {
 				if let Some(command) = state.request_author_members(&author_lookup) {
 					commands.push(command);
 				}
+				self.conversation_shown = true;
 				self.timeline.show_with_scroll(
 					ui,
 					state,
@@ -6941,6 +7025,7 @@ impl MessagingUi {
 			profile_guild,
 			&mut commands,
 		);
+		self.escape_to_present(&ctx, state, settings_open);
 		if !commands.is_empty() {
 			ctx.request_repaint();
 		}
@@ -8610,6 +8695,93 @@ mod composer_tests {
 		assert!(view.timeline.opening.is_none());
 	}
 
+	#[test]
+	fn escape_returns_to_present_only_for_a_shown_chat_nothing_else_claims() {
+		let ctx = egui::Context::default();
+		let mut view = MessagingUi::default();
+		let mut state = edit_state();
+		state.channels[0].last_message = Some(Id(20));
+		state
+			.apply_read_state(client_core::read_state::Event::Snapshot {
+				entries: Some(vec![(Id(10), Some(Id(1)), 0)]),
+				version: Some(1),
+				partial: false,
+			})
+			.unwrap();
+		let frame = |view: &mut MessagingUi, state: &mut State, events| {
+			let mut commands = Vec::new();
+			let output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(1000.0, 700.0),
+					)),
+					events,
+					..Default::default()
+				},
+				|ui| commands = view.show(ui, state),
+			);
+			output.drop_without_applying_deltas();
+			commands
+		};
+		let escape = || vec![edit_key(egui::Key::Escape)];
+		let marks = |commands: &[Command]| {
+			commands.iter().any(|command| {
+				matches!(
+					command,
+					Command::MarkRead {
+						channel: Id(10),
+						..
+					}
+				)
+			})
+		};
+		for _ in 0..3 {
+			frame(&mut view, &mut state, vec![]);
+		}
+		// A reply keeps the first Escape.
+		state.reply = Some(client_core::Reply::to(Id(20)));
+		frame(&mut view, &mut state, vec![]);
+		frame(&mut view, &mut state, escape());
+		assert!(state.reply.is_none());
+		assert_eq!(view.timeline.present_requested, None);
+		// Focus another text field last frame: egui already dropped it, the key was its own.
+		view.focus_prev_frame = Some(egui::Id::unique("docked-note"));
+		frame(&mut view, &mut state, escape());
+		assert_eq!(view.timeline.present_requested, None);
+		assert!(view.timeline.mark_channel_read.is_none());
+		// A focused call-stage tile or a selection (egui clears both on Escape before we run)
+		// was the key's target when the previous frame had them.
+		for tile in [true, false] {
+			view.tile_focus_prev_frame = tile;
+			view.selection_prev_frame = !tile;
+			frame(&mut view, &mut state, escape());
+			assert_eq!(view.timeline.present_requested, None);
+		}
+		// A hidden chat (voice channel without chat) is not the target either.
+		state.channels[0].kind = 2;
+		frame(&mut view, &mut state, vec![]);
+		frame(&mut view, &mut state, escape());
+		assert_eq!(view.timeline.present_requested, None);
+		assert!(view.timeline.mark_channel_read.is_none());
+		state.channels[0].kind = 1;
+		frame(&mut view, &mut state, vec![]);
+		// Otherwise Escape returns to the present and acknowledges the unread channel.
+		frame(&mut view, &mut state, escape());
+		assert_eq!(view.timeline.present_requested, Some(Id(10)));
+		assert!(marks(&frame(&mut view, &mut state, vec![])));
+		assert_eq!(view.timeline.present_requested, None);
+		// Cancelling an edit takes the first Escape; the next one is not blocked by its widget.
+		view.editing = Some((Id(10), Id(20), "Original".into()));
+		for _ in 0..3 {
+			frame(&mut view, &mut state, vec![]);
+		}
+		frame(&mut view, &mut state, escape());
+		assert!(!view.has_edit());
+		assert_eq!(view.timeline.present_requested, None);
+		frame(&mut view, &mut state, escape());
+		assert_eq!(view.timeline.present_requested, Some(Id(10)));
+	}
 	#[test]
 	fn staged_viewer_escape_preserves_background_search() {
 		let ctx = egui::Context::default();

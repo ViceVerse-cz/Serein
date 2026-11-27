@@ -124,6 +124,8 @@ The bundled faces remain upstream's hinted TrueType builds. See `assets/README.m
   draft; Cancel/Escape preserves it. Conversation, account or edit-target changes close
   the dialog. The shortcut also works while editing a message; `@silent` remains literal
   in edits and is not suggested there.
+  Escape that nothing else claims (no overlay, popup, picker, edit, reply or other focused
+  field) marks the open channel read, clears the New Messages bar and returns to the present.
 - Member list (240px): ONLINE/OFFLINE eyebrows with counts; group DMs show a localized
   Members — N heading including the current account, updated with participant changes. 42px rows with
   presence dots, custom status and hover fill; opens a Members window on narrow layouts.
