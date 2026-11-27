@@ -18,12 +18,34 @@ pub(crate) mod windows;
 #[cfg(target_os = "macos")]
 pub(crate) use macos as hardware;
 
+/// Why an AV1 share could not start; the share dialog and diagnostics show it verbatim.
+pub(crate) const AV1_UNAVAILABLE: &str = "NVENC AV1 encoding is unavailable on this machine";
+
+/// Codec a hardware backend is asked to produce. Only the Windows NVENC backend implements AV1;
+/// every other backend refuses it instead of silently encoding H.264.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum Codec {
+	#[default]
+	H264,
+	Av1,
+}
+
+/// Whether this build and machine can encode AV1 at all.
+#[cfg(target_os = "windows")]
+pub(crate) fn av1_supported() -> bool {
+	nvenc::support().av1
+}
+#[cfg(not(target_os = "windows"))]
+pub(crate) fn av1_supported() -> bool {
+	false
+}
+
 /// Windows hardware encoders in preference order: the driver's own NVENC session first, then the
 /// Media Foundation transform. Both keep the caller's openh264 fallback, and a machine that offers
 /// neither keeps the software encoder alone.
 #[cfg(target_os = "windows")]
 pub(crate) mod hardware {
-	use super::{Config, nvenc, windows};
+	use super::{AV1_UNAVAILABLE, Codec, Config, nvenc, windows};
 
 	pub(crate) struct Encoder(Backend);
 
@@ -36,6 +58,9 @@ pub(crate) mod hardware {
 		pub(crate) fn new(config: Config) -> Result<Self, &'static str> {
 			match nvenc::Encoder::new(config) {
 				Ok(encoder) => Ok(Self(Backend::Nvenc(Box::new(encoder)))),
+				// Only NVENC produces AV1; the Media Foundation transform stays H.264,
+				// so an AV1 share fails visibly instead of sending a different codec.
+				Err(_) if config.codec == Codec::Av1 => Err(AV1_UNAVAILABLE),
 				Err(_) => windows::Encoder::new(config)
 					.map(|encoder| Self(Backend::MediaFoundation(Box::new(encoder)))),
 			}
@@ -90,6 +115,8 @@ pub(crate) struct Config {
 	/// Screen sharing already ships Main; the camera keeps the Baseline profile its
 	/// software encoder has always sent, so its wire format is unchanged.
 	pub profile: Profile,
+	/// Codec to produce. A backend that cannot produce it fails rather than substituting another.
+	pub codec: Codec,
 }
 
 /// H.264 profile requested from the hardware encoder.

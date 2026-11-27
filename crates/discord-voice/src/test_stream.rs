@@ -126,6 +126,7 @@ async fn exchange(rekey_timeout: bool) {
 			cursor: false,
 			audio: true,
 		},
+		codec: crate::screen::StreamCodec::H264,
 		max_bitrate: 1_000_000,
 		frames,
 		ready: ready.clone(),

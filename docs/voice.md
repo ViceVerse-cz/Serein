@@ -684,8 +684,10 @@ IDR, keyframes stay on the 10-second screen and 2-second camera cadence, and eve
 SPS/PPS so a viewer that joined or lost packets can decode from it. A machine without the library,
 without an NVIDIA GPU, or below the NVENC 12.0 floor falls through to Media Foundation and then to
 openh264; the probe result is printed once under `SEREIN_VOICE_DIAGNOSTICS=1`
-(`nvenc: api=13.1 h264=true hevc=true av1=true`). H.265 and AV1 encode are available from the driver
-but the stream still carries H.264 only, as `docs/video-encoding.md` explains.
+(`nvenc: api=13.1 h264=true hevc=true av1=true`). H.265 encode is available from the driver but
+still receive-only; AV1 encode is available too, and a share can send it when `SEREIN_STREAM_CODEC=av1` selects
+the AV1 session, in which case the stream advertises AV1 (payload 105) and refuses a session that
+negotiates H.264. `docs/video-encoding.md` records both paths and the missing Windows AV1 decoder.
 
 The remaining contracts below describe the Media Foundation fallback, which still serves every
 machine without NVENC. Forced

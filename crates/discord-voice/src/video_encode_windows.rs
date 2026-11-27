@@ -519,6 +519,7 @@ mod tests {
 			bit_rate,
 			max_bytes: crate::screen::MAX_ENCODED_BYTES,
 			profile: Profile::Main,
+			codec: crate::video_encode::Codec::H264,
 		};
 		let mut encoder = Encoder::new(config).expect("hardware encoder");
 		let length = (width * height * 3 / 2) as usize;

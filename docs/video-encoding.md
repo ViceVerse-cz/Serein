@@ -1,30 +1,31 @@
 # Hardware video encoding
 
-Serein sends H.264 on every platform, and on Windows it now encodes it in the driver's own NVENC
-session where one exists, keeping the Media Foundation transform and the openh264 software encoder as
-fallbacks. This note records the encoders the official Discord client ships, what the NVENC backend
-configures, and what is still missing before the stream itself can carry H.265 or AV1.
+Serein sends H.264 on every platform, encodes it in the driver's own NVENC session where one exists,
+and can also send **AV1** when the driver offers an AV1 encoder. This note records the encoders the
+official Discord client ships, what the two send formats configure, and what is still missing.
 
 ## What Serein sends today
 
-Go Live video is H.264 only: `crates/discord-voice/src/video_codec.rs` assigns payload 101 to H.264
-and the transport advertises `encode: true` for it alone, while H.265 (103) and AV1 (105) are
-receive-only and only on Linux (`available_h265`/`available_av1`). `crates/discord-voice/src/video.rs`
-is a small Annex-B H.264 packetizer (RFC 6184 single NAL and FU-A); there is no AV1 or H.265
-packetizer for sending.
+Go Live video is H.264 by default and AV1 on request. `crates/discord-voice/src/video_codec.rs`
+assigns payload 101 to H.264, 103 to H.265 and 105 to AV1 (RTX 102/104/106); H.265 stays receive-only
+and only on Linux, AV1 is sent when `SEREIN_STREAM_CODEC=av1` selects it and the driver has an AV1
+encoder. The stream advertises exactly the codec it encodes and refuses a session that negotiates
+another one.
 
 Screen sharing and the camera share one encoder seam, `crates/discord-voice/src/video_encode.rs`
-(`Config`, `Profile`, `hardware::Encoder`). On Windows that seam prefers the direct NVENC session
-(`crates/discord-voice/src/video_encode_nvenc.rs`), then the Media Foundation transform
+(`Config`, `Profile`, `Codec`, `hardware::Encoder`). On Windows that seam prefers the direct NVENC
+session (`crates/discord-voice/src/video_encode_nvenc.rs`), then the Media Foundation transform
 (`crates/discord-voice/src/video_encode_windows.rs`), and the caller keeps an openh264 encoder for
 everything both refuse and for mid-stream hand-over. On macOS the seam is VideoToolbox
 (`crates/discord-voice/src/video_encode_macos.rs`); on Linux the GStreamer pipeline encodes with
-`vah264enc` or `nvh264enc` and falls back to software.
+`vah264enc` or `nvh264enc` and falls back to software. The camera keeps H.264: every viewer decodes
+it, and the camera has no AV1 packetizer.
 
 What the NVENC backend configures, and why it is not just "hardware H.264":
 
-- The P5 preset tier with the low-latency tuning, which is the pair the official client exposes as a
-  preset and a latency setting.
+- H.264 uses the P5 preset with the low-latency tuning; AV1 uses the P6 preset with the high-quality
+  tuning. The encoder's `ULTRA_HIGH_QUALITY` tuning rejects a picture structure without B-frames on
+  this driver (617.42, NVENC 13.1), so the quality tier is a follow-up, not a silent downgrade.
 - Peak-constrained VBR: the transport feedback keeps owning the mean bitrate, the peak stays at 1.5×
   the mean, and the VBV buffer is 250 ms at the mean rate, mirroring the Media Foundation backend so
   congestion control behaves the same whichever encoder wins.
@@ -35,6 +36,28 @@ What the NVENC backend configures, and why it is not just "hardware H.264":
   seconds while sharing and every 2 seconds on the camera, and SPS/PPS repeated with every IDR so a
   viewer that joined or lost packets can decode from any keyframe.
 - A live rate change through `nvEncReconfigureEncoder`, so a congestion cut does not cost an IDR.
+
+## The AV1 send path
+
+AV1 changes the framing around the encoder, not just the codec:
+
+- The encoder emits an OBU stream. `crates/discord-voice/src/video.rs` (`av1_sender_frame`) rewrites it
+  into the framing the receiving side rebuilds: every OBU keeps its size field except the last, whose
+  size the frame boundary implies. DAVE encrypts exactly those bytes, so sender and receiver must
+  agree byte for byte.
+- `packetize_av1` produces AOM AV1 RTP v1.0.0 payloads: one aggregation header per packet, then
+  size-prefixed elements, `Z`/`Y` marking an OBU that continues across packets, and the marker bit on
+  the final packet. Payload type 105, RTX 106.
+- `stream_codecs` advertises AV1 with `encode: true` and lists it first so the server picks it;
+  `stream_codec` accepts the answer and the sender refuses a session that negotiates a different codec
+  instead of sending mislabeled media.
+- DAVE encrypts with `davey::Codec::AV1`, which keeps the OBU headers and size fields in the clear and
+  encrypts the payloads, exactly as the receive path expects.
+
+The receive side of this repository still decodes AV1 only on Linux (`available_av1`), so another
+Serein client on Windows or macOS has no AV1 decoder. Whether Discord's SFU transcodes per viewer or
+rejects those viewers is unverified; that is why AV1 is an opt-in rather than the default, and why the
+next step is a Windows AV1 decoder through the Media Foundation transform.
 
 ## What the official client does
 
@@ -105,19 +128,21 @@ driver wait, not CPU. At 60 fps it takes about half the frame budget at 1080p; a
 
 ## Remaining work
 
-**H.265 and AV1 sending.** This is protocol work, not encoder work: `stream_codecs` must advertise
-`encode: true` for the chosen codec, `crates/discord-voice/src/video.rs` needs H.265 and AV1
-packetizers (the AV1 dependency descriptor is the same layout `video_av1.rs` and the receive path
-already understand), and keyframe and parameter-set detection already exists in `video_codec.rs`. It
-also needs **decoders on Windows and macOS**, because `available_av1` and `available_h265` are
-Linux-only today: Serein clients would not be able to decode each other. Interoperation with the
-official client must be verified live; it cannot be established synthetically.
+**A Windows AV1 decoder.** Serein's own receive path decodes AV1 only on Linux. A Media Foundation
+transform for `MFVideoFormat_AV1` would let Windows clients watch an AV1 share, and macOS still has no
+AV1 receive path at all. Until then AV1 sending stays opt-in.
 
-**Quality controls.** The probe already reports HEVC and AV1 support, so a quality setting per codec
-(lookahead, temporal AQ and multi-pass for a quality-first mode, or NVENC's ultra-high-quality tuning
-where the driver advertises it) is a configuration change on top of this backend, gated by the
-transport ceiling. It should stay an explicit choice: a 32-frame lookahead is about half a second of
-latency at 60 fps.
+**H.265 sending.** The same packetization work as AV1 (H.265 RTP follows RFC 7798, not the AV1 payload
+format) plus a decoder on every platform.
+
+**Quality mode.** The encoder's `ULTRA_HIGH_QUALITY` tuning needs B-frames, and B-frames need an
+output queue on the sender and the reorder buffer on the receiver before they can be turned on. The
+same applies to lookahead and multi-pass: they trade latency for rate accuracy, so they belong to an
+explicit quality setting rather than the default.
+
+**Interoperation.** AV1 sending has been verified synthetically only: the sender's packets round-trip
+through this repository's own receiver, and the encoder's output is OBU-framed with a keyframe first.
+A live call against an official client is required before the opt-in becomes a default.
 
 **Other vendors.** AMD's AMF and Intel's QSV expose the same shape of controls. The seam added here
 takes one more backend each; neither is planned yet.

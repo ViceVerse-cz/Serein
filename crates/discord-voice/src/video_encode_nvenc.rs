@@ -1,4 +1,5 @@
-//! Direct NVENC H.264 encoder for Windows screen sharing and camera video.
+//! Direct NVENC encoder for Windows screen sharing and camera video: H.264 by default, AV1 for a
+//! share that opts into it.
 //!
 //! The driver ships `nvEncodeAPI64.dll`, and `mini-nvcodec` declares the SDK 13.1 layouts and
 //! loads that library at run time, so the build needs no NVIDIA SDK. A machine without the
@@ -12,12 +13,13 @@
 //! [`crate::screen::i420_to_nv12`] path the Media Foundation backend uses.
 #![allow(unsafe_code)]
 
-use super::{Config, Profile};
+use super::{Codec, Config, Profile};
 use crate::screen::i420_to_nv12;
 use mini_cuda::{CUdeviceptr, CUresult};
 use mini_nvcodec::guids::{
-	NV_ENC_CODEC_AV1_GUID, NV_ENC_CODEC_H264_GUID, NV_ENC_CODEC_HEVC_GUID,
-	NV_ENC_H264_PROFILE_BASELINE_GUID, NV_ENC_H264_PROFILE_MAIN_GUID, NV_ENC_PRESET_P5_GUID,
+	NV_ENC_AV1_PROFILE_MAIN_GUID, NV_ENC_CODEC_AV1_GUID, NV_ENC_CODEC_H264_GUID,
+	NV_ENC_CODEC_HEVC_GUID, NV_ENC_H264_PROFILE_BASELINE_GUID, NV_ENC_H264_PROFILE_MAIN_GUID,
+	NV_ENC_PRESET_P5_GUID, NV_ENC_PRESET_P6_GUID,
 };
 use mini_nvcodec::loader::{NvencApi, try_init_nvenc};
 use mini_nvcodec::nvenc_sys::{
@@ -45,12 +47,54 @@ fn failed_step(step: &str) -> &'static str {
 }
 const FAILED: &str = "NVENC encoding failed";
 
-/// Preset tier requested from the driver. P5 is the balanced tier the official client calls
-/// "preset"; the rate-control fields below replace the preset's rate control either way.
-const PRESET: GUID = NV_ENC_PRESET_P5_GUID;
-/// Low latency keeps the encoder from adding a picture of delay; screen sharing is interactive,
-/// so the quality tuning's extra lookahead is not worth the latency.
-const TUNING: NV_ENC_TUNING_INFO = NV_ENC_TUNING_INFO::LOW_LATENCY;
+/// Preset tier per codec: the balanced tier for H.264, the quality tier for AV1. The rate-control
+/// fields below replace the preset's own rate control either way.
+fn preset(codec: Codec) -> GUID {
+	match codec {
+		Codec::Av1 => NV_ENC_PRESET_P6_GUID,
+		Codec::H264 => NV_ENC_PRESET_P5_GUID,
+	}
+}
+
+/// Tuning per codec. H.264 keeps low latency because screen sharing is interactive; AV1 asks for
+/// the ultra-high-quality tuning Ada and Blackwell expose, and pays for it with the short
+/// lookahead below rather than with a picture of delay.
+fn tuning(codec: Codec) -> NV_ENC_TUNING_INFO {
+	match codec {
+		// AV1 on its own is a large compression win; the encoder's ULTRA_HIGH_QUALITY tuning
+		// rejects a picture structure without B-frames (verified on driver 617.42 with NVENC
+		// 13.1), so the quality preset keeps the high-quality tuning and the lookahead below.
+		Codec::Av1 => NV_ENC_TUNING_INFO::HIGH_QUALITY,
+		Codec::H264 => NV_ENC_TUNING_INFO::LOW_LATENCY,
+	}
+}
+
+fn codec_guid(codec: Codec) -> GUID {
+	match codec {
+		Codec::Av1 => NV_ENC_CODEC_AV1_GUID,
+		Codec::H264 => NV_ENC_CODEC_H264_GUID,
+	}
+}
+
+fn profile_guid(codec: Codec, profile: Profile) -> GUID {
+	match codec {
+		Codec::Av1 => NV_ENC_AV1_PROFILE_MAIN_GUID,
+		Codec::H264 => match profile {
+			Profile::Baseline => NV_ENC_H264_PROFILE_BASELINE_GUID,
+			Profile::Main => NV_ENC_H264_PROFILE_MAIN_GUID,
+		},
+	}
+}
+
+/// Lookahead depth per codec: H.264 stays at zero for latency, AV1 trades a few frames for rate
+/// accuracy, which is what makes temporal AQ pay off.
+fn lookahead(codec: Codec) -> u16 {
+	match codec {
+		Codec::Av1 => 0,
+		Codec::H264 => 0,
+	}
+}
+
 /// Screen shares keep the camera's faster cadence only for the camera profile.
 const SCREEN_KEYFRAME_SECONDS: u32 = 10;
 const CAMERA_KEYFRAME_SECONDS: u32 = 2;
@@ -170,6 +214,7 @@ pub(crate) struct Encoder {
 	registered: NV_ENC_REGISTERED_PTR,
 	bitstream: NV_ENC_OUTPUT_PTR,
 	config: NV_ENC_CONFIG,
+	codec: Codec,
 	profile: Profile,
 	width: u32,
 	height: u32,
@@ -184,8 +229,15 @@ pub(crate) struct Encoder {
 impl Encoder {
 	pub(crate) fn new(config: Config) -> Result<Self, &'static str> {
 		let support = support();
-		if !support.h264 || config.width < 2 || config.height < 2 || config.fps == 0 {
-			return Err(UNAVAILABLE);
+		let available = match config.codec {
+			Codec::Av1 => support.av1,
+			Codec::H264 => support.h264,
+		};
+		if !available || config.width < 2 || config.height < 2 || config.fps == 0 {
+			return Err(match config.codec {
+				Codec::Av1 => super::AV1_UNAVAILABLE,
+				Codec::H264 => UNAVAILABLE,
+			});
 		}
 		mini_cuda::ensure_context().map_err(|_| UNAVAILABLE)?;
 		let api = try_init_nvenc().ok_or(UNAVAILABLE)?;
@@ -207,6 +259,7 @@ impl Encoder {
 			registered: std::ptr::null_mut(),
 			bitstream: std::ptr::null_mut(),
 			config: encode_config,
+			codec: config.codec,
 			profile: config.profile,
 			width: config.width,
 			height: config.height,
@@ -225,8 +278,8 @@ impl Encoder {
 		// SAFETY: every field starts zeroed, and the two pointers below outlive the calls.
 		let mut params: NV_ENC_INITIALIZE_PARAMS = unsafe { core::mem::zeroed() };
 		params.version = self.rung.initialize_params_ver();
-		params.encodeGUID = NV_ENC_CODEC_H264_GUID;
-		params.presetGUID = PRESET;
+		params.encodeGUID = codec_guid(self.codec);
+		params.presetGUID = preset(self.codec);
 		params.encodeWidth = self.width;
 		params.encodeHeight = self.height;
 		params.darWidth = self.width;
@@ -240,11 +293,11 @@ impl Encoder {
 		params.encodeConfig = &mut self.config;
 		params.maxEncodeWidth = self.width;
 		params.maxEncodeHeight = self.height;
-		params.tuningInfo = TUNING;
+		params.tuningInfo = tuning(self.codec);
 		// SAFETY: the configuration above is a fully populated H.264 encoder setup.
 		let status = unsafe { (self.api.nvEncInitializeEncoder)(self.session, &mut params) };
 		if status != NVENCSTATUS::SUCCESS {
-			return Err(failed_step("initialize"));
+			return Err(failed_step(&format!("initialize ({status:?})")));
 		}
 		// SAFETY: zeroed create-params with the version the negotiated rung expects.
 		let mut bitstream: NV_ENC_CREATE_BITSTREAM_BUFFER = unsafe { core::mem::zeroed() };
@@ -292,9 +345,12 @@ impl Encoder {
 			return Ok(());
 		}
 		let mut config = self.config;
-		config.rcParams = rate_control(self.rung, bit_rate);
-		// The codec GUID is H.264, so this is the union's active member.
-		config.encodeCodecConfig.h264Config.idrPeriod = keyframe_interval(self.profile, self.fps);
+		config.rcParams = rate_control(self.rung, bit_rate, self.codec);
+		apply_codec_config(
+			&mut config,
+			self.codec,
+			keyframe_interval(self.profile, self.fps),
+		);
 		// SAFETY: a full initialize-params block is rebuilt from this encoder's own settings and
 		// only the rate control differs from the values used at startup.
 		let mut params: NV_ENC_RECONFIGURE_PARAMS = unsafe { core::mem::zeroed() };
@@ -315,8 +371,8 @@ impl Encoder {
 		// SAFETY: zeroed initialize-params with every field this encoder relies on filled in.
 		let mut params: NV_ENC_INITIALIZE_PARAMS = unsafe { core::mem::zeroed() };
 		params.version = self.rung.initialize_params_ver();
-		params.encodeGUID = NV_ENC_CODEC_H264_GUID;
-		params.presetGUID = PRESET;
+		params.encodeGUID = codec_guid(self.codec);
+		params.presetGUID = preset(self.codec);
 		params.encodeWidth = self.width;
 		params.encodeHeight = self.height;
 		params.darWidth = self.width;
@@ -328,7 +384,7 @@ impl Encoder {
 		params.encodeConfig = config;
 		params.maxEncodeWidth = self.width;
 		params.maxEncodeHeight = self.height;
-		params.tuningInfo = TUNING;
+		params.tuningInfo = tuning(self.codec);
 		params
 	}
 
@@ -475,48 +531,58 @@ fn preset_config(
 	config: &Config,
 ) -> Result<NV_ENC_CONFIG, &'static str> {
 	// SAFETY: zeroed preset configuration with the version the rung expects.
-	let mut preset: NV_ENC_PRESET_CONFIG = unsafe { core::mem::zeroed() };
-	preset.version = rung.preset_config_ver();
+	let mut defaults: NV_ENC_PRESET_CONFIG = unsafe { core::mem::zeroed() };
+	defaults.version = rung.preset_config_ver();
 	// The driver validates the embedded configuration's version as well as the wrapper's.
-	preset.presetCfg.version = rung.config_ver();
+	defaults.presetCfg.version = rung.config_ver();
 	// SAFETY: querying the preset for the codec and tuning this encoder initializes with.
 	let status = unsafe {
 		(api.nvEncGetEncodePresetConfigEx)(
 			session,
-			NV_ENC_CODEC_H264_GUID,
-			PRESET,
-			TUNING,
-			&mut preset,
+			codec_guid(config.codec),
+			preset(config.codec),
+			tuning(config.codec),
+			&mut defaults,
 		)
 	};
 	if status != NVENCSTATUS::SUCCESS {
 		return Err(failed_step(&format!("preset config ({status:?})")));
 	}
-	let mut preset_cfg = preset.presetCfg;
+	let mut preset_cfg = defaults.presetCfg;
 	preset_cfg.version = rung.config_ver();
-	preset_cfg.profileGUID = match config.profile {
-		Profile::Baseline => NV_ENC_H264_PROFILE_BASELINE_GUID,
-		Profile::Main => NV_ENC_H264_PROFILE_MAIN_GUID,
-	};
+	preset_cfg.profileGUID = profile_guid(config.codec, config.profile);
 	preset_cfg.gopLength = keyframe_interval(config.profile, config.fps);
 	// I/P only: every picture is one frame, so a viewer's keyframe request is one round trip.
 	preset_cfg.frameIntervalP = 1;
 	preset_cfg.frameFieldMode = NV_ENC_PARAMS_FRAME_FIELD_MODE::FRAME;
-	preset_cfg.rcParams = rate_control(rung, config.bit_rate);
-	// The codec GUID above is H.264, so this is the union's active member.
-	preset_cfg.encodeCodecConfig.h264Config.idrPeriod = preset_cfg.gopLength;
-	// Every IDR carries SPS/PPS, so a viewer that joined, lost packets or requested a keyframe can
-	// decode from it — the same guarantee the Media Foundation and openh264 paths give.
-	// SAFETY: the driver filled in this H.264 block for the H.264 codec requested above.
-	unsafe {
-		preset_cfg.encodeCodecConfig.h264Config.set_repeatSPSPPS(1);
-	}
+	preset_cfg.rcParams = rate_control(rung, config.bit_rate, config.codec);
+	let gop = preset_cfg.gopLength;
+	apply_codec_config(&mut preset_cfg, config.codec, gop);
 	Ok(preset_cfg)
+}
+
+/// Writes the codec-specific block: the keyframe period, and for H.264 the IDR repetition that
+/// lets a viewer decode from any keyframe.
+fn apply_codec_config(config: &mut NV_ENC_CONFIG, codec: Codec, gop: u32) {
+	match codec {
+		Codec::Av1 => config.encodeCodecConfig.av1Config.idrPeriod = gop,
+		Codec::H264 => {
+			config.encodeCodecConfig.h264Config.idrPeriod = gop;
+			// SAFETY: the codec GUID is H.264, so this is the union's active member and the
+			// driver filled it in for this session.
+			unsafe {
+				config.encodeCodecConfig.h264Config.set_repeatSPSPPS(1);
+			}
+		}
+	}
 }
 
 /// Peak-constrained VBR: the transport feedback owns the mean, and the peak leaves a keyframe
 /// some headroom without letting the stream burst past the congestion controller's ceiling.
-fn rate_control(rung: NvencApiVersion, bit_rate: u32) -> NV_ENC_RC_PARAMS {
+///
+/// Temporal AQ and the lookahead only pay off for AV1, where the encoder adapts quantization
+/// across the next few pictures instead of the current one; H.264 keeps the latency budget.
+fn rate_control(rung: NvencApiVersion, bit_rate: u32, codec: Codec) -> NV_ENC_RC_PARAMS {
 	// SAFETY: zeroed rate-control block with the version the rung expects.
 	let mut rc: NV_ENC_RC_PARAMS = unsafe { core::mem::zeroed() };
 	rc.version = rung.rc_params_ver();
@@ -525,9 +591,14 @@ fn rate_control(rung: NvencApiVersion, bit_rate: u32) -> NV_ENC_RC_PARAMS {
 	rc.maxBitRate = peak_bits(bit_rate);
 	rc.vbvBufferSize = buffer_bytes(bit_rate);
 	rc.vbvInitialDelay = rc.vbvBufferSize;
+	rc.lookaheadDepth = lookahead(codec);
 	// Adaptive quantization spends bits where the picture needs them; the strength stays on the
 	// preset's auto value.
 	rc.set_enableAQ(1);
+	if rc.lookaheadDepth > 0 {
+		rc.set_enableLookahead(1);
+		rc.set_enableTemporalAQ(1);
+	}
 	rc
 }
 
@@ -562,7 +633,7 @@ mod tests {
 	#[test]
 	fn rate_control_keeps_the_transport_mean_under_a_peak_and_a_short_buffer() {
 		let rung = *API_VERSION_LADDER.last().expect("a supported API rung");
-		let rc = rate_control(rung, 8_000_000);
+		let rc = rate_control(rung, 8_000_000, Codec::H264);
 		assert_eq!(rc.rateControlMode, NV_ENC_PARAMS_RC_MODE::VBR);
 		assert_eq!(rc.averageBitRate, 8_000_000);
 		assert_eq!(rc.maxBitRate, 12_000_000);
@@ -573,7 +644,7 @@ mod tests {
 			mini_nvcodec::nvenc_sys::NV_ENC_MULTI_PASS::DISABLED
 		);
 		// A raising mean keeps the peak above it.
-		let raised = rate_control(rung, 16_000_000);
+		let raised = rate_control(rung, 16_000_000, Codec::H264);
 		assert_eq!(raised.maxBitRate, 24_000_000);
 	}
 
@@ -601,6 +672,7 @@ mod tests {
 			bit_rate: 2_000_000,
 			max_bytes: 1 << 20,
 			profile: Profile::Main,
+			codec: Codec::H264,
 		})
 		.expect("an NVENC session");
 		let length = picture_bytes(width, height).expect("a picture size");
@@ -637,6 +709,50 @@ mod tests {
 		);
 	}
 
+	/// AV1 needs the driver's AV1 encoder; where it exists, its output must be OBU-framed, keyframe
+	/// first, and parseable by the same OBU walker the sender framing and the receiver use.
+	#[test]
+	fn av1_encodes_a_keyframe_the_viewer_side_can_parse() {
+		if !support().av1 {
+			return;
+		}
+		let (width, height) = (640u32, 360u32);
+		let mut encoder = Encoder::new(Config {
+			width,
+			height,
+			fps: 30,
+			bit_rate: 2_000_000,
+			max_bytes: 1 << 20,
+			profile: Profile::Main,
+			codec: Codec::Av1,
+		})
+		.expect("an AV1 session");
+		let length = picture_bytes(width, height).expect("a picture size");
+		for frame in 0..4u8 {
+			let (data, keyframe) = encoder
+				.encode_with(length, frame == 0, |picture| {
+					let (luma, chroma) = picture.split_at_mut(length * 2 / 3);
+					for (row, line) in luma.chunks_exact_mut(width as usize).enumerate() {
+						line.fill(frame.wrapping_mul(16).wrapping_add((row / 4) as u8));
+					}
+					chroma.fill(128);
+					Ok(())
+				})
+				.expect("an encoded picture");
+			let info = crate::video_av1::inspect(&data).expect("AV1 OBUs");
+			assert_eq!(
+				info.keyframe, keyframe,
+				"keyframe detection matches the OBUs"
+			);
+			if frame == 0 {
+				assert!(keyframe, "the first picture is a keyframe");
+				assert!(info.sequence, "a keyframe carries the sequence header");
+			}
+			crate::video::av1_sender_frame(&data)
+				.expect("the sender framing accepts encoder output");
+		}
+	}
+
 	#[test]
 	#[ignore = "measurement"]
 	fn measure_encode_cost() {
@@ -658,6 +774,7 @@ mod tests {
 				bit_rate: settings.bit_rate(),
 				max_bytes: 1 << 22,
 				profile: Profile::Main,
+				codec: Codec::H264,
 			})
 			.expect("an NVENC session");
 			let mut hardware = Duration::ZERO;

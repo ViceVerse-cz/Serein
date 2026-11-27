@@ -66,8 +66,35 @@ pub struct AudioChunk {
 	pub epoch: u64,
 }
 
+/// Codec a started share encodes, and therefore what its transport advertises.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum StreamCodec {
+	#[default]
+	H264,
+	/// AV1: fewer bits for the same picture, but only NVENC can produce it and only up-to-date
+	/// viewers decode it.
+	Av1,
+}
+
+impl StreamCodec {
+	/// The codec a share will encode on this machine. AV1 is an explicit opt-in while its wire
+	/// format is verified against other clients.
+	fn requested() -> Self {
+		if crate::video_encode::av1_supported()
+			&& std::env::var("SEREIN_STREAM_CODEC")
+				.is_ok_and(|value| value.eq_ignore_ascii_case("av1"))
+		{
+			Self::Av1
+		} else {
+			Self::H264
+		}
+	}
+}
+
 pub struct Video {
 	pub settings: Settings,
+	/// Codec this share encodes; the transport advertises exactly this one.
+	pub codec: StreamCodec,
 	/// Maximum encoder target, in bits per second, shared by the encoder and transport.
 	pub(crate) max_bitrate: u32,
 	pub frames: tokio::sync::mpsc::Receiver<EncodedFrame>,
@@ -152,6 +179,7 @@ impl Worker {
 		);
 		let bitrate = Arc::new(AtomicU32::new(max_bitrate));
 		let worker_bitrate = bitrate.clone();
+		let codec = StreamCodec::requested();
 		let preview = Arc::new(Mutex::new(None));
 		let worker_preview = preview.clone();
 		#[cfg(target_os = "linux")]
@@ -212,6 +240,7 @@ impl Worker {
 					worker_preview,
 					worker_preview_visible,
 					worker_captured,
+					codec,
 					&wake,
 				);
 				finished_ready.store(false, Ordering::Release);
@@ -240,6 +269,7 @@ impl Worker {
 			},
 			Video {
 				settings,
+				codec,
 				max_bitrate,
 				frames,
 				ready,
@@ -314,6 +344,7 @@ fn encode_loop(
 	preview: Arc<Mutex<Option<image::RgbaImage>>>,
 	preview_visible: Arc<AtomicBool>,
 	captured: Arc<AtomicBool>,
+	codec: StreamCodec,
 	wake: &impl Fn(),
 ) -> Result<(), Cow<'static, str>> {
 	if stop.load(Ordering::Acquire) || send.is_closed() {
@@ -446,7 +477,7 @@ fn encode_loop(
 			.load(Ordering::Acquire)
 			.clamp(250_000, settings.bit_rate());
 		if encoding.is_none() {
-			encoding = Some(ScreenEncoder::new(settings, target)?);
+			encoding = Some(ScreenEncoder::new(settings, target, codec)?);
 		}
 		if encoding
 			.as_mut()
@@ -527,11 +558,13 @@ struct ScreenEncoder {
 	hardware: Option<crate::video_encode::hardware::Encoder>,
 	settings: Settings,
 	bitrate: u32,
+	/// Codec this encoder produces, so a reopened encoder does not change it mid-stream.
+	codec: StreamCodec,
 }
 
 #[cfg(not(target_os = "linux"))]
 impl ScreenEncoder {
-	fn new(settings: Settings, bitrate: u32) -> Result<Self, &'static str> {
+	fn new(settings: Settings, bitrate: u32, codec: StreamCodec) -> Result<Self, &'static str> {
 		let config = crate::video_encode::Config {
 			width: settings.width,
 			height: settings.height,
@@ -539,6 +572,10 @@ impl ScreenEncoder {
 			bit_rate: bitrate,
 			max_bytes: MAX_ENCODED_BYTES,
 			profile: crate::video_encode::Profile::Main,
+			codec: match codec {
+				StreamCodec::Av1 => crate::video_encode::Codec::Av1,
+				StreamCodec::H264 => crate::video_encode::Codec::H264,
+			},
 		};
 		#[cfg(target_os = "macos")]
 		let hardware = crate::video_encode::hardware::Encoder::new(
@@ -560,6 +597,7 @@ impl ScreenEncoder {
 			hardware,
 			settings,
 			bitrate,
+			codec,
 		})
 	}
 
@@ -587,7 +625,7 @@ impl ScreenEncoder {
 			// Reopen native encoders that refuse a live rate change at the target rate.
 			// Release scarce hardware sessions before requesting their replacement.
 			self.hardware = None;
-			*self = Self::new(self.settings, bitrate)?;
+			*self = Self::new(self.settings, bitrate, self.codec)?;
 		}
 		Ok(true)
 	}
