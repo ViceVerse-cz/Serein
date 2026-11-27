@@ -702,6 +702,10 @@ pub fn paint_left_rounded_surface(
 		}
 	};
 	quad(
+		rect.left_top() + egui::vec2(radius, 0.0),
+		rect.right_bottom(),
+	);
+	quad(
 		rect.left_top() + egui::vec2(0.0, radius),
 		egui::pos2(rect.left() + radius, rect.bottom() - radius),
 	);
