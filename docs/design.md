@@ -22,6 +22,7 @@ A process-wide `Variant` recolours the whole application on top of egui's light/
 | Serein | House neutral greys: dark (`#0e0e10` / `#141416` / `#18181b` / `#202023`) or light (`#e4e4e7` / `#f2f2f4` / white), following System/Light/Dark |
 | Eclipse | Deep black surfaces for OLED displays |
 | Slate | Lighter blue-grey surfaces (`#1b1f2a` / `#262b38` / `#2c3140`) |
+| GitHub OLED | GitHub Dark Colorblind on pure black (`#000000` / `#010409` / `#0d1117`), blue `#58a6ff` accent and orange `#fdac54` danger for protan/deutan readability |
 | Nightfall, Ember, Verdant, Afterglow | Gradient backdrop painted under translucent dark surfaces |
 
 Gradient presets paint a full-window mesh in the background layer each frame and use

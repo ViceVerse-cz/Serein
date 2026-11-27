@@ -354,6 +354,13 @@ mod os {
 		{
 			return vec![VIRTUAL_KEY(0x30 + digit), VIRTUAL_KEY(VK_NUMPAD0.0 + digit)];
 		}
+		if let Some(digit) = name
+			.strip_prefix("Numpad")
+			.and_then(|d| d.parse::<u16>().ok())
+			&& digit < 10
+		{
+			return vec![VIRTUAL_KEY(VK_NUMPAD0.0 + digit)];
+		}
 		if let Some(number) = name.strip_prefix('F').and_then(|n| n.parse::<u16>().ok())
 			&& (1..=24).contains(&number)
 		{
@@ -379,6 +386,12 @@ mod os {
 			"End" => &[VK_END],
 			"PageUp" => &[VK_PRIOR],
 			"PageDown" => &[VK_NEXT],
+			// Keypad Enter shares VK_RETURN with main Enter, so it cannot be told apart here.
+			"NumpadAdd" => &[VK_ADD],
+			"NumpadSubtract" => &[VK_SUBTRACT],
+			"NumpadMultiply" => &[VK_MULTIPLY],
+			"NumpadDivide" => &[VK_DIVIDE],
+			"NumpadDecimal" => &[VK_DECIMAL],
 			"Slash" | "Questionmark" => &[VK_OEM_2, VK_DIVIDE],
 			"Backtick" => &[VK_OEM_3],
 			"Minus" => &[VK_OEM_MINUS, VK_SUBTRACT],
@@ -527,6 +540,13 @@ mod os {
 		{
 			return vec![FUNCTION[number - 1]];
 		}
+		if let Some(digit) = name
+			.strip_prefix("Numpad")
+			.and_then(|d| d.parse::<usize>().ok())
+			&& digit < 10
+		{
+			return vec![KEYPAD[digit]];
+		}
 		let codes: &[Code] = match name {
 			"MouseMiddle" => &[MOUSE | 2],
 			"MouseExtra1" => &[MOUSE | 3],
@@ -539,6 +559,12 @@ mod os {
 			"Tab" => &[0x30],
 			"Backspace" => &[0x33],
 			"Enter" => &[0x24, 0x4C],
+			"NumpadEnter" => &[0x4C],
+			"NumpadDecimal" => &[0x41],
+			"NumpadMultiply" => &[0x43],
+			"NumpadAdd" => &[0x45],
+			"NumpadDivide" => &[0x4B],
+			"NumpadSubtract" => &[0x4E],
 			"Space" => &[0x31],
 			"Delete" => &[0x75],
 			"Home" => &[0x73],
@@ -694,6 +720,13 @@ mod os {
 		{
 			return vec![XK_F1 + number - 1];
 		}
+		if let Some(digit) = name
+			.strip_prefix("Numpad")
+			.and_then(|d| d.parse::<u32>().ok())
+			&& digit < 10
+		{
+			return vec![XK_KP_0 + digit];
+		}
 		let syms: &[u32] = match name {
 			"ArrowDown" => &[XK_Down],
 			"ArrowLeft" => &[XK_Left],
@@ -703,6 +736,12 @@ mod os {
 			"Tab" => &[XK_Tab],
 			"Backspace" => &[XK_BackSpace],
 			"Enter" => &[XK_Return, XK_KP_Enter],
+			"NumpadEnter" => &[XK_KP_Enter],
+			"NumpadAdd" => &[XK_KP_Add],
+			"NumpadSubtract" => &[XK_KP_Subtract],
+			"NumpadMultiply" => &[XK_KP_Multiply],
+			"NumpadDivide" => &[XK_KP_Divide],
+			"NumpadDecimal" => &[XK_KP_Decimal],
 			"Space" => &[XK_space],
 			"Insert" => &[XK_Insert],
 			"Delete" => &[XK_Delete],

@@ -752,6 +752,22 @@ fn portal_trigger(chord: &KeyChord) -> Option<String> {
 		"Colon" => "colon",
 		"Quote" => "apostrophe",
 		"Plus" => "plus",
+		"Numpad0" => "KP_0",
+		"Numpad1" => "KP_1",
+		"Numpad2" => "KP_2",
+		"Numpad3" => "KP_3",
+		"Numpad4" => "KP_4",
+		"Numpad5" => "KP_5",
+		"Numpad6" => "KP_6",
+		"Numpad7" => "KP_7",
+		"Numpad8" => "KP_8",
+		"Numpad9" => "KP_9",
+		"NumpadEnter" => "KP_Enter",
+		"NumpadAdd" => "KP_Add",
+		"NumpadSubtract" => "KP_Subtract",
+		"NumpadMultiply" => "KP_Multiply",
+		"NumpadDivide" => "KP_Divide",
+		"NumpadDecimal" => "KP_Decimal",
 		"Pipe" => "bar",
 		"Questionmark" => "question",
 		"Exclamationmark" => "exclam",
@@ -794,6 +810,10 @@ fn is_standalone_global_key(name: &str) -> bool {
 
 fn native_hotkey(chord: &KeyChord) -> Option<HotKey> {
 	if !chord.is_valid() || (chord.modifiers == 0 && !is_standalone_global_key(&chord.key)) {
+		return None;
+	}
+	// global-hotkey maps keypad Enter to VK_RETURN on Windows, so it would also fire on main Enter.
+	if cfg!(windows) && chord.key == "NumpadEnter" {
 		return None;
 	}
 	let mut value = String::new();
@@ -859,6 +879,22 @@ fn code_name(name: &str) -> Option<&'static str> {
 		"Num7" => Some("Digit7"),
 		"Num8" => Some("Digit8"),
 		"Num9" => Some("Digit9"),
+		"NumpadEnter" => Some("NumpadEnter"),
+		"Numpad0" => Some("Numpad0"),
+		"Numpad1" => Some("Numpad1"),
+		"Numpad2" => Some("Numpad2"),
+		"Numpad3" => Some("Numpad3"),
+		"Numpad4" => Some("Numpad4"),
+		"Numpad5" => Some("Numpad5"),
+		"Numpad6" => Some("Numpad6"),
+		"Numpad7" => Some("Numpad7"),
+		"Numpad8" => Some("Numpad8"),
+		"Numpad9" => Some("Numpad9"),
+		"NumpadAdd" => Some("NumpadAdd"),
+		"NumpadSubtract" => Some("NumpadSubtract"),
+		"NumpadMultiply" => Some("NumpadMultiply"),
+		"NumpadDivide" => Some("NumpadDivide"),
+		"NumpadDecimal" => Some("NumpadDecimal"),
 		"A" => Some("KeyA"),
 		"B" => Some("KeyB"),
 		"C" => Some("KeyC"),
@@ -967,6 +1003,16 @@ mod tests {
 		] {
 			assert_eq!(portal_trigger(&chord), None);
 		}
+	}
+
+	#[test]
+	fn keypad_keys_are_polled_not_registered() {
+		for key in ["Numpad5", "NumpadMultiply", "NumpadDecimal"] {
+			assert!(poll::supported(key), "{key}");
+			assert!(native_hotkey(&KeyChord::new(key, 0)).is_none(), "{key}");
+		}
+		// Windows cannot tell keypad Enter from main Enter.
+		assert_eq!(poll::supported("NumpadEnter"), !cfg!(windows));
 	}
 
 	#[test]
