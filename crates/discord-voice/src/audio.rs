@@ -219,12 +219,14 @@ impl Audio {
 				let mut recovery_attempts = 0u8;
 				let mut next_default_check = Instant::now();
 				let mut next_input_retry = Instant::now() + Duration::from_secs(2);
+				let mut rebuild_devices_for_input = false;
 				'audio: while !worker_gate.stopped.load(Ordering::Acquire) {
 					let revision = worker_gate.revision.load(Ordering::Acquire);
 					let current = selected.borrow_and_update().clone();
 					if last_selection.as_ref() != Some(&current) {
 						last_selection = Some(current.clone());
 						recovery_attempts = 0;
+						rebuild_devices_for_input = false;
 					}
 					if streams.is_some()
 						&& opened_at.is_some_and(|at| at.elapsed() >= Duration::from_secs(5))
@@ -328,6 +330,7 @@ impl Audio {
 					if callbacks != active.input_callbacks {
 						active.input_callbacks = callbacks;
 						active.input_activity = Instant::now();
+						rebuild_devices_for_input = true;
 					}
 					if active._input.is_some()
 						&& active.input_activity.elapsed() >= Duration::from_secs(5)
@@ -351,8 +354,24 @@ impl Audio {
 						&& Instant::now() >= next_input_retry
 					{
 						next_input_retry = Instant::now() + Duration::from_secs(2);
-						if active.try_reopen_input(&current, &worker_gate, revision) {
-							emit(Ok(()));
+						let device = choose(&active.host, current.input.as_deref(), true).ok();
+						match microphone_retry(device, &mut rebuild_devices_for_input) {
+							MicrophoneRetry::ReopenDevices => {
+								// The next iteration retires the pair for the new revision.
+								let _ = worker_gate.revision.compare_exchange(
+									revision,
+									revision + 1,
+									Ordering::AcqRel,
+									Ordering::Acquire,
+								);
+								continue;
+							}
+							MicrophoneRetry::ReopenInput(input) => {
+								if active.try_reopen_input(&input, &worker_gate, revision) {
+									emit(Ok(()));
+								}
+							}
+							MicrophoneRetry::Missing => {}
 						}
 					}
 					let reset = worker_gate.echo_reset.swap(false, Ordering::AcqRel);
@@ -599,6 +618,27 @@ const RECOVERY_DELAY: Duration = Duration::from_millis(250);
 /// How long a live call waits between attempts while its devices stay away.
 const RECOVERY_PATIENCE: Duration = Duration::from_secs(5);
 
+enum MicrophoneRetry<T> {
+	Missing,
+	ReopenDevices,
+	ReopenInput(T),
+}
+
+fn microphone_retry<T>(device: Option<T>, rebuild_devices: &mut bool) -> MicrophoneRetry<T> {
+	match device {
+		// Open the microphone first so a Bluetooth headset can switch to its call profile.
+		Some(_) if *rebuild_devices => {
+			*rebuild_devices = false;
+			MicrophoneRetry::ReopenDevices
+		}
+		Some(device) => MicrophoneRetry::ReopenInput(device),
+		None => {
+			*rebuild_devices = true;
+			MicrophoneRetry::Missing
+		}
+	}
+}
+
 struct Streams {
 	// Reuse the connection that owns these streams for polling and microphone retries.
 	// A new PulseAudio host opens a server connection and reactor thread.
@@ -675,13 +715,12 @@ impl Streams {
 		}
 		let host = cpal::default_host();
 		let (input_stream, input_read, input_id) = if gate.input_enabled.load(Ordering::Acquire) {
-			match open_input_stream(&host, settings, &gate, revision) {
+			match gate.reopen_input(revision, || {
+				let input = choose(&host, settings.input.as_deref(), true)?;
+				open_input_stream(&host, &input, &gate, revision)
+			}) {
 				Ok((stream, read, id)) => (Some(stream), read, id),
-				Err(_) => {
-					gate.input_failed_revision
-						.fetch_max(revision, Ordering::AcqRel);
-					(None, rtrb::RingBuffer::new(8).1, None)
-				}
+				Err(_) => (None, rtrb::RingBuffer::new(8).1, None),
 			}
 		} else {
 			(None, rtrb::RingBuffer::new(8).1, None)
@@ -746,9 +785,9 @@ impl Streams {
 			input_id,
 		})
 	}
-	fn try_reopen_input(&mut self, settings: &Devices, gate: &Arc<Gate>, revision: u64) -> bool {
+	fn try_reopen_input(&mut self, input: &cpal::Device, gate: &Arc<Gate>, revision: u64) -> bool {
 		match gate.reopen_input(revision, || {
-			open_input_stream(&self.host, settings, gate, revision)
+			open_input_stream(&self.host, input, gate, revision)
 		}) {
 			Ok((stream, input_read, id)) => {
 				self._input = Some(stream);
@@ -774,21 +813,20 @@ fn default_device_changed(
 		&& opened.is_some_and(|opened| lookup().is_some_and(|current| current != opened))
 }
 fn open_input_stream(
-	host: &cpal::Host,
-	settings: &Devices,
+	_host: &cpal::Host,
+	input: &cpal::Device,
 	gate: &Arc<Gate>,
 	revision: u64,
 ) -> Result<(cpal::Stream, rtrb::Consumer<Frame>, Option<String>), &'static str> {
 	#[cfg(target_os = "macos")]
 	permission_macos::authorize(gate, revision)?;
-	let input = choose(host, settings.input.as_deref(), true)?;
 	let input_id = input.id().ok().map(|id| id.to_string());
-	let input_config = input_config(&input)?;
+	let input_config = input_config(input)?;
 	let stream_config = input_config.config();
 	#[cfg(target_os = "linux")]
 	let stream_config = {
 		let mut config = stream_config;
-		if host.id() == cpal::HostId::PulseAudio {
+		if _host.id() == cpal::HostId::PulseAudio {
 			// Server-default record fragments can exceed our 160 ms ring. An
 			// overrun resets and drains it, repeatedly discarding captured speech.
 			config.buffer_size = cpal::BufferSize::Fixed(config.sample_rate / 50);
@@ -799,16 +837,16 @@ fn open_input_stream(
 	let capture = Capture::new(input_config.sample_rate(), input_write);
 	let stream = match input_config.sample_format() {
 		cpal::SampleFormat::F32 => {
-			input_stream::<f32>(&input, &stream_config, capture, gate.clone(), revision)
+			input_stream::<f32>(input, &stream_config, capture, gate.clone(), revision)
 		}
 		cpal::SampleFormat::I16 => {
-			input_stream::<i16>(&input, &stream_config, capture, gate.clone(), revision)
+			input_stream::<i16>(input, &stream_config, capture, gate.clone(), revision)
 		}
 		cpal::SampleFormat::I32 => {
-			input_stream::<i32>(&input, &stream_config, capture, gate.clone(), revision)
+			input_stream::<i32>(input, &stream_config, capture, gate.clone(), revision)
 		}
 		cpal::SampleFormat::U16 => {
-			input_stream::<u16>(&input, &stream_config, capture, gate.clone(), revision)
+			input_stream::<u16>(input, &stream_config, capture, gate.clone(), revision)
 		}
 		_ => Err("Microphone sample format is not supported"),
 	}?;
@@ -1617,6 +1655,38 @@ mod tests {
 		assert_eq!(playback.sample(), 0.0);
 	}
 
+	#[test]
+	fn returning_headset_rebuilds_the_stream_pair_once() {
+		let mut rebuild_devices = false;
+		// A microphone that never started can be retried without disturbing playback.
+		assert!(matches!(
+			microphone_retry(Some("headset"), &mut rebuild_devices),
+			MicrophoneRetry::ReopenInput("headset")
+		));
+		assert!(matches!(
+			microphone_retry::<&str>(None, &mut rebuild_devices),
+			MicrophoneRetry::Missing
+		));
+		// Input-only open cannot recover on a headset that needs to switch profiles
+		// before playback starts. The next attempt must use the input-first pair open.
+		assert!(matches!(
+			microphone_retry(Some("headset"), &mut rebuild_devices),
+			MicrophoneRetry::ReopenDevices
+		));
+		// A still-failing microphone must not tear down working playback every poll.
+		assert!(matches!(
+			microphone_retry(Some("headset"), &mut rebuild_devices),
+			MicrophoneRetry::ReopenInput("headset")
+		));
+		assert!(matches!(
+			microphone_retry::<&str>(None, &mut rebuild_devices),
+			MicrophoneRetry::Missing
+		));
+		assert!(matches!(
+			microphone_retry(Some("headset"), &mut rebuild_devices),
+			MicrophoneRetry::ReopenDevices
+		));
+	}
 	#[test]
 	fn microphone_recovery_preserves_startup_failures() {
 		let audio = audio_without_devices();
