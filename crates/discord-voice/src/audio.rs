@@ -638,6 +638,22 @@ fn heard_microphone(rebuild_devices: &mut bool, input_age: Duration, failed: boo
 	}
 }
 
+/// Opens the pair's microphone and reports whether none could be selected. Both failures
+/// still mark the microphone unavailable; only a missing one earns an input-first rebuild.
+fn open_microphone<D, T>(
+	gate: &Gate,
+	revision: u64,
+	select: impl FnOnce() -> Result<D, &'static str>,
+	open: impl FnOnce(D) -> Result<T, &'static str>,
+) -> (Result<T, &'static str>, bool) {
+	let mut missing = false;
+	let opened = gate.reopen_input(revision, || {
+		let device = select().inspect_err(|_| missing = true)?;
+		open(device)
+	});
+	(opened, missing)
+}
+
 fn microphone_retry<T>(
 	device: Option<T>,
 	rebuild_devices: &mut bool,
@@ -745,11 +761,14 @@ impl Streams {
 		let host = cpal::default_host();
 		let mut input_missing = false;
 		let (input_stream, input_read, input_id) = if gate.input_enabled.load(Ordering::Acquire) {
-			match gate.reopen_input(revision, || {
-				let input = choose(&host, settings.input.as_deref(), true)
-					.inspect_err(|_| input_missing = true)?;
-				open_input_stream(&host, &input, &gate, revision)
-			}) {
+			let (opened, missing) = open_microphone(
+				&gate,
+				revision,
+				|| choose(&host, settings.input.as_deref(), true),
+				|input| open_input_stream(&host, &input, &gate, revision),
+			);
+			input_missing = missing;
+			match opened {
 				Ok((stream, read, id)) => (Some(stream), read, id),
 				Err(_) => (None, rtrb::RingBuffer::new(8).1, None),
 			}
@@ -1704,6 +1723,34 @@ mod tests {
 		heard_microphone(&mut rebuild_devices, MICROPHONE_SETTLED, false);
 		assert!(rebuild_devices);
 		rebuild_devices = false;
+		// A selected microphone that fails to open with the pair stays on input-only retries.
+		let (opened, missing) =
+			open_microphone::<_, ()>(&gate, revision(), || Ok("headset"), |_| Err("busy"));
+		assert!(opened.is_err() && !missing);
+		assert_eq!(
+			gate.input_failed_revision.load(Ordering::Acquire),
+			revision()
+		);
+		rebuild_devices |= missing;
+		assert!(matches!(
+			microphone_retry(Some("headset"), &mut rebuild_devices, &gate, revision()),
+			MicrophoneRetry::ReopenInput("headset")
+		));
+		// A microphone missing when the pair opens gets the input-first rebuild on return.
+		let (opened, missing) =
+			open_microphone::<&str, ()>(&gate, revision(), || Err("missing"), |_| Ok(()));
+		assert!(opened.is_err() && missing);
+		assert_eq!(
+			gate.input_failed_revision.load(Ordering::Acquire),
+			revision()
+		);
+		rebuild_devices |= missing;
+		let pair = revision();
+		assert!(matches!(
+			microphone_retry(Some("headset"), &mut rebuild_devices, &gate, pair),
+			MicrophoneRetry::ReopenDevices
+		));
+		assert_eq!(revision(), pair + 1);
 		let mut retry = |device: Option<&'static str>| {
 			microphone_retry(device, &mut rebuild_devices, &gate, revision())
 		};
