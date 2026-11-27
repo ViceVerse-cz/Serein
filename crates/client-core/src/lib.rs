@@ -12,6 +12,7 @@ pub mod gifs;
 pub mod guild_creation;
 pub mod guild_folders;
 pub mod permissions;
+pub mod soundboard;
 pub mod stickers;
 pub use permissions::ChannelAccess;
 #[cfg(test)]
@@ -78,6 +79,21 @@ pub const COMMAND_SLOTS: usize = 16; // ordinary commands <=16 KiB; bulk DM sett
 
 pub enum Command {
 	Polls(polls::Request),
+	DefaultSoundboardSounds,
+	GuildSoundboardSounds(Id),
+	PlaySoundboardSound {
+		channel: Id,
+		sound: Id,
+		source_guild: Option<Id>,
+	},
+	CreateSoundboardSound {
+		guild: Id,
+		upload: Box<soundboard::Upload>,
+	},
+	DeleteSoundboardSound {
+		guild: Id,
+		sound: Id,
+	},
 	StickerPacks,
 	Sticker(Id),
 	Interaction(interactions::Request),
@@ -482,6 +498,40 @@ pub enum Event {
 		user: Id,
 		premium_type: Patch<u8>,
 	},
+	DefaultSoundboardSounds(Result<Vec<model::SoundboardSound>, auth::Failure>),
+	GuildSoundboardSounds {
+		guild: Id,
+		result: Result<Vec<model::SoundboardSound>, auth::Failure>,
+	},
+	SoundboardSoundPlayed {
+		sound: Id,
+		result: Result<(), auth::Failure>,
+	},
+	SoundboardSoundCreated {
+		guild: Id,
+		result: Result<model::SoundboardSound, auth::Failure>,
+	},
+	/// A gateway dispatch replacing a whole guild catalog.
+	GuildSoundboard {
+		guild: Id,
+		sounds: Vec<model::SoundboardSound>,
+	},
+	/// A gateway create or update of one sound.
+	GuildSoundboardSound {
+		guild: Id,
+		sound: Box<model::SoundboardSound>,
+	},
+	GuildSoundboardSoundRemoved {
+		guild: Id,
+		sound: Id,
+	},
+	SoundboardSoundDeleted {
+		guild: Id,
+		sound: Id,
+		result: Result<(), auth::Failure>,
+	},
+	/// Another member triggered a sound; every client mixes it locally.
+	VoiceChannelEffect(model::SoundEffect),
 	StickerPacks(Result<Vec<model::StickerPack>, auth::Failure>),
 	Sticker {
 		id: Id,
@@ -776,6 +826,7 @@ pub struct ReadingCursor {
 pub struct State {
 	/// The signed-in account's Discord `premium_type`; 0 until READY reports one.
 	pub premium_type: u8,
+	pub soundboard: soundboard::Soundboard,
 	pub stickers: stickers::Stickers,
 	pub interactions: interactions::Interactions,
 	pub application_commands: application_commands::Catalog,
@@ -1027,6 +1078,7 @@ impl Default for State {
 	fn default() -> Self {
 		Self {
 			premium_type: 0,
+			soundboard: Default::default(),
 			stickers: Default::default(),
 			interactions: Default::default(),
 			application_commands: Default::default(),
@@ -2194,6 +2246,34 @@ impl State {
 				);
 				return;
 			}
+			Command::DefaultSoundboardSounds => {
+				self.soundboard.defaults_loading = false;
+				self.soundboard.defaults_error = Some("Soundboard was not queued; try again");
+				return;
+			}
+			Command::GuildSoundboardSounds(guild) => {
+				if let Some(catalog) = self
+					.soundboard
+					.guilds
+					.iter_mut()
+					.find(|c| c.guild == *guild)
+				{
+					catalog.loading = false;
+					catalog.error = Some("Soundboard was not queued; try again");
+				}
+				return;
+			}
+			Command::PlaySoundboardSound { .. } => {
+				self.soundboard.sending = None;
+				self.soundboard.send_error = Some("Sound was not queued; try again");
+				return;
+			}
+			Command::CreateSoundboardSound { .. } => {
+				self.soundboard.upload_in_flight = false;
+				self.soundboard.upload_error = Some("Upload was not queued; try again");
+				return;
+			}
+			Command::DeleteSoundboardSound { .. } => return,
 			Command::StickerPacks => {
 				self.stickers.loading = false;
 				self.stickers.error = Some("Sticker packs were not queued; try again");
@@ -2770,6 +2850,7 @@ impl State {
 			}
 			self.interrupt_preloads();
 			self.interrupt_stickers();
+			self.interrupt_soundboard();
 			self.posts.clear_summaries();
 			self.interactions.reset();
 			self.application_commands.clear();
@@ -3076,6 +3157,65 @@ impl State {
 				}
 				Ok(())
 			}
+			Event::DefaultSoundboardSounds(result) => {
+				self.apply_default_sounds(result);
+				Ok(())
+			}
+			Event::GuildSoundboardSounds { guild, result } => {
+				self.apply_guild_sounds(guild, result);
+				Ok(())
+			}
+			Event::SoundboardSoundPlayed { sound, result } => {
+				self.soundboard.sending = None;
+				match result {
+					Ok(()) => {
+						self.soundboard.send_error = None;
+						self.remember_played_sound(sound);
+					}
+					Err(failure) => self.soundboard.send_error = Some(failure.label()),
+				}
+				Ok(())
+			}
+			Event::SoundboardSoundCreated { guild, result } => {
+				self.soundboard.upload_in_flight = false;
+				match result {
+					Ok(sound) => {
+						self.soundboard.upload_error = None;
+						self.upsert_guild_sound(guild, sound);
+					}
+					Err(failure) => self.soundboard.upload_error = Some(failure.label()),
+				}
+				Ok(())
+			}
+			Event::GuildSoundboard { guild, sounds } => {
+				self.replace_guild_sounds(guild, sounds);
+				Ok(())
+			}
+			Event::GuildSoundboardSound { guild, sound } => {
+				self.upsert_guild_sound(guild, *sound);
+				Ok(())
+			}
+			Event::GuildSoundboardSoundRemoved { guild, sound } => {
+				self.remove_guild_sound(guild, sound);
+				Ok(())
+			}
+			Event::SoundboardSoundDeleted {
+				guild,
+				sound,
+				result,
+			} => {
+				// The gateway delete dispatch is authoritative; removing locally on success only
+				// avoids briefly showing a sound the server has already dropped.
+				match result {
+					Ok(()) => {
+						self.soundboard.manage_error = None;
+						self.remove_guild_sound(guild, sound);
+					}
+					Err(failure) => self.soundboard.manage_error = Some(failure.label()),
+				}
+				Ok(())
+			}
+			Event::VoiceChannelEffect(_) => Ok(()),
 			Event::StickerPacks(result) => {
 				self.apply_sticker_packs(result);
 				Ok(())
@@ -4390,6 +4530,7 @@ impl State {
 		if failure.ends_session() {
 			self.application_commands.clear();
 			self.interrupt_stickers();
+			self.interrupt_soundboard();
 			self.interrupt_gif_favorites();
 			self.invalidate_messaging_permissions(Some(failure));
 			self.interrupt_own_profile();
@@ -4703,6 +4844,21 @@ impl Event {
 				Self::Permissions(event) => event.bytes(),
 				Self::GuildEmojis { emojis, .. } => custom_emoji_bytes(emojis),
 				Self::GuildStickers { stickers, .. } => sticker_bytes(stickers),
+				Self::DefaultSoundboardSounds(result) => {
+					result.as_ref().map_or(0, model::soundboard_bytes)
+				}
+				Self::GuildSoundboardSounds { result, .. } => {
+					result.as_ref().map_or(0, model::soundboard_bytes)
+				}
+				Self::SoundboardSoundCreated { result, .. } => result
+					.as_ref()
+					.map_or(0, model::SoundboardSound::heap_bytes),
+				Self::GuildSoundboard { sounds, .. } => model::soundboard_bytes(sounds),
+				Self::GuildSoundboardSound { sound, .. } => sound.heap_bytes(),
+				Self::SoundboardSoundPlayed { .. }
+				| Self::SoundboardSoundDeleted { .. }
+				| Self::GuildSoundboardSoundRemoved { .. }
+				| Self::VoiceChannelEffect(_) => 0,
 				Self::StickerPacks(result) => result.as_ref().map_or(0, stickers::pack_bytes),
 				Self::Sticker { result, .. } => result.as_ref().map_or(0, Sticker::heap_bytes),
 				Self::GuildChanged(patch) => [&patch.name, &patch.icon, &patch.banner]
