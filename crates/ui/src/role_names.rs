@@ -52,9 +52,26 @@ pub(crate) fn gradient(
 	let primary = primary.map_or(fallback, |primary| {
 		crate::design::role_name_color(primary, background, fallback)
 	});
-	let mut job = LayoutJob::simple(text.to_owned(), font, primary, width.max(0.0));
-	job.wrap = egui::text::TextWrapping::truncate_at_width(width.max(0.0));
-	let mut galley = ui.painter().layout_job(job);
+	// Plain layout splits Arabic/Hebrew words at spaces and lays them out left to right,
+	// so a one-line name that fits goes through the bidi layout; longer ones truncate below.
+	let span = crate::rtl::Span {
+		text: text.to_owned(),
+		format: egui::TextFormat::simple(font.clone(), primary),
+		action: 0,
+		object: None,
+		copy: false,
+	};
+	let bidi = (!text.contains(['\n', '\r']))
+		.then(|| crate::rtl::layout(ui.ctx(), &[span], width.max(1.0)))
+		.flatten()
+		.filter(|layout| layout.lines.len() == 1);
+	let mut galley = if let Some(layout) = bidi {
+		layout.lines[0].galley.clone()
+	} else {
+		let mut job = LayoutJob::simple(text.to_owned(), font, primary, width.max(0.0));
+		job.wrap = egui::text::TextWrapping::truncate_at_width(width.max(0.0));
+		ui.painter().layout_job(job)
+	};
 	let Some(stops) = stops.filter(|stops| stops.len() >= 2 && GRADIENTS.load(Ordering::Relaxed))
 	else {
 		return galley;
