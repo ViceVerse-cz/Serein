@@ -645,11 +645,12 @@ pub struct MessagingUi {
 	/// The composer's widget id this frame while it holds focus and could take Escape; the
 	/// one field that may hold focus when Escape returns to the present.
 	composer_escape_frame: Option<egui::Id>,
-	/// End-of-previous-frame snapshot (see `end_frame_snapshot`): keyboard focus, a chat
-	/// selection, and a focused call-stage tile.
+	/// End-of-previous-frame snapshot (see `end_frame_snapshot`): keyboard focus and a chat
+	/// selection.
 	focus_prev_frame: Option<egui::Id>,
 	selection_prev_frame: bool,
-	tile_focus_prev_frame: bool,
+	/// A visible call stage cleared its enlarged tile on Escape during this frame.
+	tile_focus_escape_frame: bool,
 	/// The timeline painted a conversation this frame, so Escape's target is on screen.
 	conversation_shown: bool,
 	/// A popup or menu was open when the frame began, so its Escape was not for the chat.
@@ -5364,9 +5365,9 @@ impl MessagingUi {
 	fn end_frame_snapshot(&mut self, ctx: &egui::Context) {
 		let escaped = ctx.input(|input| input.key_pressed(egui::Key::Escape));
 		self.focus_prev_frame = ctx.memory(|m| m.focused());
-		// An Escape frame clears the selection and the tile focus, so a second press is free.
+		// An Escape frame clears the selection, so a second press is free.
 		self.selection_prev_frame = !escaped && select::has_selection(ctx);
-		self.tile_focus_prev_frame = self.voice_focus.is_some();
+		self.tile_focus_escape_frame = false;
 		self.composer_escape_frame = None;
 		self.conversation_shown = false;
 	}
@@ -6234,7 +6235,7 @@ impl MessagingUi {
 			|| !owned(before)
 			|| select::has_selection(ctx)
 			|| self.selection_prev_frame
-			|| self.tile_focus_prev_frame
+			|| self.tile_focus_escape_frame
 			|| self.ime_active
 			|| self.popup_open_frame
 			|| egui::Popup::is_any_open(ctx)
@@ -6253,7 +6254,6 @@ impl MessagingUi {
 			|| self.attachment_view_open.is_some()
 			|| self.timeline.viewing.is_some()
 			|| self.timeline.embed_viewing.is_some()
-			|| self.timeline.component_viewing.is_some()
 			|| self.timeline.opening.is_some()
 			|| state.interactions.modal.is_some()
 			|| state.selected.is_none()
@@ -6707,6 +6707,14 @@ impl MessagingUi {
 				self.timeline.pending_channel_reference = None;
 			}
 		}
+		if let Some(channel) = self.timeline.mark_channel_read.take() {
+			if Some(channel) == state.selected {
+				self.timeline.mark_read = None;
+			}
+			if let Some(command) = state.prepare_mark_channel_read(channel) {
+				commands.push(command);
+			}
+		}
 		if let Some((channel, message)) = self.timeline.leave_read.take()
 			&& let Some(command) = state.prepare_mark_left_channel_read(channel, message)
 		{
@@ -6717,12 +6725,6 @@ impl MessagingUi {
 			&& let Some(command) = state.prepare_forum_visit_read()
 		{
 			commands.push(command);
-		}
-		if let Some(channel) = self.timeline.mark_channel_read.take() {
-			self.timeline.mark_read = None;
-			if let Some(command) = state.prepare_mark_channel_read(channel) {
-				commands.push(command);
-			}
 		}
 		if let Some(message) = self.timeline.mark_unread.take() {
 			self.timeline.mark_read = None;
@@ -8719,7 +8721,7 @@ mod composer_tests {
 					events,
 					..Default::default()
 				},
-				|ui| commands = view.show(ui, state),
+				|ui| commands.extend(view.show(ui, state)),
 			);
 			output.drop_without_applying_deltas();
 			commands
@@ -8750,14 +8752,21 @@ mod composer_tests {
 		frame(&mut view, &mut state, escape());
 		assert_eq!(view.timeline.present_requested, None);
 		assert!(view.timeline.mark_channel_read.is_none());
-		// A focused call-stage tile or a selection (egui clears both on Escape before we run)
-		// was the key's target when the previous frame had them.
+		// A visible call-stage tile focus that Escape just cleared, or a chat selection
+		// egui cleared before we ran, claims the key; stale `voice_focus` outside the stage
+		// does not.
 		for tile in [true, false] {
-			view.tile_focus_prev_frame = tile;
+			view.tile_focus_escape_frame = tile;
 			view.selection_prev_frame = !tile;
 			frame(&mut view, &mut state, escape());
 			assert_eq!(view.timeline.present_requested, None);
 		}
+		// A closing component viewer clears its marker so later Escapes are not blocked.
+		view.timeline.viewing = Some((Id(20), Id(999)));
+		view.timeline.component_viewing = Some((Id(20), 42));
+		frame(&mut view, &mut state, vec![]);
+		assert!(view.timeline.viewing.is_none());
+		assert!(view.timeline.component_viewing.is_none());
 		// A hidden chat (voice channel without chat) is not the target either.
 		state.channels[0].kind = 2;
 		frame(&mut view, &mut state, vec![]);
@@ -8766,11 +8775,22 @@ mod composer_tests {
 		assert!(view.timeline.mark_channel_read.is_none());
 		state.channels[0].kind = 1;
 		frame(&mut view, &mut state, vec![]);
-		// Otherwise Escape returns to the present and acknowledges the unread channel.
+		// Stale call-tile focus from another stage does not block Escape in a text channel.
+		view.voice_focus = Some(voice::StageFocus::LocalScreen);
+		frame(&mut view, &mut state, vec![]);
+		// Switching channels before the next drain still sends Escape's read acknowledgement.
+		let mut other = state.channels[0].clone();
+		other.id = Id(11);
+		other.last_message = None;
+		state.channels.push(other);
 		frame(&mut view, &mut state, escape());
 		assert_eq!(view.timeline.present_requested, Some(Id(10)));
+		state.selected = Some(Id(11));
 		assert!(marks(&frame(&mut view, &mut state, vec![])));
 		assert_eq!(view.timeline.present_requested, None);
+		view.voice_focus = None;
+		state.selected = Some(Id(10));
+		frame(&mut view, &mut state, vec![]);
 		// Cancelling an edit takes the first Escape; the next one is not blocked by its widget.
 		view.editing = Some((Id(10), Id(20), "Original".into()));
 		for _ in 0..3 {

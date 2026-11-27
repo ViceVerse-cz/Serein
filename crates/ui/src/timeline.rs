@@ -2608,6 +2608,11 @@ impl TimelineView {
 			}
 			let restored = state.selected.and_then(|id| state.reading(id));
 			let following = restored.is_none_or(|cursor| cursor.message.is_none());
+			let mark_channel_read = self.mark_channel_read.take();
+			let leave_read = self
+				.channel
+				.filter(|channel| mark_channel_read != Some(*channel))
+				.zip(self.seen_latest);
 			*self = Self {
 				extension_actions: self.extension_actions.clone(),
 				quick_reactions: self.quick_reactions,
@@ -2638,7 +2643,8 @@ impl TimelineView {
 				truncated_translation: self.truncated_translation.take(),
 				pending_viewer: self.pending_viewer.take(),
 				jump: following,
-				leave_read: self.channel.zip(self.seen_latest),
+				leave_read,
+				mark_channel_read,
 				..Self::default()
 			};
 		}
@@ -5759,6 +5765,13 @@ impl TimelineView {
 				)
 				.map(|id| (message_id, id))
 			});
+			if self.viewing.is_none()
+				&& !self.video.active.as_ref().is_some_and(|(_, id, _)| {
+					Some(*id) == self.component_viewing.map(|(message, _)| message)
+				})
+			{
+				self.component_viewing = None;
+			}
 		}
 	}
 }
