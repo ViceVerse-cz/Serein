@@ -5107,11 +5107,19 @@ impl Desktop {
 					self.cache_status = error;
 				}
 				let stage = result.stage;
+				if stage == avatars::DecodeStage::Cancelled {
+					self.messaging.cancel_avatar_request(&result.key);
+					continue;
+				}
 				self.messaging
 					.accept_avatar(ctx, result.key.clone(), result.image);
 				if stage == avatars::DecodeStage::Settled {
-					self.messaging
-						.accept_gif_animation(result.key, result.frames);
+					if result.animated {
+						self.messaging
+							.accept_gif_animation(result.key, result.frames);
+					} else {
+						self.messaging.defer_avatar_animation(result.key);
+					}
 				}
 			}
 		}
@@ -6589,7 +6597,7 @@ impl eframe::App for Desktop {
 						.notify_channel(channel, title, body, image_path)
 						&& let Some(worker) = &self.avatars
 					{
-						worker.request(avatar_key);
+						worker.request_with_animation(avatar_key, false);
 					}
 				}
 			}
@@ -7521,12 +7529,18 @@ impl eframe::App for Desktop {
 				}
 			}
 			for key in self.messaging.take_avatar_requests() {
+				let animate = self.messaging.wants_avatar_animation(&key);
 				if !self
 					.avatars
 					.as_ref()
-					.is_some_and(|worker| worker.request(key.clone()))
+					.is_some_and(|worker| worker.request_with_animation(key.clone(), animate))
 				{
 					self.messaging.accept_avatar(&ctx, key, None);
+				}
+			}
+			if let Some(worker) = &self.avatars {
+				for key in self.messaging.take_cancelled_avatar_requests() {
+					worker.cancel(&key);
 				}
 			}
 			// Return freed heap pages promptly after large idle artwork/animation evictions.

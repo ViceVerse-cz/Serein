@@ -19,6 +19,7 @@ mod resample;
 pub use avatars::media::debug_heic_layout_check;
 pub use avatars::media::{Lane, MAX_FRAMES, Motion, Rendition, Size, fit_edge, is_motion_video};
 pub use avatars::{EFFECT_EDGE, EMBED_EDGE, FRAME_EDGE, GifFrames, is_hover_animated_key};
+pub use resample::downscale_rgba;
 mod categories;
 #[cfg(feature = "demo")]
 pub use categories::debug_thread_navigation_check;
@@ -1469,6 +1470,18 @@ impl MessagingUi {
 	}
 	pub fn take_freed_memory_bytes(&mut self) -> usize {
 		self.avatars.take_freed_bytes()
+	}
+	pub fn wants_avatar_animation(&self, key: &str) -> bool {
+		self.avatars.wants_animation(key)
+	}
+	pub fn take_cancelled_avatar_requests(&mut self) -> Vec<String> {
+		self.avatars.take_cancelled_requests()
+	}
+	pub fn cancel_avatar_request(&mut self, key: &str) {
+		self.avatars.cancel_pending(key);
+	}
+	pub fn defer_avatar_animation(&mut self, key: String) {
+		self.avatars.defer_animation(key);
 	}
 	/// Next idle animation/inline texture release; see `take_avatar_requests`.
 	pub fn avatar_release_at(&self) -> Option<std::time::Instant> {

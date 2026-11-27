@@ -424,11 +424,7 @@ fn layer(ctx: &egui::Context, cell: u32) -> TextureHandle {
 	let source = source_image();
 	let longest = source.resolution()[0].max(source.resolution()[1]) as u32;
 	let edge = (longest / CELL as u32) * cell;
-	let image = crate::resample::downscale_filter(
-		source,
-		edge.max(1),
-		image::imageops::FilterType::Triangle,
-	);
+	let image = crate::resample::downscale(source, edge.max(1));
 	let texture = ctx.load_texture("Phosphor Icons 2.1.1", image, egui::TextureOptions::LINEAR);
 	ctx.data_mut(|data| {
 		let mut layers = data.get_temp::<AtlasLayers>(id).unwrap_or_default();
