@@ -22,6 +22,12 @@ const INPUT_MONITORING: &str = "Allow Serein in System Settings > Privacy & Secu
 
 static NATIVE_INPUTS: Mutex<Vec<Weak<NativeInput>>> = Mutex::new(Vec::new());
 
+/// Physical left/right modifier state while a voice binding is recorded: bit `i` is
+/// [`model::keybinds::SIDE_MODIFIERS`]`[i]`. Always 0 where the poller cannot fire them.
+pub fn side_modifiers_down() -> u8 {
+	poll::side_modifiers_down()
+}
+
 #[derive(Default)]
 struct NativeState {
 	/// Registered native hotkeys and the action each one triggers.
