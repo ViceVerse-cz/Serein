@@ -2569,7 +2569,8 @@ impl TimelineView {
 			// A keyboard switch leaves the pointer resting where the old timeline was.
 			crate::scroll::drop_queued_swipe(ui.ctx());
 			if let Some(previous) = self.channel {
-				let cursor = if self.following {
+				// A Present glide follows before it arrives; leaving mid-glide keeps the place shown.
+				let cursor = if self.following && self.present_scroll.is_none() {
 					client_core::ReadingCursor {
 						message: None,
 						inset: 0.0,
@@ -6927,6 +6928,27 @@ mod tests {
 			banner_frame(&ctx, &mut view, &mut state, vec![], false);
 		}
 		assert!(view.present_scroll.is_none() && view.following);
+		// Leaving mid-glide saves the place shown, not the live edge it has not reached.
+		let offset = view.rows.iter().map(|(_, height)| height).sum::<f32>() - 600.0 - 4_200.0;
+		let (index, _, top) = visible_range(&view.rows, offset, offset);
+		view.following = false;
+		view.left_live_edge = true;
+		view.jump = false;
+		view.anchor = Some((view.rows[index].0, offset - top));
+		view.revision = u64::MAX;
+		banner_frame(&ctx, &mut view, &mut state, vec![], false);
+		view.left_live_edge = false;
+		view.present_scroll = Some((view.scroll_offset, 0.0));
+		banner_frame(&ctx, &mut view, &mut state, vec![], false);
+		assert!(view.present_scroll.is_some() && view.following);
+		state.select(Id(21));
+		banner_frame(&ctx, &mut view, &mut state, vec![], false);
+		assert!(
+			state
+				.reading(Id(20))
+				.is_some_and(|cursor| cursor.message.is_some()),
+			"leaving mid-glide saved a live-edge cursor"
+		);
 	}
 
 	fn text_message(id: u64) -> Message {
