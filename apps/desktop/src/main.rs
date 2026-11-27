@@ -5108,7 +5108,9 @@ impl Desktop {
 				}
 				let stage = result.stage;
 				if stage == avatars::DecodeStage::Cancelled {
-					self.messaging.cancel_avatar_request(&result.key);
+					if !worker.has_inflight(&result.key) {
+						self.messaging.cancel_avatar_request(&result.key);
+					}
 					continue;
 				}
 				self.messaging
