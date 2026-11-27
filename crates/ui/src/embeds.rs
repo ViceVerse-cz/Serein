@@ -115,9 +115,10 @@ fn text(
 		&[model::Guild],
 		&crate::mentions::MentionSource<'_>,
 	),
+	strong: bool,
 ) {
 	let (images, demo, guilds, source) = media;
-	let formatted = cache.get_part(message.id, part.0, part.1);
+	let formatted = cache.get_part_styled(message.id, part.0, part.1, strong);
 	formatted.show_with_images(
 		ui,
 		opening,
@@ -728,6 +729,7 @@ pub fn show(
 											profile,
 											card_surface,
 											(images, demo, &state.guilds, &source),
+											false,
 										);
 									}
 								});
@@ -770,11 +772,28 @@ pub fn show(
 										// otherwise collide and clash (visible as egui's debug
 										// "used the same ID" warning in debug builds).
 										column.push_id(field + offset, |column| {
-											column.add(
-												egui::Label::new(RichText::new(&f.name).strong())
-													.wrap()
-													.selectable(true),
-											);
+											// Names take the same inline markdown as values, so
+											// custom emoji and shortcodes render. Ids 32.. of the
+											// embed's 64 are reserved for them (values use 1..=25);
+											// the own id scope keeps their selection apart.
+											if !f.name.trim().is_empty() {
+												column.push_id("name", |column| {
+													text(
+														column,
+														message,
+														(
+															part + 32 + (field + offset) as u16,
+															&f.name,
+														),
+														cache,
+														opening,
+														profile,
+														card_surface,
+														(images, demo, &state.guilds, &source),
+														true,
+													);
+												});
+											}
 											text(
 												column,
 												message,
@@ -784,6 +803,7 @@ pub fn show(
 												profile,
 												card_surface,
 												(images, demo, &state.guilds, &source),
+												false,
 											);
 										});
 									}
