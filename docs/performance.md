@@ -2145,3 +2145,28 @@ no hardware decoder is installed. Real calls and streams were not run: the strea
 come from the synthetic source only, and stream and camera pictures are still copied on
 every platform. Package size was not measured. `video::gst::tests::native_mov_decodes_audio_video_and_seeks` fails
 on the Asahi machine ("no frame after seek") with and without this change.
+
+## Link-embed video player — November 27, 2026
+
+A video link embed with a proxied MP4/MOV/M4V/WebM/MKV file now draws the inline player, which
+decodes one first-frame poster while the stage is visible, instead of a preview image and a
+browser link. Baseline `e19b15cd` (main plus the synthetic embed fixture) and `28f6fc40`, Rust
+1.99.1, Windows 11 on a Ryzen 5 7600X with 32 GB RAM, release builds with `--features demo`, thin
+LTO and 16 codegen units. `--demo --demo-video` shows the attachment and the embed, idle, nothing
+playing. After a 20 s warmup, 20 s of process CPU time sampled once a second, alternating builds
+three times. Percentages are of one core; memory is the process working set.
+
+| Workload | Before | After |
+| --- | ---: | ---: |
+| Idle process CPU | 0.15 / 0.23 / 0.15% | 0.00 / 0.15 / 0.31% |
+| Peak working set | 276.8 / 227.8 / 226.6 MiB | 288.4 / 242.6 / 241.7 MiB |
+| Settled working set | 260.7 / 209.4 / 210.1 MiB | 261.9 / 213.2 / 213.0 MiB |
+
+Idle CPU is within noise. Peak memory is about 12–15 MiB higher: the embed's poster decode opens
+a second decoder during startup, as attachment posters already do; settled memory differs by
+1–4 MiB. The demo plays the bundled fixture, so Discord's media proxy and a real embed video were
+not measured.
+
+`cargo xtask package` (shipped fat-LTO profile, no demo) against `main` `e5fe9f0b`: `serein.exe`
+110,323,712 → 110,331,904 bytes (+8,192), the `dist` folder 114,713,080 → 114,721,272 bytes
+(+8,192), and the folder as a zip 64,308,856 → 64,312,028 bytes (+3,172).
