@@ -692,9 +692,25 @@ pub fn paint_left_rounded_surface(
 	fill: Color32,
 	notch: Color32,
 ) {
+	painter.add(egui::Shape::mesh(left_rounded_mesh(
+		rect,
+		radius,
+		painter.pixels_per_point(),
+		fill,
+		notch,
+	)));
+}
+
+fn left_rounded_mesh(
+	rect: egui::Rect,
+	radius: f32,
+	pixels_per_point: f32,
+	fill: Color32,
+	notch: Color32,
+) -> egui::Mesh {
 	const STEPS: u32 = 8;
 	let radius = radius.min(rect.width()).min(rect.height() / 2.0);
-	let half_feather = 0.5 / painter.pixels_per_point();
+	let half_feather = 0.5 / pixels_per_point;
 	let mut mesh = egui::Mesh::default();
 	let mut quad = |min: egui::Pos2, max: egui::Pos2| {
 		if min.x < max.x && min.y < max.y {
@@ -739,7 +755,7 @@ pub fn paint_left_rounded_surface(
 			}
 		}
 	}
-	painter.add(egui::Shape::mesh(mesh));
+	mesh
 }
 
 /// Fill and edge of the account card. With layered sections a second coat would make the card
@@ -2036,6 +2052,52 @@ fn contrast(a: Color32, b: Color32) -> f32 {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	/// Regression: the rounded corners once stacked two translucent coats (a dark spike on the
+	/// rail) or left pixels uncovered (a light seam along the curve). Sampled at pixel centres
+	/// like the GPU, every pixel of the rect must get exactly one coat and nothing outside it.
+	#[test]
+	fn left_rounded_surface_paints_exactly_one_coat() {
+		let fill = Color32::from_rgba_unmultiplied(24, 24, 27, 178);
+		let notch = Color32::from_rgba_unmultiplied(14, 14, 16, 178);
+		let rect = egui::Rect::from_min_max(egui::pos2(64.0, 36.0), egui::pos2(300.0, 740.0));
+		for pixels_per_point in [1.0, 1.25, 1.5] {
+			let mesh = left_rounded_mesh(rect, 8.0, pixels_per_point, fill, notch);
+			// Both left corners, with a margin on the rail and title-bar sides.
+			for (top, bottom) in [(32.0, 48.0), (728.0, 744.0)] {
+				let rows = (top * pixels_per_point) as u32..(bottom * pixels_per_point) as u32;
+				for y in rows {
+					for x in (60.0 * pixels_per_point) as u32..(80.0 * pixels_per_point) as u32 {
+						// Nudged off shared edges, like the rasteriser's fill rule.
+						let point =
+							egui::pos2(x as f32 + 0.5007, y as f32 + 0.5011) / pixels_per_point;
+						let mut alpha = 0.0f32;
+						for triangle in mesh.indices.chunks(3) {
+							let [a, b, c] = [0, 1, 2].map(|i| &mesh.vertices[triangle[i] as usize]);
+							let edge = |p: egui::Pos2, q: egui::Pos2| {
+								(q.x - p.x) * (point.y - p.y) - (q.y - p.y) * (point.x - p.x)
+							};
+							let sides =
+								[edge(a.pos, b.pos), edge(b.pos, c.pos), edge(c.pos, a.pos)];
+							if sides.iter().all(|s| *s >= 0.0) || sides.iter().all(|s| *s <= 0.0) {
+								let coat = f32::from(a.color.a()) / 255.0;
+								alpha += coat * (1.0 - alpha);
+							}
+						}
+						let expected = if rect.contains(point) {
+							178.0 / 255.0
+						} else {
+							0.0
+						};
+						assert!(
+							(alpha - expected).abs() < 1e-3,
+							"pixel ({x}, {y}) at {pixels_per_point}x has coat {alpha}, expected {expected}"
+						);
+					}
+				}
+			}
+		}
+	}
 
 	#[test]
 	fn role_name_color_keeps_hue_while_meeting_contrast() {
