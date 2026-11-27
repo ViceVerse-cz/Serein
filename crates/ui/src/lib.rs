@@ -2579,9 +2579,10 @@ impl MessagingUi {
 			.show(ui, |ui| {
 				let ctx = ui.ctx().clone();
 				if self.guild.is_none() {
-					// Search and Friends share one row; Friends is the compact glyph beside it.
+					// Search and Friends share one row at the control height; Friends is the square beside it.
 					ui.horizontal(|ui| {
 						ui.spacing_mut().item_spacing.x = 6.0;
+						let side = ui.spacing().interact_size.y.max(30.0);
 						let find = ui
 							.add_enabled_ui(
 								!self.ime_active
@@ -2592,8 +2593,11 @@ impl MessagingUi {
 											.any(|event| matches!(event, egui::Event::Ime(_)))
 									}),
 								|ui| {
+									// The label centres itself, so without vertical padding the
+									// button is exactly `side` tall, like the Friends square.
+									ui.spacing_mut().button_padding.y = 0.0;
 									ui.add_sized(
-										[(ui.available_width() - 36.0).max(60.0), 30.0],
+										[(ui.available_width() - side - 6.0).max(60.0), side],
 										egui::Button::new(language.text("find-conversation"))
 											.truncate(),
 									)
@@ -2613,12 +2617,12 @@ impl MessagingUi {
 						}
 						let friends = state.selected.is_none();
 						let (rect, response) =
-							ui.allocate_exact_size(egui::vec2(30.0, 30.0), egui::Sense::click());
+							ui.allocate_exact_size(egui::vec2(side, side), egui::Sense::click());
 						let hovered = response.hovered() || response.has_focus();
 						if friends || hovered {
 							ui.painter().rect_filled(
 								rect,
-								6,
+								ui.visuals().widgets.inactive.corner_radius,
 								if friends {
 									colors.selected
 								} else {
@@ -2629,7 +2633,7 @@ impl MessagingUi {
 						icons::paint(
 							ui.painter(),
 							icons::Icon::People,
-							rect.shrink(7.0),
+							rect.shrink(side * (7.0 / 30.0)),
 							if friends || hovered {
 								colors.text_strong
 							} else {
