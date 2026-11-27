@@ -6723,7 +6723,10 @@ impl MessagingUi {
 			} else if state.auth != client_core::auth::AuthState::Authenticated
 				|| !state.gateway_connected
 				|| state.unread(channel) != Some(true)
-				|| state.channel(channel).and_then(|c| c.last_message).is_none()
+				|| state
+					.channel(channel)
+					.and_then(|c| c.last_message)
+					.is_none()
 			{
 				self.timeline.mark_channel_read = None;
 			}

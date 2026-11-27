@@ -5768,8 +5768,7 @@ impl TimelineView {
 			if self.viewing.is_none()
 				&& !self.video.active.as_ref().is_some_and(|(_, id, _)| {
 					Some(*id) == self.component_viewing.map(|(message, _)| message)
-				})
-			{
+				}) {
 				self.component_viewing = None;
 			}
 		}
