@@ -391,6 +391,44 @@ fn reconcile_soundboard(ui: &mut ui::MessagingUi, sounds: &mut Vec<Clip>) {
 		ui.soundboard_playing = None;
 	}
 }
+/// Hands one soundboard message to the call without ever losing it.
+///
+/// The transport drains the bounded queue only while it is ticking, and a signaling write can
+/// delay a tick for seconds with the gate still open, so a burst of plays can fill the queue just
+/// as the caller presses Stop. Keep the one message that did not fit and retry it from the poll;
+/// a newer request replaces the waiting one, so a stop is never overridden by an older play.
+fn queue_sound(
+	sound: &mpsc::SyncSender<discord_voice::soundboard::Message>,
+	pending: &mut Option<discord_voice::soundboard::Message>,
+	message: discord_voice::soundboard::Message,
+) -> bool {
+	if matches!(message, discord_voice::soundboard::Message::Play { .. }) {
+		*pending = None;
+	}
+	match sound.try_send(message) {
+		Ok(()) => {
+			*pending = None;
+			true
+		}
+		Err(mpsc::TrySendError::Full(message)) => {
+			*pending = Some(message);
+			true
+		}
+		Err(mpsc::TrySendError::Disconnected(_)) => false,
+	}
+}
+/// Retries the message a full queue refused; a call that ended drops it.
+fn flush_sound(
+	sound: &mpsc::SyncSender<discord_voice::soundboard::Message>,
+	pending: &mut Option<discord_voice::soundboard::Message>,
+) {
+	let Some(message) = pending.take() else {
+		return;
+	};
+	if let Err(mpsc::TrySendError::Full(message)) = sound.try_send(message) {
+		*pending = Some(message);
+	}
+}
 
 #[derive(Default)]
 pub struct Voice {
@@ -421,6 +459,8 @@ pub struct Voice {
 	/// Session soundboard clips decoded on this device.
 	sounds: Vec<Clip>,
 	next_sound: u64,
+	/// A soundboard message the call's full queue refused; retried on the next poll.
+	pending_sound: Option<discord_voice::soundboard::Message>,
 	/// A sound decoding on a worker: its clip name and the one result it reports.
 	sound_decode: Option<SoundDecode>,
 }
@@ -480,6 +520,8 @@ impl Voice {
 		self.screen.stop();
 		self.watch.stop();
 		self.pending = None;
+		// A queued sound belongs to the call that is ending; never replay it into the next one.
+		self.pending_sound = None;
 		self.stop_camera();
 		if let Some(live) = self.live.take() {
 			live.audio.set_ready(false);
@@ -1163,10 +1205,21 @@ impl Voice {
 		}
 	}
 	/// Queue one soundboard message; false when no call is live to play it.
-	fn send_sound(&self, message: discord_voice::soundboard::Message) -> bool {
-		self.live
-			.as_ref()
-			.is_some_and(|live| live.sound.try_send(message).is_ok())
+	fn send_sound(&mut self, message: discord_voice::soundboard::Message) -> bool {
+		let Some(live) = self.live.as_ref() else {
+			return false;
+		};
+		let sound = live.sound.clone();
+		queue_sound(&sound, &mut self.pending_sound, message)
+	}
+	/// Retries a message the call's queue refused while it was busy.
+	fn flush_sound(&mut self) {
+		let Some(live) = self.live.as_ref() else {
+			self.pending_sound = None;
+			return;
+		};
+		let sound = live.sound.clone();
+		flush_sound(&sound, &mut self.pending_sound);
 	}
 	pub fn poll(
 		&mut self,
@@ -1176,6 +1229,7 @@ impl Voice {
 		ctx: &egui::Context,
 	) -> Option<Command> {
 		self.reap();
+		self.flush_sound();
 		self.poll_soundboard(ui, ctx);
 		// A sound plays only through a live call; retiring or replacing the transport ends it.
 		if self.live.is_none() {
@@ -2531,6 +2585,47 @@ mod tests {
 		view.soundboard.clear();
 		reconcile_soundboard(&mut view, &mut sounds);
 		assert!(sounds.is_empty());
+	}
+
+	#[test]
+	fn a_stop_survives_a_full_sound_queue_and_replaces_a_waiting_play() {
+		use discord_voice::soundboard::Message;
+		let play = |id| Message::Play {
+			id,
+			samples: Vec::new().into(),
+		};
+		let (sound, received) = mpsc::sync_channel(1);
+		let mut pending = None;
+		assert!(queue_sound(&sound, &mut pending, play(1)));
+		assert!(pending.is_none());
+		// The transport is busy: the next play waits instead of being dropped.
+		assert!(queue_sound(&sound, &mut pending, play(2)));
+		assert!(matches!(pending, Some(Message::Play { id: 2, .. })));
+		// Stop while the queue is still full: it replaces the waiting play, so a stale sound
+		// cannot start after the stop.
+		assert!(queue_sound(&sound, &mut pending, Message::Stop));
+		assert!(matches!(pending, Some(Message::Stop)));
+		flush_sound(&sound, &mut pending);
+		assert!(matches!(pending, Some(Message::Stop)));
+		assert!(matches!(
+			received.try_recv().unwrap(),
+			Message::Play { id: 1, .. }
+		));
+		flush_sound(&sound, &mut pending);
+		assert!(matches!(received.try_recv().unwrap(), Message::Stop));
+		assert!(pending.is_none());
+		// A newer play is the caller's latest intent and supersedes a waiting stop.
+		assert!(queue_sound(&sound, &mut pending, Message::Stop));
+		assert!(queue_sound(&sound, &mut pending, play(3)));
+		assert!(matches!(pending, Some(Message::Play { id: 3, .. })));
+		// The queued stop drains first; the waiting play follows on the next flush.
+		assert!(matches!(received.try_recv().unwrap(), Message::Stop));
+		flush_sound(&sound, &mut pending);
+		assert!(pending.is_none());
+		assert!(matches!(
+			received.try_recv().unwrap(),
+			Message::Play { id: 3, .. }
+		));
 	}
 
 	#[test]
