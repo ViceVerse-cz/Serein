@@ -664,6 +664,19 @@ fn main() -> eframe::Result {
 	}
 	result
 }
+/// `--demo-accent=rrggbb` under `--demo`; `None` ignores the flag outside the fixture.
+#[cfg(feature = "demo")]
+fn demo_accent() -> Option<[u8; 3]> {
+	if !std::env::args().any(|arg| arg == "--demo") {
+		return None;
+	}
+	let hex =
+		std::env::args().find_map(|arg| arg.strip_prefix("--demo-accent=").map(str::to_owned))?;
+	(hex.len() == 6 && hex.bytes().all(|byte| byte.is_ascii_hexdigit()))
+		.then(|| u32::from_str_radix(&hex, 16).ok())
+		.flatten()
+		.map(|value| [(value >> 16) as u8, (value >> 8) as u8, value as u8])
+}
 /// Offline updater flow and settings rendering; never opens an account or installs a package.
 #[cfg(feature = "demo")]
 fn demo_check_updates() {
@@ -1732,6 +1745,10 @@ impl Desktop {
 			{
 				ui::design::set_variant(variant);
 			}
+			// Fixture-only accent preview, e.g. `--demo --demo-accent=c084fc`.
+			if let Some(color) = demo_accent() {
+				ui::design::set_primary_color(Some(color));
+			}
 		}
 		ui::design::apply(&cc.egui_ctx);
 		cc.egui_ctx.set_theme(
@@ -2210,6 +2227,10 @@ impl Desktop {
 			}) {
 			// `--demo-settings` or `--demo-settings=account` etc.
 			messaging.preview_settings(&page);
+		}
+		#[cfg(feature = "demo")]
+		if let Some(color) = demo_accent() {
+			messaging.primary_color = Some(color);
 		}
 		#[cfg(feature = "demo")]
 		if demo && std::env::args().any(|arg| arg == "--demo-deepfilternet") {

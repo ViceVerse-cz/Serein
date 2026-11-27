@@ -30,7 +30,8 @@ settings menu (swatch row) and persist in the application-wide SQLite `theme_var
 to the light/dark appearance; unknown keys fall back to Serein. The keys written by earlier
 builds (`onyx`, `ash`, `midnight-blurple`, `crimson-moon`, `forest`, `sunset`) still resolve to
 their renamed presets, so a stored preference survives the rename. `--demo --demo-theme=<key>` and
-`--demo-light` open fixtures in a preset for screenshots.
+`--demo-light` open fixtures in a preset for screenshots; `--demo-accent=rrggbb` previews a custom
+primary colour.
 
 Message cards use a thin tint only on the conversation surface when chat is translucent.
 Search previews, profile code blocks, component modals and opaque component containers keep
