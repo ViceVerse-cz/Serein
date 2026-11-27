@@ -2,7 +2,9 @@
 //! Registering a plain key or mouse button would take it from every other app, so like
 //! Discord's input hook this only watches: the key still reaches the focused app.
 use super::NativeInput;
-use model::keybinds::{ALT, CTRL, PRIMARY, SHIFT, SIDE_MODIFIERS, is_mouse_button, is_side_modifier};
+use model::keybinds::{
+	ALT, CTRL, PRIMARY, SHIFT, SIDE_MODIFIERS, is_mouse_button, is_side_modifier,
+};
 use model::{KeyChord, KeybindAction};
 use std::sync::{
 	Arc,
@@ -44,7 +46,7 @@ pub(super) fn side_modifiers_down() -> u8 {
 			.iter()
 			.enumerate()
 			.filter(|(_, name)| keys.codes(name).into_iter().any(|code| keys.down(code)))
-			.fold(0, |mask, (bit, _)| mask | 1 << bit)
+			.fold(0, |mask, (bit, _)| mask | (1 << bit))
 	})
 }
 
@@ -261,7 +263,9 @@ fn step<C: Copy + PartialEq>(
 	let matching: Vec<&Watch<C>> = watched
 		.iter()
 		.zip(&held)
-		.filter(|(watch, held)| **held && (watch.side || modifiers_match(watch.modifiers, modifiers)))
+		.filter(|(watch, held)| {
+			**held && (watch.side || modifiers_match(watch.modifiers, modifiers))
+		})
 		.map(|(watch, _)| watch)
 		.collect();
 	for watch in &matching {

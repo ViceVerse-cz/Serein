@@ -2847,6 +2847,7 @@ impl MessagingUi {
 				&mut self.keybinds,
 				&mut self.keybind_capture,
 				self.global_keybind_status,
+				self.side_modifiers_down,
 			);
 		}
 		design::group(

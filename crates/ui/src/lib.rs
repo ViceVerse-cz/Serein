@@ -592,6 +592,8 @@ pub struct MessagingUi {
 	pub keybinds: model::Keybinds,
 	keybind_capture: Option<crate::keybinds::CaptureTarget>,
 	pub global_keybind_status: &'static str,
+	/// Physical left/right modifiers while a voice binding is recorded; the host fills it.
+	pub side_modifiers_down: u8,
 	/// Server folders the owner left open; restored from device preferences at startup.
 	pub expanded_folders: Vec<u64>,
 	pub voice_ptt_active: bool,
@@ -831,6 +833,11 @@ impl MessagingUi {
 		]
 		.into_iter()
 		.any(|button| self.button_claimed(button))
+	}
+
+	/// Whether a keybind row is recording, so the host reads modifier state only then.
+	pub fn keybind_capturing(&self) -> bool {
+		self.keybind_capture.is_some()
 	}
 
 	/// Whether a binding claims `button`, or a capture may, instead of its built-in role.

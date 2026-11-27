@@ -541,6 +541,7 @@ impl MessagingUi {
 										&mut self.keybinds,
 										&mut self.keybind_capture,
 										self.global_keybind_status,
+										self.side_modifiers_down,
 									),
 									Page::Extensions | Page::Themes => {
 										self.extensions
