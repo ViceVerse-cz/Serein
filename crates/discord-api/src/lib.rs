@@ -26,6 +26,7 @@ pub mod proxy;
 #[cfg(test)]
 mod proxy_tests;
 pub mod rpc;
+mod safety_hub;
 mod server_actions;
 mod server_admin;
 mod server_audit_log;
@@ -313,6 +314,9 @@ struct Extras<'a> {
 	prepare: Option<&'a mut (dyn FnMut() -> Result<serde_json::Value, Failure> + Send)>,
 	/// A rejected token returns `Expired` without ending the session; the Gateway decides.
 	advisory: bool,
+	/// Reads that must reach the service at most once, so a short rate-limit wait is reported
+	/// instead of resending.
+	single_attempt: bool,
 }
 
 enum RequestContent {
@@ -697,6 +701,26 @@ impl DiscordApi {
 		)
 		.await
 	}
+	/// One read that reaches the service at most once. A rate-limit answer is reported instead
+	/// of resent, for actions the owner asked for exactly once.
+	async fn request_once(
+		&self,
+		method: Method,
+		path: &str,
+		max_bytes: usize,
+	) -> Result<Vec<u8>, Failure> {
+		self.request_with_content(
+			method,
+			path,
+			None,
+			max_bytes,
+			Extras {
+				single_attempt: true,
+				..Extras::default()
+			},
+		)
+		.await
+	}
 	async fn request_multipart_limited(
 		&self,
 		path: &str,
@@ -731,6 +755,9 @@ impl DiscordApi {
 			Extras {
 				retry,
 				challenge,
+				context: None,
+				prepare: None,
+				single_attempt: false,
 				..Extras::default()
 			},
 		)
@@ -755,6 +782,8 @@ impl DiscordApi {
 					retry,
 					challenge,
 					context: Some(context),
+					prepare: None,
+					single_attempt: false,
 					..Extras::default()
 				},
 			)
@@ -779,6 +808,7 @@ impl DiscordApi {
 			context,
 			mut prepare,
 			advisory,
+			single_attempt,
 		} = extras;
 		// Only typed adapter methods construct paths. Never accept a URL or route from UI/content.
 		if !path.starts_with('/')
@@ -808,8 +838,11 @@ impl DiscordApi {
 		};
 		// Four permits bound concurrent REST work. A slow profile body must not hold the
 		// cooldown mutex and delay a message write; only service rate admission is shared.
-		let idempotent =
-			method == Method::GET && body.is_none() && prepare.is_none() && !speculative;
+		let idempotent = method == Method::GET
+			&& body.is_none()
+			&& prepare.is_none()
+			&& !speculative
+			&& !single_attempt;
 		let mut body = body;
 		let mut rate_limits = 0u8;
 		loop {
@@ -1982,6 +2015,10 @@ impl DiscordApi {
 			Command::BadgeSettings { request, settings } => Event::BadgeSettings {
 				request,
 				result: self.save_badge_settings(settings).await,
+			},
+			Command::SafetyHub { request } => Event::SafetyHub {
+				request,
+				result: self.safety_hub().await,
 			},
 			Command::StreamPreview {
 				guild,

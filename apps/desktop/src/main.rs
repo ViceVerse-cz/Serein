@@ -52,6 +52,8 @@ mod registered_games;
 mod rendering_demo;
 #[cfg(target_os = "linux")]
 mod round_corners;
+#[cfg(feature = "demo")]
+mod safety_hub_demo;
 mod screen;
 #[cfg(feature = "demo")]
 mod server_settings_demo;
@@ -4063,6 +4065,7 @@ impl Desktop {
 					request,
 					result: Ok(settings),
 				},
+				Command::SafetyHub { request } => safety_hub_demo::execute(request),
 				Command::ApplicationCommands {
 					channel,
 					guild,
