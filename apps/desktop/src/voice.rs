@@ -375,6 +375,22 @@ struct Clip {
 }
 /// A sound decoding on a worker: its clip name and the one result it reports.
 type SoundDecode = (String, mpsc::Receiver<Result<Vec<f32>, &'static str>>);
+/// Keeps the popup's rows and the decoded samples describing one session.
+///
+/// A session end clears the samples while the popup keeps its rows, and a reset view keeps its
+/// rows while the samples stay. Reconcile both ways, so a listed row always has a sound to play,
+/// a sample always has a row, and stale rows are neither shown nor counted against the limit.
+fn reconcile_soundboard(ui: &mut ui::MessagingUi, sounds: &mut Vec<Clip>) {
+	ui.soundboard
+		.retain(|clip| sounds.iter().any(|sound| sound.id == clip.id));
+	sounds.retain(|sound| ui.soundboard.iter().any(|clip| clip.id == sound.id));
+	if ui
+		.soundboard_playing
+		.is_some_and(|playing| ui.soundboard.iter().all(|clip| clip.id != playing))
+	{
+		ui.soundboard_playing = None;
+	}
+}
 
 #[derive(Default)]
 pub struct Voice {
@@ -1045,15 +1061,8 @@ impl Voice {
 	}
 	/// Session soundboard: the popup lists names, the decoded samples stay here.
 	fn poll_soundboard(&mut self, ui: &mut ui::MessagingUi, ctx: &egui::Context) {
-		// The popup owns the visible list; a session that cleared it (logout) owns no samples.
-		if self
-			.sounds
-			.iter()
-			.any(|sound| !ui.soundboard.iter().any(|clip| clip.id == sound.id))
-		{
-			self.sounds
-				.retain(|sound| ui.soundboard.iter().any(|clip| clip.id == sound.id));
-		}
+		// A logout or account switch ends the session's samples before the popup is polled here.
+		reconcile_soundboard(ui, &mut self.sounds);
 		self.poll_sound_decode(ui);
 		let Some(request) = ui.soundboard_request.take() else {
 			return;
@@ -2483,6 +2492,46 @@ pub fn takeover_notice(state: &State, event: &Event) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn a_session_end_drops_soundboard_rows_and_a_reset_view_drops_samples() {
+		let mut view = ui::MessagingUi::default();
+		let clip = |id| ui::SoundClip {
+			id,
+			name: format!("sound {id}"),
+			seconds: 1.0,
+		};
+		view.soundboard = vec![clip(1), clip(2)];
+		view.soundboard_playing = Some(2);
+		// Logout cleared the samples of both rows before this poll.
+		let mut sounds = Vec::new();
+		reconcile_soundboard(&mut view, &mut sounds);
+		assert!(
+			view.soundboard.is_empty(),
+			"a row without a sound is unplayable"
+		);
+		assert_eq!(view.soundboard_playing, None);
+		// A live session keeps both, and a reported clip whose row is gone stops being reported.
+		sounds.push(Clip {
+			id: 3,
+			samples: Vec::new().into(),
+		});
+		view.soundboard = vec![clip(2), clip(3)];
+		reconcile_soundboard(&mut view, &mut sounds);
+		assert_eq!(
+			view.soundboard
+				.iter()
+				.map(|clip| clip.id)
+				.collect::<Vec<_>>(),
+			[3]
+		);
+		assert_eq!(sounds.len(), 1);
+		assert_eq!(sounds[0].id, 3);
+		// The other direction: a reset view drops the samples it can no longer list.
+		view.soundboard.clear();
+		reconcile_soundboard(&mut view, &mut sounds);
+		assert!(sounds.is_empty());
+	}
 
 	#[test]
 	fn call_cues_track_joins_and_departures_without_reconnect_noise() {
