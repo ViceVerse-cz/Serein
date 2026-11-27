@@ -361,7 +361,15 @@ fn result_row(
 	let painter = ui.painter();
 	let mut right = rect.right() - 10.0;
 	if choice.current {
-		let font = egui::FontId::new(10.0, design::semibold_family(ui.ctx()));
+		let font = egui::FontId::new(
+			10.0,
+			design::ink_family(
+				ui,
+				design::Weight::Semibold,
+				colors.accent_text,
+				colors.accent,
+			),
+		);
 		let galley = painter.layout_no_wrap("CURRENT".to_owned(), font, colors.accent_text);
 		let size = galley.size();
 		let tag = egui::Rect::from_center_size(

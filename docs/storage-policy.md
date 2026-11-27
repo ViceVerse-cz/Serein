@@ -748,8 +748,8 @@ sampling pauses while it applies, and the user's own size, position and maximize
 memory from when the first plugin size took over, return once no plugin asks.
 Notification opt-in, hidden-channel visibility, primary RGB color, audio devices (up to 1,024 bytes each),
 input profile/custom processing, push-to-talk, gain, keyboard and mouse-button bindings (including up to 32
-extra custom bindings) and the global-keybind
-switch (enabled by default) are saved in the device-wide `app_preferences`
+extra custom bindings), the global-keybind switch (enabled by default) and the confirm-before-switching-calls
+switch (enabled by default, including older saved preferences) are saved in the device-wide `app_preferences`
 SQLite singleton (16 KiB maximum), using the existing background worker. The GPU preference
 and graphics API are fixed enum values in this same device-local record. Unknown API
 keys from newer builds fall back to Automatic without rejecting the other settings. The Linux
@@ -886,6 +886,7 @@ The owner explicitly withdrew the no-storage policy on 2026-09-09. Local files, 
 | SQLite working files | DELETE journal mode, in-memory temporary tables, 2 MiB page cache; transaction journal may temporarily add disk usage | SQLite transaction completion; normal SQLite crash recovery |
 | Voice credentials, DAVE identities/keys and PCM/Opus audio | Session memory only; one call, bounded media queues; no recording or audio cache | Hangup, failure, logout and application teardown; no forensic-erasure claim |
 | Audio devices, input profile/custom processing, push-to-talk and gain | Device-wide `app_preferences` SQLite singleton, bounded to 16 KiB; device names ≤1,024 bytes each | Retained across restart/logout; demo changes remain in memory |
+| Confirm before switching calls | Boolean `confirm_call_switch` in the existing device-wide `app_preferences` singleton; defaults on, including older saved preferences | Retained across restart/logout; off joins another call without the "Switch calls?" prompt; demo changes remain in memory |
 | Automatic emoticon conversion | Boolean in the existing device-wide `app_preferences` singleton; defaults off, including older saved preferences | Retained across restart/logout; converts standalone emoticons on message send/edit; demo changes remain in memory |
 | Preload on hover | Boolean in the existing device-wide `app_preferences` singleton; defaults off (the official client sends no such requests); a value already saved is kept, and preferences saved before the setting existed read as off | Retained across restart/logout; off stops conversation, profile and GIF picker preloads; demo never preloads conversations or profiles |
 | Collapsed message requests | Boolean in the existing device-wide `app_preferences` singleton; defaults open, including older saved preferences | Retained across restart/logout; only the home list section folds, pending requests remain accessible from its header |
@@ -1076,6 +1077,11 @@ reset releases the cache. No catalog strings or image pixels are duplicated.
 
 Channel obfuscation and accepted READY removals invalidate inaccessible history using the existing
 account-wide ClearHistory operation; readable-to-unsupported channel changes count as removal.
+A gateway resync after READY is not a removal: it used to wipe the account's cached history on every
+reconnect, sleep/wake or network blip, while the replacement READY snapshot already re-derives what
+stays readable and cached history still hydrates only behind current navigation and permission
+decisions. Revocations that arrive as permission, unavailability or thread-removal events, or as a
+readable-to-unsupported change, still queue the clear.
 This deliberately trades a broader history refetch for no new per-channel deletion API. Cache
 hydration requires the current request, a pending empty loading view, a loaded text channel and
 matching message channel IDs. Late disk/HTTP responses cannot refill a revoked view. Drafts remain
@@ -1502,7 +1508,9 @@ not blanket session-bus access. No Discord identifiers, presence or secrets ente
 
 Close keeps the process running only with an available tray. X11 supports hiding;
 native Wayland receives a compositor-controlled minimize request and is not falsely
-marked hidden. Show and Quit restore first; Quit defers to a UI pass so existing
+marked hidden. niri and Sway (detected by `NIRI_SOCKET`/`SWAYSOCK`) ignore that request,
+so Close there follows the ordinary exit checks and the custom title bar omits Minimize.
+Show and Quit restore first; Quit defers to a UI pass so existing
 unsaved-work and cleanup checks can run. Cancelling Quit restores close-to-tray behavior.
 
 While local game sharing is enabled, one cancellable account-settings operation reads

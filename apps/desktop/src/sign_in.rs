@@ -363,20 +363,16 @@ impl Desktop {
 		egui::CentralPanel::default()
 			.frame(egui::Frame::NONE.fill(ui::design::window_palette(ui).canvas))
 			.show(ui, |ui| {
-				ui::design::window_drag(ui, ui.max_rect());
+				if !self.messaging.uses_native_title_bar() {
+					ui::design::window_drag(ui, ui.max_rect());
+				}
+				let custom_windows_controls = ui::design::WINDOW_CONTROLS_WIDTH > 0.0
+					&& !self.messaging.uses_native_title_bar();
 				egui::Frame::NONE
 					.inner_margin(egui::Margin {
 						left: (16.0 + self.traffic_light_inset()) as i8,
-						right: if ui::design::WINDOW_CONTROLS_WIDTH > 0.0 {
-							0
-						} else {
-							16
-						},
-						top: if ui::design::WINDOW_CONTROLS_WIDTH > 0.0 {
-							0
-						} else {
-							16
-						},
+						right: if custom_windows_controls { 0 } else { 16 },
+						top: if custom_windows_controls { 0 } else { 16 },
 						bottom: 0,
 					})
 					.show(ui, |ui| {
@@ -392,7 +388,7 @@ impl Desktop {
 							ui.with_layout(
 								egui::Layout::right_to_left(egui::Align::Center),
 								|ui| {
-									if !self.messaging.hide_title_bar {
+									if !self.messaging.uses_native_title_bar() {
 										ui::design::window_controls(ui);
 									}
 								},
@@ -465,7 +461,7 @@ impl Desktop {
 			});
 	}
 	pub(super) fn traffic_light_inset(&self) -> f32 {
-		if self.messaging.hide_title_bar {
+		if self.messaging.uses_native_title_bar() {
 			0.0
 		} else {
 			ui::design::TRAFFIC_LIGHT_INSET
@@ -482,7 +478,9 @@ impl Desktop {
 					.frame(egui::Frame::NONE)
 					.show(ui, |ui| {
 						// Drag first: later widgets win hit testing, so the header buttons stay clickable.
-						ui::design::window_drag(ui, ui.max_rect());
+						if !self.messaging.uses_native_title_bar() {
+							ui::design::window_drag(ui, ui.max_rect());
+						}
 						ui.horizontal_centered(|ui| {
 							ui.add_space(16.0 + self.traffic_light_inset());
 							app_mark(ui, 20.0);
@@ -499,7 +497,7 @@ impl Desktop {
 								egui::Layout::right_to_left(egui::Align::Center),
 								|ui| {
 									if (ui::design::WINDOW_CONTROLS_WIDTH > 0.0
-										&& !self.messaging.hide_title_bar)
+										&& !self.messaging.uses_native_title_bar())
 										|| self.messaging.uses_custom_title_bar()
 									{
 										ui::design::window_controls(ui);

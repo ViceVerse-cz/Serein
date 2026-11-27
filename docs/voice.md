@@ -119,7 +119,7 @@ Opening a one-to-one or group DM also requests its existing call state. An ongoi
 **Call in progress** banner and **Join call**, even after ringing stops or this device leaves.
 Join uses the existing connection flow without ringing again; browsing never joins or opens
 audio devices. Incoming ringing retains Answer/Decline. Join is disabled while offline or in a voice-unavailable session. Joining or answering another
-call asks **Switch calls?** before leaving the current call. Ended/unavailable calls disappear.
+call asks **Switch calls?** before leaving the current call; turn off **Confirm before switching calls** in Voice settings to switch without asking. Ended/unavailable calls disappear.
 This uses the existing unofficial Gateway opcode 13 and CALL_CREATE/UPDATE/DELETE contract,
 checked against [discord.py-self's Gateway implementation](https://github.com/dolfies/discord.py-self/blob/master/discord/gateway.py)
 and [call dispatch handling](https://github.com/dolfies/discord.py-self/blob/master/discord/state.py)
@@ -197,7 +197,7 @@ Until actual two-way official-client audio and the relevant encryption/teardown 
 
 ## Server channel workflow and live gate
 
-Select an existing server voice channel to inspect its roster, then explicitly Join. Browsing alone never opens media devices. Participant rows show names/avatars and separate mute/deafen states; the connected channel shows elapsed local connection time. Mute/deafen, audio settings and Leave remain available while reading other channels. Server-enforced mute/deafen cannot be overridden locally. To switch rooms, select the next room and Join, then confirm **Switch call**. The current call closes immediately; the new call waits for the matching service departure acknowledgment and local audio teardown. Cancelling keeps the current call. The pending switch expires after 12 seconds and is cancelled on disconnect, account change or lost target access; it never retries automatically. A rejected/full/inaccessible room fails visibly after the bounded allocation deadline.
+Select an existing server voice channel to inspect its roster, then explicitly Join. Browsing alone never opens media devices. Participant rows show names/avatars and separate mute/deafen states; the connected channel shows elapsed local connection time. Mute/deafen, audio settings and Leave remain available while reading other channels. Server-enforced mute/deafen cannot be overridden locally. To switch rooms, select the next room and Join, then confirm **Switch call** (or turn the confirmation off in Voice settings to switch without the prompt). The current call closes immediately; the new call waits for the matching service departure acknowledgment and local audio teardown. Cancelling keeps the current call. The pending switch expires after 12 seconds and is cancelled on disconnect, account change or lost target access; it never retries automatically. A rejected/full/inaccessible room fails visibly after the bounded allocation deadline.
 
 An authenticated empty room displays “Connected · waiting for others”; audio devices open for local microphone detection, respecting mute, deafen, push-to-talk and SPEAK permission. Captured audio is consumed locally while alone; transmission waits until another participant joins and DAVE is secured. The client does not transmit unencrypted microphone audio to make an empty room appear connected. A server move or changed voice endpoint/session requires an explicit rejoin. A resumable main Gateway disconnect preserves the call; a fresh Gateway session invalidates it. The roster is session-only, bounded to 4,096 entries and 1 MiB, and is cleared on fresh login/resync and relevant access invalidation; during a resumable disconnect it is labeled last-known until missed events replay. Missing user details use a fallback identity rather than fetching a whole guild directory.
 
@@ -507,6 +507,12 @@ Like Discord, the quality row offers every choice, smallest first: 480p (854×48
 
 Target bitrate is 2 Mbps at 480p, 4 Mbps at 720p, and 8 Mbps at 1080p for 15 and 30 fps. 60 fps doubles that, 90 fps triples it, and 120 fps quadruples it, with a ceiling of 16 Mbps. Above 1080p the 8 Mbps base scales with pixel count, up to 12 Mbps before the frame-rate multiplier; 2160p uses a 16 Mbps base. Encoder support for these sizes depends on the installed hardware and plugins, and the software fallback costs substantially more CPU.
 
+On Windows, set `SEREIN_SCREEN_MAX_BITRATE_KBPS` before starting Serein (for example,
+`4000` for 4 Mbps) to lower the screen-share bitrate target at the selected resolution
+and frame rate. Values from 250 through 16000 are accepted and can only lower the
+selected preset. Transport feedback can reduce the target further. This setting
+limits the encoder target, so bursts and protocol overhead can exceed the value.
+
 Capture uses macOS 14+ ScreenCaptureKit or Windows Graphics Capture. On macOS,
 Share Screen offers the native `SCContentSharingPicker` to choose one display or
 window. Source discovery only advertises that choice; it does not enumerate private
@@ -783,7 +789,10 @@ and `twcc_received/sent/reported/missing/discarded`, and authenticated call vide
 datagrams, counted before RTX restoration, in `video_rtp_bytes/bps`.
 
 Windows, macOS and Linux expose a camera picker in Voice & Video settings and beside both call
-camera controls. Discovery runs on a worker without starting capture. macOS uses AVFoundation device discovery; Linux queries up to 64 V4L2 nodes without configuring or streaming them. Up to
+camera controls. Discovery runs on a worker without starting capture. macOS uses AVFoundation device
+discovery and resolves the Sonoma external and Continuity Camera types only when present. On Ventura
+it falls back to the legacy external camera type. Linux queries up to 64 V4L2 nodes without
+configuring or streaming them. Up to
 32 device IDs (4 KiB each) and names (256 bytes each) are retained. The selected
 ID is session-local. Refresh discovers added/removed devices; a missing selected
 device is reported rather than silently opening another camera. Changing selection

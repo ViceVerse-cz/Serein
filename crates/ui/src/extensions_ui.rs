@@ -3212,7 +3212,10 @@ fn paint_button(
 	painter.rect(rect, 8, fill, stroke, egui::StrokeKind::Inside);
 	let galley = painter.layout_no_wrap(
 		label,
-		egui::FontId::new(13.5, design::medium_family(ui.ctx())),
+		egui::FontId::new(
+			13.5,
+			design::ink_family(ui, design::Weight::Medium, text, fill),
+		),
 		text,
 	);
 	painter.galley(rect.center() - galley.size() / 2.0, galley, text);
@@ -3288,7 +3291,10 @@ fn quiet_action(
 fn badge(ui: &mut egui::Ui, text: &str, foreground: egui::Color32, background: egui::Color32) {
 	let galley = ui.painter().layout_no_wrap(
 		text.to_owned(),
-		egui::FontId::proportional(11.0),
+		egui::FontId::new(
+			11.0,
+			design::ink_family(ui, design::Weight::Regular, foreground, background),
+		),
 		foreground,
 	);
 	let (rect, _) =

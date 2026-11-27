@@ -103,8 +103,9 @@ fn selection_rank(
 }
 
 fn configure_memory(backend: wgpu::Backend, descriptor: &mut wgpu::DeviceDescriptor<'_>) {
-	if backend == wgpu::Backend::Dx12 {
+	if matches!(backend, wgpu::Backend::Dx12 | wgpu::Backend::Vulkan) {
 		// Smaller allocation blocks, not a cap on texture sizes or total memory.
+		// On integrated GPUs Vulkan device memory is backed directly by system RAM.
 		descriptor.memory_hints = wgpu::MemoryHints::MemoryUsage;
 	}
 }
@@ -155,6 +156,22 @@ fn prefer_integrated(preference: GpuPreference) -> bool {
 /// Describes an adapter for settings and bug reports.
 pub fn describe(info: &wgpu::AdapterInfo) -> String {
 	format!("{} ({:?})", info.name, info.backend)
+}
+
+/// Legacy Intel OpenGL drivers on Windows compute the presented surface origin from the
+/// window's `WS_CAPTION`/`WS_THICKFRAME` styles even when winit clears the non-client area in
+/// `WM_NCCALCSIZE`, shifting the rendered frame down and right while pointer hit testing keeps
+/// the real client origin (#965, #1126). Keep the native Windows title bar on Intel OpenGL.
+pub fn requires_native_title_bar(info: &wgpu::AdapterInfo) -> bool {
+	requires_native_title_bar_on(cfg!(target_os = "windows"), info)
+}
+
+fn requires_native_title_bar_on(windows: bool, info: &wgpu::AdapterInfo) -> bool {
+	const INTEL_PCI_VENDOR: u32 = 0x8086;
+	windows
+		&& info.backend == wgpu::Backend::Gl
+		&& !software(info)
+		&& (info.vendor == INTEL_PCI_VENDOR || info.name.to_ascii_lowercase().contains("intel"))
 }
 
 /// Picks the adapter used for the window surface, or explains why none of them works.
@@ -268,7 +285,7 @@ mod tests {
 			assert_eq!(descriptor.label, inherited.label);
 			assert_eq!(descriptor.required_features, inherited.required_features);
 			assert_eq!(descriptor.required_limits, inherited.required_limits);
-			if backend == wgpu::Backend::Dx12 {
+			if matches!(backend, wgpu::Backend::Dx12 | wgpu::Backend::Vulkan) {
 				assert!(matches!(
 					descriptor.memory_hints,
 					wgpu::MemoryHints::MemoryUsage
@@ -351,5 +368,50 @@ mod tests {
 			assert!(rank(&gl, false) < rank(&llvmpipe, false));
 			assert!(rank(&gl, true) < rank(&llvmpipe, true));
 		}
+	}
+
+	#[test]
+	fn windows_intel_opengl_requires_native_title_bar() {
+		let mut hd4600 = named(
+			"Intel(R) HD Graphics 4600",
+			wgpu::DeviceType::IntegratedGpu,
+			wgpu::Backend::Gl,
+		);
+		hd4600.vendor = 0x8086;
+		assert!(requires_native_title_bar_on(true, &hd4600));
+		assert!(!requires_native_title_bar_on(false, &hd4600));
+
+		// Vendor ID alone also catches Intel GL adapters with generic renderer strings.
+		let mut generic_intel = named(
+			"HD Graphics",
+			wgpu::DeviceType::IntegratedGpu,
+			wgpu::Backend::Gl,
+		);
+		generic_intel.vendor = 0x8086;
+		assert!(requires_native_title_bar_on(true, &generic_intel));
+
+		// Modern Intel DX12/Vulkan and non-Intel OpenGL keep the custom Windows title bar.
+		let mut intel_dx12 = named(
+			"Intel(R) UHD Graphics 620",
+			wgpu::DeviceType::IntegratedGpu,
+			wgpu::Backend::Dx12,
+		);
+		intel_dx12.vendor = 0x8086;
+		assert!(!requires_native_title_bar_on(true, &intel_dx12));
+
+		let mut nvidia_gl = named(
+			"NVIDIA GeForce GTX 1060 3GB/PCIe/SSE2",
+			wgpu::DeviceType::DiscreteGpu,
+			wgpu::Backend::Gl,
+		);
+		nvidia_gl.vendor = 0x10DE;
+		assert!(!requires_native_title_bar_on(true, &nvidia_gl));
+
+		let warp = named(
+			"Microsoft Basic Render Driver",
+			wgpu::DeviceType::Cpu,
+			wgpu::Backend::Gl,
+		);
+		assert!(!requires_native_title_bar_on(true, &warp));
 	}
 }

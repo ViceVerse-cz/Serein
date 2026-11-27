@@ -57,6 +57,7 @@ general-custom-title-bar = Vlastní záhlaví okna
 general-custom-title-bar-description = Nahradí systémový titulní pruh záhlavím Serein ve stylu GTK 4.
 general-hide-title-bar = Skrýt titulní pruh Sereinu
 general-hide-title-bar-description = Místo něj použije systémový titulní pruh a tlačítka okna.
+general-hide-title-bar-driver-required = Vyžadováno ve Windows s Intel OpenGL, aby obsah okna správně lícoval s jeho rámem.
 general-keep-menu-bar = Ponechat Serein v řádku nabídek
 general-keep-system-tray = Ponechat Serein v oznamovací oblasti
 general-menu-bar-description = Zavřením okna zůstane Serein v řádku nabídek. Ukončíte ho z jeho nabídky.
@@ -4352,6 +4353,10 @@ voice-voice-processing-controls-only-transmit-sound-above-this-level-lower-value
 voice-voice-processing-controls-open-microphone-mute-and-push-to-talk-still-apply = Otevřete mikrofon. Stále platí ztlumení a Push to talk.
 # Context: voice_processing_controls
 voice-voice-processing-controls-push-to-talk = Push to talk
+# Context: voice_processing_controls
+voice-voice-processing-controls-confirm-before-switching-calls = Potvrdit před přepnutím hovorů
+# Context: voice_processing_controls
+voice-voice-processing-controls-ask-before-leaving-your-current-call-to-join-another = Zeptat se před opuštěním aktuálního hovoru kvůli připojení k jinému.
 # Context: voice_processing_controls
 voice-voice-processing-controls-reduce-speaker-audio-picked-up-by-your-microphone = Snižte zvuk reproduktoru zachycovaný vaším mikrofonem.
 # Context: voice_processing_controls

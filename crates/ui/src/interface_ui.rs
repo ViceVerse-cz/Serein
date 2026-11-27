@@ -609,7 +609,15 @@ fn paint_text(
 /// A row's badge chip, ending at `right`; returns where it starts.
 fn paint_badge(ui: &egui::Ui, row: egui::Rect, right: f32, badge: &str) -> f32 {
 	let colors = design::palette(ui);
-	let font = egui::FontId::new(10.0, design::semibold_family(ui.ctx()));
+	let font = egui::FontId::new(
+		10.0,
+		design::ink_family(
+			ui,
+			design::Weight::Semibold,
+			colors.accent_text,
+			colors.accent,
+		),
+	);
 	let galley = ui
 		.painter()
 		.layout_no_wrap(badge.to_owned(), font, colors.accent_text);

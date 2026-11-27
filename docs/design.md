@@ -30,7 +30,8 @@ settings menu (swatch row) and persist in the application-wide SQLite `theme_var
 to the light/dark appearance; unknown keys fall back to Serein. The keys written by earlier
 builds (`onyx`, `ash`, `midnight-blurple`, `crimson-moon`, `forest`, `sunset`) still resolve to
 their renamed presets, so a stored preference survives the rename. `--demo --demo-theme=<key>` and
-`--demo-light` open fixtures in a preset for screenshots.
+`--demo-light` open fixtures in a preset for screenshots; `--demo-accent=rrggbb` previews a custom
+primary colour.
 
 Message cards use a thin tint only on the conversation surface when chat is translucent.
 Search previews, profile code blocks, component modals and opaque component containers keep
@@ -70,6 +71,13 @@ That cannot reproduce ClearType. `design::apply` turns TrueType hinting off and 
 binning on. Dark mode remaps coverage with `FontColorTransferFunction::Gamma(0.5)`. Light
 mode leaves the transfer function off. Inter faces set `FontTweak.hinting` to `Some(false)`.
 The bundled faces remain upstream's hinted TrueType builds. See `assets/README.md`.
+
+Each ramp suits text that contrasts with its appearance: light on dark in dark mode, dark on
+light in light mode. While a theme's accent text falls on the far side of its accent, such as
+black on a light purple, `design::ink_family` lays out text on that fill in twin faces that
+carry the other ramp, so labels keep the designed weight instead of the ramp for the wrong
+polarity. The twins share their sources' bytes, lay out exactly like them and are published
+only while such a palette is active.
 
 ## Layout
 

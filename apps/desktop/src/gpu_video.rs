@@ -15,6 +15,34 @@ pub fn install(state: &egui_wgpu::RenderState) {
 	CONVERTER.get_or_init(|| Converter::new(state));
 }
 
+/// Updates an existing egui RGBA texture in place on the GPU without creating a new texture,
+/// bind group, or egui texture delta. Returns `false` if the texture is not yet allocated or
+/// its dimensions differ, signalling the caller to fall back to a full UI pass.
+pub fn update_egui_texture(id: egui::TextureId, image: &egui::ColorImage) -> bool {
+	let [width, height] = image.resolution();
+	if width == 0 || height == 0 || image.pixels().len() != width.saturating_mul(height) {
+		return false;
+	}
+	let Some(converter) = CONVERTER.get() else {
+		return false;
+	};
+	let texture = {
+		let renderer = converter.renderer.read();
+		let Some(texture) = renderer
+			.texture(&id)
+			.and_then(|entry| entry.texture.as_ref())
+		else {
+			return false;
+		};
+		if texture.width() as usize != width || texture.height() as usize != height {
+			return false;
+		};
+		texture.clone()
+	};
+	converter.write(&texture, image.as_raw(), texture.width() * 4);
+	true
+}
+
 /// Whether pictures are converted on the GPU; without it every frame is converted in memory.
 #[cfg(target_os = "macos")]
 pub fn installed() -> bool {

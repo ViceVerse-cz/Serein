@@ -57,6 +57,7 @@ general-custom-title-bar = Thanh tiêu đề tùy chỉnh
 general-custom-title-bar-description = Thay thế thanh tiêu đề hệ thống bằng thanh tiêu đề kiểu GTK 4 của riêng Serein.
 general-hide-title-bar = Ẩn thanh tiêu đề Serein
 general-hide-title-bar-description = Thay vào đó hãy sử dụng thanh tiêu đề hệ thống và các nút cửa sổ.
+general-hide-title-bar-driver-required = Bắt buộc trên Windows với Intel OpenGL để nội dung cửa sổ khớp với khung cửa sổ.
 general-keep-menu-bar = Giữ Serein trong thanh menu
 general-keep-system-tray = Giữ Serein trong khay hệ thống
 general-menu-bar-description = Đóng cửa sổ vẫn giữ Serein ở thanh menu. Thoát khỏi menu của nó để thoát.
@@ -4444,6 +4445,10 @@ voice-voice-processing-controls-only-transmit-sound-above-this-level-lower-value
 voice-voice-processing-controls-open-microphone-mute-and-push-to-talk-still-apply = Mở micrô. Tắt tiếng và nhấn để nói vẫn được áp dụng.
 # Context: voice_processing_controls
 voice-voice-processing-controls-push-to-talk = Nhấn để nói chuyện
+# Context: voice_processing_controls
+voice-voice-processing-controls-confirm-before-switching-calls = Xác nhận trước khi chuyển cuộc gọi
+# Context: voice_processing_controls
+voice-voice-processing-controls-ask-before-leaving-your-current-call-to-join-another = Hỏi trước khi rời cuộc gọi hiện tại để tham gia cuộc gọi khác.
 # Context: voice_processing_controls
 voice-voice-processing-controls-reduce-speaker-audio-picked-up-by-your-microphone = Giảm âm thanh loa thu được từ micrô của bạn.
 # Context: voice_processing_controls

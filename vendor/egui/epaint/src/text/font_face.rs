@@ -10,7 +10,7 @@ use skrifa::{GlyphId, MetadataProvider as _};
 use vello_cpu::{color, kurbo};
 
 use crate::{
-    ColorImage, TextOptions,
+    ColorImage, FontColorTransferFunction, TextOptions,
     text::{
         FontTweak, GlyphBitmap, VariationCoords,
         font_data::Blob,
@@ -342,6 +342,7 @@ pub struct FontFace {
     font: FontCell,
     tweak: FontTweak,
     subpixel_binning: bool,
+    color_transfer_function: FontColorTransferFunction,
 
     /// The font as seen by `harfrust`, which caches its parsed GSUB/GPOS tables.
     shaper_font: harfrust::Font,
@@ -425,29 +426,37 @@ impl FontFace {
         })?;
 
         let subpixel_binning = tweak.subpixel_binning.unwrap_or(options.subpixel_binning);
+        let color_transfer_function = tweak
+            .color_transfer_function
+            .unwrap_or(options.color_transfer_function);
 
         Ok(Self {
             name,
             font,
             tweak,
             subpixel_binning,
+            color_transfer_function,
             shaper_font,
             glyph_id_cache: Default::default(),
             advance_width_cache: Default::default(),
         })
     }
 
-    /// Apply new [`TextOptions`]: hinting on/off and sub-pixel binning.
+    /// Apply new [`TextOptions`]: hinting on/off, sub-pixel binning and the coverage transfer.
     ///
-    /// Anything cached about glyph ids and advances stays valid, since neither affects them.
+    /// Anything cached about glyph ids and advances stays valid, since none affects them.
     pub(crate) fn set_options(&mut self, options: TextOptions) {
         let Self {
             font,
             tweak,
             subpixel_binning,
+            color_transfer_function,
             ..
         } = self;
         *subpixel_binning = tweak.subpixel_binning.unwrap_or(options.subpixel_binning);
+        *color_transfer_function = tweak
+            .color_transfer_function
+            .unwrap_or(options.color_transfer_function);
         let hinting_enabled = tweak.hinting.unwrap_or(options.font_hinting);
         font.with_dependent_mut(|_, font_data| {
             font_data.hinting_instance = hinting_enabled
@@ -654,6 +663,12 @@ impl FontFace {
     #[inline]
     pub(crate) fn subpixel_binning(&self) -> bool {
         self.subpixel_binning
+    }
+
+    /// The coverage transfer function for this face's outline glyphs.
+    #[inline]
+    pub(crate) fn color_transfer_function(&self) -> FontColorTransferFunction {
+        self.color_transfer_function
     }
 
     /// Does this face draw `c` with a color glyph, e.g. a color emoji?

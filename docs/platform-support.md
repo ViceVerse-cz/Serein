@@ -99,7 +99,13 @@ Synthetic `SendInput` drags on Windows 11 are measured in `docs/performance.md`;
 behavior on other machines and native macOS/Linux window movement remain unverified.
 On Windows and macOS, General settings can hide this 36 px strip and use the native title bar
 and window buttons instead. The device preference defaults to showing the custom strip and
-is saved with other app preferences; older saved settings keep that default. macOS switches
+is saved with other app preferences; older saved settings keep that default. When Windows runs
+on an Intel OpenGL adapter, Serein automatically uses the native Windows title bar and locks
+the switch on for that session without overwriting the saved preference: legacy Intel WGL
+drivers (such as Intel HD Graphics 4600) offset undecorated `WM_NCCALCSIZE` surfaces by the
+standard non-client frame insets, clipping the bottom-right edges and misaligning clicks.
+Offline tests and the Windows synthetic fixture cover this path; physical Intel HD Graphics
+4600 validation remains pending. macOS switches
 without restarting and keeps its native traffic lights. Linux always omits the app strip and
 defaults to system decorations; on Wayland compositors without server decorations, including GNOME,
 winit uses its Adwaita frame instead of the basic fallback. GNOME rendering remains unverified
@@ -301,6 +307,9 @@ on-by-default minimize-to-tray preference. The preference controls window Close:
 when enabled and registration is available, Close hides the window; otherwise
 Close follows ordinary exit checks. Turning the preference off or losing the
 tray host restores a hidden window. Normal taskbar/Dock minimizing is unchanged.
+On native Wayland under niri or Sway, which have no minimize and no hiding IPC Serein uses,
+Close exits through the same checks instead and the custom title bar has no Minimize button
+(user-reported on niri; no niri or Sway session has verified the fix).
 Show restores the window, and Quit follows the existing unsaved-work and download
 checks.
 

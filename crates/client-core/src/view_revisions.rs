@@ -3,6 +3,7 @@
 //! Keys still advance for every unclassified event and every local revision change.
 //! This conservative fallback keeps new event kinds and existing local mutation paths safe.
 use crate::{Event, State};
+use model::Id;
 
 #[derive(Default)]
 pub(super) struct Revisions {
@@ -10,6 +11,7 @@ pub(super) struct Revisions {
 	channels_skipped: u64,
 	labels_skipped: u64,
 	rail_skipped: u64,
+	category_activity: u64,
 }
 
 impl State {
@@ -27,6 +29,26 @@ impl State {
 	/// Sidebar row membership/order, including DM recency and voice participants.
 	pub fn channel_list_revision(&self) -> u64 {
 		self.filtered_revision(self.navigation_index.view_revisions.channels_skipped)
+	}
+
+	/// Ordinary message events that changed the unread visibility of a category child.
+	pub fn category_activity_revision(&self) -> u64 {
+		self.navigation_index.view_revisions.category_activity
+	}
+
+	pub(super) fn category_message_unread(&self, channel: Id) -> Option<bool> {
+		let channel = self.channel(channel)?;
+		(channel.guild.is_some() && channel.parent_id.is_some() && matches!(channel.kind, 0 | 5))
+			.then(|| {
+				self.channel_unread(channel) == Some(true) || self.unread_count(channel.id) > 0
+			})
+	}
+
+	pub(super) fn refresh_category_activity(&mut self, channel: Id, before: bool) {
+		if self.category_message_unread(channel) != Some(before) {
+			let revision = &mut self.navigation_index.view_revisions.category_activity;
+			*revision = revision.wrapping_add(1);
+		}
 	}
 
 	/// Channel and role names used by timeline mentions.

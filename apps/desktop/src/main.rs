@@ -546,6 +546,7 @@ fn main() -> eframe::Result {
 		gpu_preference,
 		graphics_api,
 		transparency_available,
+		hide_title_bar,
 		hide_window_decorations,
 		window_geometry,
 		custom_title_bar,
@@ -557,6 +558,7 @@ fn main() -> eframe::Result {
 			value.gpu_preference,
 			value.graphics_api,
 			value.transparency_blur,
+			value.hide_title_bar,
 			value.hide_window_decorations || value.custom_title_bar,
 			value.window_geometry,
 			cfg!(target_os = "linux") && value.custom_title_bar,
@@ -600,8 +602,9 @@ fn main() -> eframe::Result {
 					.with_titlebar_shown(false)
 					.with_fullsize_content_view(true)
 			} else if cfg!(target_os = "windows") {
-				// The app paints its own caption strip and buttons; see `ui::design::window_controls`.
-				builder.with_decorations(false)
+				// The app paints its own caption strip and buttons unless the native title bar
+				// is enabled; see `ui::design::window_controls`.
+				builder.with_decorations(hide_title_bar)
 			} else if cfg!(target_os = "linux") {
 				builder.with_decorations(!hide_window_decorations)
 			} else {
@@ -663,6 +666,19 @@ fn main() -> eframe::Result {
 		eprintln!("Screen or camera capture was still closing when Serein exited.");
 	}
 	result
+}
+/// `--demo-accent=rrggbb` under `--demo`; `None` ignores the flag outside the fixture.
+#[cfg(feature = "demo")]
+fn demo_accent() -> Option<[u8; 3]> {
+	if !std::env::args().any(|arg| arg == "--demo") {
+		return None;
+	}
+	let hex =
+		std::env::args().find_map(|arg| arg.strip_prefix("--demo-accent=").map(str::to_owned))?;
+	(hex.len() == 6 && hex.bytes().all(|byte| byte.is_ascii_hexdigit()))
+		.then(|| u32::from_str_radix(&hex, 16).ok())
+		.flatten()
+		.map(|value| [(value >> 16) as u8, (value >> 8) as u8, value as u8])
 }
 /// Offline updater flow and settings rendering; never opens an account or installs a package.
 #[cfg(feature = "demo")]
@@ -1352,6 +1368,18 @@ fn access_candidates(state: &State, event: &Event) -> Vec<model::Id> {
 		.map(|c| c.id)
 		.collect()
 }
+/// Events that permanently revoke access to cached history, so the account-wide clear that
+/// follows is justified. A gateway resync revokes nothing: a reconnect READY replaces navigation
+/// and permissions, and real removals still reach the clear through `access_candidates`.
+/// Treating a routine reconnect as invalidation wiped the whole local cache on every sleep/wake
+/// or network blip (issue #1165).
+fn wipes_history(state: &State, event: &Event) -> bool {
+	matches!(event, Event::PermissionsChanged | Event::Unavailable(_))
+		|| matches!(event, Event::RecipientRemoved { user, .. } if state.user.as_ref().is_some_and(|owner| owner.id == *user))
+		|| matches!(event, Event::Reactions(client_core::reactions::Event::Read {channel,result:Err(Failure::Forbidden),..}) if state.selected==Some(*channel))
+		|| matches!(event, Event::HistoryFailed { channel, request, failure: Failure::Forbidden }
+			if state.selected == Some(*channel) && state.request == state.history_request(*request) && state.history_pending)
+}
 fn user_action_notice(event: &Event) -> Option<(ui::design::Level, &'static str)> {
 	let Event::UserAction(client_core::user_actions::Event::Written { action, result, .. }) = event
 	else {
@@ -1732,6 +1760,10 @@ impl Desktop {
 			{
 				ui::design::set_variant(variant);
 			}
+			// Fixture-only accent preview, e.g. `--demo --demo-accent=c084fc`.
+			if let Some(color) = demo_accent() {
+				ui::design::set_primary_color(Some(color));
+			}
 		}
 		ui::design::apply(&cc.egui_ctx);
 		cc.egui_ctx.set_theme(
@@ -2048,7 +2080,15 @@ impl Desktop {
 		// Name the adapter actually in use; a mismatch with the preference is the useful
 		// detail in a graphics bug report.
 		if let Some(render_state) = cc.wgpu_render_state.as_ref() {
-			messaging.gpu_adapter = gpu::describe(&render_state.adapter.get_info());
+			let info = render_state.adapter.get_info();
+			messaging.gpu_adapter = gpu::describe(&info);
+			if gpu::requires_native_title_bar(&info) {
+				messaging.native_title_bar_required = true;
+				eprintln!(
+					"[Serein] Using native Windows title bar for {} to avoid OpenGL window offset",
+					messaging.gpu_adapter
+				);
+			}
 			gpu_video::install(render_state);
 		}
 		let startup = startup::Startup::new(&cc.egui_ctx, &runtime, &mut messaging, demo);
@@ -2107,6 +2147,11 @@ impl Desktop {
 			// Saved or unreadable preferences may already count as an answer.
 			messaging.steady_refresh_rate = false;
 			messaging.steady_refresh_prompted = false;
+		}
+		// `--demo-native-title-bar`: previews the driver-required native title bar state offline.
+		#[cfg(feature = "demo")]
+		if demo && std::env::args().any(|arg| arg == "--demo-native-title-bar") {
+			messaging.native_title_bar_required = true;
 		}
 		// `--demo-call-stream`: the direct-message peer shares a synthetic screen this device is
 		// watching, so the stream stage renders offline without any capture or network.
@@ -2210,6 +2255,10 @@ impl Desktop {
 			}) {
 			// `--demo-settings` or `--demo-settings=account` etc.
 			messaging.preview_settings(&page);
+		}
+		#[cfg(feature = "demo")]
+		if let Some(color) = demo_accent() {
+			messaging.primary_color = Some(color);
 		}
 		#[cfg(feature = "demo")]
 		if demo && std::env::args().any(|arg| arg == "--demo-deepfilternet") {
@@ -2609,6 +2658,7 @@ impl Desktop {
 			&& app_settings.current.hide_window_decorations
 			&& !messaging.custom_title_bar;
 		let custom_title_bar = messaging.custom_title_bar;
+		ui::design::set_minimize_available(!platform::compositor::ignores_minimize());
 		app_settings.current.hide_window_decorations = messaging.hide_window_decorations;
 		app_settings.current.custom_title_bar = messaging.custom_title_bar;
 		#[cfg(target_os = "windows")]
@@ -2619,6 +2669,10 @@ impl Desktop {
 			} else {
 				CornerPreference::DoNotRound
 			});
+			let native_title_bar = messaging.uses_native_title_bar();
+			if window.is_decorated() != native_title_bar {
+				window.set_decorations(native_title_bar);
+			}
 			align_undecorated_surface(&window);
 		}
 		// The GPU surface and X11 visual are selected at startup. Opaque launches
@@ -5532,13 +5586,7 @@ impl Desktop {
 			};
 			let mut removed_channels = access_candidates(&self.state, &event.event);
 			removed_channels.retain(|id| self.state.can_read_history(*id));
-			let invalidate = matches!(
-				event.event,
-				Event::Resync | Event::PermissionsChanged | Event::Unavailable(_)
-			) || matches!(&event.event, Event::RecipientRemoved { user, .. } if self.state.user.as_ref().is_some_and(|owner| owner.id == *user))
-				|| matches!(&event.event, Event::Reactions(client_core::reactions::Event::Read {channel,result:Err(Failure::Forbidden),..}) if self.state.selected==Some(*channel))
-				|| matches!(&event.event, Event::HistoryFailed { channel, request, failure: Failure::Forbidden }
-                if self.state.selected == Some(*channel) && self.state.request == self.state.history_request(*request) && self.state.history_pending);
+			let invalidate = wipes_history(&self.state, &event.event);
 			let history_changed = changes_active_history(&self.state, &event.event);
 			if history_changed {
 				match &event.event {
@@ -5911,10 +5959,10 @@ impl Desktop {
 	/// Clip the finished frame to a rounded window shape for the custom Linux title bar.
 	#[cfg(target_os = "linux")]
 	fn round_window_corners(&self, ctx: &egui::Context, frame: &eframe::Frame) {
-		let square = ctx.input(|i| {
-			i.viewport().maximized.unwrap_or(false) || i.viewport().fullscreen.unwrap_or(false)
-		});
-		if !self.messaging.uses_custom_title_bar() || square || !self.window_transparent {
+		if !self.messaging.uses_custom_title_bar()
+			|| viewport_is_square(ctx)
+			|| !self.window_transparent
+		{
 			return;
 		}
 		let Some(state) = frame.wgpu_render_state() else {
@@ -5934,22 +5982,34 @@ impl Desktop {
 			radius,
 		));
 	}
-	fn sync_window_effects(&mut self) {
-		if !self.transparency_available {
-			return;
-		}
+	fn sync_window_effects(&mut self, ctx: &egui::Context) {
 		let effects = ui::design::window_effects();
-		// The custom Linux title bar keeps alpha for its rounded corners.
-		let transparent = effects_transparent() || self.messaging.uses_custom_title_bar();
+		let user_transparent = self.transparency_available && effects_transparent();
+		// The custom Linux title bar keeps alpha only while floating so its rounded corners clip
+		// cleanly; maximized/fullscreen/native-decoration windows stay opaque for direct scanout.
+		let custom_alpha = {
+			#[cfg(target_os = "linux")]
+			{
+				self.messaging.uses_custom_title_bar() && !viewport_is_square(ctx)
+			}
+			#[cfg(not(target_os = "linux"))]
+			{
+				let _ = ctx;
+				false
+			}
+		};
+		let transparent = user_transparent || custom_alpha;
 		if transparent != self.window_transparent {
 			self.window.set_transparent(transparent);
 			self.window_transparent = transparent;
 		}
+		if !self.transparency_available {
+			return;
+		}
 		if let Some(window_blur) = &mut self.window_blur {
 			#[cfg(target_os = "linux")]
 			{
-				let square = self.window.is_maximized() || self.window.fullscreen().is_some();
-				let shape = (self.messaging.uses_custom_title_bar() && !square).then(|| {
+				let shape = custom_alpha.then(|| {
 					let size = self
 						.window
 						.inner_size()
@@ -6016,11 +6076,26 @@ fn audio_attachment_rendered(
 	})
 }
 
+#[cfg(target_os = "linux")]
+fn viewport_is_square(ctx: &egui::Context) -> bool {
+	ctx.input(|i| {
+		i.viewport().maximized.unwrap_or(false) || i.viewport().fullscreen.unwrap_or(false)
+	})
+}
+
 /// Whether the user's transparency settings, not just the rounded-corner mask, show through.
 fn effects_transparent() -> bool {
 	let (enabled, transparency, _) = ui::design::window_effects();
 	enabled && transparency > 0
 }
+fn paint_only_requester(frame: &eframe::Frame) -> Option<eframe::PaintOnlyRequester> {
+	// `--demo-full-repaints` keeps a repaint per picture, to measure against.
+	static FULL_REPAINTS: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+	let full_repaints = cfg!(feature = "demo")
+		&& *FULL_REPAINTS.get_or_init(|| std::env::args().any(|arg| arg == "--demo-full-repaints"));
+	frame.paint_only_requester().filter(|_| !full_repaints)
+}
+
 impl eframe::App for Desktop {
 	fn clear_color(&self, visuals: &egui::Visuals) -> [f32; 4] {
 		if self.window_transparent && effects_transparent() {
@@ -6162,26 +6237,36 @@ impl eframe::App for Desktop {
 		}
 	}
 	/// One UI frame: pumps workers, expires challenges, renders and drains commands.
-	/// A playing attachment's next picture goes into the texture the last pass drew and
-	/// that pass's shapes are presented again: no layout or tessellation per video frame.
-	fn paint_only(&mut self, ctx: &egui::Context, _: &mut eframe::Frame) -> bool {
+	/// Playing video and animated artwork update their textures in place and present
+	/// the last pass's shapes again: no layout or tessellation per frame.
+	fn paint_only(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) -> bool {
 		// The demo's pending automatic pause is decided in the ui pass.
-		self.demo_video_autoplay.is_none()
-			&& self.video.paint_only(self.messaging.video(), ctx)
-			&& self.voice.paint_only(ctx)
+		if self.demo_video_autoplay.is_some()
+			|| !self.video.paint_only(self.messaging.video(), ctx)
+			|| !self.voice.paint_only(ctx)
+		{
+			return false;
+		}
+		let (ok, next) = self
+			.messaging
+			.paint_only_animations(ctx, gpu_video::update_egui_texture);
+		if !ok {
+			return false;
+		}
+		if let Some(delay) = next
+			&& let Some(presenter) = paint_only_requester(frame)
+		{
+			presenter.request_after(delay);
+		}
+		true
 	}
 	fn keep_paint(&self) -> bool {
-		self.video.active() || self.voice.shows_video()
+		self.video.active() || self.voice.shows_video() || self.messaging.has_active_animations()
 	}
 	fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
 		// Last frame's shapes are painted; video textures retired since then can go.
 		gpu_video::collect();
-		// `--demo-full-repaints` keeps a repaint per picture, to measure against.
-		static FULL_REPAINTS: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-		let full_repaints = cfg!(feature = "demo")
-			&& *FULL_REPAINTS
-				.get_or_init(|| std::env::args().any(|arg| arg == "--demo-full-repaints"));
-		let presenter = frame.paint_only_requester().filter(|_| !full_repaints);
+		let presenter = paint_only_requester(frame);
 		self.video.set_presenter(presenter.clone());
 		self.voice.set_presenter(presenter);
 		// `raw_input_hook` samples placements before the pass begins, where a requested repaint
@@ -6600,6 +6685,10 @@ impl eframe::App for Desktop {
 	}
 	fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
 		let ctx = ui.ctx().clone();
+		self.messaging.begin_animation_pass(
+			ctx.cumulative_pass_nr(),
+			paint_only_requester(frame).is_some(),
+		);
 		let title_bar_height = if self.login.is_some() {
 			platform::LOGIN_HEADER_HEIGHT
 		} else if self.state.user.is_some() {
@@ -6610,7 +6699,7 @@ impl eframe::App for Desktop {
 		self.tray_window.ui(&ctx);
 		// Change native hints before drawing, so the clear color and panel alpha
 		// agree for the whole frame. OS calls happen only when an effect changes.
-		self.sync_window_effects();
+		self.sync_window_effects(&ctx);
 		let (close_requested, dropped) = ctx.input_mut(|input| {
 			(
 				input.viewport().close_requested(),
@@ -6929,7 +7018,9 @@ impl eframe::App for Desktop {
 						.inner_margin(egui::Margin::symmetric(16, 0)),
 				)
 				.show(ui, |ui| {
-					ui::design::window_drag(ui, ui.max_rect());
+					if !self.messaging.uses_native_title_bar() {
+						ui::design::window_drag(ui, ui.max_rect());
+					}
 					ui.horizontal_centered(|ui| {
 						ui.add_space(self.traffic_light_inset());
 						let (rect, _) =
@@ -6961,7 +7052,7 @@ impl eframe::App for Desktop {
 							);
 						});
 						ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-							if !self.messaging.hide_title_bar {
+							if !self.messaging.uses_native_title_bar() {
 								ui::design::window_controls(ui);
 							}
 							if ui
@@ -7437,6 +7528,15 @@ impl eframe::App for Desktop {
 					self.messaging.accept_avatar(&ctx, key, None);
 				}
 			}
+			// Return freed heap pages promptly after large idle artwork/animation evictions.
+			if self.messaging.take_freed_memory_bytes() >= 4 * 1024 * 1024 {
+				platform::memory::release_freed_memory();
+			}
+			if let Some(delay) = self.messaging.take_animation_paint_only()
+				&& let Some(presenter) = paint_only_requester(frame)
+			{
+				presenter.request_after(delay);
+			}
 			// Idle frames are freed, and stalled image placeholders give way to fallback art, on a
 			// pass, so an otherwise idle window wakes once for them.
 			if let Some(at) = self.messaging.avatar_release_at() {
@@ -7538,18 +7638,22 @@ impl eframe::App for Desktop {
 			}
 		}
 		#[cfg(target_os = "windows")]
-		if self.window.is_decorated() != self.messaging.hide_title_bar {
-			self.window.set_decorations(self.messaging.hide_title_bar);
-			align_undecorated_surface(&self.window);
+		{
+			let native_title_bar = self.messaging.uses_native_title_bar();
+			if self.window.is_decorated() != native_title_bar {
+				self.window.set_decorations(native_title_bar);
+				align_undecorated_surface(&self.window);
+			}
 		}
 		#[cfg(target_os = "macos")]
-		if let Err(error) =
-			platform::window::set_native_title_bar(&self.window, self.messaging.hide_title_bar)
-		{
+		if let Err(error) = platform::window::set_native_title_bar(
+			&self.window,
+			self.messaging.uses_native_title_bar(),
+		) {
 			self.messaging.hide_title_bar = false;
 			self.state.status = error;
 		}
-		if !self.messaging.hide_title_bar {
+		if !self.messaging.uses_native_title_bar() {
 			frame.set_traffic_lights_position(&ctx, egui::Rangef::new(0.0, title_bar_height), 12.0);
 		}
 		self.sync_customization(&ctx);
@@ -7723,7 +7827,8 @@ impl eframe::App for Desktop {
 		}
 		ui::design::window_resize_if(
 			&ctx,
-			cfg!(target_os = "windows") || self.messaging.uses_custom_title_bar(),
+			(cfg!(target_os = "windows") && !self.messaging.uses_native_title_bar())
+				|| self.messaging.uses_custom_title_bar(),
 		);
 		#[cfg(target_os = "linux")]
 		self.round_window_corners(&ctx, frame);
@@ -7742,6 +7847,31 @@ fn plaintext_login_dir() -> Option<std::path::PathBuf> {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[test]
+	fn gateway_resync_keeps_cached_history_while_revoked_access_still_clears_it() {
+		let mut state = test_support::demo_state();
+		// A reconnect after READY revokes nothing, so it must not erode the account's cache.
+		assert!(!wipes_history(&state, &Event::Resync));
+		assert!(!wipes_history(&state, &Event::Resumed));
+		// Access loss keeps the account-wide clear that real removals already queue.
+		assert!(wipes_history(&state, &Event::PermissionsChanged));
+		assert!(wipes_history(&state, &Event::Unavailable(model::Id(7))));
+		let channel = state.selected.unwrap();
+		state.history_pending = true;
+		let request = state.request;
+		let forbidden = |channel, request| Event::HistoryFailed {
+			channel,
+			request,
+			failure: Failure::Forbidden,
+		};
+		assert!(wipes_history(&state, &forbidden(channel, request)));
+		// A forbidden read of another conversation, or one nobody awaits, is not a revocation.
+		state.selected = Some(model::Id(8));
+		assert!(!wipes_history(&state, &forbidden(channel, request)));
+		state.selected = Some(channel);
+		state.history_pending = false;
+		assert!(!wipes_history(&state, &forbidden(channel, request)));
+	}
 	#[test]
 	fn minimizing_keeps_attachment_audio_playing() {
 		use MediaStop::{Everything, Nothing, VideoOnly};

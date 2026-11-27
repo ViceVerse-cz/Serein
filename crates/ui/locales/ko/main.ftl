@@ -57,6 +57,7 @@ general-custom-title-bar = 사용자 지정 제목 표시줄
 general-custom-title-bar-description = 시스템 제목 표시줄을 Serein의 GTK 4 스타일 헤더로 바꿉니다.
 general-hide-title-bar = Serein 제목 표시줄 숨기기
 general-hide-title-bar-description = 대신 시스템 제목 표시줄과 창 버튼을 사용합니다.
+general-hide-title-bar-driver-required = 창 내용이 프레임과 올바르게 정렬되도록 Windows의 Intel OpenGL에서 필요합니다.
 general-keep-menu-bar = 메뉴 막대에 Serein 유지
 general-keep-system-tray = 시스템 트레이에 Serein 유지
 general-menu-bar-description = 창을 닫아도 Serein이 메뉴 막대에 남습니다. 완전히 종료하려면 메뉴에서 종료를 선택하세요.
@@ -4383,6 +4384,10 @@ voice-voice-processing-controls-only-transmit-sound-above-this-level-lower-value
 voice-voice-processing-controls-open-microphone-mute-and-push-to-talk-still-apply = 열린 마이크입니다. 음소거와 눌러서 말하기 설정은 계속 적용됩니다.
 # Context: voice_processing_controls
 voice-voice-processing-controls-push-to-talk = 눌러서 말하기
+# Context: voice_processing_controls
+voice-voice-processing-controls-confirm-before-switching-calls = 통화를 전환하기 전에 확인
+# Context: voice_processing_controls
+voice-voice-processing-controls-ask-before-leaving-your-current-call-to-join-another = 현재 통화에서 나가 다른 통화에 참여하기 전에 확인합니다.
 # Context: voice_processing_controls
 voice-voice-processing-controls-reduce-speaker-audio-picked-up-by-your-microphone = 마이크에 들어오는 스피커 소리를 줄입니다.
 # Context: voice_processing_controls

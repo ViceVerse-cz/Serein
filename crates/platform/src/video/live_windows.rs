@@ -268,8 +268,9 @@ impl H264Decoder {
 			};
 			let bytes = sample_bytes(&sample)?;
 			let tag = unsafe { sample.GetSampleTime() }.map_err(|_| INVALID)?;
+			let cropped = crop_nv12(&bytes, format)?;
 			(self.sink)(
-				crop_nv12(&bytes, format)?,
+				cropped.borrow(),
 				u64::try_from(tag).map_err(|_| INVALID)? / 10_000,
 			);
 		}
@@ -332,7 +333,7 @@ fn sample_bytes(sample: &IMFSample) -> Result<Vec<u8>, &'static str> {
 
 /// Crop one strided NV12 picture to its display aperture as tightly packed NV12. The
 /// colour stays limited-range BT.601, the WebRTC default.
-fn crop_nv12(bytes: &[u8], format: OutputFormat) -> Result<Frame, &'static str> {
+fn crop_nv12(bytes: &[u8], format: OutputFormat) -> Result<Picture, &'static str> {
 	let (stride, height) = (format.stride as usize, format.height as usize);
 	let (x0, y0, width, out_height) = (
 		format.crop.0 as usize,

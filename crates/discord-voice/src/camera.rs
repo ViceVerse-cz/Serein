@@ -502,6 +502,9 @@ impl Drop for Camera {
 }
 
 #[cfg(target_os = "macos")]
+mod macos_device_types;
+
+#[cfg(target_os = "macos")]
 mod macos {
 	#![allow(unsafe_code)]
 
@@ -527,12 +530,7 @@ mod macos {
 	pub(super) fn devices() -> Result<DeviceList, &'static str> {
 		// SAFETY: Framework-owned device types and discovery only; no stream or permission request.
 		unsafe {
-			let types = NSArray::from_slice(&[
-				AVCaptureDeviceTypeBuiltInWideAngleCamera,
-				AVCaptureDeviceTypeExternal,
-				AVCaptureDeviceTypeContinuityCamera,
-				AVCaptureDeviceTypeDeskViewCamera,
-			]);
+			let types = NSArray::from_slice(&macos_device_types::discovery_types());
 			let discovery =
 				AVCaptureDeviceDiscoverySession::discoverySessionWithDeviceTypes_mediaType_position(
 					&types,

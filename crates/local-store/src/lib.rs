@@ -125,6 +125,8 @@ pub struct AppPreferences {
 	#[serde(default)]
 	pub voice_processing: Option<model::voice_settings::VoiceProcessing>,
 	pub voice_push_to_talk: bool,
+	/// Ask before leaving one call to join another; older preferences keep asking.
+	pub confirm_call_switch: bool,
 	pub voice_muted: bool,
 	pub voice_deafened: bool,
 	pub voice_input: Option<String>,
@@ -189,6 +191,7 @@ impl Default for AppPreferences {
 			voice_noise_suppression: true,
 			voice_processing: Some(model::voice_settings::VoiceProcessing::default()),
 			voice_push_to_talk: false,
+			confirm_call_switch: true,
 			voice_muted: false,
 			voice_deafened: false,
 			voice_input: None,
@@ -2464,6 +2467,10 @@ mod tests {
 		assert!(
 			legacy.auto_idle,
 			"older preferences enable Go idle when away"
+		);
+		assert!(
+			legacy.confirm_call_switch,
+			"older preferences keep confirming call switches"
 		);
 		for (key, format) in [
 			("12-hour", model::TimeFormat::TwelveHour),

@@ -3,7 +3,7 @@
 use crate::rpc::download;
 use model::Id;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use tokio::time::Instant;
 use wreq::Client;
 
@@ -225,8 +225,12 @@ fn bound(mut games: Vec<Game>) -> Result<Vec<Game>, &'static str> {
 /// against every entry is quadratic and far too slow to repeat on a timer.
 pub struct Index {
 	names: HashMap<String, (Id, String)>,
+	/// Path suffixes two applications claim. A readable path that reaches one is a guess, so
+	/// suffix lookup stops there instead of falling through to a shorter, unique name.
+	ambiguous_names: HashSet<String>,
 	/// A Windows process that cannot be queried exposes only its image name, while Discord's
-	/// list often stores `win64/cs2.exe`. Only bare inputs fall back here.
+	/// list often stores `win64/cs2.exe`. Only bare inputs use this, and only names a
+	/// single application claims: `launcher.exe` must not select one arbitrary game.
 	basenames: HashMap<String, (Id, String)>,
 	/// Lowercase titles; `None` when several applications share one, so a guess never wins.
 	titles: HashMap<String, Option<Id>>,
@@ -237,6 +241,8 @@ impl Index {
 		let mut names = HashMap::with_capacity(games.len());
 		let mut basenames = HashMap::with_capacity(games.len());
 		let mut titles = HashMap::with_capacity(games.len());
+		let mut ambiguous_names = HashSet::new();
+		let mut ambiguous_basenames = HashSet::new();
 		for game in games {
 			titles
 				.entry(game.name.to_lowercase())
@@ -247,16 +253,23 @@ impl Index {
 				})
 				.or_insert(Some(game.id));
 			for executable in &game.executables {
-				// The first claim wins, so a later entry cannot shadow an earlier game.
-				let found = || (game.id, game.name.clone());
-				names.entry(executable.clone()).or_insert_with(found);
+				// A name two games claim stays unmatched: keeping either would report a game
+				// the user is not playing.
+				let found = (game.id, game.name.clone());
+				claim(&mut names, &mut ambiguous_names, executable.clone(), &found);
 				if let Some(base) = executable.rsplit('/').next() {
-					basenames.entry(base.into()).or_insert_with(found);
+					claim(
+						&mut basenames,
+						&mut ambiguous_basenames,
+						base.to_owned(),
+						&found,
+					);
 				}
 			}
 		}
 		Self {
 			names,
+			ambiguous_names,
 			basenames,
 			titles,
 		}
@@ -274,8 +287,9 @@ impl Index {
 			.copied()
 			.flatten()
 	}
-	/// Match a running executable path. Longer suffixes win, so
-	/// `steamapps/common/game/game.exe` beats a bare `game.exe` from another title.
+	/// Match a running executable path. Longer suffixes win; a name two games claim is never
+	/// matched, and neither is a shorter name behind it, so a generic image name cannot
+	/// select an arbitrary game.
 	pub fn find(&self, path: &str) -> Option<(Id, String)> {
 		let path = path.to_lowercase();
 		let mut parts = [""; 8];
@@ -291,29 +305,62 @@ impl Index {
 		}
 		let parts = &mut parts[..count];
 		parts.reverse();
+		// A process whose path could not be read supplies only its image name, while the
+		// list often stores `win64/cs2.exe`. Only `basenames` knows whether several games
+		// claim that image name, so a bare input never consults `names` first.
+		if let [basename] = parts {
+			return self.basenames.get(*basename).cloned();
+		}
 		let suffix = parts.join("/");
 		let mut candidate = suffix.as_str();
 		while !candidate.is_empty() {
 			if let Some(found) = self.names.get(candidate) {
 				return Some(found.clone());
 			}
+			// The path ends with a name two games claim. A shorter name below it belongs to
+			// a different program, so it must not be reported for this path, and neither
+			// must a bundle named elsewhere in the path.
+			if self.ambiguous_names.contains(candidate) {
+				return None;
+			}
 			candidate = candidate.split_once('/').map_or("", |(_, rest)| rest);
 		}
-		// macOS entries name the bundle, which sits above the executable inside it.
-		if let Some(found) = parts
-			.iter()
-			.rev()
-			.filter(|part| part.ends_with(".app"))
-			.find_map(|part| self.names.get(*part).cloned())
-		{
-			return Some(found);
+		// macOS entries name the bundle, which sits above the executable inside it. The
+		// innermost bundle wins; when two games claim it, an outer bundle is a different
+		// application and cannot stand in for it.
+		for part in parts.iter().rev().filter(|part| part.ends_with(".app")) {
+			if let Some(found) = self.names.get(*part) {
+				return Some(found.clone());
+			}
+			if self.ambiguous_names.contains(*part) {
+				return None;
+			}
 		}
-		// A process whose path could not be read supplies only the image name, while the
-		// list often stores `win64/cs2.exe`. A known directory that does not match must not
-		// fall back: `GitHub CLI/gh.exe` is not `green hell/gh.exe`.
-		match parts {
-			[basename] => self.basenames.get(*basename).cloned(),
-			_ => None,
+		// A known directory that does not match must not fall back either: `GitHub CLI/gh.exe`
+		// is not `green hell/gh.exe`.
+		None
+	}
+}
+
+/// Remembers one executable claim. Two different games claiming one name make it
+/// ambiguous, so neither can be reported from a bare image name or a shared path.
+fn claim(
+	map: &mut HashMap<String, (Id, String)>,
+	ambiguous: &mut HashSet<String>,
+	key: String,
+	found: &(Id, String),
+) {
+	if ambiguous.contains(&key) {
+		return;
+	}
+	match map.get(&key) {
+		Some(existing) if existing.0 != found.0 => {
+			map.remove(&key);
+			ambiguous.insert(key);
+		}
+		Some(_) => {}
+		None => {
+			map.insert(key, found.clone());
 		}
 	}
 }
@@ -402,10 +449,11 @@ mod tests {
 			games[0].executables,
 			["game.exe", "steamapps/common/game/game.exe"]
 		);
-		// Two games claim `game.exe`; the first keeps it, so the index holds two names.
+		// Two games claim `game.exe`; a bare image name is ambiguous and stays unmatched,
+		// while the longer exact path still resolves.
 		let index = Index::new(&games);
-		assert_eq!(index.len(), 2);
-		assert_eq!(index.find("/opt/game.exe").unwrap().0, Id(7));
+		assert_eq!(index.len(), 1);
+		assert_eq!(index.find("/opt/game.exe"), None);
 		assert_eq!(
 			index.find(r"C:\Steam\steamapps\common\Game\Game.exe"),
 			Some((Id(7), "A game outside the old list".into()))
@@ -416,7 +464,7 @@ mod tests {
 		assert_eq!(index.find_title(" launcher ONLY "), Some(Id(9)));
 		assert_eq!(index.find_title("Another game"), None);
 		assert_eq!(index.find_title("Launcher"), None);
-		assert!(index.find("/opt/game.exe").is_some());
+		assert_eq!(index.find("/opt/game.exe"), None);
 		// A macOS bundle is named by the list but never the process path's last component.
 		let bundles = Index::new(
 			&decode(
@@ -428,6 +476,113 @@ mod tests {
 			bundles.find("/Applications/Bundled Game.app/Contents/MacOS/bundled"),
 			Some((Id(7), "Bundled game".into()))
 		);
+	}
+
+	#[test]
+	fn shared_image_names_never_resolve_to_an_arbitrary_game() {
+		let games = decode(
+			br#"[
+			{"id":"1","name":"First","executables":[{"name":"total war/launcher.exe"}]},
+			{"id":"2","name":"Second","executables":[{"name":"other/launcher.exe"}]},
+			{"id":"3","name":"Unique","executables":[{"name":"win64/unique.exe"}]},
+			{"id":"4","name":"Two paths","executables":[
+				{"name":"one/shared.exe"},{"name":"two/shared.exe"}]}
+		]"#,
+		)
+		.unwrap();
+		let index = Index::new(&games);
+		// An unreadable process exposes only `launcher.exe`; two owners make it a guess.
+		assert_eq!(index.find("launcher.exe"), None);
+		// A readable path still matches the longest known suffix.
+		assert_eq!(
+			index
+				.find(r"C:\Games\Total War\launcher.exe")
+				.map(|(id, _)| id),
+			Some(Id(1))
+		);
+		assert_eq!(
+			index.find(r"C:\Games\Other\launcher.exe").map(|(id, _)| id),
+			Some(Id(2))
+		);
+		// One game with two paths to the same image name is not ambiguous.
+		assert_eq!(index.find("shared.exe").map(|(id, _)| id), Some(Id(4)));
+		// A name only one game claims still resolves from an image name.
+		assert_eq!(index.find("unique.exe").map(|(id, _)| id), Some(Id(3)));
+	}
+
+	#[test]
+	fn bare_and_nested_claims_of_one_image_name_stay_unmatched() {
+		let games = decode(
+			br#"[
+			{"id":"1","name":"Bare","executables":[{"name":"launcher.exe"}]},
+			{"id":"2","name":"Nested","executables":[{"name":"other/launcher.exe"}]}
+		]"#,
+		)
+		.unwrap();
+		let index = Index::new(&games);
+		// An unreadable process path supplies only the image name, which both games claim.
+		assert_eq!(index.find("launcher.exe"), None);
+		// A readable path still resolves the suffix it actually ends with.
+		assert_eq!(
+			index.find(r"C:\Games\Bare\launcher.exe").map(|(id, _)| id),
+			Some(Id(1))
+		);
+		assert_eq!(
+			index.find(r"C:\Games\Other\launcher.exe").map(|(id, _)| id),
+			Some(Id(2))
+		);
+	}
+
+	#[test]
+	fn shared_path_suffix_does_not_fall_through_to_a_shorter_name() {
+		let games = decode(
+			br#"[
+			{"id":"1","name":"First","executables":[{"name":"x/game.exe"}]},
+			{"id":"2","name":"Second","executables":[{"name":"x/game.exe"}]},
+			{"id":"3","name":"Third","executables":[{"name":"game.exe"}]}
+		]"#,
+		)
+		.unwrap();
+		let index = Index::new(&games);
+		// `x/game.exe` belongs to two games, so reaching it must not return the game that
+		// merely claims the shorter `game.exe`.
+		assert_eq!(index.find(r"C:\Games\x\game.exe"), None);
+		// A path that only ends at the third game's own claim still resolves it.
+		assert_eq!(
+			index.find(r"C:\Games\Third\game.exe").map(|(id, _)| id),
+			Some(Id(3))
+		);
+	}
+
+	#[test]
+	fn ambiguous_suffix_does_not_fall_through_to_an_enclosing_bundle() {
+		let games = decode(
+			br#"[
+			{"id":"1","name":"First","executables":[{"name":"x/game.exe"}]},
+			{"id":"2","name":"Second","executables":[{"name":"x/game.exe"}]},
+			{"id":"3","name":"Bundle","executables":[{"name":"outer.app"}]}
+		]"#,
+		)
+		.unwrap();
+		let index = Index::new(&games);
+		// Two games claim the executable suffix, so the enclosing bundle must not decide
+		// the match on their behalf.
+		assert_eq!(index.find("/outer.app/x/game.exe"), None);
+	}
+
+	#[test]
+	fn shared_inner_bundle_does_not_fall_through_to_the_outer_bundle() {
+		let games = decode(
+			br#"[
+			{"id":"1","name":"First","executables":[{"name":"inner.app"}]},
+			{"id":"2","name":"Second","executables":[{"name":"inner.app"}]},
+			{"id":"3","name":"Outer","executables":[{"name":"outer.app"}]}
+		]"#,
+		)
+		.unwrap();
+		let index = Index::new(&games);
+		// The nearest bundle belongs to two games; the enclosing one is a different app.
+		assert_eq!(index.find("/outer.app/inner.app/Contents/MacOS/main"), None);
 	}
 
 	#[test]
