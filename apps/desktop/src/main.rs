@@ -6265,6 +6265,12 @@ impl eframe::App for Desktop {
 			&self.runtime,
 		);
 		self.messaging.global_keybind_status = self.hotkeys.status();
+		// Read only while recording: the poller fires these keys itself.
+		self.messaging.side_modifiers_down = if self.messaging.keybind_capturing() {
+			platform::hotkeys::side_modifiers_down()
+		} else {
+			0
+		};
 		let voice_toggles = self.hotkeys.take_toggle_pending()
 			| self
 				.messaging
@@ -6522,11 +6528,10 @@ impl eframe::App for Desktop {
 		let rebound = std::mem::replace(&mut self.ptt_chords, (global, chords)) != self.ptt_chords;
 		// Rebinding, or typing in the composer over a keyboard hold, cancels it; only a real
 		// release lingers. A mouse hold is not typing.
-		let mouse_hold = self
-			.ptt_chords
-			.1
-			.iter()
-			.any(|chord| model::keybinds::is_mouse_button(&chord.key));
+		let mouse_hold = self.ptt_chords.1.iter().any(|chord| {
+			model::keybinds::is_mouse_button(&chord.key)
+				|| model::keybinds::is_side_modifier(&chord.key)
+		});
 		let cancelled = rebound
 			|| (!mouse_hold
 				&& ctx.input(|input| input.raw.focused)
