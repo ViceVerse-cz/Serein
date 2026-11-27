@@ -155,6 +155,8 @@ pub struct TimelineView {
 	anchor: Option<(Id, f32)>,
 	scroll_offset: f32,
 	following: bool,
+	/// The reader scrolled up from the live edge and has not returned toward it since.
+	left_live_edge: bool,
 	formatted: FormatCache,
 	pending_formatted: FormatCache,
 	// A fingerprint of the revealed content prevents a reload that resets model revisions from
@@ -2512,6 +2514,7 @@ impl TimelineView {
 		self.hold_read_ack = false;
 		self.auto_read_attempt = None;
 		self.following = true;
+		self.left_live_edge = false;
 		self.jump = true;
 		self.anchor = None;
 		self.reveal_scroll = None;
@@ -2571,8 +2574,11 @@ impl TimelineView {
 		let width = ui.available_width();
 		let channel_changed = self.channel != state.selected;
 		if channel_changed {
+			// A keyboard switch leaves the pointer resting where the old timeline was.
+			crate::scroll::drop_queued_swipe(ui.ctx());
 			if let Some(previous) = self.channel {
-				let cursor = if self.following {
+				// A Present glide follows before it arrives; leaving mid-glide keeps the place shown.
+				let cursor = if self.following && self.present_scroll.is_none() {
 					client_core::ReadingCursor {
 						message: None,
 						inset: 0.0,
@@ -2602,6 +2608,7 @@ impl TimelineView {
 				),
 				channel: state.selected,
 				following,
+				left_live_edge: !following,
 				anchor: restored.and_then(|cursor| cursor.message.map(|id| (id, cursor.inset))),
 				download: std::mem::take(&mut self.download),
 				// Posters survive the switch so idle stages repaint from cache.
@@ -3134,20 +3141,41 @@ impl TimelineView {
 			offset = Some(live_edge_offset);
 			jumped_to = Some(live_edge_offset);
 		}
-		if self.following {
-			// egui sticks after painting; use this frame's height while the call panel resizes.
-			offset = Some(live_edge_offset);
-		}
 		let wheel = ui.input(|input| input.smooth_scroll_delta());
 		let user_scroll = wheel.y + autoscroll_delta;
 		if user_scroll != 0.0 && self.reveal_scroll.take().is_some() {
 			offset = None;
 		}
-		if user_scroll != 0.0 {
-			self.present_scroll = None;
+		// Cancel Jump to Present before the live-edge snap. Snapping first would make
+		// this wheel start at the bottom instead of the glide's current place. Only a new
+		// gesture at the timeline cancels it: leftover smoothing and wheels over other panels
+		// also show up in the global delta. A wheel cancels it after layout, once a nested
+		// embed has taken what it scrolls.
+		let fresh_wheel = wheel.y != 0.0
+			&& ui.rect_contains_pointer(area)
+			&& ui.input(|input| {
+				input
+					.raw
+					.events
+					.iter()
+					.any(|event| matches!(event, egui::Event::MouseWheel { .. }))
+			});
+		if autoscroll_delta != 0.0 && self.present_scroll.take().is_some() {
+			self.following = false;
+			self.left_live_edge = true;
+			offset = None;
+		}
+		if self.following {
+			// egui sticks after painting; use this frame's height while the call panel resizes.
+			offset = Some(live_edge_offset);
 		}
 		// Jump to present glides back to the live edge instead of teleporting there.
-		if let Some((from, elapsed)) = &mut self.present_scroll {
+		if fresh_wheel && self.present_scroll.is_some() {
+			// Whether this wheel reaches the timeline is known only after layout. Hold the
+			// glide where it is shown, so a wheel that cancels it moves from that place.
+			offset = Some(self.scroll_offset);
+			ui.ctx().request_repaint();
+		} else if let Some((from, elapsed)) = &mut self.present_scroll {
 			*elapsed += ui.input(|input| input.stable_dt).clamp(1.0 / 240.0, 0.05);
 			let t = *elapsed / PRESENT_SCROLL_SECS;
 			if t >= 1.0 {
@@ -3196,6 +3224,16 @@ impl TimelineView {
 		let mut selected_reply = None;
 		// ScrollArea consumes wheel input while applying it; retain the viewing gesture.
 		let scroll_delta = wheel.y + autoscroll_delta;
+		let before_offset = offset.unwrap_or(self.scroll_offset);
+		let mut timeline_wheel = 0.0;
+		let mut pending_reflowing = false;
+		let newest_displayable = state
+			.timeline
+			.iter()
+			.rev()
+			.find(|message| message_visible(state, message.author.id, hide_blocked, hide_ignored))
+			.map(|message| message.id);
+		let mut newest_visible = newest_displayable.is_none();
 		let allow_hover = !session.holding()
 			&& !ui.input(|input| input.is_scrolling())
 			&& ui.ctx().dragged_id().is_none();
@@ -3210,11 +3248,11 @@ impl TimelineView {
 				(viewport.height() - lead_packed).max(0.0)
 			};
 			ui.add_space(lead);
-			let overscan = 100.0;
+			let overscan = 360.0;
 			let (first, _, top) = visible_range(
 				&self.rows,
 				(viewport.min.y - overscan - lead).max(0.0),
-				(viewport.max.y + 100.0 - lead).max(0.0),
+				(viewport.max.y + overscan - lead).max(0.0),
 			);
 			let (anchor, _, anchor_top) = visible_range(
 				&self.rows,
@@ -3272,7 +3310,7 @@ impl TimelineView {
 				} else {
 					&mut *ui
 				};
-				if index >= anchor && ui.cursor().top() > content_top + viewport.max.y + 100.0 {
+				if index >= anchor && ui.cursor().top() > content_top + viewport.max.y + overscan {
 					break;
 				}
 				end = index + 1;
@@ -5192,13 +5230,28 @@ impl TimelineView {
 					row_height_key(message, previous, self.unread_boundary, state, deleted),
 					response.response.rect.height(),
 				));
+				if index >= anchor
+					&& newest_displayable == Some(id)
+					&& response.response.rect.intersect(clip).is_positive()
+				{
+					newest_visible = true;
+				}
+			}
+			// Visible rows occupy their measured height immediately; leading overscan
+			// still occupies its old height until the next anchored pass.
+			for &(id, _, height) in &measurements {
+				let index = self.rows.partition_point(|(r, _)| *r < id);
+				if index >= anchor && self.rows.get(index).is_some_and(|(r, _)| *r == id) {
+					self.rows[index].1 = height;
+				}
 			}
 			// Names follow the hovered row a pass late; draw that pass even if the pointer stops.
 			if self.name_hover != name_hover {
 				ui.ctx().request_repaint();
 			}
-			let used: f32 = self.rows[..end].iter().map(|(_, height)| *height).sum();
-			ui.add_space((total - used).max(0.0));
+			// Rendered rows already took their new heights above; only unrendered rows remain.
+			let trailing: f32 = self.rows[end..].iter().map(|(_, height)| *height).sum();
+			ui.add_space(trailing);
 			for (index, (pending, height)) in pending_rows.iter().enumerate() {
 				let compact = index > 0
 					|| state.timeline.iter().next_back().is_some_and(|previous| {
@@ -5245,6 +5298,7 @@ impl TimelineView {
 				});
 				let measured = response.response.rect.height();
 				if (measured - height).abs() > 1.0 {
+					pending_reflowing = true;
 					ui.ctx().request_discard("Pending message height settled");
 					ui.ctx().request_repaint();
 				}
@@ -5252,13 +5306,8 @@ impl TimelineView {
 			}
 			// Only the end of the conversation has extra space; it scrolls with the messages.
 			ui.add_space(end_padding);
-			// Visible rows occupy their measured height immediately; leading overscan
-			// still occupies its old height until the next anchored pass.
-			for (index, (_, _, height)) in (first..end).zip(&measurements) {
-				if index >= anchor {
-					self.rows[index].1 = *height;
-				}
-			}
+			// Nested embeds have consumed their wheel input; the rest moves the timeline.
+			timeline_wheel = ui.input(|input| input.smooth_scroll_delta().y);
 			viewport.min.y
 		});
 		self.scroll_offset = output.state.clamped_offset().y;
@@ -5312,7 +5361,7 @@ impl TimelineView {
 			.and_then(|channel| state.channel(channel))
 			.and_then(|channel| channel.last_message);
 		let scrolled_toward_bottom = ui.input(|input| {
-			(scroll_delta < 0.0
+			(timeline_wheel + autoscroll_delta < 0.0
 				&& (session.holding()
 					|| selection_scroll != 0.0
 					|| input
@@ -5348,9 +5397,87 @@ impl TimelineView {
 				}
 			}
 		}
+		if fresh_wheel && timeline_wheel != 0.0 && self.present_scroll.take().is_some() {
+			self.following = false;
+			self.left_live_edge = true;
+		}
 		let was_following = self.following;
-		self.following = at_bottom && !self.target_browsing;
-		if self.following
+		let timeline_scrolled_up =
+			output.state.clamped_offset().y < before_offset - 0.001 || autoscroll_delta > 0.0;
+		// A pointer moved the timeline only when it dragged the scrollbar (a track click
+		// jumps before it counts as a drag) or dragged the content itself. A text selection
+		// or a resize elsewhere can coincide with a layout correction that lowers the offset.
+		let bar = output.id.with(1_usize);
+		let content_drag = output.id.with("area");
+		let dragged = ui
+			.ctx()
+			.dragged_id()
+			.is_some_and(|id| id == bar || id == content_drag)
+			|| ui
+				.ctx()
+				.read_response(bar)
+				.is_some_and(|response| response.is_pointer_button_down_on());
+		let timeline_scrolled_down = output.state.clamped_offset().y > before_offset + 0.001;
+		let dragged_up = dragged && timeline_scrolled_up;
+		let dragged_down = dragged && timeline_scrolled_down;
+		// A drag that stops short of the bottom picks a place, whichever way it went.
+		let dragged_away = dragged_up || (dragged_down && !at_bottom);
+		// Layout corrections also move the offset up while a jump settles. Only a wheel
+		// the timeline received, autoscroll, a scrollbar or content drag, or a selection
+		// scroll that actually moved up counts as leaving it.
+		let pointer_on_timeline = ui.input(|input| {
+			input
+				.pointer
+				.hover_pos()
+				.is_some_and(|pos| output.inner_rect.contains(pos))
+		});
+		let user_scrolled_up = timeline_scrolled_up
+			&& ((timeline_wheel > 0.0 && pointer_on_timeline)
+				|| (autoscroll_delta > 0.0 && (session.holding() || selection_scroll != 0.0)));
+		// Keyboard selection asks the scroll area to reveal the cursor. That moves the
+		// offset with no wheel or drag. A layout clamp while still at the bottom does not.
+		let selection_scrolled_up = timeline_scrolled_up
+			&& !at_bottom
+			&& user_scroll == 0.0
+			&& !dragged
+			&& crate::select::has_selection(ui.ctx());
+		if user_scrolled_up || dragged_away || selection_scrolled_up {
+			self.left_live_edge = true;
+		}
+		if dragged_away {
+			// A glide in flight would pull the reader back down from the dragged place. A
+			// wheel cancels it above. Layout corrections during a glide can look like a
+			// selection scroll, so that does not cancel it.
+			self.present_scroll = None;
+		}
+		if (scrolled_toward_bottom && !dragged_away) || (timeline_scrolled_down && at_bottom) {
+			self.left_live_edge = false;
+		}
+		self.following = !self.target_browsing
+			&& (whole_conversation_visible
+				|| (was_following && !user_scrolled_up && !dragged_away && !selection_scrolled_up)
+				|| self.present_scroll.is_some()
+				|| (at_bottom && !self.left_live_edge));
+		// A Present glide follows before it arrives. Messages below it are not seen until it
+		// lands, and a wheel can still cancel it short of them.
+		// Rows that measure differently from their estimates move the view next frame, so the
+		// latest message may not be painted yet. Reading waits until it is painted in a settled
+		// layout.
+		let settles = |heights: &BTreeMap<Id, (u64, f32)>, id: Id, key: u64, height: f32| {
+			heights
+				.get(&id)
+				.is_none_or(|(old_key, old)| *old_key != key || (*old - height).abs() > 1.0)
+		};
+		let reflowing = pending_reflowing
+			|| measurements.iter().any(|&(id, key, height)| {
+				!(id == OLDER && older_row) && settles(&self.heights, id, key, height)
+			});
+		let arrived = self.following
+			&& self.present_scroll.is_none()
+			&& at_bottom
+			&& newest_visible
+			&& !reflowing;
+		if arrived
 			&& self.at_current_latest
 			&& !state.history_targeted
 			&& state.history_after.is_none()
@@ -5365,7 +5492,7 @@ impl TimelineView {
 				self.unread_dismissed = Some(channel_latest);
 			}
 		}
-		if self.following
+		if arrived
 			&& !self.hold_read_ack
 			&& ui.is_enabled()
 			&& self.mark_unread.is_none()
@@ -5391,11 +5518,7 @@ impl TimelineView {
 				continue;
 			}
 			self.measured_rows.insert(id);
-			if self
-				.heights
-				.get(&id)
-				.is_none_or(|(old_key, old)| *old_key != key || (*old - height).abs() > 1.0)
-			{
+			if settles(&self.heights, id, key, height) {
 				self.heights.insert(id, (key, height));
 				reflow = true;
 			}
@@ -5405,7 +5528,12 @@ impl TimelineView {
 			self.consecutive_reflows = self.consecutive_reflows.saturating_add(1);
 			self.revision = u64::MAX;
 			let user_scrolling = scroll_delta != 0.0 || session.holding();
-			if was_following && !user_scrolling {
+			// The glide already aims at this frame's live edge; a jump would cut it short.
+			if was_following
+				&& !user_scrolling
+				&& !self.left_live_edge
+				&& self.present_scroll.is_none()
+			{
 				self.following = true;
 				self.jump = true;
 				// An anchored reader keeps this frame's places. The next frame
@@ -5423,7 +5551,7 @@ impl TimelineView {
 		// Idle layout still never drains history merely to fill the viewport.
 		self.load_older = output.state.clamped_offset().y < 160.0
 			&& ui.input(|i| {
-				scroll_delta > 0.0
+				timeline_wheel + autoscroll_delta > 0.0
 					&& (session.holding()
 						|| selection_scroll != 0.0
 						|| i.pointer
@@ -5523,6 +5651,7 @@ impl TimelineView {
 				|| self.hold_read_ack
 				|| !(self.following
 					&& self.at_current_latest
+					&& newest_visible
 					&& state.live_edge_latest().is_some()
 					&& ui.input(|input| input.focused)));
 		// Once raised, the banner stays with its divider for the rest of the visit, unless the
@@ -5597,6 +5726,7 @@ impl TimelineView {
 			let (rect, present) = present_control(ui, area, unread, label.as_deref());
 			self.present_control = Some(rect);
 			if present {
+				self.left_live_edge = false;
 				if browsing_history {
 					self.latest = true;
 				}
@@ -6871,6 +7001,27 @@ mod tests {
 			banner_frame(&ctx, &mut view, &mut state, vec![], false);
 		}
 		assert!(view.present_scroll.is_none() && view.following);
+		// Leaving mid-glide saves the place shown, not the live edge it has not reached.
+		let offset = view.rows.iter().map(|(_, height)| height).sum::<f32>() - 600.0 - 4_200.0;
+		let (index, _, top) = visible_range(&view.rows, offset, offset);
+		view.following = false;
+		view.left_live_edge = true;
+		view.jump = false;
+		view.anchor = Some((view.rows[index].0, offset - top));
+		view.revision = u64::MAX;
+		banner_frame(&ctx, &mut view, &mut state, vec![], false);
+		view.left_live_edge = false;
+		view.present_scroll = Some((view.scroll_offset, 0.0));
+		banner_frame(&ctx, &mut view, &mut state, vec![], false);
+		assert!(view.present_scroll.is_some() && view.following);
+		state.select(Id(21));
+		banner_frame(&ctx, &mut view, &mut state, vec![], false);
+		assert!(
+			state
+				.reading(Id(20))
+				.is_some_and(|cursor| cursor.message.is_some()),
+			"leaving mid-glide saved a live-edge cursor"
+		);
 	}
 
 	fn text_message(id: u64) -> Message {
@@ -8972,6 +9123,7 @@ mod tests {
 			.insert(text_message(41), false, false)
 			.unwrap();
 		state.channels[0].last_message = Some(Id(41));
+		state.revision += 1;
 		for _ in 0..3 {
 			labels = banner_frame(&ctx, &mut view, &mut state, vec![], false);
 		}
@@ -9138,6 +9290,28 @@ mod tests {
 		assert_eq!(
 			view.unread_boundary, None,
 			"watched arrivals add no divider"
+		);
+		// A tall private reply lands below the next shared arrival and fills the view. The
+		// arrival is not seen, so it stays unread and keeps its banner until it is shown.
+		arrive(&mut state, 44);
+		let mut private = text_message(45);
+		private.ephemeral = true;
+		private.flags = 64;
+		private.content = "Synthetic tall private reply\n\n".repeat(30);
+		state.interactions.ephemeral.push(private);
+		let labels = plain(&settle_banner(&ctx, &mut view, &mut state));
+		assert!(view.following && view.mark_read.is_none());
+		assert!(
+			labels.iter().any(|text| text == "Mark as read"),
+			"an unseen arrival lost its banner: {labels:?}"
+		);
+		state.interactions.ephemeral.clear();
+		state.revision += 1;
+		let labels = plain(&settle_banner(&ctx, &mut view, &mut state));
+		assert_eq!(view.mark_read.take(), Some(Id(44)));
+		assert!(
+			!labels.iter().any(|text| text == "Mark as read"),
+			"a seen arrival kept its banner: {labels:?}"
 		);
 	}
 
@@ -9408,6 +9582,10 @@ mod tests {
 			&state,
 		);
 		view.heights.insert(Id(1), (key, 76.0));
+		// An overestimated visible row shrinks on measurement; it must not leave a trailing gap.
+		let final_key = view.heights[&Id(4)].0;
+		// Far taller than the viewport, so a gap cannot hide behind the scroll clamp.
+		view.heights.insert(Id(4), (final_key, 5000.0));
 		view.following = false;
 		// The extra short row before the anchor also catches premature cutoff while
 		// the leading measurement cursor is still below the visible viewport.
@@ -9564,6 +9742,1146 @@ mod tests {
 		assert!(
 			worst_error < 1.0,
 			"wheel movement must not bounce during reflow"
+		);
+	}
+	#[test]
+	fn touchpad_fast_scroll_does_not_jump_back_to_live_edge() {
+		let mut state = State {
+			selected: Some(Id(20)),
+			revision: 1,
+			demo: true,
+			..Default::default()
+		};
+		for id in 1..=500 {
+			let mut msg = text_message(id);
+			if id == 480 {
+				msg.embeds.push(model::Embed {
+					title: Some("Arena AI: The Official AI Ranking".into()),
+					description: Some("Chat, compare, vote for the world's best AI models.".into()),
+					url: Some("https://arena.ai".into()),
+					color: Some(0x3498db),
+					image: Some(model::EmbedMedia {
+						url: Some("https://arena.ai/preview.png".into()),
+						proxy_url: None,
+						width: 400,
+						height: 250,
+						placeholder: vec![],
+					}),
+					..Default::default()
+				});
+			}
+			if id == 470 {
+				msg.attachments.push(model::Attachment {
+					id: Id(999),
+					filename: "vectorcraft.png".into(),
+					size: 1024,
+					description: None,
+					content_type: Some("image/png".into()),
+					spoiler: false,
+					duration_ms: None,
+					waveform: vec![],
+					media: model::EmbedMedia {
+						url: Some("https://example.com/vectorcraft.png".into()),
+						proxy_url: None,
+						width: 500,
+						height: 300,
+						placeholder: vec![],
+					},
+				});
+			}
+			state.timeline.insert(msg, false, false).unwrap();
+		}
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let mut view = TimelineView {
+			unread_boundary: Some(Id(490)),
+			..Default::default()
+		};
+		let mut avatars = crate::avatars::Avatars::default();
+		let mut frame_number = 0;
+		let mut frame = |view: &mut TimelineView, delta: f32| {
+			frame_number += 1;
+			let output = ctx.run_ui(
+				egui::RawInput {
+					time: Some(f64::from(frame_number) / 60.0),
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(900.0, 600.0),
+					)),
+					events: if delta != 0.0 {
+						vec![
+							egui::Event::PointerMoved(egui::pos2(150.0, 200.0)),
+							egui::Event::MouseWheel {
+								unit: egui::MouseWheelUnit::Line,
+								delta: egui::vec2(0.0, delta),
+								modifiers: egui::Modifiers::NONE,
+								phase: egui::TouchPhase::Move,
+								source: egui::MouseWheelSource::Unknown,
+							},
+						]
+					} else {
+						vec![]
+					},
+					..Default::default()
+				},
+				|ui| {
+					crate::scroll::apply_preferences(
+						ui.ctx(),
+						model::ReadingPreferences::default(),
+					);
+					view.show(
+						ui,
+						&mut state,
+						&mut None,
+						&mut None,
+						(
+							&mut avatars,
+							&mut crate::profiles::ProfileSession::default(),
+						),
+						None,
+					)
+				},
+			);
+			output.drop_without_applying_deltas();
+			view.scroll_offset
+		};
+		for _ in 0..8 {
+			frame(&mut view, 0.0);
+		}
+		assert!(view.following);
+		let mut offsets = Vec::new();
+		for i in 0..30 {
+			let delta = if i < 3 {
+				3.25
+			} else if (10..13).contains(&i) {
+				-3.25
+			} else {
+				0.0
+			};
+			let offset = frame(&mut view, delta);
+			offsets.push((offset, view.following));
+		}
+		assert!(!offsets[0].1);
+		// Smooth accumulator delivers residual across frame boundary rather than abruptly stopping
+		assert!(offsets[3].0 < offsets[2].0);
+		// Settled and stable without snapping back to the live edge
+		assert_eq!(offsets[8].0, offsets[9].0);
+		assert!(!offsets[9].1);
+	}
+	#[test]
+	fn touchpad_slow_scroll_up_from_live_edge_does_not_snap_back() {
+		let mut state = State {
+			selected: Some(Id(20)),
+			revision: 1,
+			demo: true,
+			..Default::default()
+		};
+		for id in 1..=100 {
+			state
+				.timeline
+				.insert(text_message(id), false, false)
+				.unwrap();
+		}
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let mut view = TimelineView::default();
+		let mut avatars = crate::avatars::Avatars::default();
+		let mut frame_number = 0;
+		let mut frame = |view: &mut TimelineView, delta: f32| {
+			frame_number += 1;
+			let output = ctx.run_ui(
+				egui::RawInput {
+					time: Some(f64::from(frame_number) / 60.0),
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(900.0, 600.0),
+					)),
+					events: if delta != 0.0 {
+						vec![
+							egui::Event::PointerMoved(egui::pos2(150.0, 200.0)),
+							egui::Event::MouseWheel {
+								unit: egui::MouseWheelUnit::Line,
+								delta: egui::vec2(0.0, delta),
+								modifiers: egui::Modifiers::NONE,
+								phase: egui::TouchPhase::Move,
+								source: egui::MouseWheelSource::Unknown,
+							},
+						]
+					} else {
+						vec![]
+					},
+					..Default::default()
+				},
+				|ui| {
+					crate::scroll::apply_preferences(
+						ui.ctx(),
+						model::ReadingPreferences::default(),
+					);
+					view.show(
+						ui,
+						&mut state,
+						&mut None,
+						&mut None,
+						(
+							&mut avatars,
+							&mut crate::profiles::ProfileSession::default(),
+						),
+						None,
+					)
+				},
+			);
+			output.drop_without_applying_deltas();
+			view.scroll_offset
+		};
+		for _ in 0..8 {
+			frame(&mut view, 0.0);
+		}
+		assert!(view.following);
+		let live_edge = view.scroll_offset;
+		let off1 = frame(&mut view, 0.02);
+		assert!(!view.following);
+		assert!(off1 < live_edge);
+
+		// Idle frames must preserve the upward exit and not snap back to the live edge
+		let off_idle1 = frame(&mut view, 0.0);
+		assert!(!view.following);
+		assert_eq!(off_idle1, off1);
+
+		let off_idle2 = frame(&mut view, 0.0);
+		assert!(!view.following);
+		assert_eq!(off_idle2, off1);
+
+		let off2 = frame(&mut view, 0.02);
+		assert!(!view.following);
+		assert!(off2 < off1);
+	}
+
+	#[test]
+	fn scrollbar_drag_up_from_live_edge_stops_following() {
+		let mut state = State {
+			selected: Some(Id(20)),
+			revision: 1,
+			demo: true,
+			..Default::default()
+		};
+		for id in 1..=100 {
+			state
+				.timeline
+				.insert(text_message(id), false, false)
+				.unwrap();
+		}
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let mut view = TimelineView::default();
+		let mut avatars = crate::avatars::Avatars::default();
+		let mut frame_number = 0;
+		let mut frame = |view: &mut TimelineView, events: Vec<egui::Event>| {
+			frame_number += 1;
+			let output = ctx.run_ui(
+				egui::RawInput {
+					time: Some(f64::from(frame_number) / 60.0),
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(900.0, 600.0),
+					)),
+					events,
+					..Default::default()
+				},
+				|ui| {
+					crate::scroll::apply_preferences(
+						ui.ctx(),
+						model::ReadingPreferences::default(),
+					);
+					view.show(
+						ui,
+						&mut state,
+						&mut None,
+						&mut None,
+						(
+							&mut avatars,
+							&mut crate::profiles::ProfileSession::default(),
+						),
+						None,
+					)
+				},
+			);
+			output.drop_without_applying_deltas();
+			view.scroll_offset
+		};
+		for _ in 0..8 {
+			frame(&mut view, vec![]);
+		}
+		assert!(view.following);
+		let live_edge = view.scroll_offset;
+		let bar = egui::pos2(895.0, 300.0);
+		let pressed = frame(
+			&mut view,
+			vec![
+				egui::Event::PointerMoved(bar),
+				egui::Event::PointerButton {
+					pos: bar,
+					button: egui::PointerButton::Primary,
+					pressed: true,
+					modifiers: egui::Modifiers::NONE,
+				},
+			],
+		);
+		// A press on the track above the thumb jumps there before egui reports a drag.
+		assert!(pressed < live_edge);
+		assert!(
+			!view.following,
+			"a scrollbar track press must leave the live edge"
+		);
+		let offset = frame(
+			&mut view,
+			vec![egui::Event::PointerMoved(egui::pos2(895.0, 200.0))],
+		);
+		assert!(
+			!view.following,
+			"an upward scrollbar drag must leave the live edge"
+		);
+		assert!(offset < live_edge);
+		let idle = frame(&mut view, vec![]);
+		assert!(!view.following, "idle frames must not snap back");
+		assert_eq!(idle, offset);
+	}
+
+	#[test]
+	fn wheel_gesture_outside_timeline_preserves_following() {
+		let mut state = State {
+			selected: Some(Id(20)),
+			revision: 1,
+			demo: true,
+			..Default::default()
+		};
+		for id in 1..=50 {
+			state
+				.timeline
+				.insert(text_message(id), false, false)
+				.unwrap();
+		}
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let mut view = TimelineView::default();
+		let mut avatars = crate::avatars::Avatars::default();
+		let mut frame_number = 0;
+		let mut frame = |view: &mut TimelineView, pos: egui::Pos2, delta: f32| {
+			frame_number += 1;
+			let output = ctx.run_ui(
+				egui::RawInput {
+					time: Some(f64::from(frame_number) / 60.0),
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(900.0, 600.0),
+					)),
+					events: if delta != 0.0 {
+						vec![
+							egui::Event::PointerMoved(pos),
+							egui::Event::MouseWheel {
+								unit: egui::MouseWheelUnit::Line,
+								delta: egui::vec2(0.0, delta),
+								modifiers: egui::Modifiers::NONE,
+								phase: egui::TouchPhase::Move,
+								source: egui::MouseWheelSource::Unknown,
+							},
+						]
+					} else {
+						vec![]
+					},
+					..Default::default()
+				},
+				|ui| {
+					crate::scroll::apply_preferences(
+						ui.ctx(),
+						model::ReadingPreferences::default(),
+					);
+					view.show(
+						ui,
+						&mut state,
+						&mut None,
+						&mut None,
+						(
+							&mut avatars,
+							&mut crate::profiles::ProfileSession::default(),
+						),
+						None,
+					)
+				},
+			);
+			output.drop_without_applying_deltas();
+			view.scroll_offset
+		};
+		for _ in 0..8 {
+			frame(&mut view, egui::pos2(150.0, 200.0), 0.0);
+		}
+		assert!(view.following);
+		let live_edge = view.scroll_offset;
+
+		// Upward wheel event outside the timeline area must not exit following or move the timeline
+		let off = frame(&mut view, egui::pos2(-20.0, -20.0), 1.0);
+		assert!(view.following);
+		assert_eq!(off, live_edge);
+
+		// A layout shrink while that outside wheel is active is still not a timeline scroll.
+		let (id, key) = view
+			.heights
+			.iter()
+			.next()
+			.map(|(id, (key, _))| (*id, *key))
+			.unwrap();
+		view.heights.insert(id, (key, 4_000.0));
+		view.revision = u64::MAX;
+		let shrunk = frame(&mut view, egui::pos2(-20.0, -20.0), 1.0);
+		assert!(
+			view.following,
+			"an outside wheel plus a shorter row must stay on the live edge, offset {shrunk}"
+		);
+	}
+
+	#[test]
+	fn wheel_during_jump_to_present_keeps_the_current_place() {
+		let channel = |last: u64| model::Channel {
+			id: Id(20),
+			guild: None,
+			parent_id: None,
+			position: 0,
+			name: "Synthetic glide conversation".into(),
+			kind: 1,
+			recipients: vec![],
+			member_list_id: None,
+			tags: None,
+			message_count: None,
+			icon: None,
+			user_limit: None,
+			slowmode: 0,
+			last_message: Some(Id(last)),
+		};
+		let mut state = State {
+			auth: client_core::auth::AuthState::Authenticated,
+			gateway_connected: true,
+			freshness: model::Freshness::Fresh,
+			selected: Some(Id(20)),
+			channels: vec![channel(200)],
+			revision: 1,
+			..Default::default()
+		};
+		for id in 1..=200 {
+			state
+				.timeline
+				.insert(text_message(id), false, false)
+				.unwrap();
+		}
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let mut view = TimelineView::default();
+		let mut avatars = crate::avatars::Avatars::default();
+		let mut frame_number = 0;
+		let mut frame = |view: &mut TimelineView, state: &mut State, events: Vec<egui::Event>| {
+			frame_number += 1;
+			let output = ctx.run_ui(
+				egui::RawInput {
+					time: Some(f64::from(frame_number) / 60.0),
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(900.0, 600.0),
+					)),
+					events,
+					..Default::default()
+				},
+				|ui| {
+					crate::scroll::apply_preferences(
+						ui.ctx(),
+						model::ReadingPreferences::default(),
+					);
+					view.show(
+						ui,
+						state,
+						&mut None,
+						&mut None,
+						(
+							&mut avatars,
+							&mut crate::profiles::ProfileSession::default(),
+						),
+						None,
+					)
+				},
+			);
+			output.drop_without_applying_deltas();
+			view.scroll_offset
+		};
+		for _ in 0..8 {
+			frame(&mut view, &mut state, vec![]);
+		}
+		assert!(view.following);
+		assert_eq!(view.mark_read.take(), Some(Id(200)));
+		state
+			.apply_read_state(client_core::read_state::Event::Snapshot {
+				entries: Some(vec![(Id(20), Some(Id(200)), 0)]),
+				version: Some(1),
+				partial: false,
+			})
+			.unwrap();
+		let live_edge = view.scroll_offset;
+		let away = view.rows.iter().map(|(_, height)| height).sum::<f32>() - 600.0 - 4_200.0;
+		let (index, _, top) = visible_range(&view.rows, away.max(0.0), away.max(0.0));
+		view.following = false;
+		view.left_live_edge = true;
+		view.jump = false;
+		view.anchor = Some((view.rows[index].0, away.max(0.0) - top));
+		view.revision = u64::MAX;
+		let parked = frame(&mut view, &mut state, vec![]);
+		assert!(!view.following);
+		assert!(
+			live_edge - parked > 1_000.0,
+			"parked {parked} should sit well above the live edge {live_edge}"
+		);
+		// A message arrives below the parked reader. Starting the glide is not reading it.
+		state
+			.timeline
+			.insert(text_message(201), false, false)
+			.unwrap();
+		state.channels = vec![channel(201)];
+		view.left_live_edge = false;
+		view.target_browsing = false;
+		view.present_scroll = Some((view.scroll_offset, 0.0));
+		let gliding = frame(&mut view, &mut state, vec![]);
+		assert!(view.present_scroll.is_some() && view.following);
+		assert!(
+			gliding < live_edge - 500.0,
+			"the glide started from the parked place, at {gliding} vs {live_edge}"
+		);
+		// A wheel over another panel, and the smoothing it leaves behind, are not aimed
+		// at the timeline and must not stop the glide.
+		frame(
+			&mut view,
+			&mut state,
+			vec![
+				egui::Event::PointerGone,
+				egui::Event::MouseWheel {
+					unit: egui::MouseWheelUnit::Line,
+					delta: egui::vec2(0.0, 1.0),
+					modifiers: egui::Modifiers::NONE,
+					phase: egui::TouchPhase::Move,
+					source: egui::MouseWheelSource::Unknown,
+				},
+			],
+		);
+		frame(
+			&mut view,
+			&mut state,
+			vec![egui::Event::PointerMoved(egui::pos2(150.0, 200.0))],
+		);
+		assert!(view.present_scroll.is_some() && view.following);
+		let shown = view.scroll_offset;
+		let interrupted = frame(
+			&mut view,
+			&mut state,
+			vec![
+				egui::Event::PointerMoved(egui::pos2(150.0, 200.0)),
+				egui::Event::MouseWheel {
+					unit: egui::MouseWheelUnit::Line,
+					delta: egui::vec2(0.0, 1.0),
+					modifiers: egui::Modifiers::NONE,
+					phase: egui::TouchPhase::Move,
+					source: egui::MouseWheelSource::Unknown,
+				},
+			],
+		);
+		assert!(!view.following && view.present_scroll.is_none());
+		// An upward wheel moves up from the place shown, not from the glide's next step.
+		assert!(
+			interrupted <= shown,
+			"the wheel up moved down from {shown} to {interrupted}"
+		);
+		assert!(
+			interrupted < live_edge - 500.0,
+			"the wheel jumped to the live edge: {interrupted} vs {live_edge}"
+		);
+		assert!(
+			view.mark_read.is_none() && view.seen_latest != Some(Id(201)),
+			"an interrupted glide acknowledged a message it never showed"
+		);
+		// Pressing the scrollbar track above the thumb mid-glide leaves the live edge too.
+		view.present_scroll = Some((view.scroll_offset, 0.0));
+		frame(&mut view, &mut state, vec![]);
+		assert!(view.present_scroll.is_some() && view.following);
+		let track = egui::pos2(895.0, 120.0);
+		let pressed = frame(
+			&mut view,
+			&mut state,
+			vec![
+				egui::Event::PointerMoved(track),
+				egui::Event::PointerButton {
+					pos: track,
+					button: egui::PointerButton::Primary,
+					pressed: true,
+					modifiers: egui::Modifiers::NONE,
+				},
+			],
+		);
+		assert!(!view.following && view.present_scroll.is_none());
+		let idle = frame(&mut view, &mut state, vec![]);
+		assert!(
+			(idle - pressed).abs() < 1.0,
+			"the glide pulled the reader back: {idle} vs {pressed}"
+		);
+		// Pressing the track below the thumb but short of the bottom picks a place too.
+		let release = |pos| {
+			vec![egui::Event::PointerButton {
+				pos,
+				button: egui::PointerButton::Primary,
+				pressed: false,
+				modifiers: egui::Modifiers::NONE,
+			}]
+		};
+		frame(&mut view, &mut state, release(track));
+		view.left_live_edge = false;
+		view.present_scroll = Some((view.scroll_offset, 0.0));
+		let glide_top = frame(&mut view, &mut state, vec![]);
+		assert!(view.present_scroll.is_some() && view.following);
+		let below_thumb = egui::pos2(895.0, 380.0);
+		let dropped = frame(
+			&mut view,
+			&mut state,
+			vec![
+				egui::Event::PointerMoved(below_thumb),
+				egui::Event::PointerButton {
+					pos: below_thumb,
+					button: egui::PointerButton::Primary,
+					pressed: true,
+					modifiers: egui::Modifiers::NONE,
+				},
+			],
+		);
+		let released = frame(&mut view, &mut state, release(below_thumb));
+		assert!(
+			dropped > glide_top && released < live_edge - 200.0,
+			"the press should land between {glide_top} and {live_edge}, at {released}"
+		);
+		assert!(!view.following && view.present_scroll.is_none());
+		// egui may finish its own track-click motion; the glide must not carry the view on.
+		let mut settled = released;
+		for _ in 0..30 {
+			settled = frame(&mut view, &mut state, vec![]);
+		}
+		assert!(
+			!view.following && (settled - released).abs() < 50.0,
+			"the glide pulled the reader on: {settled} vs {released}"
+		);
+		// An uninterrupted glide crosses rows it has not measured yet. Measuring them must not
+		// turn the rest of the glide into a jump, and it reads the latest message on arrival.
+		let mut previous = frame(
+			&mut view,
+			&mut state,
+			vec![egui::Event::PointerButton {
+				pos: track,
+				button: egui::PointerButton::Primary,
+				pressed: false,
+				modifiers: egui::Modifiers::NONE,
+			}],
+		);
+		// Let the earlier wheel's smoothing settle so nothing but the glide moves the view.
+		for _ in 0..30 {
+			previous = frame(&mut view, &mut state, vec![]);
+		}
+		// Forget the rows below the view so the glide measures them as it passes.
+		let below = view.anchor.map(|(id, _)| id);
+		view.heights.retain(|id, _| Some(*id) <= below);
+		view.measured_rows.retain(|id| Some(*id) <= below);
+		view.left_live_edge = false;
+		view.present_scroll = Some((previous, 0.0));
+		let mut glide_frames = 0;
+		while view.present_scroll.is_some() {
+			assert!(
+				view.mark_read.is_none(),
+				"acknowledged before the glide arrived"
+			);
+			let next = frame(&mut view, &mut state, vec![]);
+			glide_frames += 1;
+			assert!(glide_frames < 60, "the glide never finished");
+			assert!(
+				next >= previous - 1.0,
+				"the glide moved up: {next} vs {previous}"
+			);
+			previous = next;
+		}
+		assert!(
+			glide_frames >= 10,
+			"the glide ended after {glide_frames} frames, so it jumped to the live edge"
+		);
+		frame(&mut view, &mut state, vec![]);
+		assert!(view.following);
+		assert_eq!(view.mark_read.take(), Some(Id(201)));
+		// A tall arrival measures taller than its estimate, so the frame that first lays it
+		// out moves the view afterwards. Reading it waits for the settled frame.
+		let mut tall = text_message(202);
+		tall.content = "Synthetic paragraph that wraps across the timeline width.\n".repeat(12);
+		state.timeline.insert(tall, false, false).unwrap();
+		state.channels = vec![channel(202)];
+		state.revision += 1;
+		// One pass per frame, so the reflowing pass is the one shown, not a discarded one.
+		ctx.options_mut(|options| options.max_passes = std::num::NonZeroUsize::MIN);
+		let mut reflowed = false;
+		for _ in 0..6 {
+			let reflows = view.reflow_frames;
+			frame(&mut view, &mut state, vec![]);
+			if view.reflow_frames > reflows {
+				reflowed = true;
+				assert!(
+					view.mark_read.is_none() && view.seen_latest != Some(Id(202)),
+					"read the arrival on a frame that still had to move to it"
+				);
+			}
+		}
+		assert!(reflowed, "the arrival should reflow");
+		assert!(view.following);
+		assert_eq!(view.mark_read.take(), Some(Id(202)));
+		// A pending row that measures differently from its stored height discards its pass,
+		// so that pass may not start the automatic read either.
+		let nonce = String::from("synthetic-pending");
+		state.pending.push(client_core::Pending {
+			sticker: None,
+			channel: state.selected.unwrap(),
+			content: "Synthetic pending message".into(),
+			attachments: Vec::new(),
+			nonce: nonce.clone(),
+			delivery: model::Delivery::Sending,
+			confirmed: None,
+			reply: None,
+		});
+		for _ in 0..4 {
+			frame(&mut view, &mut state, vec![]);
+		}
+		let measured = view.pending_heights[&nonce];
+		view.pending_heights.insert(nonce, measured + 40.0);
+		view.mark_read = None;
+		view.auto_read_attempt = None;
+		frame(&mut view, &mut state, vec![]);
+		assert!(
+			view.mark_read.is_none(),
+			"read on a pass discarded for a pending row"
+		);
+		frame(&mut view, &mut state, vec![]);
+		assert_eq!(view.mark_read.take(), Some(Id(202)));
+		state.pending.clear();
+		for _ in 0..4 {
+			frame(&mut view, &mut state, vec![]);
+		}
+		// A downward wheel from within trailing overscan reaches the bottom after layout:
+		// the latest row is measured in overscan but clipped, so ACK waits for the next frame.
+		let above_bottom = (view.scroll_offset - 200.0).max(0.0);
+		let (index, _, top) = visible_range(&view.rows, above_bottom, above_bottom);
+		view.following = false;
+		view.left_live_edge = true;
+		view.anchor = Some((view.rows[index].0, above_bottom - top));
+		view.revision = u64::MAX;
+		for _ in 0..4 {
+			frame(&mut view, &mut state, vec![]);
+		}
+		state
+			.timeline
+			.insert(text_message(203), false, false)
+			.unwrap();
+		state.channels = vec![channel(203)];
+		state.revision += 1;
+		for _ in 0..4 {
+			frame(&mut view, &mut state, vec![]);
+		}
+		assert!(
+			!view.following && view.mark_read.is_none(),
+			"should stay paused above the bottom before wheeling down"
+		);
+		let timeline_pos = egui::pos2(450.0, 300.0);
+		frame(
+			&mut view,
+			&mut state,
+			vec![
+				egui::Event::PointerMoved(timeline_pos),
+				egui::Event::MouseWheel {
+					unit: egui::MouseWheelUnit::Point,
+					delta: egui::vec2(0.0, -300.0),
+					modifiers: egui::Modifiers::NONE,
+					phase: egui::TouchPhase::Move,
+					source: egui::MouseWheelSource::Trackpad,
+				},
+			],
+		);
+		assert!(
+			view.mark_read.is_none(),
+			"acknowledged on the wheel frame before the latest row entered the viewport"
+		);
+		for _ in 0..3 {
+			frame(&mut view, &mut state, vec![]);
+		}
+		assert!(view.following);
+		assert_eq!(view.mark_read.take(), Some(Id(203)));
+		// Hiding the newest message via the blocked filter must not block live-edge ACK,
+		// including when the filter hides every shared message in the channel.
+		state.apply(client_core::Envelope {
+			generation: state.generation,
+			event: client_core::Event::UserAction(client_core::user_actions::Event::Relationship {
+				user: Id(777),
+				blocked: true,
+			}),
+		});
+		view.hide_blocked_messages = true;
+		let mut blocked_latest = text_message(204);
+		blocked_latest.author.id = Id(777);
+		state.timeline.insert(blocked_latest, false, false).unwrap();
+		state.channels = vec![channel(204)];
+		state.revision += 1;
+		for _ in 0..4 {
+			frame(&mut view, &mut state, vec![]);
+		}
+		assert_eq!(
+			view.mark_read.take(),
+			Some(Id(204)),
+			"a hidden newest message blocked live-edge acknowledgement"
+		);
+		state.timeline.clear();
+		let mut only_blocked = text_message(205);
+		only_blocked.author.id = Id(777);
+		state.timeline.insert(only_blocked, false, false).unwrap();
+		state.channels = vec![channel(205)];
+		state.revision += 1;
+		for _ in 0..4 {
+			frame(&mut view, &mut state, vec![]);
+		}
+		assert_eq!(
+			view.mark_read.take(),
+			Some(Id(205)),
+			"an all-hidden timeline blocked live-edge acknowledgement"
+		);
+	}
+
+	fn message_texts(shape: &egui::Shape, labels: &mut Vec<(String, egui::Rect)>) {
+		match shape {
+			egui::Shape::Text(text) => labels.push((
+				text.galley.text().to_string(),
+				text.galley.rect.translate(text.pos.to_vec2()),
+			)),
+			egui::Shape::Vec(shapes) => {
+				for shape in shapes {
+					message_texts(shape, labels);
+				}
+			}
+			_ => {}
+		}
+	}
+
+	#[test]
+	fn keyboard_selection_scrolling_up_stops_following() {
+		let mut state = State {
+			selected: Some(Id(20)),
+			revision: 1,
+			demo: true,
+			..Default::default()
+		};
+		for id in 1..=80 {
+			state
+				.timeline
+				.insert(text_message(id), false, false)
+				.unwrap();
+		}
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let mut view = TimelineView::default();
+		let mut avatars = crate::avatars::Avatars::default();
+		let mut frame_number = 0;
+		let mut frame = |view: &mut TimelineView, events: Vec<egui::Event>| {
+			frame_number += 1;
+			let output = ctx.run_ui(
+				egui::RawInput {
+					focused: true,
+					time: Some(f64::from(frame_number) / 60.0),
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(900.0, 600.0),
+					)),
+					events,
+					..Default::default()
+				},
+				|ui| {
+					view.show(
+						ui,
+						&mut state,
+						&mut None,
+						&mut None,
+						(
+							&mut avatars,
+							&mut crate::profiles::ProfileSession::default(),
+						),
+						None,
+					)
+				},
+			);
+			let mut labels = Vec::new();
+			for shape in &output.shapes {
+				message_texts(&shape.shape, &mut labels);
+			}
+			output.drop_without_applying_deltas();
+			(view.scroll_offset, labels)
+		};
+		for _ in 0..8 {
+			frame(&mut view, vec![]);
+		}
+		assert!(view.following);
+		let live_edge = view.scroll_offset;
+		let (_, labels) = frame(&mut view, vec![]);
+		let body = labels
+			.iter()
+			.filter(|(text, rect)| text.contains("Synthetic text") && rect.min.y < 80.0)
+			.min_by(|(_, a), (_, b)| a.min.y.total_cmp(&b.min.y))
+			.map(|(_, rect)| *rect)
+			.expect("a message body near the top of the timeline");
+		let pos = egui::pos2(body.center().x.clamp(40.0, 700.0), body.center().y.max(8.0));
+		let click = |pressed| egui::Event::PointerButton {
+			pos,
+			button: egui::PointerButton::Primary,
+			pressed,
+			modifiers: egui::Modifiers::NONE,
+		};
+		frame(&mut view, vec![egui::Event::PointerMoved(pos), click(true)]);
+		frame(
+			&mut view,
+			vec![egui::Event::PointerMoved(pos), click(false)],
+		);
+		assert!(
+			crate::select::has_selection(&ctx),
+			"clicking the message body must select its text"
+		);
+		let arrow = |pressed| egui::Event::Key {
+			key: egui::Key::ArrowUp,
+			physical_key: None,
+			pressed,
+			repeat: false,
+			modifiers: egui::Modifiers::SHIFT,
+		};
+		for _ in 0..6 {
+			frame(&mut view, vec![arrow(true)]);
+			frame(&mut view, vec![arrow(false)]);
+		}
+		let mut offset = view.scroll_offset;
+		for _ in 0..30 {
+			offset = frame(&mut view, vec![]).0;
+		}
+		assert!(
+			!view.following,
+			"keyboard selection still stuck to the live edge at {offset}, started at {live_edge}"
+		);
+		assert!(
+			offset < live_edge - 8.0,
+			"selection scroll stayed at the live edge: {offset} vs {live_edge}"
+		);
+	}
+
+	#[test]
+	fn kinetic_content_drag_reaching_bottom_resumes_following() {
+		let mut state = State {
+			selected: Some(Id(20)),
+			revision: 1,
+			demo: true,
+			..Default::default()
+		};
+		for id in 1..=80 {
+			state
+				.timeline
+				.insert(text_message(id), false, false)
+				.unwrap();
+		}
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let mut view = TimelineView::default();
+		let mut avatars = crate::avatars::Avatars::default();
+		let mut frame_number = 0;
+		let mut frame = |view: &mut TimelineView, events: Vec<egui::Event>| {
+			frame_number += 1;
+			let output = ctx.run_ui(
+				egui::RawInput {
+					focused: true,
+					time: Some(f64::from(frame_number) / 60.0),
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(900.0, 600.0),
+					)),
+					events,
+					..Default::default()
+				},
+				|ui| {
+					view.show(
+						ui,
+						&mut state,
+						&mut None,
+						&mut None,
+						(
+							&mut avatars,
+							&mut crate::profiles::ProfileSession::default(),
+						),
+						None,
+					)
+				},
+			);
+			output.drop_without_applying_deltas();
+			view.scroll_offset
+		};
+		for _ in 0..8 {
+			frame(&mut view, vec![]);
+		}
+		assert!(view.following);
+		let live_edge = view.scroll_offset;
+		// Park above the bottom so a short downward content flick ends above the live edge
+		// and coasts into it after release.
+		let away = (live_edge - 220.0).max(0.0);
+		let (index, _, top) = visible_range(&view.rows, away, away);
+		view.following = false;
+		view.left_live_edge = true;
+		view.jump = false;
+		view.anchor = Some((view.rows[index].0, away - top));
+		view.revision = u64::MAX;
+		let parked = frame(&mut view, vec![]);
+		assert!(!view.following && parked < live_edge - 100.0);
+		// Touchscreen content drag on the left margin so ScrollArea's background drag owns it.
+		let start = egui::pos2(4.0, 420.0);
+		let touch = |phase, pos| egui::Event::Touch {
+			device_id: egui::TouchDeviceId(1),
+			id: egui::TouchId(1),
+			phase,
+			pos,
+			force: None,
+		};
+		// Register the touchscreen so ScrollArea enables background drag on the next frame.
+		frame(&mut view, vec![touch(egui::TouchPhase::Cancel, start)]);
+		frame(
+			&mut view,
+			vec![
+				touch(egui::TouchPhase::Start, start),
+				egui::Event::PointerMoved(start),
+				egui::Event::PointerButton {
+					pos: start,
+					button: egui::PointerButton::Primary,
+					pressed: true,
+					modifiers: egui::Modifiers::NONE,
+				},
+			],
+		);
+		let mut dragged_offset = parked;
+		let mut last_pos = start;
+		for step in 1..=5 {
+			last_pos = egui::pos2(4.0, 420.0 - 24.0 * step as f32);
+			dragged_offset = frame(
+				&mut view,
+				vec![
+					touch(egui::TouchPhase::Move, last_pos),
+					egui::Event::PointerMoved(last_pos),
+				],
+			);
+		}
+		assert!(
+			dragged_offset > parked + 40.0 && dragged_offset < live_edge - 20.0,
+			"drag should end short of the bottom: parked={parked} dragged={dragged_offset} live_edge={live_edge}"
+		);
+		assert!(!view.following && view.left_live_edge);
+		// Release the drag and let kinetic coasting carry the timeline to the bottom.
+		frame(
+			&mut view,
+			vec![
+				touch(egui::TouchPhase::End, last_pos),
+				egui::Event::PointerButton {
+					pos: last_pos,
+					button: egui::PointerButton::Primary,
+					pressed: false,
+					modifiers: egui::Modifiers::NONE,
+				},
+			],
+		);
+		let mut coasted = view.scroll_offset;
+		for _ in 0..45 {
+			coasted = frame(&mut view, vec![]);
+		}
+		assert!(
+			coasted >= live_edge - 3.0,
+			"kinetic coasting should reach the bottom: coasted={coasted} live_edge={live_edge}"
+		);
+		assert!(
+			view.following && !view.left_live_edge,
+			"kinetic arrival at the bottom should resume following"
+		);
+	}
+
+	#[test]
+	fn channel_switch_restoring_near_bottom_anchor_keeps_left_live_edge() {
+		let mut state = State {
+			selected: Some(Id(20)),
+			revision: 1,
+			demo: true,
+			..Default::default()
+		};
+		for id in 1..=80 {
+			state
+				.timeline
+				.insert(text_message(id), false, false)
+				.unwrap();
+		}
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let mut view = TimelineView::default();
+		let mut avatars = crate::avatars::Avatars::default();
+		let mut frame_number = 0;
+		let mut frame = |view: &mut TimelineView, state: &mut State| {
+			frame_number += 1;
+			let output = ctx.run_ui(
+				egui::RawInput {
+					focused: true,
+					time: Some(f64::from(frame_number) / 60.0),
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(900.0, 600.0),
+					)),
+					..Default::default()
+				},
+				|ui| {
+					view.show(
+						ui,
+						state,
+						&mut None,
+						&mut None,
+						(
+							&mut avatars,
+							&mut crate::profiles::ProfileSession::default(),
+						),
+						None,
+					)
+				},
+			);
+			output.drop_without_applying_deltas();
+		};
+		for _ in 0..8 {
+			frame(&mut view, &mut state);
+		}
+		assert!(view.following);
+		let near_bottom = (view.scroll_offset - 1.5).max(0.0);
+		let (index, _, top) = visible_range(&view.rows, near_bottom, near_bottom);
+		let anchor = view.rows[index].0;
+		state.remember_reading(
+			Id(20),
+			client_core::ReadingCursor {
+				message: Some(anchor),
+				inset: near_bottom - top,
+			},
+		);
+		// Switch away while following is cleared so returning restores the saved near-bottom anchor.
+		view.following = false;
+		view.left_live_edge = true;
+		view.anchor = Some((anchor, near_bottom - top));
+		state.selected = Some(Id(21));
+		frame(&mut view, &mut state);
+		state.selected = Some(Id(20));
+		for _ in 0..4 {
+			frame(&mut view, &mut state);
+		}
+		assert!(
+			!view.following && view.left_live_edge,
+			"restoring a near-bottom anchor must preserve left_live_edge and stay off the live edge"
 		);
 	}
 	#[test]
@@ -11411,6 +12729,210 @@ mod tests {
 				"opening onto loaded history walked the tail {arrived:?}, settled at {settled}"
 			);
 		}
+	}
+
+	#[test]
+	fn wheel_taken_by_an_embed_leaves_the_timeline_place_and_glide() {
+		let mut state = State {
+			selected: Some(Id(20)),
+			revision: 1,
+			demo: true,
+			..Default::default()
+		};
+		// Taller than the card's 640-point bound, so the card scrolls on its own.
+		let tall_embed = model::Embed {
+			kind: "rich".into(),
+			description: Some(
+				(1..=80)
+					.map(|line| format!("Synthetic embed line {line}"))
+					.collect::<Vec<_>>()
+					.join("\n"),
+			),
+			..Default::default()
+		};
+		for id in 1..=40 {
+			let mut message = text_message(id);
+			if id == 40 {
+				message.embeds = vec![tall_embed.clone()];
+			}
+			state.timeline.insert(message, false, false).unwrap();
+		}
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let mut view = TimelineView::default();
+		let mut avatars = crate::avatars::Avatars::default();
+		let mut frame_number = 0;
+		let pointer = egui::pos2(300.0, 300.0);
+		let mut frame = |view: &mut TimelineView, state: &mut State, lines: f32| {
+			frame_number += 1;
+			let mut events = vec![egui::Event::PointerMoved(pointer)];
+			if lines != 0.0 {
+				events.push(egui::Event::MouseWheel {
+					unit: egui::MouseWheelUnit::Line,
+					delta: egui::vec2(0.0, lines),
+					modifiers: egui::Modifiers::NONE,
+					phase: egui::TouchPhase::Move,
+					source: egui::MouseWheelSource::Unknown,
+				});
+			}
+			let output = ctx.run_ui(
+				egui::RawInput {
+					focused: true,
+					time: Some(f64::from(frame_number) / 60.0),
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(900.0, 600.0),
+					)),
+					events,
+					..Default::default()
+				},
+				|ui| {
+					crate::scroll::apply_preferences(
+						ui.ctx(),
+						model::ReadingPreferences::default(),
+					);
+					view.show(
+						ui,
+						state,
+						&mut None,
+						&mut None,
+						(
+							&mut avatars,
+							&mut crate::profiles::ProfileSession::default(),
+						),
+						None,
+					)
+				},
+			);
+			output.drop_without_applying_deltas();
+			view.scroll_offset
+		};
+		for _ in 0..8 {
+			frame(&mut view, &mut state, 0.0);
+		}
+		assert!(view.following);
+		// The reader parks just inside the bottom tolerance, with the embed under the pointer.
+		let near_bottom = view.scroll_offset - 1.5;
+		let (index, _, top) = visible_range(&view.rows, near_bottom, near_bottom);
+		view.following = false;
+		view.left_live_edge = true;
+		view.anchor = Some((view.rows[index].0, near_bottom - top));
+		view.revision = u64::MAX;
+		let parked = frame(&mut view, &mut state, 0.0);
+		assert!(!view.following && (parked - near_bottom).abs() < 0.5);
+		frame(&mut view, &mut state, -1.0);
+		let mut settled = parked;
+		for _ in 0..20 {
+			settled = frame(&mut view, &mut state, 0.0);
+		}
+		assert!(
+			(settled - parked).abs() < 0.5,
+			"the embed should take the wheel, timeline moved {parked} to {settled}"
+		);
+		assert!(
+			!view.following && view.left_live_edge,
+			"scrolling only the embed resumed following"
+		);
+		// A Present glide keeps going when the embed takes the wheel.
+		view.left_live_edge = false;
+		view.present_scroll = Some((view.scroll_offset, 0.0));
+		frame(&mut view, &mut state, 0.0);
+		assert!(view.present_scroll.is_some());
+		frame(&mut view, &mut state, -1.0);
+		assert!(
+			view.present_scroll.is_some() && view.following,
+			"a wheel the embed took cancelled the glide"
+		);
+		// While following at the live edge, an upward wheel consumed by the embed must not
+		// stop following even if a layout clamp lowers the timeline offset on the same frame.
+		view.present_scroll = None;
+		view.following = true;
+		view.left_live_edge = false;
+		for _ in 0..4 {
+			frame(&mut view, &mut state, 0.0);
+		}
+		// Give the embed room to scroll upward, then force a layout clamp on the upward wheel.
+		frame(&mut view, &mut state, -1.0);
+		for _ in 0..20 {
+			frame(&mut view, &mut state, 0.0);
+		}
+		assert!(view.following && !view.left_live_edge);
+		// The stale height keeps the row's cache key, so the rebuild lays out 100 points too
+		// tall and the measured row clamps the offset back down. The embed stays under the
+		// pointer; a larger stale height would scroll it out of view and hand the timeline
+		// the wheel.
+		let live = view.scroll_offset;
+		let (key, height) = view.heights[&Id(40)];
+		view.heights.insert(Id(40), (key, height + 100.0));
+		view.revision = u64::MAX;
+		let reflows = view.reflow_frames;
+		let after_clamp = frame(&mut view, &mut state, 1.0);
+		assert!(
+			view.reflow_frames > reflows && after_clamp < live + 99.0,
+			"the stale height should clamp the offset, at {after_clamp} from {live}"
+		);
+		assert!(
+			view.following && !view.left_live_edge,
+			"an upward wheel taken by the embed stopped following during a layout clamp"
+		);
+		// Near the top, a wheel up that the embed takes does not ask for older history.
+		let mut state = State {
+			auth: client_core::auth::AuthState::Authenticated,
+			gateway_connected: true,
+			freshness: model::Freshness::Fresh,
+			selected: Some(Id(20)),
+			channels: vec![model::Channel {
+				id: Id(20),
+				guild: None,
+				parent_id: None,
+				position: 0,
+				name: "Synthetic history conversation".into(),
+				kind: 1,
+				recipients: vec![],
+				member_list_id: None,
+				tags: None,
+				message_count: None,
+				icon: None,
+				user_limit: None,
+				slowmode: 0,
+				last_message: Some(Id(4)),
+			}],
+			revision: 1,
+			..Default::default()
+		};
+		let mut tall = text_message(1);
+		tall.embeds = vec![tall_embed];
+		state.timeline.insert(tall, false, false).unwrap();
+		for id in 2..=4 {
+			state
+				.timeline
+				.insert(text_message(id), false, false)
+				.unwrap();
+		}
+		let mut view = TimelineView::default();
+		for _ in 0..8 {
+			frame(&mut view, &mut state, 0.0);
+		}
+		let first = view.rows.iter().position(|(id, _)| *id == Id(1)).unwrap();
+		view.following = false;
+		view.left_live_edge = true;
+		view.anchor = Some((view.rows[first].0, 0.0));
+		view.revision = u64::MAX;
+		for _ in 0..4 {
+			frame(&mut view, &mut state, 0.0);
+		}
+		assert!(view.scroll_offset < 160.0 && state.can_load_older());
+		// Scroll the card down first, so it has room to take the wheel up.
+		frame(&mut view, &mut state, -1.0);
+		for _ in 0..20 {
+			frame(&mut view, &mut state, 0.0);
+		}
+		assert!(!view.load_older);
+		frame(&mut view, &mut state, 1.0);
+		assert!(
+			!view.load_older,
+			"a wheel the embed took requested older history"
+		);
 	}
 }
 

@@ -1,59 +1,335 @@
 use crate::design;
 use egui::{AsIdSalt, IdSalt, Pos2, Rect, ScrollArea, Shape, Stroke, pos2};
 
+const TOUCHPAD_STATE_KEY: &str = "serein-touchpad-scroll-state";
+const WHEEL_LATCH_KEY: &str = "serein-wheel-modifier-latch";
+
+#[derive(Clone, Copy, Default)]
+struct TouchpadState {
+	last_active: Option<f64>,
+	accumulator: egui::Vec2,
+	/// Where the pointer was when the queued movement arrived. egui gives wheel movement to the
+	/// hovered scroll area, so the queue belongs to whatever sits under this point.
+	origin: Option<Pos2>,
+	/// The frame that last took a smoothed step. A discarded pass reruns the frame.
+	stepped_frame: Option<u64>,
+	/// The frame whose step drew on movement queued by earlier frames, with that frame's own
+	/// new movement. The step can empty the queue and still carry the old swipe.
+	carried: Option<(u64, egui::Vec2)>,
+}
+
+/// How far the pointer may drift before queued movement stops belonging to its scroll area.
+const QUEUE_ORIGIN_SLOP: f32 = 4.0;
+
+/// egui's wheel modifier latch. Between a gesture's `TouchPhase::Start` and `End`, a released
+/// modifier still applies and a newly pressed one joins, so zoom and axis follow egui's choice.
+#[derive(Clone, Copy, Default, PartialEq)]
+struct WheelLatch {
+	modifiers: egui::Modifiers,
+	/// The open gesture's latest event time and source.
+	touch: Option<(f64, egui::MouseWheelSource)>,
+}
+
 /// Apply once before rendering the app's scroll areas. Zoom gestures remain unchanged.
 pub fn apply_preferences(ctx: &egui::Context, preferences: model::ReadingPreferences) {
 	if !preferences.is_valid() {
 		return;
 	}
 	let options = ctx.options(|options| options.input_options);
-	ctx.input_mut(|input| {
-		let delta = if preferences.smooth_scrolling {
-			input.smooth_scroll_delta()
+	let key = egui::Id::unique(TOUCHPAD_STATE_KEY);
+	let (time, page_height, dt) = ctx.input(|i| (i.time, i.viewport_rect().height(), i.stable_dt));
+	let mut state: TouchpadState = ctx.data(|d| d.get_temp(key)).unwrap_or_default();
+	// Every path reads the frame's wheel events once, so the latch sees each event exactly once.
+	let latch_key = egui::Id::unique(WHEEL_LATCH_KEY);
+	let before: WheelLatch = ctx.data(|d| d.get_temp(latch_key)).unwrap_or_default();
+	let mut latch = before;
+	let (incoming, zoomed, zooming, cancelled) = ctx.input(|input| {
+		let (incoming, zoom) =
+			instant_wheel_delta(&input.raw.events, options, page_height, time, &mut latch);
+		let zooming = zoom == Some(true)
+			|| (latch.touch.is_some() && latch.modifiers.matches_any(options.zoom_modifier));
+		let cancelled = input.raw.events.iter().any(|event| {
+			matches!(
+				event,
+				egui::Event::MouseWheel {
+					phase: egui::TouchPhase::Cancel,
+					..
+				}
+			)
+		});
+		(incoming, zoom.is_some(), zooming, cancelled)
+	});
+	if latch != before {
+		ctx.data_mut(|d| d.insert_temp(latch_key, latch));
+	}
+
+	let has_high_res_event = ctx.input(|input| {
+		input.raw.events.iter().any(|event| match event {
+			egui::Event::MouseWheel {
+				unit,
+				delta,
+				source,
+				..
+			} => {
+				*source == egui::MouseWheelSource::Trackpad
+					|| *source == egui::MouseWheelSource::Momentum
+					|| *unit == egui::MouseWheelUnit::Point
+					|| delta.x.fract().abs() > 0.0001
+					|| delta.y.fract().abs() > 0.0001
+			}
+			_ => false,
+		})
+	});
+
+	let has_any_wheel = ctx.input(|input| {
+		input
+			.raw
+			.events
+			.iter()
+			.any(|event| matches!(event, egui::Event::MouseWheel { .. }))
+	});
+	if has_high_res_event {
+		state.last_active = Some(time);
+	} else if let Some(last) = state.last_active
+		&& time - last < 0.35
+		&& has_any_wheel
+	{
+		state.last_active = Some(time);
+	}
+
+	let is_scrolling = ctx.input(|i| i.is_scrolling());
+	// A zoom that starts while a swipe is still queued must not keep scrolling, and neither may
+	// a cancelled gesture: egui drops its own pending wheel movement on `Cancel`.
+	if zoomed || cancelled {
+		state.accumulator = egui::Vec2::ZERO;
+	}
+	let touchpad_active = state.last_active.is_some_and(|last| time - last < 0.35)
+		|| state.accumulator.length() > 0.5;
+	// egui keeps smoothing the old gesture after the marker expires. A new wheel event can
+	// already report `is_scrolling()`, so it starts its own action instead of draining.
+	let queue_draining = !has_any_wheel
+		&& state
+			.last_active
+			.is_some_and(|last| time - last >= 0.35 && is_scrolling);
+
+	if state.last_active.is_some() && !touchpad_active && !queue_draining {
+		state.last_active = None;
+		state.accumulator = egui::Vec2::ZERO;
+		ctx.data_mut(|d| d.remove_temp::<TouchpadState>(key));
+	}
+
+	if ctx.input(|i| i.pointer.any_pressed()) {
+		state.accumulator = egui::Vec2::ZERO;
+	}
+	let hover = ctx.input(|i| i.pointer.hover_pos());
+	if !match (hover, state.origin) {
+		(Some(hover), Some(origin)) => hover.distance(origin) <= QUEUE_ORIGIN_SLOP,
+		(hover, origin) => hover == origin,
+	} {
+		// The pointer moved to what may be another scroll area. Neither it nor a new swipe
+		// there may receive the old swipe's remaining movement.
+		state.accumulator = egui::Vec2::ZERO;
+	}
+	if incoming != egui::Vec2::ZERO {
+		state.origin = hover;
+	}
+
+	let speed = f32::from(preferences.scroll_speed_percent) / 100.0;
+	let delta = if zooming {
+		egui::Vec2::ZERO
+	} else if touchpad_active {
+		if incoming.y != 0.0
+			&& state.accumulator.y != 0.0
+			&& incoming.y.signum() != state.accumulator.y.signum()
+		{
+			state.accumulator.y = 0.0;
+		}
+		if incoming.x != 0.0
+			&& state.accumulator.x != 0.0
+			&& incoming.x.signum() != state.accumulator.x.signum()
+		{
+			state.accumulator.x = 0.0;
+		}
+		let queued = state.accumulator != egui::Vec2::ZERO;
+		state.carried = queued.then_some((ctx.cumulative_frame_nr(), incoming));
+		state.accumulator += incoming;
+		// Smoothing spreads one gesture across frames, so the queue is bounded.
+		// With smoothing off the whole event is delivered below and must not be clipped.
+		if preferences.smooth_scrolling {
+			let max_backlog = (page_height * 2.0).clamp(1200.0, 2400.0);
+			if state.accumulator.length() > max_backlog {
+				state.accumulator = state.accumulator.normalized() * max_backlog;
+			}
+		}
+
+		let dt_clamped = dt.clamp(1.0 / 240.0, 0.05);
+		let frame = ctx.cumulative_frame_nr();
+		let step = if !preferences.smooth_scrolling {
+			let d = state.accumulator;
+			state.accumulator = egui::Vec2::ZERO;
+			d
 		} else {
-			instant_wheel_delta(&input.raw.events, options, input.viewport_rect().height())
+			let len = state.accumulator.length();
+			// For small or slow touchpad scrolls, deliver 100% immediately for crisp 1:1 tactile feel.
+			// A queued remainder keeps the per-frame cap, which is below this threshold above 60 Hz.
+			// Divide the thresholds by the speed factor so the applied delta respects them at every
+			// speed setting, and the per-frame cap still bounds the timeline overscan.
+			let viewport_cap = page_height * 0.45 / speed;
+			let immediate = (120.0 / speed).min(viewport_cap);
+			if state.stepped_frame == Some(frame) {
+				egui::Vec2::ZERO
+			} else if len <= immediate && !queued {
+				let d = state.accumulator;
+				state.accumulator = egui::Vec2::ZERO;
+				d
+			} else {
+				let frame_ratio = (dt_clamped / (1.0 / 60.0)).clamp(0.25, 1.5);
+				let max_step = (page_height * 0.25).clamp(120.0, 160.0) * frame_ratio / speed;
+				let decay = 1.0 - (-dt_clamped / 0.05).exp();
+				let step_len = (len * decay)
+					.max(120.0 / speed)
+					.min(max_step)
+					.min(viewport_cap)
+					.min(len);
+				let d = state.accumulator.normalized() * step_len;
+				state.accumulator -= d;
+				state.stepped_frame = Some(frame);
+				d
+			}
 		};
-		input.smooth_scroll_delta = delta * (f32::from(preferences.scroll_speed_percent) / 100.0);
+
+		if state.accumulator.length() > 0.5 {
+			ctx.request_repaint();
+		}
+
+		step
+	} else if queue_draining {
+		incoming
+	} else {
+		state.accumulator = egui::Vec2::ZERO;
+		if preferences.smooth_scrolling {
+			ctx.input(|i| i.smooth_scroll_delta())
+		} else {
+			incoming
+		}
+	};
+
+	if touchpad_active || queue_draining {
+		ctx.data_mut(|d| d.insert_temp(key, state));
+	}
+
+	ctx.input_mut(|input| {
+		input.smooth_scroll_delta = delta * speed;
 	});
 }
 
-pub(super) fn instant_wheel_delta(
+/// Drops a queued swipe and this frame's step from it, so a scroll area that replaces the
+/// one under a resting pointer does not receive the old swipe's remaining movement. This
+/// frame's own new movement stays queued for the new scroll area.
+pub fn drop_queued_swipe(ctx: &egui::Context) {
+	let key = egui::Id::unique(TOUCHPAD_STATE_KEY);
+	let frame = ctx.cumulative_frame_nr();
+	let Some(mut state) = ctx.data(|d| d.get_temp::<TouchpadState>(key)) else {
+		return;
+	};
+	let Some((_, fresh)) = state.carried.filter(|(carried, _)| *carried == frame) else {
+		return;
+	};
+	state.accumulator = fresh;
+	state.carried = None;
+	ctx.data_mut(|d| d.insert_temp(key, state));
+	ctx.input_mut(|input| input.smooth_scroll_delta = egui::Vec2::ZERO);
+}
+
+fn instant_wheel_delta(
 	events: &[egui::Event],
 	options: egui::InputOptions,
 	page_height: f32,
-) -> egui::Vec2 {
-	events
-		.iter()
-		.filter_map(|event| {
-			let egui::Event::MouseWheel {
-				unit,
-				delta,
-				phase,
-				modifiers,
-				..
-			} = event
-			else {
-				return None;
+	time: f64,
+	latch: &mut WheelLatch,
+) -> (egui::Vec2, Option<bool>) {
+	let mut total = egui::Vec2::ZERO;
+	// `None` without zoom events, otherwise whether the batch's last wheel event zooms.
+	// Movement before a zoom is dropped; ordinary movement after its end still scrolls.
+	let mut zoom = None;
+	let zoom_modifier = options.zoom_modifier;
+	for event in events {
+		let egui::Event::MouseWheel {
+			unit,
+			delta,
+			phase,
+			modifiers,
+			source,
+		} = event
+		else {
+			continue;
+		};
+		// A gesture whose `End` never arrives times out like egui's (resting finger or not).
+		if let Some((last, touch_source)) = latch.touch {
+			let timeout = if touch_source == egui::MouseWheelSource::Trackpad {
+				1.0
+			} else {
+				0.15
 			};
-			if *phase != egui::TouchPhase::Move || modifiers.matches_any(options.zoom_modifier) {
-				return None;
+			if time - last > timeout {
+				*latch = WheelLatch::default();
 			}
-			let mut delta = match unit {
-				egui::MouseWheelUnit::Point => *delta,
-				egui::MouseWheelUnit::Line => options.line_scroll_speed * *delta,
-				egui::MouseWheelUnit::Page => page_height * *delta,
-			};
-			let horizontal = modifiers.matches_any(options.horizontal_scroll_modifier);
-			let vertical = modifiers.matches_any(options.vertical_scroll_modifier);
-			if horizontal && !vertical {
-				delta = egui::vec2(delta.x + delta.y, 0.0);
+		}
+		if *phase != egui::TouchPhase::Move && modifiers.matches_any(zoom_modifier) {
+			total = egui::Vec2::ZERO;
+			zoom = Some(true);
+		}
+		match phase {
+			egui::TouchPhase::Start => {
+				*latch = WheelLatch {
+					modifiers: *modifiers,
+					touch: Some((time, *source)),
+				};
+				continue;
 			}
-			if !horizontal && vertical {
-				delta = egui::vec2(0.0, delta.x + delta.y);
+			egui::TouchPhase::End => {
+				*latch = WheelLatch::default();
+				continue;
 			}
-			Some(delta)
-		})
-		.fold(egui::Vec2::ZERO, |total, delta| total + delta)
+			egui::TouchPhase::Cancel => {
+				// egui drops the cancelled gesture's movement, including this frame's.
+				*latch = WheelLatch::default();
+				total = egui::Vec2::ZERO;
+				continue;
+			}
+			egui::TouchPhase::Move => {}
+		}
+		if let Some(touch) = &mut latch.touch {
+			*touch = (time, *source);
+			latch.modifiers |= *modifiers;
+		} else {
+			latch.modifiers = *modifiers;
+		}
+		let modifiers = latch.modifiers;
+		if modifiers.matches_any(zoom_modifier) {
+			total = egui::Vec2::ZERO;
+			zoom = Some(true);
+			continue;
+		}
+		if zoom.is_some() {
+			zoom = Some(false);
+		}
+		let mut delta = match unit {
+			egui::MouseWheelUnit::Point => *delta,
+			egui::MouseWheelUnit::Line => options.line_scroll_speed * *delta,
+			egui::MouseWheelUnit::Page => page_height * *delta,
+		};
+		let horizontal = modifiers.matches_any(options.horizontal_scroll_modifier);
+		let vertical = modifiers.matches_any(options.vertical_scroll_modifier);
+		if horizontal && !vertical {
+			delta = egui::vec2(delta.x + delta.y, 0.0);
+		}
+		if !horizontal && vertical {
+			delta = egui::vec2(0.0, delta.x + delta.y);
+		}
+		total += delta;
+	}
+	(total, zoom)
 }
 /// Chromium / Discord default: 3 wheel lines times 40 px. winit reports one notch as `LineDelta` 1.0.
 pub const DISCORD_LINE_SCROLL_SPEED: f32 = 120.0;
@@ -321,4 +597,650 @@ impl Session {
 
 fn clamped_away(requested: f32, current: f32, next: f32) -> bool {
 	(requested - current).abs() > 0.5 && (next - current).signum() == (requested - current).signum()
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn notched_mouse_wheel_uses_smooth_scroll_when_enabled() {
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let mut raw = egui::RawInput {
+			time: Some(0.1),
+			screen_rect: Some(egui::Rect::from_min_size(
+				egui::Pos2::ZERO,
+				egui::vec2(900.0, 600.0),
+			)),
+			events: vec![egui::Event::MouseWheel {
+				unit: egui::MouseWheelUnit::Line,
+				delta: egui::vec2(0.0, 1.0),
+				modifiers: egui::Modifiers::NONE,
+				phase: egui::TouchPhase::Move,
+				source: egui::MouseWheelSource::Unknown,
+			}],
+			..Default::default()
+		};
+		let mut delta = egui::Vec2::ZERO;
+		ctx.run_ui(raw.clone(), |ui| {
+			apply_preferences(ui.ctx(), model::ReadingPreferences::default());
+			delta = ui.input(|i| i.smooth_scroll_delta());
+		})
+		.drop_without_applying_deltas();
+		// For a notched wheel, egui smooths 120px over frames (t ≈ 0.32), so frame 1 delta is ~38px
+		assert!(delta.y > 20.0 && delta.y < 60.0);
+
+		// With smooth_scrolling = false, instant_wheel_delta applies all 120px in frame 1
+		let prefs_instant = model::ReadingPreferences {
+			smooth_scrolling: false,
+			..Default::default()
+		};
+		raw.time = Some(0.2);
+		ctx.run_ui(raw, |ui| {
+			apply_preferences(ui.ctx(), prefs_instant);
+			delta = ui.input(|i| i.smooth_scroll_delta());
+		})
+		.drop_without_applying_deltas();
+		assert_eq!(delta.y, 120.0);
+	}
+
+	#[test]
+	fn multiple_notched_mouse_wheel_events_in_one_frame_preserve_smooth_scrolling() {
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let raw = egui::RawInput {
+			time: Some(0.1),
+			screen_rect: Some(egui::Rect::from_min_size(
+				egui::Pos2::ZERO,
+				egui::vec2(900.0, 600.0),
+			)),
+			events: vec![
+				egui::Event::MouseWheel {
+					unit: egui::MouseWheelUnit::Line,
+					delta: egui::vec2(0.0, 1.0),
+					modifiers: egui::Modifiers::NONE,
+					phase: egui::TouchPhase::Move,
+					source: egui::MouseWheelSource::Unknown,
+				},
+				egui::Event::MouseWheel {
+					unit: egui::MouseWheelUnit::Line,
+					delta: egui::vec2(0.0, 1.0),
+					modifiers: egui::Modifiers::NONE,
+					phase: egui::TouchPhase::Move,
+					source: egui::MouseWheelSource::Unknown,
+				},
+			],
+			..Default::default()
+		};
+		let mut delta = egui::Vec2::ZERO;
+		ctx.run_ui(raw, |ui| {
+			apply_preferences(ui.ctx(), model::ReadingPreferences::default());
+			delta = ui.input(|i| i.smooth_scroll_delta());
+		})
+		.drop_without_applying_deltas();
+		// Two integer 1.0 line notches delivered together must preserve smooth scrolling
+		// (~76px, well under the 240px instant delta that would occur if misclassified as touchpad).
+		assert!(delta.y > 40.0 && delta.y < 120.0);
+		let key = egui::Id::unique(TOUCHPAD_STATE_KEY);
+		assert!(ctx.data(|d| d.get_temp::<TouchpadState>(key)).is_none());
+	}
+
+	#[test]
+	fn touchpad_fractional_delta_bypasses_exponential_delay_queue() {
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let raw = egui::RawInput {
+			time: Some(0.1),
+			screen_rect: Some(egui::Rect::from_min_size(
+				egui::Pos2::ZERO,
+				egui::vec2(900.0, 600.0),
+			)),
+			events: vec![egui::Event::MouseWheel {
+				unit: egui::MouseWheelUnit::Line,
+				// Fractional delta characteristic of Windows Precision Touchpad
+				delta: egui::vec2(0.0, 0.5),
+				modifiers: egui::Modifiers::NONE,
+				phase: egui::TouchPhase::Move,
+				source: egui::MouseWheelSource::Unknown,
+			}],
+			..Default::default()
+		};
+		let mut delta = egui::Vec2::ZERO;
+		ctx.run_ui(raw, |ui| {
+			apply_preferences(ui.ctx(), model::ReadingPreferences::default());
+			delta = ui.input(|i| i.smooth_scroll_delta());
+		})
+		.drop_without_applying_deltas();
+		// 0.5 lines * 120px/line = 60px instant delta (not 0.32 * 60 ≈ 19px)
+		assert_eq!(delta.y, 60.0);
+
+		// Frame with no events during active touchpad gesture should be 0, not egui's queued lag
+		let raw_idle = egui::RawInput {
+			time: Some(0.15),
+			screen_rect: Some(egui::Rect::from_min_size(
+				egui::Pos2::ZERO,
+				egui::vec2(900.0, 600.0),
+			)),
+			events: vec![],
+			..Default::default()
+		};
+		ctx.run_ui(raw_idle, |ui| {
+			apply_preferences(ui.ctx(), model::ReadingPreferences::default());
+			delta = ui.input(|i| i.smooth_scroll_delta());
+		})
+		.drop_without_applying_deltas();
+		assert_eq!(delta.y, 0.0);
+
+		// The app idles past the touchpad marker, then a mouse notch arrives. egui already
+		// counts it as scrolling, but it is a new action and keeps its smoothing.
+		let notch = egui::RawInput {
+			time: Some(0.6),
+			screen_rect: Some(egui::Rect::from_min_size(
+				egui::Pos2::ZERO,
+				egui::vec2(900.0, 600.0),
+			)),
+			events: vec![egui::Event::MouseWheel {
+				unit: egui::MouseWheelUnit::Line,
+				delta: egui::vec2(0.0, 1.0),
+				modifiers: egui::Modifiers::NONE,
+				phase: egui::TouchPhase::Move,
+				source: egui::MouseWheelSource::Unknown,
+			}],
+			..Default::default()
+		};
+		ctx.run_ui(notch, |ui| {
+			apply_preferences(ui.ctx(), model::ReadingPreferences::default());
+			delta = ui.input(|i| i.smooth_scroll_delta());
+		})
+		.drop_without_applying_deltas();
+		assert!(
+			delta.y > 0.0 && delta.y < 120.0,
+			"the notch must be smoothed, moved {}",
+			delta.y
+		);
+	}
+
+	#[test]
+	fn touchpad_fast_swipe_is_soft_clamped_per_frame() {
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let raw = egui::RawInput {
+			time: Some(0.1),
+			screen_rect: Some(egui::Rect::from_min_size(
+				egui::Pos2::ZERO,
+				egui::vec2(900.0, 600.0),
+			)),
+			// Rapid swipe delivering 10.25 lines = 1,230px in 1 frame
+			events: vec![
+				egui::Event::PointerMoved(egui::pos2(450.0, 300.0)),
+				egui::Event::MouseWheel {
+					unit: egui::MouseWheelUnit::Line,
+					delta: egui::vec2(0.0, 10.25),
+					modifiers: egui::Modifiers::NONE,
+					phase: egui::TouchPhase::Move,
+					source: egui::MouseWheelSource::Unknown,
+				},
+			],
+			..Default::default()
+		};
+		let mut delta = egui::Vec2::ZERO;
+		ctx.run_ui(raw, |ui| {
+			apply_preferences(ui.ctx(), model::ReadingPreferences::default());
+			delta = ui.input(|i| i.smooth_scroll_delta());
+		})
+		.drop_without_applying_deltas();
+		// Frame 1 moves a bounded step, well short of the 1,230px swipe and half the viewport.
+		assert!(
+			delta.y > 0.0 && delta.y < 300.0,
+			"frame 1 moved {}",
+			delta.y
+		);
+
+		// Frame 2 with no new events continues smoothly from the accumulator, avoiding single-frame stalls.
+		// A discarded pass reruns the frame, and the rerun must not take a second step.
+		let frame_input = |time: f64, events: Vec<egui::Event>| egui::RawInput {
+			time: Some(time),
+			screen_rect: Some(egui::Rect::from_min_size(
+				egui::Pos2::ZERO,
+				egui::vec2(900.0, 600.0),
+			)),
+			events,
+			..Default::default()
+		};
+		let mut passes = Vec::new();
+		ctx.run_ui(frame_input(0.116, vec![]), |ui| {
+			apply_preferences(ui.ctx(), model::ReadingPreferences::default());
+			passes.push(ui.input(|i| i.smooth_scroll_delta()).y);
+			if passes.len() == 1 {
+				ui.ctx().request_discard("test rerun");
+			}
+		})
+		.drop_without_applying_deltas();
+		assert_eq!(passes.len(), 2);
+		assert!(
+			passes[0] > 0.0 && passes[0] < 300.0,
+			"frame 2 moved {}",
+			passes[0]
+		);
+		assert_eq!(passes[1], 0.0, "the rerun took another step");
+
+		// The rest of the swipe belongs to the area under the pointer; moving away drops it.
+		let mut delta3 = egui::Vec2::ZERO;
+		ctx.run_ui(
+			frame_input(
+				0.132,
+				vec![egui::Event::PointerMoved(egui::pos2(100.0, 300.0))],
+			),
+			|ui| {
+				apply_preferences(ui.ctx(), model::ReadingPreferences::default());
+				delta3 = ui.input(|i| i.smooth_scroll_delta());
+			},
+		)
+		.drop_without_applying_deltas();
+		assert_eq!(delta3, egui::Vec2::ZERO);
+	}
+
+	#[test]
+	fn scroll_speed_percent_does_not_bypass_the_touchpad_frame_cap() {
+		let step = |scroll_speed_percent| {
+			let ctx = egui::Context::default();
+			crate::design::apply(&ctx);
+			let raw = egui::RawInput {
+				time: Some(0.1),
+				screen_rect: Some(egui::Rect::from_min_size(
+					egui::Pos2::ZERO,
+					egui::vec2(900.0, 600.0),
+				)),
+				events: vec![egui::Event::MouseWheel {
+					unit: egui::MouseWheelUnit::Line,
+					delta: egui::vec2(0.0, 10.25),
+					modifiers: egui::Modifiers::NONE,
+					phase: egui::TouchPhase::Move,
+					source: egui::MouseWheelSource::Unknown,
+				}],
+				..Default::default()
+			};
+			let preferences = model::ReadingPreferences {
+				scroll_speed_percent,
+				..Default::default()
+			};
+			let mut delta = egui::Vec2::ZERO;
+			ctx.run_ui(raw, |ui| {
+				apply_preferences(ui.ctx(), preferences);
+				delta = ui.input(|i| i.smooth_scroll_delta());
+			})
+			.drop_without_applying_deltas();
+			delta.y
+		};
+		let (normal, fast) = (step(100), step(300));
+		assert!(
+			fast > 0.0 && fast <= normal + 0.5,
+			"a 300% speed factor must not push one frame past the cap: {fast} vs {normal}"
+		);
+	}
+
+	#[test]
+	fn queued_touchpad_step_scales_with_refresh_rate_above_120hz() {
+		let step_for_hz = |hz: f64| {
+			let ctx = egui::Context::default();
+			crate::design::apply(&ctx);
+			let dt = 1.0 / hz;
+			let frame = |time: f64, events: Vec<egui::Event>| {
+				let raw = egui::RawInput {
+					time: Some(time),
+					predicted_dt: dt as f32,
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(900.0, 600.0),
+					)),
+					events,
+					..Default::default()
+				};
+				let mut delta = egui::Vec2::ZERO;
+				ctx.run_ui(raw, |ui| {
+					apply_preferences(ui.ctx(), model::ReadingPreferences::default());
+					delta = ui.input(|i| i.smooth_scroll_delta());
+				})
+				.drop_without_applying_deltas();
+				delta.y
+			};
+			// Prime egui's stable_dt with the target frame interval before the swipe.
+			frame(0.1, vec![]);
+			frame(0.1 + dt, vec![]);
+			let first = frame(
+				0.1 + dt * 2.0,
+				vec![egui::Event::MouseWheel {
+					unit: egui::MouseWheelUnit::Line,
+					delta: egui::vec2(0.0, 10.25),
+					modifiers: egui::Modifiers::NONE,
+					phase: egui::TouchPhase::Move,
+					source: egui::MouseWheelSource::Unknown,
+				}],
+			);
+			// The queued remainder drains without new input and never exceeds the first step.
+			let mut total = first;
+			for n in 3..200 {
+				let step = frame(0.1 + dt * f64::from(n), vec![]);
+				if step == 0.0 {
+					break;
+				}
+				assert!(
+					step <= first + 0.5,
+					"{hz} Hz frame {n} moved {step}, past the {first}pt cap"
+				);
+				total += step;
+			}
+			assert!(
+				(total - 1200.0).abs() < 0.5,
+				"{hz} Hz delivered {total} of the 1200pt queue"
+			);
+			first
+		};
+		let step_60 = step_for_hz(60.0);
+		let step_120 = step_for_hz(120.0);
+		let step_240 = step_for_hz(240.0);
+		assert!(
+			(step_60 - 150.0).abs() < 0.5,
+			"60 Hz cap should stay 150pt, got {step_60}"
+		);
+		assert!(
+			(step_120 - 75.0).abs() < 0.5,
+			"120 Hz cap should stay 75pt, got {step_120}"
+		);
+		assert!(
+			(step_240 - 37.5).abs() < 0.5,
+			"240 Hz cap should scale to 37.5pt, got {step_240}"
+		);
+	}
+
+	#[test]
+	fn released_zoom_modifier_stays_latched_for_the_touchpad_gesture() {
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let wheel = |phase, modifiers| egui::Event::MouseWheel {
+			unit: egui::MouseWheelUnit::Point,
+			delta: egui::vec2(0.0, 30.0),
+			modifiers,
+			phase,
+			source: egui::MouseWheelSource::Trackpad,
+		};
+		let frame = |time, events| {
+			let raw = egui::RawInput {
+				time: Some(time),
+				screen_rect: Some(egui::Rect::from_min_size(
+					egui::Pos2::ZERO,
+					egui::vec2(900.0, 600.0),
+				)),
+				events,
+				..Default::default()
+			};
+			let mut delta = egui::Vec2::ZERO;
+			ctx.run_ui(raw, |ui| {
+				apply_preferences(ui.ctx(), model::ReadingPreferences::default());
+				delta = ui.input(|i| i.smooth_scroll_delta());
+			})
+			.drop_without_applying_deltas();
+			delta
+		};
+		let zoom = egui::InputOptions::default().zoom_modifier;
+		frame(
+			0.1,
+			vec![
+				wheel(egui::TouchPhase::Start, zoom),
+				wheel(egui::TouchPhase::Move, zoom),
+			],
+		);
+		// egui keeps zooming after the modifier is released mid-gesture; nothing may scroll.
+		let released = frame(
+			0.116,
+			vec![wheel(egui::TouchPhase::Move, egui::Modifiers::NONE)],
+		);
+		assert_eq!(released, egui::Vec2::ZERO);
+		// The next gesture starts without the modifier and scrolls again.
+		frame(
+			0.2,
+			vec![wheel(egui::TouchPhase::End, egui::Modifiers::NONE)],
+		);
+		let next = frame(
+			0.216,
+			vec![
+				wheel(egui::TouchPhase::Start, egui::Modifiers::NONE),
+				wheel(egui::TouchPhase::Move, egui::Modifiers::NONE),
+			],
+		);
+		assert_eq!(next.y, 30.0);
+	}
+
+	#[test]
+	fn touchpad_step_stays_within_a_short_viewport() {
+		// 0.9 lines stays under the immediate threshold; 10.25 lines takes the capped path.
+		for lines in [0.9, 10.25] {
+			let ctx = egui::Context::default();
+			crate::design::apply(&ctx);
+			let raw = egui::RawInput {
+				time: Some(0.1),
+				screen_rect: Some(egui::Rect::from_min_size(
+					egui::Pos2::ZERO,
+					egui::vec2(900.0, 200.0),
+				)),
+				events: vec![egui::Event::MouseWheel {
+					unit: egui::MouseWheelUnit::Line,
+					delta: egui::vec2(0.0, lines),
+					modifiers: egui::Modifiers::NONE,
+					phase: egui::TouchPhase::Move,
+					source: egui::MouseWheelSource::Unknown,
+				}],
+				..Default::default()
+			};
+			let mut delta = egui::Vec2::ZERO;
+			ctx.run_ui(raw, |ui| {
+				apply_preferences(ui.ctx(), model::ReadingPreferences::default());
+				delta = ui.input(|i| i.smooth_scroll_delta());
+			})
+			.drop_without_applying_deltas();
+			assert!(
+				delta.y > 0.0 && delta.y <= 90.0,
+				"{lines} lines moved a 200pt viewport by {}",
+				delta.y
+			);
+		}
+	}
+
+	#[test]
+	fn disabled_smoothing_keeps_a_large_wheel_event() {
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let raw = egui::RawInput {
+			time: Some(0.1),
+			screen_rect: Some(egui::Rect::from_min_size(
+				egui::Pos2::ZERO,
+				egui::vec2(900.0, 600.0),
+			)),
+			events: vec![egui::Event::MouseWheel {
+				unit: egui::MouseWheelUnit::Line,
+				delta: egui::vec2(0.0, 10.25),
+				modifiers: egui::Modifiers::NONE,
+				phase: egui::TouchPhase::Move,
+				source: egui::MouseWheelSource::Unknown,
+			}],
+			..Default::default()
+		};
+		let mut delta = egui::Vec2::ZERO;
+		ctx.run_ui(raw, |ui| {
+			apply_preferences(
+				ui.ctx(),
+				model::ReadingPreferences {
+					smooth_scrolling: false,
+					..Default::default()
+				},
+			);
+			delta = ui.input(|i| i.smooth_scroll_delta());
+		})
+		.drop_without_applying_deltas();
+		assert_eq!(delta.y, 10.25 * 120.0);
+	}
+
+	#[test]
+	fn queued_touchpad_swipe_stops_on_zoom_or_cancel() {
+		let zoom = egui::InputOptions::default().zoom_modifier;
+		let zoom_start = vec![
+			egui::Event::MouseWheel {
+				unit: egui::MouseWheelUnit::Point,
+				delta: egui::vec2(0.0, 40.0),
+				modifiers: zoom,
+				phase: egui::TouchPhase::Start,
+				source: egui::MouseWheelSource::Trackpad,
+			},
+			egui::Event::MouseWheel {
+				unit: egui::MouseWheelUnit::Point,
+				delta: egui::vec2(0.0, 40.0),
+				modifiers: zoom,
+				phase: egui::TouchPhase::Move,
+				source: egui::MouseWheelSource::Trackpad,
+			},
+		];
+		let cancel = vec![egui::Event::MouseWheel {
+			unit: egui::MouseWheelUnit::Point,
+			delta: egui::Vec2::ZERO,
+			modifiers: egui::Modifiers::NONE,
+			phase: egui::TouchPhase::Cancel,
+			source: egui::MouseWheelSource::Unknown,
+		}];
+		// A swipe cancelled in the frame it moved must not restart the queue either.
+		let mut moved_then_cancelled = vec![egui::Event::MouseWheel {
+			unit: egui::MouseWheelUnit::Line,
+			delta: egui::vec2(0.0, 10.25),
+			modifiers: egui::Modifiers::NONE,
+			phase: egui::TouchPhase::Move,
+			source: egui::MouseWheelSource::Unknown,
+		}];
+		moved_then_cancelled.extend(cancel.clone());
+		// A new swipe over another scroll area gets only its own movement.
+		let elsewhere = vec![
+			egui::Event::PointerMoved(egui::pos2(700.0, 300.0)),
+			egui::Event::MouseWheel {
+				unit: egui::MouseWheelUnit::Point,
+				delta: egui::vec2(0.0, 10.0),
+				modifiers: egui::Modifiers::NONE,
+				phase: egui::TouchPhase::Move,
+				source: egui::MouseWheelSource::Unknown,
+			},
+		];
+		// Ordinary scrolling after a zoom ends in the same batch still scrolls, by itself.
+		let mut zoom_then_scroll = zoom_start.clone();
+		zoom_then_scroll.extend([
+			egui::Event::MouseWheel {
+				unit: egui::MouseWheelUnit::Point,
+				delta: egui::Vec2::ZERO,
+				modifiers: zoom,
+				phase: egui::TouchPhase::End,
+				source: egui::MouseWheelSource::Trackpad,
+			},
+			egui::Event::MouseWheel {
+				unit: egui::MouseWheelUnit::Point,
+				delta: egui::vec2(0.0, 30.0),
+				modifiers: egui::Modifiers::NONE,
+				phase: egui::TouchPhase::Move,
+				source: egui::MouseWheelSource::Trackpad,
+			},
+		]);
+		for (interrupt, switch, expected) in [
+			(zoom_start, false, egui::Vec2::ZERO),
+			(zoom_then_scroll, false, egui::vec2(0.0, 30.0)),
+			(cancel, false, egui::Vec2::ZERO),
+			(moved_then_cancelled, false, egui::Vec2::ZERO),
+			(elsewhere, false, egui::vec2(0.0, 10.0)),
+			// A keyboard channel switch replaces the timeline under a resting pointer.
+			(Vec::new(), true, egui::Vec2::ZERO),
+		] {
+			queued_swipe_stops_after(interrupt, switch, expected);
+		}
+
+		// The frame that drains the last queued step can also switch channels.
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let key = egui::Id::unique(TOUCHPAD_STATE_KEY);
+		let mut events = vec![egui::Event::MouseWheel {
+			unit: egui::MouseWheelUnit::Line,
+			delta: egui::vec2(0.0, 10.25),
+			modifiers: egui::Modifiers::NONE,
+			phase: egui::TouchPhase::Move,
+			source: egui::MouseWheelSource::Unknown,
+		}];
+		let mut last_step = None;
+		for frame in 0..60 {
+			let raw = egui::RawInput {
+				time: Some(0.1 + f64::from(frame) / 60.0),
+				screen_rect: Some(egui::Rect::from_min_size(
+					egui::Pos2::ZERO,
+					egui::vec2(900.0, 600.0),
+				)),
+				events: std::mem::take(&mut events),
+				..Default::default()
+			};
+			ctx.run_ui(raw, |ui| {
+				apply_preferences(ui.ctx(), model::ReadingPreferences::default());
+				let drained = ui.ctx().data(|d| {
+					d.get_temp::<TouchpadState>(key)
+						.is_some_and(|state| state.accumulator == egui::Vec2::ZERO)
+				});
+				let step = ui.input(|i| i.smooth_scroll_delta());
+				if frame > 0 && drained && step != egui::Vec2::ZERO {
+					drop_queued_swipe(ui.ctx());
+					last_step = Some(ui.input(|i| i.smooth_scroll_delta()));
+				}
+			})
+			.drop_without_applying_deltas();
+			if last_step.is_some() {
+				break;
+			}
+		}
+		assert_eq!(last_step, Some(egui::Vec2::ZERO));
+	}
+
+	fn queued_swipe_stops_after(interrupt: Vec<egui::Event>, switch: bool, expected: egui::Vec2) {
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let frame = |time: f64, events: Vec<egui::Event>, switch: bool| {
+			let raw = egui::RawInput {
+				time: Some(time),
+				screen_rect: Some(egui::Rect::from_min_size(
+					egui::Pos2::ZERO,
+					egui::vec2(900.0, 600.0),
+				)),
+				events,
+				..Default::default()
+			};
+			let mut delta = egui::Vec2::ZERO;
+			ctx.run_ui(raw, |ui| {
+				apply_preferences(ui.ctx(), model::ReadingPreferences::default());
+				if switch {
+					drop_queued_swipe(ui.ctx());
+				}
+				delta = ui.input(|i| i.smooth_scroll_delta());
+			})
+			.drop_without_applying_deltas();
+			delta
+		};
+		let swipe = frame(
+			0.1,
+			vec![egui::Event::MouseWheel {
+				unit: egui::MouseWheelUnit::Line,
+				delta: egui::vec2(0.0, 10.25),
+				modifiers: egui::Modifiers::NONE,
+				phase: egui::TouchPhase::Move,
+				source: egui::MouseWheelSource::Unknown,
+			}],
+			false,
+		);
+		assert!(
+			swipe.y > 0.0 && swipe.y < 1_230.0,
+			"the swipe must leave a queue, moved {}",
+			swipe.y
+		);
+		assert_eq!(frame(0.12, interrupt, switch), expected);
+		let idle = frame(0.14, vec![], false);
+		assert_eq!(idle, egui::Vec2::ZERO);
+	}
 }

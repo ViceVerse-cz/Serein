@@ -36,7 +36,9 @@ fn main() {
 						|ui| {
 							let before = ui.input(|input| input.smooth_scroll_delta().y);
 							ui::scroll::apply_preferences(&ctx, preferences);
-							let expected = if smooth_scrolling {
+							// Point input is a touchpad's own smooth stream and lands at once.
+							let expected = if smooth_scrolling && unit == egui::MouseWheelUnit::Line
+							{
 								before
 							} else if frame != 0 {
 								0.0
