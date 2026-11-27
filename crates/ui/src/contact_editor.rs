@@ -8,6 +8,8 @@ pub(super) struct ContactEditor {
 	draft: String,
 	loaded: bool,
 	generation: u64,
+	/// The request id of the nickname save this editor is waiting on.
+	submitted: Option<u64>,
 }
 
 impl ContactEditor {
@@ -19,6 +21,7 @@ impl ContactEditor {
 		};
 		self.nickname = nickname;
 		self.loaded = nickname;
+		self.submitted = None;
 		self.generation = state.generation;
 		let command = if nickname {
 			None
@@ -36,6 +39,18 @@ impl ContactEditor {
 		let Some(user) = &self.user else {
 			return;
 		};
+		if let Some(request) = self.submitted {
+			match state.user_action_completed(request) {
+				Some(true) => {
+					*self = Self::default();
+					return;
+				}
+				Some(false) => self.submitted = None,
+				// Nothing is pending but a later action replaced this outcome: stop waiting.
+				None if !state.user_action_pending() => self.submitted = None,
+				None => {}
+			}
+		}
 		let busy = state.user_action_pending();
 		if !self.loaded
 			&& !busy && state.user_action_status().is_none()
@@ -184,6 +199,11 @@ impl ContactEditor {
 								state.set_user_note(user.id, self.draft.clone())
 							};
 							if let Some(command) = command {
+								if self.nickname
+									&& let Command::UserAction { request, .. } = &command
+								{
+									self.submitted = Some(*request);
+								}
 								commands.push(command);
 							}
 						}
@@ -326,6 +346,42 @@ mod tests {
 				state.generation += 1;
 				render(&mut editor, &mut state);
 				assert!(editor.user.is_none() && editor.draft.is_empty());
+				if nickname {
+					// A queued save closes the editor only once it is confirmed.
+					for succeed in [false, true] {
+						editor.open(user.clone(), true, &mut state);
+						render(&mut editor, &mut state);
+						editor.draft = format!("Saved nickname {succeed}");
+						let Some(Command::UserAction {
+							action, request, ..
+						}) = state.set_friend_nickname(user.id, editor.draft.clone())
+						else {
+							panic!("nickname save should be queued");
+						};
+						editor.submitted = Some(request);
+						render(&mut editor, &mut state);
+						assert!(editor.user.is_some(), "Stays open while saving");
+						state.apply(Envelope {
+							generation: state.generation,
+							event: Event::UserAction(user_actions::Event::Written {
+								action,
+								request,
+								result: if succeed {
+									Ok(())
+								} else {
+									Err(client_core::auth::Failure::Forbidden)
+								},
+							}),
+						});
+						render(&mut editor, &mut state);
+						if succeed {
+							assert!(editor.user.is_none() && editor.submitted.is_none());
+						} else {
+							assert!(editor.user.is_some() && editor.submitted.is_none());
+							assert_eq!(editor.draft, "Saved nickname false");
+						}
+					}
+				}
 			}
 		}
 	}
