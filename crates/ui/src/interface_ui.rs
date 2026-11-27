@@ -1464,6 +1464,18 @@ mod tests {
 			"the stage gives way to the chat: {texts:?}"
 		);
 		assert!(shown(&texts, "Room"), "tree still listed: {texts:?}");
+		// Escape works in the plugin's chat window as in the usual layout.
+		client.frame(
+			&mut state,
+			vec![egui::Event::Key {
+				key: egui::Key::Escape,
+				physical_key: None,
+				pressed: true,
+				repeat: false,
+				modifiers: egui::Modifiers::NONE,
+			}],
+		);
+		assert_eq!(client.view.timeline.present_requested, Some(Id(20)));
 		// An unknown channel shows nothing in the window and raises no error.
 		client
 			.view

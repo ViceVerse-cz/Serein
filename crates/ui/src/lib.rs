@@ -6713,22 +6713,23 @@ impl MessagingUi {
 				self.timeline.pending_channel_reference = None;
 			}
 		}
-		if let Some(channel) = self.timeline.mark_channel_read {
+		// Deferred acknowledgements go out in order as the single read slot frees; entries that
+		// can no longer be sent are dropped.
+		for channel in std::mem::take(&mut self.timeline.mark_channel_reads) {
 			if Some(channel) == state.selected {
 				self.timeline.mark_read = None;
 			}
 			if let Some(command) = state.prepare_mark_channel_read(channel) {
-				self.timeline.mark_channel_read = None;
 				commands.push(command);
-			} else if state.auth != client_core::auth::AuthState::Authenticated
-				|| !state.gateway_connected
-				|| state.unread(channel) != Some(true)
-				|| state
+			} else if state.auth == client_core::auth::AuthState::Authenticated
+				&& state.gateway_connected
+				&& state.unread(channel) == Some(true)
+				&& state
 					.channel(channel)
 					.and_then(|c| c.last_message)
-					.is_none()
+					.is_some()
 			{
-				self.timeline.mark_channel_read = None;
+				self.timeline.mark_channel_reads.push(channel);
 			}
 		}
 		if let Some((channel, message)) = self.timeline.leave_read.take()
@@ -8767,7 +8768,7 @@ mod composer_tests {
 		view.focus_prev_frame = Some(egui::Id::unique("docked-note"));
 		frame(&mut view, &mut state, escape());
 		assert_eq!(view.timeline.present_requested, None);
-		assert!(view.timeline.mark_channel_read.is_none());
+		assert!(view.timeline.mark_channel_reads.is_empty());
 		// A visible call-stage tile focus that Escape just cleared, or a chat selection
 		// egui cleared before we ran, claims the key; stale `voice_focus` outside the stage
 		// does not.
@@ -8788,7 +8789,7 @@ mod composer_tests {
 		frame(&mut view, &mut state, vec![]);
 		frame(&mut view, &mut state, escape());
 		assert_eq!(view.timeline.present_requested, None);
-		assert!(view.timeline.mark_channel_read.is_none());
+		assert!(view.timeline.mark_channel_reads.is_empty());
 		state.channels[0].kind = 1;
 		frame(&mut view, &mut state, vec![]);
 		// Stale call-tile focus from another stage does not block Escape in a text channel.
@@ -8818,18 +8819,56 @@ mod composer_tests {
 		state.selected = Some(Id(11));
 		assert!(!marks(&frame(&mut view, &mut state, vec![])));
 		assert_eq!(view.timeline.present_requested, None);
-		assert_eq!(view.timeline.mark_channel_read, Some(Id(10)));
+		assert_eq!(view.timeline.mark_channel_reads, [Id(10)]);
+		// A second Escape in another channel queues behind the first instead of replacing it.
+		let mut third = state.channels[0].clone();
+		third.id = Id(13);
+		third.kind = 1;
+		third.last_message = Some(Id(50));
+		state.channels.push(third);
 		state
-			.apply_read_state(client_core::read_state::Event::Result {
-				channel: Id(11),
-				message: Id(30),
-				request: pending_request,
-				result: Ok(()),
+			.apply_read_state(client_core::read_state::Event::Ack {
+				channel: Id(13),
+				message: Some(Id(1)),
+				manual: false,
+				mention_count: None,
+				version: Some(3),
 			})
 			.unwrap();
-		state.channels[1].kind = 1;
-		assert!(marks(&frame(&mut view, &mut state, vec![])));
-		assert_eq!(view.timeline.mark_channel_read, None);
+		state.selected = Some(Id(13));
+		frame(&mut view, &mut state, vec![]);
+		frame(&mut view, &mut state, escape());
+		assert_eq!(view.timeline.mark_channel_reads, [Id(10), Id(13)]);
+		let read = |commands: &[Command]| {
+			commands.iter().find_map(|command| match command {
+				Command::MarkRead {
+					channel,
+					message,
+					request,
+					..
+				} => Some((*channel, *message, *request)),
+				_ => None,
+			})
+		};
+		let mut pending = pending_request;
+		let mut marked = Vec::new();
+		let mut done = (Id(11), Id(30));
+		for _ in 0..2 {
+			state
+				.apply_read_state(client_core::read_state::Event::Result {
+					channel: done.0,
+					message: done.1,
+					request: pending,
+					result: Ok(()),
+				})
+				.unwrap();
+			let (channel, message, request) =
+				read(&frame(&mut view, &mut state, vec![])).expect("the next queued read goes out");
+			marked.push(channel);
+			(pending, done) = (request, (channel, message));
+		}
+		assert_eq!(marked, [Id(10), Id(13)], "both channels are acknowledged");
+		assert!(view.timeline.mark_channel_reads.is_empty());
 		view.voice_focus = None;
 		state.selected = Some(Id(10));
 		frame(&mut view, &mut state, vec![]);
@@ -8846,7 +8885,7 @@ mod composer_tests {
 		// A channel reference resolved after the timeline painted selects another channel in the
 		// same frame; Escape must not acknowledge or jump in a channel that was never shown.
 		frame(&mut view, &mut state, vec![]);
-		view.timeline.mark_channel_read = None;
+		view.timeline.mark_channel_reads.clear();
 		state.guilds.push(model::Guild {
 			banner: None,
 			default_message_notifications: None,
@@ -8874,7 +8913,7 @@ mod composer_tests {
 			"the reference resolved this frame"
 		);
 		assert_eq!(view.timeline.present_requested, None);
-		assert_eq!(view.timeline.mark_channel_read, None);
+		assert!(view.timeline.mark_channel_reads.is_empty());
 	}
 	#[test]
 	fn staged_viewer_escape_preserves_background_search() {
