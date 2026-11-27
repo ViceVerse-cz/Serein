@@ -311,6 +311,10 @@ pub struct VoiceRosterEntry {
 	pub server_deafened: bool,
 	/// Talking right now, as the client's own speaking indicator shows it.
 	pub speaking: bool,
+	/// Avatar hash of the resolved user (not image bytes or a URL); absent until member
+	/// data loads or when the user has no avatar. Added after `speaking`.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub avatar: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -1420,6 +1424,9 @@ impl AppSnapshot {
 				entity_id(&entry.user_id)?;
 				if let Some(name) = &entry.name {
 					label(name, 256)?;
+				}
+				if let Some(avatar) = &entry.avatar {
+					image_hash(avatar)?;
 				}
 			}
 		}

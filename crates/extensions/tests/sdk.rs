@@ -718,6 +718,7 @@ fn voice_roster_defaults_and_validates() {
 		server_muted: false,
 		server_deafened: true,
 		speaking: false,
+		avatar: Some("a_0123456789abcdef".into()),
 	};
 	let sdk_voice = sdk::VoiceSnapshot {
 		channel_id: Some("30".into()),
@@ -731,6 +732,7 @@ fn voice_roster_defaults_and_validates() {
 			sdk_entry.clone(),
 			sdk::VoiceRosterEntry {
 				name: None,
+				avatar: None,
 				..sdk_entry.clone()
 			},
 		],
@@ -750,6 +752,19 @@ fn voice_roster_defaults_and_validates() {
 		decoded.roster[1].name.is_none(),
 		"unnamed rows stay unnamed"
 	);
+	assert_eq!(
+		decoded.roster[0].avatar.as_deref(),
+		Some("a_0123456789abcdef")
+	);
+	assert!(
+		decoded.roster[1].avatar.is_none(),
+		"rows without an avatar omit it"
+	);
+	let wire = serde_json::to_value(&decoded.roster[1]).unwrap();
+	assert!(
+		wire.get("avatar").is_none(),
+		"an absent avatar is not serialized"
+	);
 	let entry = VoiceRosterEntry {
 		guild_id: "10".into(),
 		channel_id: "30".into(),
@@ -760,6 +775,7 @@ fn voice_roster_defaults_and_validates() {
 		server_muted: false,
 		server_deafened: false,
 		speaking: false,
+		avatar: Some("0123456789abcdef".into()),
 	};
 	let mut manifest = manifest("apply", Surface::Panel);
 	manifest.capabilities.push(Capability::VoiceState);
@@ -772,6 +788,13 @@ fn voice_roster_defaults_and_validates() {
 	};
 	assert!(snapshot.validate(&manifest).is_ok());
 	let voice = snapshot.voice.as_mut().unwrap();
+	voice.roster[0].avatar = Some("../not a hash".into());
+	assert!(
+		snapshot.validate(&manifest).is_err(),
+		"bad avatar hash rejected"
+	);
+	let voice = snapshot.voice.as_mut().unwrap();
+	voice.roster[0].avatar = Some("0123456789abcdef".into());
 	voice.roster[0].user_id = "not-an-id".into();
 	assert!(snapshot.validate(&manifest).is_err(), "bad id rejected");
 	let voice = snapshot.voice.as_mut().unwrap();

@@ -34,6 +34,8 @@ pub struct VoiceRosterRow<'a> {
 	pub entry: &'a RosterEntry,
 	/// Display name when the member is loaded.
 	pub name: Option<&'a str>,
+	/// Avatar hash of the resolved user, when the member is loaded and has one.
+	pub avatar: Option<&'a str>,
 	/// Mute and deafen flags as shown, including the own call's live state.
 	pub shown: Participant,
 	pub speaking: bool,
@@ -455,6 +457,7 @@ impl MessagingUi {
 			Some(VoiceRosterRow {
 				entry,
 				name: user.map(|_| name),
+				avatar: user.and_then(|user| user.avatar.as_deref()),
 				speaking: self.is_speaking(state, entry.channel, &shown),
 				shown,
 			})

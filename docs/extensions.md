@@ -162,7 +162,7 @@ supports 58 capabilities, with at most 64 distinct declarations per manifest.
 | `timeline` | Read ordinary loaded messages in the active conversation | Fresh readable timeline, at most 50 (12 with `message_details`); no deleted/ephemeral text |
 | `members` | Read loaded members or DM recipients | Active channel, at most 100; no fetch |
 | `presence` | Read cached status strings for that context | At most 100; no activity/private device payloads |
-| `voice_state` | Read call state, the 64-ID participant list of the current call, and up to 128 roster entries with names, mute, deafen and speaking flags across voice channels the account can view | Roster rows carry bounded, sanitized names; the roster keeps its own 16-KiB byte budget within the snapshot; no raw media |
+| `voice_state` | Read call state, the 64-ID participant list of the current call, and up to 128 roster entries with names, avatar hashes, mute, deafen and speaking flags across voice channels the account can view | Roster rows carry bounded, sanitized names; the roster keeps its own 16-KiB byte budget within the snapshot; no raw media |
 | `read_state` | Read current channel unread/mention summary | Unknown unread remains distinct from false |
 | `local_settings` | Read and propose changing seven local reading preferences | Zoom/sidebar/member list/GIFs/media links/smooth scrolling/scroll speed; changes require Apply |
 | `notification_settings` | Read and propose changing device-local notification preferences | Sound volume, sound toggles and unread badge; changes require Apply; no Discord notification settings |
@@ -245,7 +245,7 @@ already-loaded state without network or disk IO. The complete serialized snapsho
 is capped at 64 KiB. Per-group budgets are 10 KiB for channels, 20 KiB for timeline,
 6 KiB each for members, presence and channel-detail recipients, and 8 KiB for guilds,
 including item overhead. The voice roster keeps its own 16-KiB budget (at most 128
-entries with names and flags, beside the 64-ID call participant list). The channel
+entries with names, avatar hashes and flags, beside the 64-ID call participant list). The channel
 directory first lists every channel of a focus server on its own budget of up to
 250 channels and 48 KiB, then fills the shared
 100-channel, 10-KiB budget with the rest; directory items are dropped from the end if
