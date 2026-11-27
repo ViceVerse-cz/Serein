@@ -136,7 +136,7 @@ impl Decoder {
 		let video = gst_app::AppSink::builder().build();
 		video.set_caps(Some(&planar_caps()));
 		video.set_sync(false);
-		video.set_max_buffers(4);
+		video.set_max_buffers(2);
 		video.set_drop(false);
 		let audio = gst_app::AppSink::builder().build();
 		audio.set_caps(Some(
@@ -405,7 +405,7 @@ fn link_branch(
 		}
 		if *factory == "queue" && factories.contains(&"videoscale") {
 			// Raw video reaches this queue only after scaling. Bound both bytes and count.
-			element.set_property("max-size-buffers", 4_u32);
+			element.set_property("max-size-buffers", 2_u32);
 			element.set_property("max-size-bytes", super::MAX_FRAME_BYTES as u32);
 		}
 		elements.push(element);
@@ -585,6 +585,7 @@ pub(super) fn planar_caps() -> gst::Caps {
 }
 
 /// Copies one NV12 or I420 sample into a tightly packed [`Picture`] with its colorimetry.
+#[cfg(test)]
 pub(super) fn picture(
 	sample: &gst::Sample,
 	check_dimensions: fn(u32, u32) -> Result<(), &'static str>,
@@ -592,8 +593,8 @@ pub(super) fn picture(
 	picture_into(sample, check_dimensions, Vec::new())
 }
 
-/// [`picture`], packed into `data`'s allocation; whatever it held is discarded.
-fn picture_into(
+/// Copies one NV12 or I420 sample into `data`'s allocation; whatever it held is discarded.
+pub(super) fn picture_into(
 	sample: &gst::Sample,
 	check_dimensions: fn(u32, u32) -> Result<(), &'static str>,
 	mut data: Vec<u8>,

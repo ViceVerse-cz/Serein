@@ -470,6 +470,7 @@ pub(crate) struct MediaLibrary {
 	clock: u64,
 	swept_pass: u64,
 	viewer_painted: bool,
+	active_animations: Vec<Source>,
 }
 
 impl MediaLibrary {
@@ -545,37 +546,68 @@ impl MediaLibrary {
 		index: usize,
 		ctx: &egui::Context,
 		playing: bool,
+		paint_only: bool,
 		lane: Lane,
-		pass: u64,
-	) -> Option<TextureHandle> {
+	) -> (Option<TextureHandle>, Option<Duration>) {
+		let pass = ctx.cumulative_pass_nr();
 		self.clock += 1;
-		let held = self.slots.get_mut(source)?.held.get_mut(index)?;
+		let Some(held) = self
+			.slots
+			.get_mut(source)
+			.and_then(|s| s.held.get_mut(index))
+		else {
+			return (None, None);
+		};
 		held.used = self.clock;
 		held.painted = Instant::now();
 		held.painted_pass = pass;
 		if lane == Lane::Inline {
 			held.lane = Lane::Inline;
 		}
-		Some(match &mut held.pixels {
-			Pixels::Still(still) => still.clone(),
-			Pixels::Playing { still, animation } => playing
-				.then(|| animation.advance(ctx))
-				.flatten()
-				.unwrap_or_else(|| still.clone()),
-		})
+		let result = match &mut held.pixels {
+			Pixels::Still(still) => (Some(still.clone()), None),
+			Pixels::Playing { still, animation } => {
+				if playing {
+					let (tex, delay) = animation.advance(ctx, paint_only);
+					(Some(tex.unwrap_or_else(|| still.clone())), delay)
+				} else {
+					(Some(still.clone()), None)
+				}
+			}
+		};
+		if result.1.is_some() && !self.active_animations.contains(source) {
+			self.active_animations.push(source.clone());
+		}
+		result
 	}
 
-	pub(super) fn set_animation(&mut self, enabled: bool) {
+	pub(super) fn clear_active(&mut self) {
+		self.active_animations.clear();
+	}
+
+	pub(super) fn set_animation(&mut self, enabled: bool) -> usize {
+		let mut freed = 0usize;
+		if !enabled {
+			self.active_animations.clear();
+		}
 		for slot in self.slots.values_mut() {
 			slot.learned = Learned::Unknown;
 			slot.attempts
 				.retain(|(.., attempt)| !matches!(attempt, Attempt::Rejected));
 			if !enabled {
-				slot.held.retain(|held| held.motion == Motion::Still);
+				slot.held.retain(|held| {
+					if held.motion == Motion::Still {
+						true
+					} else {
+						freed = freed.saturating_add(held.bytes());
+						false
+					}
+				});
 				slot.attempts
 					.retain(|(motion, ..)| *motion == Motion::Still);
 			}
 		}
+		freed
 	}
 
 	pub(super) fn accept_still(
@@ -731,6 +763,8 @@ impl MediaLibrary {
 				started,
 				played: now,
 				next_upload: now,
+				created_pass: u64::MAX,
+				painted_pass: u64::MAX,
 				frame: usize::MAX,
 				bytes,
 			},
@@ -772,35 +806,76 @@ impl MediaLibrary {
 	}
 
 	/// Once per frame after painting: a closed viewer releases its full-size pixels at once.
-	pub(super) fn end_frame(&mut self) {
+	pub(super) fn end_frame(&mut self) -> usize {
+		let mut freed = 0usize;
 		if !std::mem::take(&mut self.viewer_painted) {
 			for slot in self.slots.values_mut() {
-				slot.held.retain(|held| held.lane == Lane::Inline);
+				slot.held.retain(|held| {
+					if held.lane == Lane::Inline {
+						true
+					} else {
+						freed = freed.saturating_add(held.bytes());
+						false
+					}
+				});
 			}
 		}
+		freed
 	}
 
 	/// Inline animations not played for `IDLE_FRAMES` (scrolled away, or shown in an unfocused
 	/// window) fall back to their still, freeing the decoded frames and playback texture. The
 	/// frames are requested again once the rendition can play. Entire inline renditions expire
 	/// after a minute without painting, even when the still pool has not filled.
-	pub(super) fn release_idle(&mut self, now: Instant) {
+	pub(super) fn release_idle(&mut self, now: Instant) -> usize {
+		let mut freed = 0usize;
 		for slot in self.slots.values_mut() {
 			slot.held.retain_mut(|held| {
 				if held.lane != Lane::Inline {
 					return true;
 				}
 				if now.saturating_duration_since(held.painted) >= IDLE_TEXTURES {
+					freed = freed.saturating_add(held.bytes());
 					return false;
 				}
 				if let Pixels::Playing { still, animation } = &held.pixels
 					&& now.saturating_duration_since(animation.played) >= super::IDLE_FRAMES
 				{
+					freed = freed.saturating_add(animation.bytes);
 					held.pixels = Pixels::Still(still.clone());
 				}
 				true
 			});
 		}
+		freed
+	}
+	pub(super) fn has_active_animations(&self) -> bool {
+		!self.active_animations.is_empty()
+	}
+	pub(super) fn paint_only_animations(
+		&mut self,
+		pass: u64,
+		now: Instant,
+		update: &mut impl FnMut(egui::TextureId, &ColorImage) -> bool,
+	) -> (bool, Option<Duration>) {
+		let mut next: Option<Duration> = None;
+		for source in &self.active_animations {
+			let Some(slot) = self.slots.get_mut(source) else {
+				continue;
+			};
+			for held in &mut slot.held {
+				if let Pixels::Playing { animation, .. } = &mut held.pixels
+					&& animation.painted_pass == pass
+				{
+					let Some(delay) = animation.paint_only(now, update) else {
+						return (false, None);
+					};
+					held.painted = now;
+					next = Some(next.map_or(delay, |cur| cur.min(delay)));
+				}
+			}
+		}
+		(true, next)
 	}
 	pub(super) fn next_release(&self) -> Option<Instant> {
 		self.slots
@@ -1124,7 +1199,7 @@ mod retention_tests {
 			}
 		}
 		library.slots.get_mut(&viewer.source).unwrap().held[0].lane = Lane::Viewer;
-		drop(library.texture(&visible.source, 0, &ctx, false, Lane::Inline, 1));
+		drop(library.texture(&visible.source, 0, &ctx, false, false, Lane::Inline));
 		library.release_idle(Instant::now());
 		assert!(library.texture_id(&visible).is_some());
 		assert!(library.texture_id(&hidden).is_none());
@@ -1137,7 +1212,7 @@ mod retention_tests {
 		assert!(library.texture_id(&visible).is_none());
 		assert!(library.texture_id(&viewer).is_some());
 		assert!(library.next_release().is_none());
-		library.end_frame();
+		assert!(library.end_frame() >= 512 * 288 * 4);
 		assert_eq!(
 			library.bytes(),
 			0,
@@ -1355,14 +1430,23 @@ impl Avatars {
 				.slot(&source)
 				.record(want.motion, want.size, Attempt::Pending);
 		}
+		self.sync_pass(pass);
+		let paint_only = self.paint_only;
+		let mut next_delay: Option<Duration> = None;
 		let mut texture = |index| {
-			self.media
-				.texture(&source, index, ui.ctx(), playing, lane, pass)
+			let (tex, delay) =
+				self.media
+					.texture(&source, index, ui.ctx(), playing, paint_only, lane);
+			if let Some(delay) = delay {
+				next_delay = Some(next_delay.map_or(delay, |cur| cur.min(delay)));
+			}
+			tex
 		};
 		let base = choice.base.and_then(&mut texture);
 		let fade = choice
 			.fade
 			.and_then(|(index, progress)| Some((texture(index)?, progress)));
+		self.record_paint_only_delay(next_delay);
 		let loading = matches!(
 			choice.quality,
 			Quality::Upgrading | Quality::Placeholder { failed: false }

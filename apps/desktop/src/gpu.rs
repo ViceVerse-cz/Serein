@@ -103,8 +103,9 @@ fn selection_rank(
 }
 
 fn configure_memory(backend: wgpu::Backend, descriptor: &mut wgpu::DeviceDescriptor<'_>) {
-	if backend == wgpu::Backend::Dx12 {
+	if matches!(backend, wgpu::Backend::Dx12 | wgpu::Backend::Vulkan) {
 		// Smaller allocation blocks, not a cap on texture sizes or total memory.
+		// On integrated GPUs Vulkan device memory is backed directly by system RAM.
 		descriptor.memory_hints = wgpu::MemoryHints::MemoryUsage;
 	}
 }
@@ -268,7 +269,7 @@ mod tests {
 			assert_eq!(descriptor.label, inherited.label);
 			assert_eq!(descriptor.required_features, inherited.required_features);
 			assert_eq!(descriptor.required_limits, inherited.required_limits);
-			if backend == wgpu::Backend::Dx12 {
+			if matches!(backend, wgpu::Backend::Dx12 | wgpu::Backend::Vulkan) {
 				assert!(matches!(
 					descriptor.memory_hints,
 					wgpu::MemoryHints::MemoryUsage

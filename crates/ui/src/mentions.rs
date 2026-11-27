@@ -2263,7 +2263,7 @@ pub(crate) fn debug_member_search_check(state: &State, channel: Id) {
 	assert_eq!(draft, "<@987654321> ");
 }
 
-#[cfg(debug_assertions)]
+#[cfg(any(test, debug_assertions))]
 pub(crate) fn debug_pointer_check(state: &mut State, channel: Id) {
 	state.game_mentions.finish(Ok(vec![model::GameMention {
 		id: Id(42),

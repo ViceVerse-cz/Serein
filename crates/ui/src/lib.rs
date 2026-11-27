@@ -18,7 +18,7 @@ mod resample;
 #[cfg(feature = "demo")]
 pub use avatars::media::debug_heic_layout_check;
 pub use avatars::media::{Lane, MAX_FRAMES, Motion, Rendition, Size, fit_edge, is_motion_video};
-pub use avatars::{EFFECT_EDGE, EMBED_EDGE, FRAME_EDGE, GifFrames};
+pub use avatars::{EFFECT_EDGE, EMBED_EDGE, FRAME_EDGE, GifFrames, is_hover_animated_key};
 mod categories;
 #[cfg(feature = "demo")]
 pub use categories::debug_thread_navigation_check;
@@ -1445,6 +1445,25 @@ impl MessagingUi {
 	}
 	pub fn take_avatar_requests(&mut self) -> Vec<String> {
 		self.avatars.take_requests()
+	}
+	pub fn begin_animation_pass(&mut self, pass: u64, paint_only: bool) {
+		self.avatars.begin_pass(pass, paint_only);
+	}
+	pub fn has_active_animations(&self) -> bool {
+		self.avatars.has_active_animations()
+	}
+	pub fn take_animation_paint_only(&mut self) -> Option<std::time::Duration> {
+		self.avatars.take_paint_only_delay()
+	}
+	pub fn paint_only_animations(
+		&mut self,
+		ctx: &egui::Context,
+		update: impl FnMut(egui::TextureId, &egui::ColorImage) -> bool,
+	) -> (bool, Option<std::time::Duration>) {
+		self.avatars.paint_only_animations(ctx, update)
+	}
+	pub fn take_freed_memory_bytes(&mut self) -> usize {
+		self.avatars.take_freed_bytes()
 	}
 	/// Next idle animation/inline texture release; see `take_avatar_requests`.
 	pub fn avatar_release_at(&self) -> Option<std::time::Instant> {
@@ -5349,6 +5368,7 @@ impl MessagingUi {
 	/// Draws one frame of the signed-in client and returns the commands it produced for the
 	/// service layer.
 	pub fn show(&mut self, ui: &mut egui::Ui, state: &mut State) -> Vec<Command> {
+		self.avatars.sync_pass(ui.ctx().cumulative_pass_nr());
 		self.clear_inactive_composer_undo(ui.ctx(), state.generation, state.selected);
 		interface_tweaks::publish(ui.ctx(), &self.interface_tweaks);
 		rtl::scope(

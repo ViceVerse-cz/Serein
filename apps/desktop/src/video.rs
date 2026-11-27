@@ -140,7 +140,7 @@ impl Video {
 				let frame = update.frame.take().expect("frame checked");
 				drop(update);
 				let shown = self.texture.show(ctx, "inline-video", &frame).is_some();
-				if let Ok(mut update) = session.update.try_lock() {
+				if let Ok(mut update) = session.update.lock() {
 					update.spent = Some(frame);
 				}
 				shown
@@ -188,7 +188,7 @@ impl Video {
 				if let Some(texture) = self.texture.show(ctx, "inline-video", &frame) {
 					player.show_frame(texture);
 				}
-				if let Ok(mut update) = session.update.try_lock() {
+				if let Ok(mut update) = session.update.lock() {
 					update.spent = Some(frame);
 				}
 			}
