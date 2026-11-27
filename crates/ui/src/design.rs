@@ -680,6 +680,10 @@ pub fn layered_sections(ui: &egui::Ui) -> bool {
 
 /// Fill the notches outside a rounded corner at `corner`, for surfaces that cannot paint a
 /// shared coat underneath. `inward` points from the corner into the rounded rect.
+///
+/// A feathered polygon would miter its anti-aliasing at the cusps where the arc meets the
+/// straight edges and spill a second coat onto the neighbouring surfaces. Only the arc is
+/// anti-aliased, mirroring the rounded rect's edge; the straight edges stay crisp.
 pub fn paint_corner_notch(
 	painter: &egui::Painter,
 	corner: egui::Pos2,
@@ -687,15 +691,32 @@ pub fn paint_corner_notch(
 	radius: f32,
 	color: Color32,
 ) {
-	const STEPS: usize = 8;
+	const STEPS: u32 = 8;
 	let center = corner + inward * radius;
-	// A fan from the square corner covers the concave notch without overlapping the arc.
-	let mut points = vec![corner];
-	points.extend((0..=STEPS).map(|step| {
+	let half_feather = 0.5 / painter.pixels_per_point();
+	// Keeps the arc's inner feather edge inside the notch square.
+	let clamp = |point: egui::Pos2| {
+		let offset = (point - corner) * inward;
+		corner + egui::vec2(offset.x.max(0.0), offset.y.max(0.0)) * inward
+	};
+	let mut mesh = egui::Mesh::default();
+	mesh.colored_vertex(corner, color);
+	for step in 0..=STEPS {
 		let angle = std::f32::consts::FRAC_PI_2 * step as f32 / STEPS as f32;
-		center - egui::vec2(inward.x * angle.cos(), inward.y * angle.sin()) * radius
-	}));
-	painter.add(egui::Shape::convex_polygon(points, color, Stroke::NONE));
+		// Unit vector from the arc point towards the arc's centre.
+		let toward = egui::vec2(inward.x * angle.cos(), inward.y * angle.sin());
+		let point = center - toward * radius;
+		mesh.colored_vertex(clamp(point - toward * half_feather), color);
+		mesh.colored_vertex(point + toward * half_feather, Color32::TRANSPARENT);
+		if step > 0 {
+			let (inner, outer) = (2 * step - 1, 2 * step);
+			let (next_inner, next_outer) = (2 * step + 1, 2 * step + 2);
+			mesh.add_triangle(0, inner, next_inner);
+			mesh.add_triangle(inner, outer, next_outer);
+			mesh.add_triangle(inner, next_outer, next_inner);
+		}
+	}
+	painter.add(egui::Shape::mesh(mesh));
 }
 
 /// Fill and edge of the account card. With layered sections a second coat would make the card
