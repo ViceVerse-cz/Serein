@@ -651,8 +651,8 @@ pub struct MessagingUi {
 	selection_prev_frame: bool,
 	/// A visible call stage cleared its enlarged tile on Escape during this frame.
 	tile_focus_escape_frame: bool,
-	/// The timeline painted a conversation this frame, so Escape's target is on screen.
-	conversation_shown: bool,
+	/// The channel whose timeline was painted this frame: Escape only acts on it.
+	conversation_shown: Option<Id>,
 	/// A popup or menu was open when the frame began, so its Escape was not for the chat.
 	popup_open_frame: bool,
 	/// A composer picker pick returns focus to the draft next frame, once its click is over.
@@ -5369,10 +5369,10 @@ impl MessagingUi {
 		self.selection_prev_frame = !escaped && select::has_selection(ctx);
 		self.tile_focus_escape_frame = false;
 		self.composer_escape_frame = None;
-		if !self.conversation_shown {
+		if self.conversation_shown.is_none() {
 			self.timeline.present_requested = None;
 		}
-		self.conversation_shown = false;
+		self.conversation_shown = None;
 	}
 	fn show_frame(&mut self, ui: &mut egui::Ui, state: &mut State) -> Vec<Command> {
 		self.clear_inactive_composer_undo(ui.ctx(), state.generation, state.selected);
@@ -6232,7 +6232,10 @@ impl MessagingUi {
 		let owned = |id: Option<egui::Id>| {
 			id.is_none() || id == self.composer_escape_frame || id == self.edit_widget_id
 		};
-		if !self.conversation_shown
+		// Bound to the channel painted this frame: a pending channel reference can still select
+		// another one later in the frame, and Escape must not acknowledge a channel never shown.
+		if self.conversation_shown.is_none()
+			|| self.conversation_shown != state.selected
 			|| settings_open
 			|| !owned(focused)
 			|| !owned(before)
@@ -6387,7 +6390,7 @@ impl MessagingUi {
 				if let Some(command) = state.request_author_members(&author_lookup) {
 					commands.push(command);
 				}
-				self.conversation_shown = true;
+				self.conversation_shown = state.selected;
 				self.timeline.show_with_scroll(
 					ui,
 					state,
@@ -8837,6 +8840,38 @@ mod composer_tests {
 		assert_eq!(view.timeline.present_requested, None);
 		frame(&mut view, &mut state, escape());
 		assert_eq!(view.timeline.present_requested, Some(Id(10)));
+		// A channel reference resolved after the timeline painted selects another channel in the
+		// same frame; Escape must not acknowledge or jump in a channel that was never shown.
+		frame(&mut view, &mut state, vec![]);
+		view.timeline.mark_channel_read = None;
+		state.guilds.push(model::Guild {
+			banner: None,
+			default_message_notifications: None,
+			stickers: None,
+			id: Id(5),
+			name: "Synthetic linked server".into(),
+			icon: None,
+			emojis: None,
+		});
+		let mut linked = state.channels[0].clone();
+		linked.id = Id(12);
+		linked.kind = 0;
+		linked.guild = Some(Id(5));
+		linked.last_message = Some(Id(40));
+		state.channels.push(linked);
+		state
+			.permissions
+			.replace(test_support::permission_snapshot(&state))
+			.unwrap();
+		view.timeline.pending_channel_reference = Some(Id(12));
+		frame(&mut view, &mut state, escape());
+		assert_eq!(
+			state.selected,
+			Some(Id(12)),
+			"the reference resolved this frame"
+		);
+		assert_eq!(view.timeline.present_requested, None);
+		assert_eq!(view.timeline.mark_channel_read, None);
 	}
 	#[test]
 	fn staged_viewer_escape_preserves_background_search() {
