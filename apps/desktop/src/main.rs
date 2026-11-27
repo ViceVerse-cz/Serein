@@ -6522,10 +6522,11 @@ impl eframe::App for Desktop {
 		let rebound = std::mem::replace(&mut self.ptt_chords, (global, chords)) != self.ptt_chords;
 		// Rebinding, or typing in the composer over a keyboard hold, cancels it; only a real
 		// release lingers. A mouse hold is not typing.
-		let mouse_hold = self.ptt_chords.1.iter().any(|chord| {
-			model::keybinds::is_mouse_button(&chord.key)
-				|| model::keybinds::is_side_modifier(&chord.key)
-		});
+		let mouse_hold = self
+			.ptt_chords
+			.1
+			.iter()
+			.any(|chord| model::keybinds::is_mouse_button(&chord.key));
 		let cancelled = rebound
 			|| (!mouse_hold
 				&& ctx.input(|input| input.raw.focused)

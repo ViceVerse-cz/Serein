@@ -184,10 +184,21 @@ struct CaptureStarted;
 #[derive(Clone, Copy, Default, Debug)]
 struct SideCapture {
 	armed: Option<Key>,
+	/// Side keys seen down. A press while another is held is never alone, and nothing arms
+	/// again until every one of them is released.
+	held: u8,
+	tainted: bool,
 }
 
 fn is_side_key(key: Key) -> bool {
 	model::keybinds::is_side_modifier(key.name())
+}
+
+fn side_bit(key: Key) -> u8 {
+	model::keybinds::SIDE_MODIFIERS
+		.iter()
+		.position(|name| *name == key.name())
+		.map_or(0, |index| 1 << index)
 }
 
 /// Advances recording by one egui event and returns the side key to bind, if any.
@@ -199,23 +210,32 @@ fn side_step(state: &mut SideCapture, event: &Event) -> Option<&'static str> {
 			repeat: false,
 			..
 		} if is_side_key(*key) => {
-			// A second side key overlapping the first records neither.
-			state.armed = state.armed.is_none().then_some(*key);
+			state.tainted |= state.held != 0;
+			state.held |= side_bit(*key);
+			state.armed = (!state.tainted).then_some(*key);
 		}
 		Event::Key {
 			key,
 			pressed: false,
 			..
-		} if Some(*key) == state.armed => {
+		} if is_side_key(*key) => {
+			state.held &= !side_bit(*key);
+			let recorded = (state.armed == Some(*key)).then(|| key.name());
 			state.armed = None;
-			return Some(key.name());
+			if state.held == 0 {
+				state.tainted = false;
+			}
+			return recorded;
 		}
 		Event::Key {
 			key, pressed: true, ..
 		} if !is_side_key(*key) => state.armed = None,
-		Event::PointerButton { pressed: true, .. } | Event::WindowFocused(false) => {
-			state.armed = None;
-		}
+		// egui-winit turns Ctrl+C/X/V into these instead of key presses.
+		Event::PointerButton { pressed: true, .. }
+		| Event::Copy
+		| Event::Cut
+		| Event::Paste(_)
+		| Event::WindowFocused(false) => state.armed = None,
 		_ => {}
 	}
 	None
@@ -238,7 +258,19 @@ fn capture(ui: &mut egui::Ui, bindings: &mut Keybinds, capturing: &mut Option<Ca
 		.data_mut(|data| data.remove_temp::<CaptureStarted>(capture_started_id()))
 		.is_some()
 	{
-		ui.data_mut(|data| data.insert_temp(side_capture_id(), SideCapture::default()));
+		// Side keys already down when recording starts mark any later side press as overlapping.
+		let held = ui.input(|input| {
+			input
+				.keys_down
+				.iter()
+				.fold(0, |held, key| held | side_bit(*key))
+		});
+		let side = SideCapture {
+			held,
+			tainted: held != 0,
+			..SideCapture::default()
+		};
+		ui.data_mut(|data| data.insert_temp(side_capture_id(), side));
 		return;
 	}
 	let action = match target {
@@ -1301,15 +1333,28 @@ mod tests {
 		}
 	}
 
-	/// Runs one frame per event list against a fresh capture of `action`.
-	fn record(action: KeybindAction, frames: Vec<Vec<Event>>) -> (Keybinds, bool) {
+	/// Runs `before` with no capture, starts capturing `action` as a click does, then runs one
+	/// frame per event list.
+	fn record_after(
+		action: KeybindAction,
+		before: Vec<Event>,
+		frames: Vec<Vec<Event>>,
+	) -> (Keybinds, bool) {
 		let mut bindings = Keybinds::default();
-		let mut capturing = Some(CaptureTarget::BuiltIn(action));
+		let mut capturing = None;
 		let ctx = egui::Context::default();
+		capture_frame(&ctx, before, &mut bindings, &mut capturing);
+		capturing = Some(CaptureTarget::BuiltIn(action));
+		ctx.data_mut(|data| data.insert_temp(capture_started_id(), CaptureStarted));
+		capture_frame(&ctx, Vec::new(), &mut bindings, &mut capturing);
 		for events in frames {
 			capture_frame(&ctx, events, &mut bindings, &mut capturing);
 		}
 		(bindings, capturing.is_some())
+	}
+
+	fn record(action: KeybindAction, frames: Vec<Vec<Event>>) -> (Keybinds, bool) {
+		record_after(action, Vec::new(), frames)
 	}
 
 	#[test]
@@ -1322,6 +1367,12 @@ mod tests {
 			vec![vec![down.clone(), up.clone()]],
 		] {
 			let (bindings, still) = record(KeybindAction::PushToTalk, frames);
+			// Wayland cannot fire a lone modifier, so it is not offered there.
+			if !side_keys_supported() {
+				assert!(still);
+				assert_eq!(bindings, Keybinds::default());
+				continue;
+			}
 			assert!(!still);
 			assert_eq!(
 				bindings.chord(KeybindAction::PushToTalk),
@@ -1372,6 +1423,7 @@ mod tests {
 			&KeyChord::new("K", modifier_bits(Modifiers::CTRL))
 		);
 		let shift = |pressed| key(Key::ShiftRight, pressed, Modifiers::NONE);
+		let alt = |pressed| key(Key::AltLeft, pressed, Modifiers::NONE);
 		for frames in [
 			// Two side keys overlapping record neither.
 			vec![
@@ -1380,6 +1432,16 @@ mod tests {
 				vec![shift(false)],
 				vec![ctrl(false)],
 			],
+			// A third side key while the first is still held is not alone either.
+			vec![
+				vec![ctrl(true)],
+				vec![shift(true)],
+				vec![shift(false)],
+				vec![alt(true)],
+				vec![alt(false)],
+			],
+			// egui-winit reports Ctrl+C as Copy, not a C press.
+			vec![vec![ctrl(true)], vec![Event::Copy], vec![ctrl(false)]],
 			// Focus moving to another app, where egui sees nothing, disarms.
 			vec![
 				vec![ctrl(true)],
@@ -1393,5 +1455,13 @@ mod tests {
 			assert!(still);
 			assert_eq!(bindings, Keybinds::default());
 		}
+		// Left Ctrl held from before the click makes a Right Shift tap an overlap too.
+		let (bindings, still) = record_after(
+			KeybindAction::PushToTalk,
+			vec![ctrl(true)],
+			vec![vec![shift(true)], vec![shift(false)]],
+		);
+		assert!(still);
+		assert_eq!(bindings, Keybinds::default());
 	}
 }

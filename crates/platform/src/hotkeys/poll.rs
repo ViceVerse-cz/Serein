@@ -308,6 +308,13 @@ fn modifiers_match(bits: u8, held: Modifiers) -> bool {
 	command_matches && (bits & SHIFT == 0 || held.shift) && held.alt == (bits & ALT != 0)
 }
 
+/// Windows reports AltGr as Right Alt plus a synthetic Left Ctrl. Left Ctrl counts only when
+/// it was down before Right Alt, so AltGr never presses it and a real hold survives Right Alt.
+#[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
+fn left_ctrl_real(was: bool, left_ctrl: bool, right_alt: bool) -> bool {
+	left_ctrl && (was || !right_alt)
+}
+
 #[cfg(target_os = "windows")]
 mod os {
 	use super::Modifiers;
@@ -315,7 +322,10 @@ mod os {
 
 	pub(super) type Code = VIRTUAL_KEY;
 
-	pub(super) struct Keys;
+	pub(super) struct Keys {
+		/// Left Ctrl went down before Right Alt, so it is a real press, not AltGr's.
+		left_ctrl: bool,
+	}
 
 	pub(super) fn supported(name: &str) -> bool {
 		!codes(name).is_empty()
@@ -323,18 +333,23 @@ mod os {
 
 	impl Keys {
 		pub(super) fn open() -> Option<Self> {
-			Some(Self)
+			Some(Self { left_ctrl: false })
 		}
 
 		pub(super) fn codes(&self, name: &str) -> Vec<Code> {
 			codes(name)
 		}
 
-		pub(super) fn refresh(&mut self) {}
+		pub(super) fn refresh(&mut self) {
+			self.left_ctrl =
+				super::left_ctrl_real(self.left_ctrl, key_down(VK_LCONTROL), key_down(VK_RMENU));
+		}
 
 		pub(super) fn down(&self, code: Code) -> bool {
-			// AltGr reports Right Alt plus a synthetic Left Ctrl; that Ctrl is not a press.
-			key_down(code) && !(code == VK_LCONTROL && key_down(VK_RMENU))
+			if code == VK_LCONTROL {
+				return self.left_ctrl;
+			}
+			key_down(code)
 		}
 
 		pub(super) fn modifiers(&self) -> Modifiers {
@@ -906,5 +921,25 @@ mod tests {
 				input(true, true, true)
 			);
 		}
+	}
+
+	#[test]
+	fn altgr_never_presses_left_ctrl_and_real_holds_survive_it() {
+		let run = |samples: &[(bool, bool)]| {
+			samples
+				.iter()
+				.scan(false, |was, &(left_ctrl, right_alt)| {
+					*was = left_ctrl_real(*was, left_ctrl, right_alt);
+					Some(*was)
+				})
+				.collect::<Vec<_>>()
+		};
+		// AltGr: Windows reports Left Ctrl together with Right Alt; it is never a press.
+		assert_eq!(run(&[(true, true), (false, false)]), [false, false]);
+		// A real Left Ctrl hold stays down while Right Alt comes and goes.
+		assert_eq!(
+			run(&[(true, false), (true, true), (true, false), (false, false)]),
+			[true, true, true, false]
+		);
 	}
 }
