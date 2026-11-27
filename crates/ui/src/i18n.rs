@@ -559,9 +559,8 @@ mod tests {
 	}
 
 	#[test]
-	fn vietnamese_catalog_formats_every_english_message_without_fallback() {
+	fn complete_catalogs_format_every_english_message_without_fallback() {
 		let english = Language::English.source();
-		let vietnamese = Language::Vietnamese.load();
 		let mut args = FluentArgs::new();
 		for variable in english.split('$').skip(1) {
 			let name = variable
@@ -570,74 +569,36 @@ mod tests {
 				.unwrap();
 			args.set(name, "test");
 		}
-		for count in [0, 1, 2, 100] {
-			args.set("count", count);
-			for key in english.lines().filter_map(|line| {
-				(!line.starts_with(['#', ' ', '\t']))
-					.then(|| line.split_once('=').map(|(key, _)| key.trim_end()))
-					.flatten()
-			}) {
-				assert!(
-					Language::lookup_in_bundle(&vietnamese.bundle, key, Some(&args))
-						.is_some_and(|text| !text.trim().is_empty()),
-					"Vietnamese catalog cannot format {key} with count {count}"
-				);
-			}
-			for key in [
-				"settings-image-cache-days",
-				"timeline-present-control-new-messages",
-				"timeline-unread-banner-new-since",
-				"timeline-unread-banner-new-since-more",
-				"settings-idle-after-minutes",
-			] {
-				assert_ne!(
-					Language::lookup_in_bundle(&vietnamese.bundle, key, Some(&args)),
-					Language::English.lookup(key, Some(&args)),
-					"Vietnamese count message remains English: {key}"
-				);
-			}
-		}
-	}
-
-	#[test]
-	fn korean_catalog_formats_every_english_message_without_fallback() {
-		let english = Language::English.source();
-		let korean = Language::Korean.load();
-		let mut args = FluentArgs::new();
-		for variable in english.split('$').skip(1) {
-			let name = variable
-				.split(|c: char| !c.is_ascii_alphanumeric() && c != '_' && c != '-')
-				.next()
-				.unwrap();
-			args.set(name, "test");
-		}
-		for count in [0, 1, 2, 100] {
-			args.set("count", count);
-			for key in english.lines().filter_map(|line| {
-				(!line.starts_with(['#', ' ', '\t']))
-					.then(|| line.split_once('=').map(|(key, _)| key.trim_end()))
-					.flatten()
-			}) {
-				assert!(
-					Language::lookup_in_bundle(&korean.bundle, key, Some(&args))
-						.is_some_and(|text| !text.trim().is_empty()),
-					"Korean catalog cannot format {key} with count {count}"
-				);
-			}
-			// Count-driven UI must use the Korean catalog, not valid-but-untranslated
-			// English select expressions. Check behavior rather than pinning copy.
-			for key in [
-				"settings-image-cache-days",
-				"timeline-present-control-new-messages",
-				"timeline-unread-banner-new-since",
-				"timeline-unread-banner-new-since-more",
-				"settings-idle-after-minutes",
-			] {
-				assert_ne!(
-					Language::lookup_in_bundle(&korean.bundle, key, Some(&args)),
-					Language::English.lookup(key, Some(&args)),
-					"Korean count message remains English: {key}"
-				);
+		for language in [Language::Vietnamese, Language::Korean, Language::Russian] {
+			let catalog = language.load();
+			for count in [0, 1, 2, 5, 100] {
+				args.set("count", count);
+				for key in english.lines().filter_map(|line| {
+					(!line.starts_with(['#', ' ', '\t']))
+						.then(|| line.split_once('=').map(|(key, _)| key.trim_end()))
+						.flatten()
+				}) {
+					assert!(
+						Language::lookup_in_bundle(&catalog.bundle, key, Some(&args))
+							.is_some_and(|text| !text.trim().is_empty()),
+						"{language:?} catalog cannot format {key} with count {count}"
+					);
+				}
+				// Count-driven UI must use the translated catalog, not valid-but-untranslated
+				// English select expressions. Check behavior rather than pinning copy.
+				for key in [
+					"settings-image-cache-days",
+					"timeline-present-control-new-messages",
+					"timeline-unread-banner-new-since",
+					"timeline-unread-banner-new-since-more",
+					"settings-idle-after-minutes",
+				] {
+					assert_ne!(
+						Language::lookup_in_bundle(&catalog.bundle, key, Some(&args)),
+						Language::English.lookup(key, Some(&args)),
+						"{language:?} count message remains English: {key}"
+					);
+				}
 			}
 		}
 	}

@@ -558,18 +558,16 @@ impl Editor {
 				state.server_settings.saving || state.server_admin.saving || self.invites.busy();
 			let mut confirmation = dialog::Confirm::new(
 				"discard-server-settings",
-				"Discard unsaved changes?",
-				"Your changes to this server will be lost.",
+				"channel-menu-discard-title",
+				"server-settings-discard-message",
 			)
 			.danger()
-			.confirm_label("Discard Changes")
-			.cancel_label("Keep Editing")
+			.confirm_label("channel-menu-discard-confirm")
+			.cancel_label("channel-menu-discard-keep")
 			.enabled(!busy);
 			if busy {
-				confirmation = confirmation.note(
-					dialog::Level::Info,
-					"Wait for the current save to finish before closing.",
-				);
+				confirmation =
+					confirmation.note(dialog::Level::Info, "server-settings-wait-for-save");
 			}
 			match confirmation.show(ctx) {
 				Some(dialog::Choice::Confirmed) => {

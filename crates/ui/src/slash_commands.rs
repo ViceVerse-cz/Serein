@@ -48,7 +48,7 @@ pub(super) struct Menu {
 	channel: Option<Id>,
 	generation: u64,
 	query: Option<String>,
-	stamp: (u64, bool, usize, bool, bool, bool),
+	stamp: (u64, bool, usize, bool, bool, bool, crate::i18n::Language),
 	filter: Filter,
 	items: Vec<Pick>,
 	applications: std::collections::BTreeSet<Id>,
@@ -211,6 +211,8 @@ impl Menu {
 			state.can_compose(channel),
 			state.can_request_application_commands(channel),
 			state.can_view(channel),
+			// Rows cache translated built-in text, so a language switch must rebuild them.
+			crate::i18n::current(),
 		);
 		if self.query == query && self.stamp == stamp {
 			return;
@@ -240,8 +242,9 @@ impl Menu {
 		let mut top = Top::new();
 		if matches!(self.filter, Filter::All | Filter::Builtins) {
 			for entry in slash_builtin::ALL {
+				let description = crate::i18n::translate(entry.description);
 				if entry.command.available(state, channel)
-					&& let Some(tier) = relevance(entry.name, entry.description, "", query)
+					&& let Some(tier) = relevance(entry.name, &description, "", query)
 					&& top.wants(tier)
 				{
 					top.push(
@@ -250,8 +253,8 @@ impl Menu {
 							id: None,
 							path: Vec::new(),
 							name: entry.name.into(),
-							description: entry.description.into(),
-							application: "Built-In".into(),
+							description,
+							application: crate::i18n::translate("slash-commands-built-in"),
 							application_id: None,
 							icon: None,
 						},
@@ -557,7 +560,7 @@ impl Menu {
 					Filter::All,
 					filter,
 					None,
-					"All commands",
+					&crate::i18n::translate("slash-commands-all-commands"),
 					avatars,
 					state.demo,
 				)
@@ -599,7 +602,7 @@ impl Menu {
 							Filter::Builtins,
 							filter,
 							None,
-							"Built-In",
+							&crate::i18n::translate("slash-commands-built-in"),
 							avatars,
 							state.demo,
 						)
@@ -1110,28 +1113,31 @@ impl Menu {
 				.and_then(|(_, value)| option.problem(value))
 		});
 		let error = error.filter(|_| problem.is_none());
+		// Only Serein's own fallbacks are catalog keys; application text is shown as sent.
+		let waiting = crate::i18n::translate("slash-commands-waiting-for-application");
+		let attachments = crate::i18n::translate(
+			"slash-commands-argument-attachment-arguments-are-not-supported-yet",
+		);
+		let unavailable = crate::i18n::translate("slash-commands-unavailable-arguments-kept");
 		let (detail, color) = if let Some(problem) = problem.as_deref() {
 			(problem, colors.danger)
 		} else if let Some(error) = error {
 			(error, colors.danger)
 		} else if state.interactions.busy() {
-			("Waiting for the application…", colors.muted)
+			(waiting.as_str(), colors.muted)
 		} else if option.is_some_and(|option| option.kind == 11) {
-			(
-				"Attachment arguments are not supported yet.",
-				colors.warning,
-			)
+			(attachments.as_str(), colors.warning)
 		} else {
 			(
 				option
 					.map(|option| option.description.as_str())
 					.or_else(|| command.map(|command| command.description.as_str()))
-					.unwrap_or("This command is unavailable. Your arguments are kept."),
+					.unwrap_or(&unavailable),
 				colors.muted,
 			)
 		};
 		let detail = if error.is_none() && option.is_some_and(|option| !option.required) {
-			format!("{detail} · Optional")
+			crate::i18n::translate_args("slash-commands-optional-detail", &[("detail", detail)])
 		} else {
 			detail.to_owned()
 		};
@@ -1280,7 +1286,7 @@ fn empty_row(ui: &mut egui::Ui) {
 	ui.painter().text(
 		rect.center(),
 		egui::Align2::CENTER_CENTER,
-		"No commands match",
+		crate::i18n::translate("slash-commands-no-commands-match"),
 		egui::FontId::proportional(14.0),
 		design::palette(ui).muted,
 	);

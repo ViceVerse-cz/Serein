@@ -282,13 +282,17 @@ impl InvitesUi {
 														ui.set_width(width);
 														ui.spacing_mut().item_spacing.y = 1.0;
 														let name =
-															invite.inviter.as_ref().map_or(
-																"Unknown inviter",
-																|user| user.name.as_str(),
+															invite.inviter.as_ref().map_or_else(
+																|| {
+																	crate::i18n::translate(
+																		"server-invites-unknown-inviter",
+																	)
+																},
+																|user| user.name.clone(),
 															);
 														ui.add(
 															egui::Label::new(design::medium(
-																ui, name, 14.0,
+																ui, &name, 14.0,
 															))
 															.truncate(),
 														)
@@ -539,12 +543,21 @@ impl InvitesUi {
 }
 /// The table's column headings in the `header` row.
 fn headings(ui: &mut egui::Ui, header: egui::Rect) {
-	for (index, label) in ["Inviter", "Invite Code", "Uses", "Expires", "Roles"]
-		.into_iter()
-		.enumerate()
+	for (index, label) in [
+		"server-invites-column-inviter",
+		"server-invites-column-code",
+		"server-invites-column-uses",
+		"server-invites-column-expires",
+		"server-roles-list-roles",
+	]
+	.into_iter()
+	.enumerate()
 	{
 		cell(ui, column(header, &COLUMNS, index), |ui| {
-			ui.add(egui::Label::new(design::medium(ui, label, 14.0)).truncate());
+			ui.add(
+				egui::Label::new(design::medium(ui, crate::i18n::translate(label), 14.0))
+					.truncate(),
+			);
 		});
 	}
 }
@@ -646,7 +659,7 @@ fn expiry(invite: &Invite, now: i128) -> (String, bool) {
 			.saturating_add(999_999_999)
 			/ 1_000_000_000;
 		if seconds == 0 {
-			return ("Expired".into(), false);
+			return (crate::i18n::translate("server-invites-expired"), false);
 		}
 		let clock = format!(
 			"{:02}:{:02}:{:02}",
@@ -665,11 +678,10 @@ fn expiry(invite: &Invite, now: i128) -> (String, bool) {
 	}
 	(
 		if invite.max_age == Some(0) {
-			"∞"
+			"∞".into()
 		} else {
-			"Unknown"
-		}
-		.into(),
+			crate::i18n::translate("server-roles-list-unknown")
+		},
 		false,
 	)
 }

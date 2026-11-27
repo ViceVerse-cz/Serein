@@ -226,11 +226,11 @@ impl JoinDialog {
 				let busy = loading || state.invite_join.pending;
 				let enabled = !state.demo && !busy && !member && !accepted;
 				let text = if busy {
-					"Please wait…"
+					"onboarding-show-please-wait"
 				} else if ready {
-					"Join Server"
+					"join-server-join-server-button"
 				} else {
-					"Check Invite"
+					"join-server-check-invite"
 				};
 				ui.add_enabled_ui(enabled, |ui| {
 					if dialog::action(ui, text, dialog::Action::Primary).clicked() {
@@ -288,17 +288,14 @@ impl JoinDialog {
 			return;
 		}
 		let (title, subtitle) = match self.page {
-			Page::Choose => (
-				"Create Your Server",
-				"Your server is where you and your friends hang out. Make yours and start talking.",
-			),
+			Page::Choose => ("join-server-create-title", "join-server-create-subtitle"),
 			Page::Audience => (
-				"Tell Us More About Your Server",
-				"Is your new server for a few friends or a larger community?",
+				"join-server-audience-title",
+				"join-server-audience-subtitle",
 			),
 			Page::Customize => (
-				"Customize Your Server",
-				"Give your new server a name and icon. You can change them later.",
+				"join-server-customize-title",
+				"join-server-customize-subtitle",
 			),
 			Page::Join => unreachable!(),
 		};
@@ -364,7 +361,10 @@ impl JoinDialog {
 			ui.add_space(8.0);
 			ui.horizontal_wrapped(|ui| {
 				ui.label(crate::i18n::translate("join-server-audience-not-sure"));
-				if ui.link("Skip this question").clicked() {
+				if ui
+					.link(crate::i18n::translate("join-server-skip-question"))
+					.clicked()
+				{
 					self.begin_customize(state);
 				}
 				ui.label(crate::i18n::translate("join-server-audience-for-now"));

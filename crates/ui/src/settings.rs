@@ -730,11 +730,10 @@ impl MessagingUi {
 
 	fn account_page(&mut self, ui: &mut egui::Ui, state: &State) {
 		let colors = design::palette(ui);
-		let name = state
-			.user
-			.as_ref()
-			.map_or("Your account", |u| u.name.as_str())
-			.to_owned();
+		let name = state.user.as_ref().map_or_else(
+			|| crate::i18n::translate("your-account"),
+			|u| u.name.clone(),
+		);
 		egui::Frame::new()
 			.fill(colors.raised)
 			.stroke(egui::Stroke::new(1.0, colors.border))
@@ -800,7 +799,7 @@ impl MessagingUi {
 								account_row(
 									ui,
 									"settings-account-page-email-password-and-security",
-									"Managed in Discord",
+									&crate::i18n::translate("settings-account-managed-in-discord"),
 								);
 							});
 						ui.add_space(12.0);
@@ -841,9 +840,9 @@ impl MessagingUi {
 				});
 			});
 		let label = if state.demo {
-			"Exit preview"
+			"exit-preview"
 		} else {
-			"Log out"
+			"log-out"
 		};
 		design::group(
 			ui,

@@ -858,7 +858,7 @@ impl Draft {
 					ui.visuals_mut().widgets.inactive.weak_bg_fill = colors.base;
 					ui.visuals_mut().widgets.inactive.bg_stroke =
 						egui::Stroke::new(1.0, colors.border);
-					heading(ui, "From", "Sent by any of the selected users");
+					heading(ui, "search-filter-from", "search-filter-from-help");
 					user_picker(
 						ui,
 						&mut self.query,
@@ -870,11 +870,11 @@ impl Draft {
 					);
 					ui.add_space(22.0);
 					if !channels.is_empty() {
-						heading(ui, "In", "Sent in any of the selected channels");
+						heading(ui, "search-filter-in", "search-filter-in-help");
 						channel_picker(ui, state, &mut self.query, &mut self.in_search, &channels);
 						ui.add_space(22.0);
 					}
-					heading(ui, "Has", "Includes any of the selected types of data");
+					heading(ui, "search-filter-has", "search-filter-has-help");
 					choices(
 						ui,
 						&mut self.query,
@@ -891,7 +891,7 @@ impl Draft {
 						true,
 					);
 					ui.add_space(22.0);
-					heading(ui, "Mentions", "Mentions any of the selected users");
+					heading(ui, "search-filter-mentions", "search-filter-mentions-help");
 					user_picker(
 						ui,
 						&mut self.query,
@@ -909,8 +909,8 @@ impl Draft {
 					ui.add_space(22.0);
 					heading(
 						ui,
-						"Author Type",
-						"Sent by any of the selected types of author",
+						"search-filter-author-type",
+						"search-filter-author-type-help",
 					);
 					choices(
 						ui,
@@ -925,7 +925,7 @@ impl Draft {
 						true,
 					);
 					ui.add_space(22.0);
-					heading(ui, "Pinned", "If the message is pinned or not");
+					heading(ui, "search-filter-pinned", "search-filter-pinned-help");
 					choices(
 						ui,
 						&mut self.query,

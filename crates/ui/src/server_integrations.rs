@@ -944,24 +944,25 @@ impl IntegrationsUi {
 		let mut confirm = dialog::Confirm::new(
 			"delete-server-integration",
 			if integration {
-				"Remove integration?"
+				"server-integrations-remove-title"
 			} else {
-				"Delete webhook?"
+				"server-integrations-delete-webhook-title"
 			},
-			if integration {
-				format!(
-					"Removing {} also removes its bot and every webhook it owns from this server.",
-					deletion.name
-				)
-			} else {
-				format!(
-					"{} will stop delivering messages. A followed channel will also stop sending posts to this server.",
-					deletion.name
-				)
-			},
+			crate::i18n::translate_args(
+				if integration {
+					"server-integrations-remove-message"
+				} else {
+					"server-integrations-delete-webhook-message"
+				},
+				&[("name", &deletion.name)],
+			),
 		)
 		.danger()
-		.confirm_label(if integration { "Remove" } else { "Delete" })
+		.confirm_label(if integration {
+			"profile-edit-form-remove"
+		} else {
+			"server-integrations-webhooks-delete"
+		})
 		.enabled(writable(state));
 		if let Some(error) = state.server_admin.error {
 			confirm = confirm.note(dialog::Level::Error, error);

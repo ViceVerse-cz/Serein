@@ -26,27 +26,52 @@ impl Form {
 	}
 
 	pub fn show(&mut self, ui: &mut egui::Ui, endpoint: &str, manual: bool) {
-		ui.collapsing("Proxy authentication", |ui| {
-            ui.label("Credentials stay in Serein's OS credential store and are never shared with the plugin. Apply the proxy URL before saving credentials.");
-            ui.add_enabled_ui(manual && !self.busy, |ui| {
-                if url::Url::parse(endpoint).is_ok_and(|url| url.scheme() == "http") {
-                    ui.label("HTTP proxy authentication is unencrypted: anyone observing the connection to the proxy can recover these credentials. Use an HTTPS proxy for encrypted authentication.");
-                }
-                credential_input(ui, "Username", &mut self.username, false, 256);
-                credential_input(ui, "Password", &mut self.password, true, 1024);
-                ui.horizontal(|ui| {
-                    if ui.button("Save credentials").clicked() {
-                        self.queue_save(endpoint);
-                    }
-                    if ui.button("Remove saved credentials").clicked() {
-                        self.clear_draft();
-                        self.request = Some(Request { endpoint: endpoint.into(), credentials: None });
-                    }
-                });
-            });
-            if !manual { ui.label("Choose URL mode to configure proxy authentication."); }
-            if !self.status.is_empty() { ui.label(&self.status); }
-        });
+		ui.collapsing(crate::i18n::translate("proxy-auth-title"), |ui| {
+			ui.label(crate::i18n::translate("proxy-auth-detail"));
+			ui.add_enabled_ui(manual && !self.busy, |ui| {
+				if url::Url::parse(endpoint).is_ok_and(|url| url.scheme() == "http") {
+					ui.label(crate::i18n::translate("proxy-auth-http-warning"));
+				}
+				credential_input(
+					ui,
+					&crate::i18n::translate("friends-username"),
+					&mut self.username,
+					false,
+					256,
+				);
+				credential_input(
+					ui,
+					&crate::i18n::translate("native-login-password"),
+					&mut self.password,
+					true,
+					1024,
+				);
+				ui.horizontal(|ui| {
+					if ui
+						.button(crate::i18n::translate("proxy-auth-save"))
+						.clicked()
+					{
+						self.queue_save(endpoint);
+					}
+					if ui
+						.button(crate::i18n::translate("proxy-auth-remove"))
+						.clicked()
+					{
+						self.clear_draft();
+						self.request = Some(Request {
+							endpoint: endpoint.into(),
+							credentials: None,
+						});
+					}
+				});
+			});
+			if !manual {
+				ui.label(crate::i18n::translate("proxy-auth-choose-url-mode"));
+			}
+			if !self.status.is_empty() {
+				ui.label(&self.status);
+			}
+		});
 	}
 }
 

@@ -82,20 +82,20 @@ fn direct_call(state: &State) -> Option<Id> {
 }
 
 fn home_request_label(friends: u32, messages: u32) -> String {
-	let mut parts = vec!["Direct Messages".to_owned()];
+	let mut parts = vec![crate::i18n::translate("direct-messages")];
 	if friends > 0 {
-		parts.push(if friends == 1 {
-			"1 friend request".into()
-		} else {
-			format!("{friends} friend requests")
-		});
+		parts.push(crate::i18n::translate_count(
+			"notifications-friend-requests",
+			friends as usize,
+			&[],
+		));
 	}
 	if messages > 0 {
-		parts.push(if messages == 1 {
-			"1 message request".into()
-		} else {
-			format!("{messages} message requests")
-		});
+		parts.push(crate::i18n::translate_count(
+			"notifications-message-requests",
+			messages as usize,
+			&[],
+		));
 	}
 	parts.join(" · ")
 }

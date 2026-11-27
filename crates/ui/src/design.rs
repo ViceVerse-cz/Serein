@@ -1478,6 +1478,8 @@ pub fn window_controls(ui: &mut egui::Ui) {
 	ui.spacing_mut().item_spacing.x = 0.0;
 	let caption =
 		|ui: &mut egui::Ui, label: &str, danger: bool| -> (egui::Response, egui::Rect, Color32) {
+			let label = crate::i18n::translate_if_key(label);
+			let label = label.as_str();
 			let (rect, response) =
 				ui.allocate_exact_size(egui::vec2(46.0, height), egui::Sense::click());
 			response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, label));
@@ -1502,7 +1504,7 @@ pub fn window_controls(ui: &mut egui::Ui) {
 			(response, rect, color)
 		};
 
-	let (close, rect, color) = caption(ui, "Close", true);
+	let (close, rect, color) = caption(ui, "window-close", true);
 	let c = rect.center();
 	let stroke = Stroke::new(1.0, color);
 	ui.painter().line_segment(
@@ -1517,7 +1519,15 @@ pub fn window_controls(ui: &mut egui::Ui) {
 		ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
 	}
 
-	let (toggle, rect, color) = caption(ui, if maximized { "Restore" } else { "Maximize" }, false);
+	let (toggle, rect, color) = caption(
+		ui,
+		if maximized {
+			"window-restore"
+		} else {
+			"window-maximize"
+		},
+		false,
+	);
 	let c = rect.center();
 	let stroke = Stroke::new(1.0, color);
 	if maximized {
@@ -1549,7 +1559,7 @@ pub fn window_controls(ui: &mut egui::Ui) {
 			.send_viewport_cmd(egui::ViewportCommand::Maximized(!maximized));
 	}
 
-	let (minimize, rect, color) = caption(ui, "Minimize", false);
+	let (minimize, rect, color) = caption(ui, "app-menu-minimize", false);
 	let c = rect.center();
 	let stroke = Stroke::new(1.0, color);
 	ui.painter().line_segment(

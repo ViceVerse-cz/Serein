@@ -86,17 +86,13 @@ fn segments(state: &State, channel: Id, now: Instant) -> Option<Vec<(String, boo
 	if count == 0 {
 		return None;
 	}
-	let verb = if count == 1 {
-		" is typing…"
-	} else {
-		" are typing…"
-	};
+	let verb = crate::i18n::translate_count("typing-verb", count, &[]);
 	if names.is_empty() {
 		return Some(vec![(
 			if count == 1 {
-				"Someone is typing…".into()
+				crate::i18n::translate("typing-someone")
 			} else {
-				format!("{count} people are typing…")
+				crate::i18n::translate_count("typing-people", count, &[])
 			},
 			false,
 		)]);
@@ -107,7 +103,11 @@ fn segments(state: &State, channel: Id, now: Instant) -> Option<Vec<(String, boo
 	for (index, name) in names.into_iter().enumerate() {
 		if index > 0 {
 			out.push((
-				if index == last_index { " and " } else { ", " }.into(),
+				if index == last_index {
+					crate::i18n::translate("typing-and")
+				} else {
+					", ".into()
+				},
 				false,
 			));
 		}
@@ -115,11 +115,11 @@ fn segments(state: &State, channel: Id, now: Instant) -> Option<Vec<(String, boo
 	}
 	if others > 0 {
 		out.push((
-			format!(" and {others} other{}", if others == 1 { "" } else { "s" }),
+			crate::i18n::translate_count("typing-and-others", others, &[]),
 			false,
 		));
 	}
-	out.push((verb.into(), false));
+	out.push((verb, false));
 	Some(out)
 }
 
@@ -325,7 +325,10 @@ mod tests {
 				now,
 			);
 		}
-		let text = label(&state, Id(10), now).unwrap();
+		// Fluent isolates the count with invisible bidi marks; compare the visible text.
+		let text = label(&state, Id(10), now)
+			.unwrap()
+			.replace(['\u{2068}', '\u{2069}'], "");
 		assert!(text.starts_with("Alex, Robin, Long name"));
 		assert!(text.ends_with("and 5 others are typing…"));
 		assert!(!text.contains('\n'));

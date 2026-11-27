@@ -779,7 +779,7 @@ impl RolesUi {
 				.char_limit(100),
 		)
 		.labelled_by(label.id);
-		section(ui, "Role Style");
+		section(ui, "server-roles-role-style");
 		let enhanced = state.can_use_enhanced_role_colors(guild);
 		let style = if draft.colors.tertiary.is_some() {
 			2
@@ -792,7 +792,12 @@ impl RolesUi {
 			/ if enhanced || style != 0 { 3.0 } else { 1.0 })
 		.min(180.0);
 		ui.horizontal(|ui| {
-			for (choice, name) in [(0, "Solid"), (1, "Gradient"), (2, "Holographic")] {
+			for (choice, name) in [
+				(0, "server-roles-style-solid"),
+				(1, "server-roles-style-gradient"),
+				(2, "server-roles-style-holographic"),
+			] {
+				let name = crate::i18n::translate(name);
 				if choice != 0 && !enhanced && choice != style {
 					continue;
 				}
@@ -866,7 +871,7 @@ impl RolesUi {
 										.truncate(),
 									);
 									ui.add_space(8.0);
-									ui.add(egui::Label::new(name).truncate());
+									ui.add(egui::Label::new(name.as_str()).truncate());
 								});
 							});
 						ui.interact(
@@ -881,7 +886,7 @@ impl RolesUi {
 						egui::Role::RadioButton,
 						choice == 0 || enhanced,
 						style == choice,
-						name,
+						&name,
 					)
 				});
 				if response.clicked() {
@@ -909,7 +914,7 @@ impl RolesUi {
 				}
 			}
 		});
-		section(ui, "Role color");
+		section(ui, "server-roles-role-color");
 		ui.weak(crate::i18n::translate(
 			"server-roles-display-members-use-the-color-of-their-highest-role-on-the",
 		));
@@ -1005,7 +1010,7 @@ impl RolesUi {
 			});
 		}
 		if state.can_edit_role_icon(guild, draft.id) {
-			section(ui, "Role icon");
+			section(ui, "server-roles-role-icon");
 			ui.weak(crate::i18n::translate(
 				"server-roles-display-upload-an-image-under-256-kib-or-choose-a-unicode",
 			));
@@ -1071,7 +1076,15 @@ impl RolesUi {
 									state
 										.user
 										.as_ref()
-										.map_or("Preview", |user| user.name.as_str()),
+										.map_or_else(
+											|| {
+												crate::i18n::translate(
+													"server-roles-display-preview",
+												)
+											},
+											|user| user.name.clone(),
+										)
+										.as_str(),
 									draft.colors,
 									14.0,
 								);
@@ -1325,12 +1338,12 @@ impl RolesUi {
 		if let Some(target) = self.switch_to {
 			match dialog::Confirm::new(
 				"discard-role-draft",
-				"Discard role changes?",
-				"Your unsaved changes to this role will be lost.",
+				"server-roles-discard-title",
+				"server-roles-discard-message",
 			)
 			.danger()
-			.confirm_label("Discard Changes")
-			.cancel_label("Keep Editing")
+			.confirm_label("channel-menu-discard-confirm")
+			.cancel_label("channel-menu-discard-keep")
 			.enabled(!state.server_admin.saving)
 			.show(ctx)
 			{
@@ -1348,14 +1361,17 @@ impl RolesUi {
 				.roles
 				.as_ref()
 				.and_then(|catalog| catalog.items.iter().find(|known| known.id == role))
-				.map_or("this role", |role| role.name.as_str());
+				.map_or_else(
+					|| crate::i18n::translate("server-roles-delete-this-role"),
+					|role| role.name.clone(),
+				);
 			let mut confirm = dialog::Confirm::new(
 				"delete-server-role",
-				"Delete role?",
-				format!("Members will lose every permission {name} grants. This cannot be undone."),
+				"server-roles-delete-title",
+				crate::i18n::translate_args("server-roles-delete-message", &[("name", &name)]),
 			)
 			.danger()
-			.confirm_label("Delete Role")
+			.confirm_label("server-roles-list-delete-role")
 			.enabled(
 				!state.server_admin.pending
 					&& !state.server_admin.needs_refresh

@@ -79,14 +79,18 @@ fn detail(ui: &mut egui::Ui, text: &str) {
 	);
 }
 const SPAM_FILTERS: [(u32, &str, Option<&str>); 3] = [
-	(3, "Filter all spam", None),
-	(2, "Filter messages from non-friends", Some("Recommended")),
-	(1, "Don't filter spam", None),
+	(3, "messaging-permissions-spam-filter-all", None),
+	(
+		2,
+		"messaging-permissions-spam-filter-non-friends",
+		Some("messaging-permissions-recommended"),
+	),
+	(1, "messaging-permissions-spam-filter-none", None),
 ];
-const ALLOW_DMS: &str = "Allow DMs from other server members";
+const ALLOW_DMS: &str = "messaging-permissions-allow-server-dms";
 const FILTER_REQUESTS: (&str, &str) = (
-	"Filter messages from server members I may not know",
-	"Move messages from people you may not know into Message Requests.",
+	"messaging-permissions-filter-requests",
+	"messaging-permissions-filter-requests-detail",
 );
 const GUILD_PICKER_WIDTH: f32 = 260.0;
 
@@ -113,7 +117,12 @@ fn pending_cards(ui: &mut egui::Ui, nav: &mut Navigation) {
 	design::card(ui, |ui| {
 		spam_heading(ui);
 		for (_, title, detail) in SPAM_FILTERS {
-			pending::radio(ui, &std::mem::take(&mut label), title, detail);
+			pending::radio(
+				ui,
+				&std::mem::take(&mut label),
+				&crate::i18n::translate(title),
+				detail.map(crate::i18n::translate).as_deref(),
+			);
 		}
 	});
 	nav.heading(ui, Tab::DirectMessages);
@@ -130,9 +139,14 @@ fn pending_cards(ui: &mut egui::Ui, nav: &mut Navigation) {
 			},
 		);
 		design::card_divider(ui);
-		pending::switch(ui, "", ALLOW_DMS, None);
+		pending::switch(ui, "", &crate::i18n::translate(ALLOW_DMS), None);
 		design::card_divider(ui);
-		pending::switch(ui, "", FILTER_REQUESTS.0, Some(FILTER_REQUESTS.1));
+		pending::switch(
+			ui,
+			"",
+			&crate::i18n::translate(FILTER_REQUESTS.0),
+			Some(&crate::i18n::translate(FILTER_REQUESTS.1)),
+		);
 	});
 }
 impl MessagingUi {
@@ -294,16 +308,16 @@ impl MessagingUi {
 			design::card(ui, |ui| {
 				design::section(ui, &crate::i18n::translate("messaging-permissions-messaging-permissions-settings-allow-friend-requests-from"), Some(&crate::i18n::translate("messaging-permissions-messaging-permissions-settings-control-who-can-send-you-friend-requests-and-how-they")));
 				for (label, bit, make, description) in [
-					("Everyone", 8, Change::Everyone as fn(bool) -> Change, None),
-					("Friends of friends", 2, Change::FriendsOfFriends, None),
-					("Server members", 4, Change::ServerMembers, Some("Only from servers where you also allow Direct Messages.")),
+					("messaging-permissions-friends-everyone", 8, Change::Everyone as fn(bool) -> Change, None),
+					("messaging-permissions-friends-of-friends", 2, Change::FriendsOfFriends, None),
+					("messaging-permissions-friends-server-members", 4, Change::ServerMembers, Some("messaging-permissions-friends-server-members-detail")),
 				] {
 					if let Some(value) = toggle(ui, label, description, settings.friend_source_flags & bit != 0) {
 						change = Some(make(value));
 					}
 				}
 				design::card_divider(ui);
-				if let Some(value) = toggle(ui, "Show personalized messages", Some("Show personalized messages on incoming friend requests. If you accept, the message will still appear in your DMs."), settings.personalized_requests) {
+				if let Some(value) = toggle(ui, "messaging-permissions-personalized-requests", Some("messaging-permissions-personalized-requests-detail"), settings.personalized_requests) {
 					change = Some(Change::PersonalizedRequests(value));
 				}
 			});
@@ -312,12 +326,12 @@ impl MessagingUi {
 			design::card(ui, |ui| {
 				design::hint(ui, &crate::i18n::translate("messaging-permissions-messaging-permissions-settings-settings-for-games-that-use-discord-to-power-their-social"));
 				ui.add_space(4.0);
-				if let Some(value) = toggle(ui, "Allow friends from games to send direct messages and invites", Some("Let friends from connected games send DMs and invite you to play, even when the game isn't open."), settings.game_friend_dms) {
+				if let Some(value) = toggle(ui, "messaging-permissions-game-friend-dms", Some("messaging-permissions-game-friend-dms-detail"), settings.game_friend_dms) {
 					change = Some(Change::GameFriendDms(value));
 				}
 				design::card_divider(ui);
 				design::section(ui, &crate::i18n::translate("messaging-permissions-messaging-permissions-settings-show-direct-messages-in-games"), Some(&crate::i18n::translate("messaging-permissions-messaging-permissions-settings-read-and-respond-to-dms-directly-from-in-game-chats")));
-				for (value, label) in [(1, "Show all DMs"), (2, "Show only DMs from people who also play the game"), (3, "Don't show DMs")] {
+				for (value, label) in [(1, "messaging-permissions-game-dms-all"), (2, "messaging-permissions-game-dms-players"), (3, "messaging-permissions-game-dms-none")] {
 					let selected = settings.game_dms == value || (settings.game_dms == 0 && value == 1);
 					if design::radio_row(ui, selected, label, None).clicked() && !selected {
 						change = Some(Change::GameDms(value));

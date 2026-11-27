@@ -485,7 +485,7 @@ impl ThemeEditor {
 							"theme-editor-show-theme-name",
 							&mut manifest.name,
 							32,
-							"My theme",
+							"theme-editor-my-theme",
 						);
 						if show_errors && manifest.name.trim().is_empty() {
 							design::notice(
@@ -499,7 +499,7 @@ impl ThemeEditor {
 							"theme-editor-show-created-by",
 							&mut manifest.author,
 							32,
-							"Your name",
+							"theme-editor-your-name",
 						);
 						if show_errors && manifest.author.trim().is_empty() {
 							design::notice(
@@ -576,7 +576,7 @@ impl ThemeEditor {
 								.changed();
 							}
 						}
-						changed |= row(ui, "Image fit", |ui| {
+						changed |= row(ui, "theme-editor-image-fit", |ui| {
 							let mut changed = false;
 							crate::design::Select::from_id_salt("image-fit")
 								.selected_text(crate::i18n::translate_if_key(
@@ -754,9 +754,9 @@ impl ThemeEditor {
 										changed |= row(
 											ui,
 											if index == 0 {
-												"Start color"
+												"theme-editor-start-color"
 											} else {
-												"End color"
+												"theme-editor-end-color"
 											},
 											|ui| color_input(ui, stop),
 										);
@@ -860,32 +860,86 @@ impl ThemeEditor {
 								);
 								let style = &mut theme.style;
 								for (label, value, default, min, max) in [
-									("Body text", &mut style.body_size, 15, 10, 28),
-									("Headings", &mut style.heading_size, 20, 12, 40),
-									("Buttons", &mut style.button_size, 14, 10, 28),
-									("Icons", &mut style.icon_size, 20, 16, 24),
-									("Small text", &mut style.small_size, 12, 10, 28),
-									("Code", &mut style.monospace_size, 14, 10, 28),
-									("Control height", &mut style.control_height, 32, 24, 56),
+									(
+										"theme-editor-metric-body-text",
+										&mut style.body_size,
+										15,
+										10,
+										28,
+									),
+									(
+										"theme-editor-metric-headings",
+										&mut style.heading_size,
+										20,
+										12,
+										40,
+									),
+									(
+										"theme-editor-metric-buttons",
+										&mut style.button_size,
+										14,
+										10,
+										28,
+									),
+									(
+										"theme-editor-metric-icons",
+										&mut style.icon_size,
+										20,
+										16,
+										24,
+									),
+									(
+										"theme-editor-metric-small-text",
+										&mut style.small_size,
+										12,
+										10,
+										28,
+									),
+									(
+										"theme-editor-metric-code",
+										&mut style.monospace_size,
+										14,
+										10,
+										28,
+									),
+									(
+										"theme-editor-metric-control-height",
+										&mut style.control_height,
+										32,
+										24,
+										56,
+									),
 								] {
 									changed |= metric(ui, label, value, default, min..=max);
 								}
 								changed |= pair_metric(
 									ui,
-									"Item spacing",
+									"theme-editor-metric-item-spacing",
 									&mut style.item_spacing,
 									[8, 8],
 								);
 								changed |= pair_metric(
 									ui,
-									"Button padding",
+									"theme-editor-metric-button-padding",
 									&mut style.button_padding,
 									[12, 6],
 								);
 								for (label, value, default) in [
-									("Control corners", &mut style.widget_radius, 8),
-									("Window corners", &mut style.window_radius, 12),
-									("Menu corners", &mut style.menu_radius, 12),
+									(
+										"theme-editor-metric-control-corners",
+										&mut style.widget_radius,
+										8,
+									),
+									(
+										"theme-editor-metric-window-corners",
+										&mut style.window_radius,
+										12,
+									),
+									(
+										"theme-editor-metric-menu-corners",
+										&mut style.menu_radius,
+										12,
+									),
 								] {
 									changed |= metric(ui, label, value, default, 0..=24);
 								}
@@ -921,7 +975,7 @@ impl ThemeEditor {
 							"theme-editor-show-source-url",
 							&mut manifest.source,
 							512,
-							"Optional",
+							"theme-editor-optional",
 						);
 						if self.show_errors
 							&& !manifest.source.is_empty()
@@ -1005,11 +1059,11 @@ impl ThemeEditor {
 		if self.discard {
 			match dialog::Confirm::new(
 				"discard-theme-draft",
-				"Discard unsaved theme?",
-				"Your changes have not been saved.",
+				"theme-editor-discard-title",
+				"theme-editor-discard-message",
 			)
-			.confirm_label("Discard changes")
-			.cancel_label("Keep editing")
+			.confirm_label("channel-menu-discard-confirm")
+			.cancel_label("channel-menu-discard-keep")
 			.danger()
 			.show(ui.ctx())
 			{
@@ -1384,36 +1438,41 @@ fn section_diagram(
 		)
 	};
 	let regions = [
-		(ImageRegion::TopBars, area(0.0, 0.0, 1.0, 0.11), "Top", 0_u8),
+		(
+			ImageRegion::TopBars,
+			area(0.0, 0.0, 1.0, 0.11),
+			"theme-editor-region-top",
+			0_u8,
+		),
 		(ImageRegion::ServerList, area(0.0, 0.11, 0.09, 0.89), "S", 0),
 		(
 			ImageRegion::PeopleChannels,
 			area(0.09, 0.11, 0.23, 0.89),
-			"People",
+			"theme-editor-region-people",
 			0,
 		),
 		(
 			ImageRegion::TopBars,
 			area(0.32, 0.11, 0.46, 0.11),
-			"Header",
+			"theme-editor-region-header",
 			1,
 		),
 		(
 			ImageRegion::MessageList,
 			area(0.32, 0.22, 0.46, 0.63),
-			"Messages",
+			"keybinds-section-messages",
 			0,
 		),
 		(
 			ImageRegion::MemberList,
 			area(0.78, 0.11, 0.22, 0.89),
-			"Members",
+			"members",
 			0,
 		),
 		(
 			ImageRegion::InputArea,
 			area(0.32, 0.85, 0.46, 0.15),
-			"Input",
+			"theme-editor-region-input",
 			0,
 		),
 	];
@@ -1480,7 +1539,11 @@ fn section_diagram(
 			} else {
 				short_label
 			};
-			let galley = painter.layout_no_wrap(label.into(), font, colors.text_strong);
+			let galley = painter.layout_no_wrap(
+				crate::i18n::translate_if_key(label),
+				font,
+				colors.text_strong,
+			);
 			let label_rect = egui::Rect::from_center_size(
 				region_rect.center(),
 				galley.size() + egui::vec2(6.0, 4.0),
@@ -1694,11 +1757,11 @@ fn color_override(
 	fallback: egui::Color32,
 ) -> bool {
 	let description = match key {
-		"accent" => Some("Buttons, selection and highlights"),
-		"text" => Some("Messages and regular labels"),
-		"muted" => Some("Timestamps and supporting text"),
-		"sidebar" => Some("Channel, conversation and member lists"),
-		"chat" => Some("Background behind your messages"),
+		"accent" => Some("theme-editor-color-accent-detail"),
+		"text" => Some("theme-editor-color-text-detail"),
+		"muted" => Some("theme-editor-color-muted-detail"),
+		"sidebar" => Some("theme-editor-color-sidebar-detail"),
+		"chat" => Some("theme-editor-color-chat-detail"),
 		_ => None,
 	};
 	let changed = settings_row(ui, color_label(key), description, |ui| {
@@ -1796,7 +1859,11 @@ fn pair_metric(
 		}
 		let mut edited = false;
 		for (index, n) in pair.iter_mut().enumerate() {
-			let axis = if index == 0 { "Horizontal" } else { "Vertical" };
+			let axis = crate::i18n::translate(if index == 0 {
+				"theme-editor-axis-horizontal"
+			} else {
+				"theme-editor-axis-vertical"
+			});
 			ui.label(
 				egui::RichText::new(axis)
 					.size(12.0)

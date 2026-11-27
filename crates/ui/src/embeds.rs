@@ -829,7 +829,7 @@ pub fn show(
 								));
 								link(
 									ui,
-									"Open video…",
+									&crate::i18n::translate("embeds-open-video"),
 									embed.url.as_deref().or_else(|| {
 										embed.video.as_ref().and_then(|v| v.url.as_deref())
 									}),
