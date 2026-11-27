@@ -684,10 +684,13 @@ mod tests {
 		settings.current.graphics_api = model::GraphicsApi::OpenGl;
 		settings.loaded = true;
 		settings.apply(&mut ui);
+		ui.native_title_bar_required = true;
 		settings.observe(&ui);
 		assert_eq!(ui.language, ui::i18n::Language::Czech);
 		assert!(ui.notification_options.current_channel);
 		assert_eq!(ui.graphics_api, model::GraphicsApi::OpenGl);
+		assert!(!ui.hide_title_bar);
+		assert!(!settings.current.hide_title_bar);
 		assert!(!settings.state.touched);
 		assert!(!settings.state.dirty);
 		ui.graphics_api = model::GraphicsApi::Vulkan;

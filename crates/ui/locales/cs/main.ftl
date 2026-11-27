@@ -57,6 +57,7 @@ general-custom-title-bar = Vlastní záhlaví okna
 general-custom-title-bar-description = Nahradí systémový titulní pruh záhlavím Serein ve stylu GTK 4.
 general-hide-title-bar = Skrýt titulní pruh Sereinu
 general-hide-title-bar-description = Místo něj použije systémový titulní pruh a tlačítka okna.
+general-hide-title-bar-driver-required = Vyžadováno ve Windows s Intel OpenGL, aby obsah okna správně lícoval s jeho rámem.
 general-keep-menu-bar = Ponechat Serein v řádku nabídek
 general-keep-system-tray = Ponechat Serein v oznamovací oblasti
 general-menu-bar-description = Zavřením okna zůstane Serein v řádku nabídek. Ukončíte ho z jeho nabídky.

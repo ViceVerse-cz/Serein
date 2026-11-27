@@ -546,6 +546,7 @@ fn main() -> eframe::Result {
 		gpu_preference,
 		graphics_api,
 		transparency_available,
+		hide_title_bar,
 		hide_window_decorations,
 		window_geometry,
 		custom_title_bar,
@@ -557,6 +558,7 @@ fn main() -> eframe::Result {
 			value.gpu_preference,
 			value.graphics_api,
 			value.transparency_blur,
+			value.hide_title_bar,
 			value.hide_window_decorations || value.custom_title_bar,
 			value.window_geometry,
 			cfg!(target_os = "linux") && value.custom_title_bar,
@@ -600,8 +602,9 @@ fn main() -> eframe::Result {
 					.with_titlebar_shown(false)
 					.with_fullsize_content_view(true)
 			} else if cfg!(target_os = "windows") {
-				// The app paints its own caption strip and buttons; see `ui::design::window_controls`.
-				builder.with_decorations(false)
+				// The app paints its own caption strip and buttons unless the native title bar
+				// is enabled; see `ui::design::window_controls`.
+				builder.with_decorations(hide_title_bar)
 			} else if cfg!(target_os = "linux") {
 				builder.with_decorations(!hide_window_decorations)
 			} else {
@@ -2077,7 +2080,15 @@ impl Desktop {
 		// Name the adapter actually in use; a mismatch with the preference is the useful
 		// detail in a graphics bug report.
 		if let Some(render_state) = cc.wgpu_render_state.as_ref() {
-			messaging.gpu_adapter = gpu::describe(&render_state.adapter.get_info());
+			let info = render_state.adapter.get_info();
+			messaging.gpu_adapter = gpu::describe(&info);
+			if gpu::requires_native_title_bar(&info) {
+				messaging.native_title_bar_required = true;
+				eprintln!(
+					"[Serein] Using native Windows title bar for {} to avoid OpenGL window offset",
+					messaging.gpu_adapter
+				);
+			}
 			gpu_video::install(render_state);
 		}
 		let startup = startup::Startup::new(&cc.egui_ctx, &runtime, &mut messaging, demo);
@@ -2136,6 +2147,11 @@ impl Desktop {
 			// Saved or unreadable preferences may already count as an answer.
 			messaging.steady_refresh_rate = false;
 			messaging.steady_refresh_prompted = false;
+		}
+		// `--demo-native-title-bar`: previews the driver-required native title bar state offline.
+		#[cfg(feature = "demo")]
+		if demo && std::env::args().any(|arg| arg == "--demo-native-title-bar") {
+			messaging.native_title_bar_required = true;
 		}
 		// `--demo-call-stream`: the direct-message peer shares a synthetic screen this device is
 		// watching, so the stream stage renders offline without any capture or network.
@@ -2652,6 +2668,10 @@ impl Desktop {
 			} else {
 				CornerPreference::DoNotRound
 			});
+			let native_title_bar = messaging.uses_native_title_bar();
+			if window.is_decorated() != native_title_bar {
+				window.set_decorations(native_title_bar);
+			}
 			align_undecorated_surface(&window);
 		}
 		// The GPU surface and X11 visual are selected at startup. Opaque launches
@@ -6997,7 +7017,9 @@ impl eframe::App for Desktop {
 						.inner_margin(egui::Margin::symmetric(16, 0)),
 				)
 				.show(ui, |ui| {
-					ui::design::window_drag(ui, ui.max_rect());
+					if !self.messaging.uses_native_title_bar() {
+						ui::design::window_drag(ui, ui.max_rect());
+					}
 					ui.horizontal_centered(|ui| {
 						ui.add_space(self.traffic_light_inset());
 						let (rect, _) =
@@ -7029,7 +7051,7 @@ impl eframe::App for Desktop {
 							);
 						});
 						ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-							if !self.messaging.hide_title_bar {
+							if !self.messaging.uses_native_title_bar() {
 								ui::design::window_controls(ui);
 							}
 							if ui
@@ -7615,18 +7637,22 @@ impl eframe::App for Desktop {
 			}
 		}
 		#[cfg(target_os = "windows")]
-		if self.window.is_decorated() != self.messaging.hide_title_bar {
-			self.window.set_decorations(self.messaging.hide_title_bar);
-			align_undecorated_surface(&self.window);
+		{
+			let native_title_bar = self.messaging.uses_native_title_bar();
+			if self.window.is_decorated() != native_title_bar {
+				self.window.set_decorations(native_title_bar);
+				align_undecorated_surface(&self.window);
+			}
 		}
 		#[cfg(target_os = "macos")]
-		if let Err(error) =
-			platform::window::set_native_title_bar(&self.window, self.messaging.hide_title_bar)
-		{
+		if let Err(error) = platform::window::set_native_title_bar(
+			&self.window,
+			self.messaging.uses_native_title_bar(),
+		) {
 			self.messaging.hide_title_bar = false;
 			self.state.status = error;
 		}
-		if !self.messaging.hide_title_bar {
+		if !self.messaging.uses_native_title_bar() {
 			frame.set_traffic_lights_position(&ctx, egui::Rangef::new(0.0, title_bar_height), 12.0);
 		}
 		self.sync_customization(&ctx);
@@ -7800,7 +7826,8 @@ impl eframe::App for Desktop {
 		}
 		ui::design::window_resize_if(
 			&ctx,
-			cfg!(target_os = "windows") || self.messaging.uses_custom_title_bar(),
+			(cfg!(target_os = "windows") && !self.messaging.uses_native_title_bar())
+				|| self.messaging.uses_custom_title_bar(),
 		);
 		#[cfg(target_os = "linux")]
 		self.round_window_corners(&ctx, frame);

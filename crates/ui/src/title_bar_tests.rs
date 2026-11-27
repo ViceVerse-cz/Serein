@@ -116,6 +116,23 @@ fn hidden_title_strip_does_not_start_window_drag() {
 		)
 		.contains(&ViewportCommand::StartDrag)
 	);
+	run(
+		&mut view,
+		&mut state,
+		pointer(pos, PointerButton::Primary, false),
+	);
+	view.hide_title_bar = false;
+	view.native_title_bar_required = true;
+	run(&mut view, &mut state, vec![]);
+	assert!(
+		!run(
+			&mut view,
+			&mut state,
+			pointer(pos, PointerButton::Primary, true)
+		)
+		.contains(&ViewportCommand::StartDrag)
+	);
+	assert!(!view.hide_title_bar);
 }
 
 #[cfg(target_os = "windows")]

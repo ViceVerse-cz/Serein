@@ -57,6 +57,7 @@ general-custom-title-bar = 사용자 지정 제목 표시줄
 general-custom-title-bar-description = 시스템 제목 표시줄을 Serein의 GTK 4 스타일 헤더로 바꿉니다.
 general-hide-title-bar = Serein 제목 표시줄 숨기기
 general-hide-title-bar-description = 대신 시스템 제목 표시줄과 창 버튼을 사용합니다.
+general-hide-title-bar-driver-required = 창 내용이 프레임과 올바르게 정렬되도록 Windows의 Intel OpenGL에서 필요합니다.
 general-keep-menu-bar = 메뉴 막대에 Serein 유지
 general-keep-system-tray = 시스템 트레이에 Serein 유지
 general-menu-bar-description = 창을 닫아도 Serein이 메뉴 막대에 남습니다. 완전히 종료하려면 메뉴에서 종료를 선택하세요.

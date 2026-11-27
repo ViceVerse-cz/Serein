@@ -57,6 +57,7 @@ general-custom-title-bar = Thanh tiêu đề tùy chỉnh
 general-custom-title-bar-description = Thay thế thanh tiêu đề hệ thống bằng thanh tiêu đề kiểu GTK 4 của riêng Serein.
 general-hide-title-bar = Ẩn thanh tiêu đề Serein
 general-hide-title-bar-description = Thay vào đó hãy sử dụng thanh tiêu đề hệ thống và các nút cửa sổ.
+general-hide-title-bar-driver-required = Bắt buộc trên Windows với Intel OpenGL để nội dung cửa sổ khớp với khung cửa sổ.
 general-keep-menu-bar = Giữ Serein trong thanh menu
 general-keep-system-tray = Giữ Serein trong khay hệ thống
 general-menu-bar-description = Đóng cửa sổ vẫn giữ Serein ở thanh menu. Thoát khỏi menu của nó để thoát.
