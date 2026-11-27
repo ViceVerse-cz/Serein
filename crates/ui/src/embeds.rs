@@ -183,7 +183,14 @@ pub(crate) fn video_attachment(embed: &Embed) -> Option<model::Attachment> {
 	let video = embed.video.as_ref().filter(|_| embed.kind != "gifv")?;
 	let proxy = video.proxy_url.as_deref().filter(|url| {
 		let path = url.split(['?', '#']).next().unwrap_or(url);
-		path.rsplit_once('.').is_some_and(|(_, extension)| {
+		// The proxy may carry the source query percent-encoded after the file name.
+		let name = path.rsplit('/').next().unwrap_or(path);
+		let name = name
+			.as_bytes()
+			.windows(3)
+			.position(|window| window.eq_ignore_ascii_case(b"%3f"))
+			.map_or(name, |end| &name[..end]);
+		name.rsplit_once('.').is_some_and(|(_, extension)| {
 			["mp4", "mov", "m4v", "webm", "mkv"]
 				.iter()
 				.any(|kind| extension.eq_ignore_ascii_case(kind))
@@ -1143,6 +1150,13 @@ mod tests {
 		};
 		assert!(!proxied("www.youtube.com/embed/synthetic"));
 		assert!(proxied("example.org/clip.WebM?tag=1"));
+		// The source query encoded in its own segment or after the name, as Reddit links carry.
+		assert!(proxied(
+			"%3Fm%3DDASHPlaylist.mpd%26v%3D1/https/packaged-media.example/abc/pb/m2-res_1080p.mp4"
+		));
+		assert!(proxied(
+			"packaged-media.example/abc/pb/m2-res_1080p.mp4%3Fm%3DDASHPlaylist.mpd%26v%3D1"
+		));
 		// Without a proxied file the card asks the media worker for the clip's frames.
 		embed.video.as_mut().unwrap().proxy_url = None;
 		assert!(video_attachment(&embed).is_none());
