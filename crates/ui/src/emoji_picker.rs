@@ -2921,7 +2921,8 @@ mod tests {
 		assert!(!matches(&synced, "discordapp"));
 		assert!(!matches(&synced, "attachments"));
 		assert!(!matches(&synced, "gif"));
-		// Typing inside Favorites filters locally with zero remote KLIPY search commands.
+		// Typing inside Favorites filters the displayed grid locally with zero remote requests.
+		ctx.enable_accesskit();
 		let mut picker = Picker {
 			open: true,
 			focus: true,
@@ -2938,7 +2939,7 @@ mod tests {
 		               commands: &mut Vec<Command>,
 		               time: f64,
 		               events| {
-			ctx.run_ui(
+			let output = ctx.run_ui(
 				egui::RawInput {
 					time: Some(time),
 					screen_rect: Some(egui::Rect::from_min_size(
@@ -2951,10 +2952,50 @@ mod tests {
 				|ui| {
 					picker.show(ui, state, channel, &mut avatars, commands);
 				},
-			)
-			.drop_without_applying_deltas();
+			);
+			let labels: Vec<String> = output
+				.platform_output
+				.accesskit_update
+				.as_ref()
+				.map(|update| {
+					update
+						.nodes
+						.iter()
+						.filter_map(|(_, node)| node.label().map(str::to_owned))
+						.collect()
+				})
+				.unwrap_or_default();
+			let mut texts = Vec::new();
+			fn collect_texts(shape: &egui::Shape, out: &mut Vec<String>) {
+				match shape {
+					egui::Shape::Text(text) => out.push(text.galley.text().to_owned()),
+					egui::Shape::Vec(shapes) => {
+						for child in shapes {
+							collect_texts(child, out);
+						}
+					}
+					_ => {}
+				}
+			}
+			for clipped in &output.shapes {
+				collect_texts(&clipped.shape, &mut texts);
+			}
+			output.drop_without_applying_deltas();
+			(labels, texts)
 		};
+		let favorite_label = crate::i18n::translate("emoji-picker-gif-grid-favorite");
+		let send_gif_label = crate::i18n::translate("emoji-picker-gif-grid-send-gif");
+		let empty_heading = crate::i18n::translate("emoji-picker-gif-body-no-gifs-found");
 		run(&mut picker, &mut state, &mut commands, 0.0, vec![]);
+		let (initial_labels, _) = run(&mut picker, &mut state, &mut commands, 0.05, vec![]);
+		assert_eq!(
+			initial_labels
+				.iter()
+				.filter(|label| label.as_str() == favorite_label)
+				.count(),
+			2
+		);
+		assert!(initial_labels.iter().any(|label| label.contains("Happy dance")));
 		run(
 			&mut picker,
 			&mut state,
@@ -2962,19 +3003,39 @@ mod tests {
 			0.1,
 			vec![egui::Event::Text("parrot".into())],
 		);
-		// Past the remote debounce window, Favorites still emits no `Command::Gifs`.
-		run(&mut picker, &mut state, &mut commands, 1.0, vec![]);
+		// Past the remote debounce window, Favorites shows only the matching GIF and emits no `Command::Gifs`.
+		let (filtered_labels, filtered_texts) =
+			run(&mut picker, &mut state, &mut commands, 1.0, vec![]);
 		assert_eq!(picker.gif_query, "parrot");
 		assert_eq!(picker.gif_section, GifSection::Favorites);
+		assert_eq!(
+			filtered_labels
+				.iter()
+				.filter(|label| label.as_str() == favorite_label)
+				.count(),
+			1
+		);
+		assert!(filtered_labels.iter().any(|label| label == &send_gif_label));
+		assert!(!filtered_labels.iter().any(|label| label.contains("Happy dance")));
+		assert!(!filtered_texts.iter().any(|text| text == &empty_heading));
 		assert!(
 			!commands
 				.iter()
 				.any(|command| matches!(command, Command::Gifs { .. })),
 			"searching Favorites must not trigger a remote KLIPY search"
 		);
-		// Non-matching query stays in Favorites without emitting remote requests.
+		// Non-matching query renders the no-results state without emitting remote requests.
 		picker.gif_query = "no-such-favorite-xyz".into();
-		run(&mut picker, &mut state, &mut commands, 2.0, vec![]);
+		let (empty_labels, empty_texts) =
+			run(&mut picker, &mut state, &mut commands, 2.0, vec![]);
+		assert_eq!(
+			empty_labels
+				.iter()
+				.filter(|label| label.as_str() == favorite_label)
+				.count(),
+			0
+		);
+		assert!(empty_texts.iter().any(|text| text == &empty_heading));
 		assert!(
 			!commands
 				.iter()
