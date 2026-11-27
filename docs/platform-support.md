@@ -123,14 +123,17 @@ Linux packaging uses the target distribution's native tools: `dpkg-dev` for Debi
 `desktop-file-utils`. See [Linux packaging](../packaging/linux/README.md) for build
 dependencies, installation commands and supported distribution versions.
 
-`cargo xtask package --format appimage` creates a Linux x86_64 Type 2 AppImage
-including voice. A separate Ubuntu 24.04 (glibc 2.39) release job publishes it
-alongside the native packages and release checksums. It uses host GTK4/WebKitGTK 6.0,
-audio and graphics libraries, rather than bundling a separate browser runtime. See
-[AppImage setup and builds](../packaging/appimage/README.md) for installation
-requirements, pinned tooling and package inspection. Native AppImage startup and
-upgrading remain unverified in
-the initial fast local pass.
+`cargo xtask package --format appimage` creates a portable Linux `x86_64` Type 2
+Anylinux DwarFS AppImage including voice. A separate `archlinux:base` release job
+publishes it alongside the native packages and release checksums. It bundles glibc,
+GTK4, WebKitGTK 6.0 (with `sharun`-wrapped `WebKit*Process` helpers), and core
+GStreamer/PipeWire plugins while loading host GPU drivers via `cross-libc-dlopen`
+(`USE_HOST_DRIVERS=1`), and still requires a host graphical session, portal backend,
+and Secret Service keyring. See
+[AppImage setup and builds](../packaging/appimage/README.md) for host expectations,
+pinned tooling, and package inspection. Full Arch container Serein packaging, native
+multi-distro AppImage startup, and release upgrading remain unverified here until CI
+and desktop validation.
 
 `cargo xtask package` builds the locked default release configuration. macOS gets `dist/Serein.app`; Windows gets an executable plus license files; Debian/Ubuntu Linux additionally produces a `.deb` with desktop integration and dependency metadata. On macOS, packaging replaces the executable through a fresh sibling file and rename, then seals the completed bundle with `codesign --force --sign -` and runs `codesign --verify --strict`. This is a **local ad-hoc signature**, with no signing identity, Developer ID certificate, or notarization. It verifies the staged bundle's integrity and does not certify Gatekeeper acceptance or a trusted publisher. The distinction between signature validity and trust is described in [Apple's code-signing guidance](https://developer.apple.com/library/archive/technotes/tn2206/_index.html).
 
@@ -405,7 +408,7 @@ against the same checksum list. The updater scans the installed image for reusab
 blocks and downloads missing HTTPS ranges, then verifies the entire result with
 SHA-256. Missing/incompatible delta metadata or reconstruction failure falls back
 to a full download. The built-in implementation supports the zsync 0.6.2/MD4 format
-produced by the Ubuntu packaging job; it does not run an external updater. Offline
+produced by the AppImage packaging job (`appimagetool` 0.7.0); it does not run an external updater. Offline
 debug checks cover shifted-block reuse and integrity rejection; real release-to-release
 bandwidth savings and Linux upgrade behavior remain unverified.
 

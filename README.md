@@ -205,7 +205,7 @@ Download `serein-<version>-Linux-X64.AppImage` from [Releases](https://github.co
 chmod +x ./serein-*-Linux-X64.AppImage
 ./serein-*-Linux-X64.AppImage
 ```
-Keep the AppImage in a writable directory to receive in-app updates via **Settings → Updates**. Note that the AppImage uses host GTK4 and WebKitGTK 6.0 libraries; see [AppImage setup and runtime dependencies](packaging/appimage/README.md) for host requirements.
+Keep the AppImage in a writable directory to receive in-app updates via **Settings → Updates**. The AppImage bundles its own GTK4, WebKitGTK 6.0, GStreamer/PipeWire, and glibc runtime libraries while loading host GPU drivers via `cross-libc-dlopen`; see [AppImage setup and runtime details](packaging/appimage/README.md) for host graphics/portal expectations.
 
 </details>
 

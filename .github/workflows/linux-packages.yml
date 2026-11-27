@@ -109,7 +109,7 @@ jobs:
 
   appimage:
     runs-on: ubuntu-latest
-    container: ubuntu:24.04
+    container: archlinux:base
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7.0.1
@@ -123,7 +123,9 @@ jobs:
       - name: Install build tools
         run: |
           bash packaging/linux/install-build-deps.sh
-          apt-get install -y --no-install-recommends zsync
+          pacman -Syu --noconfirm --needed \
+            gst-plugins-base gst-plugins-good gst-plugins-bad-libs gst-plugin-pipewire \
+            glib-networking p11-kit bubblewrap xdg-dbus-proxy patchelf shared-mime-info
       - name: Create unprivileged builder
         run: |
           useradd --create-home builder
@@ -139,6 +141,7 @@ jobs:
             export PATH="$HOME/.cargo/bin:$PATH"
             rustup show active-toolchain
             bash packaging/appimage/install-tools.sh
+            SEREIN_RELEASE_TAG= PYTHONDONTWRITEBYTECODE=1 python3 packaging/appimage/test_build.py --with-tools
             cargo xtask package --format appimage
           BUILD
       - name: Collect AppImage
