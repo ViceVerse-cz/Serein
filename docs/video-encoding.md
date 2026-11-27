@@ -1,9 +1,9 @@
 # Hardware video encoding
 
-Serein already encodes H.264 on the GPU where the platform offers it. This note records what the
-official Discord client does, what the current encoder path can and cannot reach, and the plan for
-a direct NVENC backend that exposes the quality controls of the RTX 40/50 (Ada and Blackwell) NVENC
-generation. **Everything under "Plan" is intended work, not shipped behavior.**
+Serein sends H.264 on every platform, and on Windows it now encodes it in the driver's own NVENC
+session where one exists, keeping the Media Foundation transform and the openh264 software encoder as
+fallbacks. This note records the encoders the official Discord client ships, what the NVENC backend
+configures, and what is still missing before the stream itself can carry H.265 or AV1.
 
 ## What Serein sends today
 
@@ -13,23 +13,28 @@ receive-only and only on Linux (`available_h265`/`available_av1`). `crates/disco
 is a small Annex-B H.264 packetizer (RFC 6184 single NAL and FU-A); there is no AV1 or H.265
 packetizer for sending.
 
-Screen sharing and the camera share one hardware encoder seam, `crates/discord-voice/src/video_encode.rs`
-(`Config`, `Profile`, `hardware::Encoder`). A `ScreenEncoder` prefers it and keeps an openh264 encoder
-for machines and pictures the hardware refuses, handing over to openh264 mid-stream when the hardware
-fails.
+Screen sharing and the camera share one encoder seam, `crates/discord-voice/src/video_encode.rs`
+(`Config`, `Profile`, `hardware::Encoder`). On Windows that seam prefers the direct NVENC session
+(`crates/discord-voice/src/video_encode_nvenc.rs`), then the Media Foundation transform
+(`crates/discord-voice/src/video_encode_windows.rs`), and the caller keeps an openh264 encoder for
+everything both refuse and for mid-stream hand-over. On macOS the seam is VideoToolbox
+(`crates/discord-voice/src/video_encode_macos.rs`); on Linux the GStreamer pipeline encodes with
+`vah264enc` or `nvh264enc` and falls back to software.
 
-- **Windows**: a Media Foundation H.264 transform (`crates/discord-voice/src/video_encode_windows.rs`)
-  with the driver's encoder, peak-constrained VBR, no B-frames, `CODECAPI_AVLowLatencyMode`, a keyframe
-  period from the profile, and NV12 input converted on the CPU.
-- **macOS**: VideoToolbox H.264 (`crates/discord-voice/src/video_encode_macos.rs`).
-- **Linux**: `vah264enc` or `nvh264enc` inside the GStreamer capture pipeline, with a software
-  fallback.
+What the NVENC backend configures, and why it is not just "hardware H.264":
 
-So on a machine whose driver ships an H.264 transform — the RTX 5090 with driver 617.42 this note was
-written on — the existing Windows path encodes H.264 in hardware already; nothing in the UI or the
-diagnostics says which transform was chosen, which is why P0 adds that line. What the path cannot
-reach is everything below: Media Foundation's codec API exposes a bitrate, a GOP and a quality-vs-speed
-knob, not NVENC's rate-control and tuning fields.
+- The P5 preset tier with the low-latency tuning, which is the pair the official client exposes as a
+  preset and a latency setting.
+- Peak-constrained VBR: the transport feedback keeps owning the mean bitrate, the peak stays at 1.5×
+  the mean, and the VBV buffer is 250 ms at the mean rate, mirroring the Media Foundation backend so
+  congestion control behaves the same whichever encoder wins.
+- Adaptive quantization on, driven by the preset's auto strength. Lookahead, temporal AQ and
+  multi-pass stay off: each trades a picture of latency for rate accuracy, which an interactive
+  screen share cannot spend.
+- Main profile for screen sharing and Baseline for the camera, I/P pictures only, a keyframe every 10
+  seconds while sharing and every 2 seconds on the camera, and SPS/PPS repeated with every IDR so a
+  viewer that joined or lost packets can decode from any keyframe.
+- A live rate change through `nvEncReconfigureEncoder`, so a congestion cut does not cost an IDR.
 
 ## What the official client does
 
@@ -54,8 +59,8 @@ Encoders and codecs, from the module's strings:
 - NVENC knobs the client itself keeps: `NVENC config, codec:`, `latency:`, `preset:`, `vbv buffer size:`,
   and the tokens `Preset rc_mode tuning multi_pass` with `Low Medium High Unlimited` and `UltraLow`.
   There is no reference to lookahead depth, temporal AQ, multipass full-res or ultra-high-quality
-  tuning, so the heavy NVENC tuning discussed for Blackwell is not something the official client
-  turns on.
+  tuning, so the heavy NVENC tuning that Blackwell enables is not something the official client turns
+  on.
 - Rate control and quality surveillance per codec: `Encoded.Qp.Vp9`, `Encoded.Qp.H265`, `Encoded.Qp.Av1`
   with `.S0`, `.S1`, `.S2` spatial layers, `WebRTC-QCM-Static-AV1`, `WebRTC-QCM-Dynamic-AV1`,
   `WebRTC-AV1-OverridePriorityBitrate`, `av1_kbps`, `av1_qp_low`, `av1_qp_high`.
@@ -66,101 +71,53 @@ Encoders and codecs, from the module's strings:
   `dxgi_display_source`, `gdi_window_source` (`BitBlt` and `PrintWindow`), `video_hook`,
   `capture backend in use:`, and `hdr_tonemapped` on the captured surface.
 
-The picture that emerges: the official client picks a codec after probing the GPU vendor's encoder
-(NVENC, AMF, QSV, Media Foundation), configures a preset, a rate-control mode, a tuning, an optional
-multi-pass and a VBV buffer, and keeps per-codec QP statistics for its quality controller. It does
-**not** appear to use the aggressive AV1 tuning presets that Blackwell enables.
+The official client picks a codec after probing the GPU vendor's encoder, configures a preset, a
+rate-control mode, a tuning, an optional multi-pass and a VBV buffer, and keeps per-codec QP
+statistics for its quality controller. Serein's NVENC backend follows that shape for the codec it
+sends: probe, preset and tuning, peak-constrained VBR with a VBV buffer, and a live reconfiguration
+instead of a new session.
 
-## What a direct NVENC backend adds
+## What the backend needs to load
 
-- Rate control the Media Foundation transform cannot express: VBV with separate average and maximum
-  rates, CQ/target-quality mode, lookahead, adaptive quantization including temporal AQ, and
-  multi-pass.
-- Tuning info, including ultra-high quality for AV1 and HEVC on Ada and Blackwell (H.264 keeps the
-  high-quality tuning).
-- Encode for H.265 and AV1 on the same session type, which is the prerequisite for sending those
-  codecs at all.
-- One less media-session hop: the frame goes from our NV12 buffer into a D3D11 texture owned by this
-  process, not through a Media Foundation transform graph.
+The crate links nothing at build time: `mini-nvcodec 0.2.0` (MIT OR Apache-2.0) declares the SDK 13.1
+layouts and loads the driver's `nvEncodeAPI64.dll` at run time, and `mini-cuda 0.2.1` (MIT OR
+Apache-2.0) supplies the CUDA driver table the session binds to. A machine without the library,
+without an NVIDIA GPU, or below the NVENC 12.0 floor reports no encoder, and the Windows seam falls
+through to Media Foundation and then to openh264 — the same behavior a machine with neither had
+before. The probing line is printed once per process under `SEREIN_VOICE_DIAGNOSTICS=1`:
 
-It does not remove the H.264 hardware encoder that already works, and it does not by itself change
-what the stream carries: payload 101 and H.264 remain the only negotiated send format until the
-protocol side below moves.
+```
+[Serein voice Video] nvenc: api=13.1 h264=true hevc=true av1=true
+```
 
-## Plan
+Measured on an RTX 5090 with driver 617.42: NVENC 13.1, H.264, HEVC and AV1 encode available. A
+release-build measurement of one frame per call, including the NV12 upload, and the software encoder
+for comparison on the same content:
 
-**P0 — capability probe, no behavior change.** A new `crates/discord-voice/src/video_encode_nvenc.rs`
-loads `nvEncodeAPI64.dll` from the driver, reads the API version with
-`NvEncodeAPIGetMaxSupportedVersion`, creates an instance, and records which encode GUIDs the machine
-offers (`NV_ENC_CODEC_H264_GUID`, `HEVC`, `AV1`), the maximum dimensions, and the driver version.
-The probe runs once per process, caches its answer, and prints one line under
-`SEREIN_VOICE_DIAGNOSTICS=1` in the shape the official client uses (`nvenc: h264=yes hevc=yes av1=yes`).
-The same commit names the Media Foundation transform the current path activates, so the existing
-hardware path becomes measurable instead of assumed. Pure parts (capability record, preset and
-rate-control mapping) get unit tests; the probe itself is verified by running it on the RTX 5090 here.
+| Picture | NVENC | openh264 |
+| --- | --- | --- |
+| 1920×1080 | 7.5 ms | 4.0 ms |
+| 2560×1440 | 9.6 ms | 7.3 ms |
+| 3840×2160 | 15.7 ms | 17.5 ms |
 
-**P1 — NVENC H.264 for screen sharing.** `Encoder` gains the NVENC backend behind the existing
-`video_encode::Config` interface, so the call sites in `crates/discord-voice/src/screen.rs` and
-`crates/discord-voice/src/camera.rs` do not change. Order of preference becomes NVENC, Media
-Foundation, openh264. Input stays NV12 through `crates/discord-voice/src/screen/convert.rs`, uploaded
-to one reusable D3D11 texture; the transport-feedback target becomes the VBV maximum and the average
-stays below it, so congestion control keeps working. Keyframes stay on the two-second period the
-software encoder uses, B-frames stay off, and `NV_ENC_RECONFIGURE_PARAMS` applies bitrate changes
-without a new IDR where the driver allows it.
+The hardware figure is wall-clock time on the encoder thread, mostly the synchronous copy and the
+driver wait, not CPU. At 60 fps it takes about half the frame budget at 1080p; at 30 fps a third.
 
-**P2 — camera.** The same backend with the Baseline profile the camera sends today, and the same
-fallback chain. This is a configuration change once P1 lands.
+## Remaining work
 
-**P3 — H.265 and AV1 sending.** This is protocol work, not encoder work: `stream_codecs` must advertise
+**H.265 and AV1 sending.** This is protocol work, not encoder work: `stream_codecs` must advertise
 `encode: true` for the chosen codec, `crates/discord-voice/src/video.rs` needs H.265 and AV1
 packetizers (the AV1 dependency descriptor is the same layout `video_av1.rs` and the receive path
-already understand), and keyframe and parameter-set detection already exists in `video_codec.rs`.
-It also needs **decoders on Windows and macOS**, because `available_av1` and `available_h265` are
-Linux-only today: Serein clients would not be able to decode each other's H.265 or AV1. Interoperation
-with the official client must be verified live before this ships; it is the one part of the plan that
-cannot be established synthetically.
+already understand), and keyframe and parameter-set detection already exists in `video_codec.rs`. It
+also needs **decoders on Windows and macOS**, because `available_av1` and `available_h265` are
+Linux-only today: Serein clients would not be able to decode each other. Interoperation with the
+official client must be verified live; it cannot be established synthetically.
 
-**P4 — quality controls.** Presets that expand into encoder settings rather than only a bitrate:
-a latency-first setting (no B-frames, no lookahead, CQ off) and a quality setting (lookahead, temporal
-AQ, multi-pass) per codec, with the transport-feedback ceiling still enforced. UI work stays inside
-`crates/ui/src/screen.rs` and the settings catalogs.
+**Quality controls.** The probe already reports HEVC and AV1 support, so a quality setting per codec
+(lookahead, temporal AQ and multi-pass for a quality-first mode, or NVENC's ultra-high-quality tuning
+where the driver advertises it) is a configuration change on top of this backend, gated by the
+transport ceiling. It should stay an explicit choice: a 32-frame lookahead is about half a second of
+latency at 60 fps.
 
-## Tuning mapping
-
-The NVENC settings discussed for Blackwell, as ffmpeg spells them, map onto `nvEncodeAPI.h` fields.
-Field names are quoted from the SDK header as of NVENC 12.x and are confirmed against the installed
-header during P0.
-
-| ffmpeg option | NVENC API | Note |
-| --- | --- | --- |
-| `-tune uhq` | `NV_ENC_INITIALIZE_PARAMS::tuningInfo = NV_ENC_TUNING_INFO_ULTRA_HIGH_QUALITY` | Ada and Blackwell, AV1 and HEVC |
-| `-temporal-aq 1` | `NV_ENC_CONFIG::rcParams.enableTemporalAQ` | needs lookahead to be useful |
-| `-rc-lookahead 32` | `rcParams.lookaheadDepth` | about half a second at 60 fps; quality mode only |
-| `-multipass fullres` | `rcParams.multiPass = NV_ENC_MULTI_PASS_ENABLED` | more encoder load, better rate accuracy |
-| `-b_adapt 1` | codec config B-frame adaptivity | only meaningful with B-frames |
-| `-rc vbr -cq 35` | `rateControlMode = NV_ENC_PARAMS_RC_VBR`, `rcParams.targetQuality` | 0–51 scale, lower is better |
-| `-minrate 0 -maxrate 3M` | `rcParams.averageBitRate`, `rcParams.maxBitRate`, `rcParams.vbvBufferSize` | maximum must stay under the transport ceiling |
-
-## Risks and evidence needed
-
-- **Unsafe code.** `crates/discord-voice` denies `unsafe_code`; the NVENC module needs a module-level
-  `#![allow(unsafe_code)]` with a safety comment, the same shape `video_encode_windows.rs` uses today.
-  The vtable is loaded by hand, so a wrong struct layout faults on the first call — P0 must verify the
-  instance against `NvEncodeAPIGetMaxSupportedVersion` before any session opens.
-- **Driver variance.** Older drivers lack AV1 or HEVC encode and some lack the tuning enums; every
-  setting must be requested through a capability check and degrade to the next backend, never fail a
-  share.
-- **NVENC session limits** on consumer drivers restrict concurrent sessions. One share is one session,
-  but camera plus screen plus a second call must not fight for it silently.
-- **Rate-control conflict.** The transport feedback controller currently owns the bitrate target. A CQ
-  mode that ignores `maxBitRate` would break congestion response, so CQ stays inside the ceiling.
-- **Latency.** Lookahead and multi-pass trade latency for rate accuracy; a 32-frame lookahead is about
-  0.5 s at 60 fps, unacceptable as a default for interactive sharing. Quality mode must be an explicit
-  choice, not the default.
-- **Measurement.** Claims of "better quality at the same bitrate" need a comparison against the
-  current Media Foundation path and openh264 on the same synthetic content, at the same bitrate and
-  frame rate, with file size, PSNR/SSIM and encode time reported in `docs/performance.md` when the
-  feature ships.
-- **Interoperability.** H.264 over payload 101 is already the working send format; H.265 and AV1
-  sending depend on the official client accepting them from an unofficial sender and on receivers
-  decoding them, which only a live call can establish.
+**Other vendors.** AMD's AMF and Intel's QSV expose the same shape of controls. The seam added here
+takes one more backend each; neither is planned yet.

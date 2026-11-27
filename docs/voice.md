@@ -674,7 +674,21 @@ The native demo (`cargo run --locked -p serein -- --demo --demo-voice`) exposes 
 
 ### Windows hardware encoder contracts
 
-Camera and screen sharing use the same Media Foundation hardware encoder. Forced
+Camera and screen sharing now prefer a direct NVENC session and keep the Media Foundation transform
+as the fallback: `crates/discord-voice/src/video_encode_nvenc.rs` loads the driver's
+`nvEncodeAPI64.dll` at run time, encodes H.264 from the same NV12 picture the Media Foundation path
+builds, and configures the P5 preset with low-latency tuning, peak-constrained VBR (peak 1.5× the
+mean, a 250 ms buffer) and adaptive quantization. Lookahead, temporal AQ and multi-pass stay off
+because each costs a picture of latency. A live congestion cut reconfigures the session without a new
+IDR, keyframes stay on the 10-second screen and 2-second camera cadence, and every IDR repeats
+SPS/PPS so a viewer that joined or lost packets can decode from it. A machine without the library,
+without an NVIDIA GPU, or below the NVENC 12.0 floor falls through to Media Foundation and then to
+openh264; the probe result is printed once under `SEREIN_VOICE_DIAGNOSTICS=1`
+(`nvenc: api=13.1 h264=true hevc=true av1=true`). H.265 and AV1 encode are available from the driver
+but the stream still carries H.264 only, as `docs/video-encoding.md` explains.
+
+The remaining contracts below describe the Media Foundation fallback, which still serves every
+machine without NVENC. Forced
 keyframes use an unsigned `VT_UI4` value, as required by
 [`CODECAPI_AVEncVideoForceKeyFrame`](https://learn.microsoft.com/en-us/windows/win32/medfound/codecapi-avencvideoforcekeyframe).
 An encoder that rejects a differently typed control causes software fallback.
