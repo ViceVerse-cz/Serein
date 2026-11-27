@@ -1092,6 +1092,7 @@ fn friend_button(ui: &mut egui::Ui, state: &State, user: &User, compact: bool) -
 				icons::atom(icon, 18.0, text),
 				RichText::new(crate::i18n::translate(label))
 					.strong()
+					.family(design::ink_family(ui, design::Weight::Medium, text, fill))
 					.color(text),
 			))
 			.fill(fill)
@@ -4678,6 +4679,12 @@ fn card_view(
 							[ui.available_width(), 32.0],
 							egui::Button::new(
 								RichText::new(crate::i18n::translate("profiles-show-edit-profile"))
+									.family(design::ink_family(
+										ui,
+										design::Weight::Medium,
+										colors.accent_text,
+										colors.accent,
+									))
 									.color(colors.accent_text),
 							)
 							.fill(colors.accent)

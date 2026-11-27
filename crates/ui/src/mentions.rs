@@ -1034,7 +1034,15 @@ fn row(
 				icon.center(),
 				egui::Align2::CENTER_CENTER,
 				"@",
-				egui::FontId::proportional(16.0),
+				egui::FontId::new(
+					16.0,
+					crate::design::ink_family(
+						ui,
+						crate::design::Weight::Regular,
+						colors.accent_text,
+						colors.accent,
+					),
+				),
 				colors.accent_text,
 			);
 			format!("@{name}")

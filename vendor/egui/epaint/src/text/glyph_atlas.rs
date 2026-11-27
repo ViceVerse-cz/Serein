@@ -304,7 +304,11 @@ impl GlyphAtlas {
         let allocation = *outline_glyphs.entry(key).or_insert_with(|| {
             face.rasterize_glyph(metrics, glyph_id, bin)
                 .and_then(|bitmap| {
-                    let transfer = Self::transfer_function(atlas, bitmap.is_color);
+                    let transfer = if bitmap.is_color {
+                        FontColorTransferFunction::Off
+                    } else {
+                        face.color_transfer_function()
+                    };
                     let mut uv_rect =
                         Self::allocate_bitmap(atlas, &bitmap, metrics.pixels_per_point, transfer)?;
                     uv_rect.offset.y += metrics.y_offset_in_points;

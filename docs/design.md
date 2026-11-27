@@ -72,6 +72,13 @@ binning on. Dark mode remaps coverage with `FontColorTransferFunction::Gamma(0.5
 mode leaves the transfer function off. Inter faces set `FontTweak.hinting` to `Some(false)`.
 The bundled faces remain upstream's hinted TrueType builds. See `assets/README.md`.
 
+Each ramp suits text that contrasts with its appearance: light on dark in dark mode, dark on
+light in light mode. While a theme's accent text falls on the far side of its accent, such as
+black on a light purple, `design::ink_family` lays out text on that fill in twin faces that
+carry the other ramp, so labels keep the designed weight instead of the ramp for the wrong
+polarity. The twins share their sources' bytes, lay out exactly like them and are published
+only while such a palette is active.
+
 ## Layout
 
 - 36px title strip (`base`): hidden native title bar on macOS with traffic lights inline, centred

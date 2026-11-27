@@ -409,7 +409,14 @@ fn pill(
 	let p = design::palette(ui);
 	let galley = ui.painter().layout_no_wrap(
 		label.clone(),
-		FontId::new(14.0, design::medium_family(ui.ctx())),
+		FontId::new(
+			14.0,
+			if filled {
+				design::ink_family(ui, design::Weight::Medium, p.accent_text, p.accent)
+			} else {
+				design::medium_family(ui.ctx())
+			},
+		),
 		Color32::WHITE,
 	);
 	const ICON: f32 = 16.0;
