@@ -1,8 +1,9 @@
 //! Platform hardware H.264 encoders shared by screen sharing and the camera.
 //!
-//! Media Foundation on Windows and VideoToolbox on macOS; Linux encodes inside its GStreamer
-//! pipelines instead. Every backend is optional: callers keep an openh264 encoder for the
-//! machines and formats the hardware refuses, and fall back mid-stream when one fails.
+//! Windows prefers the driver's NVENC session and falls back to the Media Foundation transform;
+//! macOS uses VideoToolbox; Linux encodes inside its GStreamer pipelines instead. Every backend is
+//! optional: callers keep an openh264 encoder for the machines and formats the hardware refuses,
+//! and fall back mid-stream when one fails.
 
 #[cfg(target_os = "macos")]
 #[path = "video_encode_macos.rs"]
