@@ -68,6 +68,8 @@ pub struct AudioChunk {
 
 pub struct Video {
 	pub settings: Settings,
+	/// Maximum encoder target, in bits per second, shared by the encoder and transport.
+	pub(crate) max_bitrate: u32,
 	pub frames: tokio::sync::mpsc::Receiver<EncodedFrame>,
 	pub ready: Arc<AtomicBool>,
 	pub keyframe: Arc<AtomicBool>,
@@ -140,7 +142,15 @@ impl Worker {
 		let audio_epoch = Arc::new(AtomicU64::new(0));
 		let worker_audio_epoch = audio_epoch.clone();
 		let keyframe = Arc::new(AtomicBool::new(true));
-		let bitrate = Arc::new(AtomicU32::new(settings.bit_rate()));
+		let max_bitrate = settings.bit_rate();
+		#[cfg(target_os = "windows")]
+		let max_bitrate = capped_bitrate(
+			max_bitrate,
+			std::env::var("SEREIN_SCREEN_MAX_BITRATE_KBPS")
+				.ok()
+				.as_deref(),
+		);
+		let bitrate = Arc::new(AtomicU32::new(max_bitrate));
 		let worker_bitrate = bitrate.clone();
 		let preview = Arc::new(Mutex::new(None));
 		let worker_preview = preview.clone();
@@ -230,6 +240,7 @@ impl Worker {
 			},
 			Video {
 				settings,
+				max_bitrate,
 				frames,
 				ready,
 				keyframe,
@@ -278,6 +289,13 @@ impl Drop for Worker {
 		self.ready.store(false, Ordering::Release);
 		self.stop.store(true, Ordering::Release);
 	}
+}
+
+#[cfg(any(test, target_os = "windows"))]
+fn capped_bitrate(preset: u32, kbps: Option<&str>) -> u32 {
+	kbps.and_then(|value| value.parse::<u32>().ok())
+		.filter(|&value| (250..=16_000).contains(&value))
+		.map_or(preset, |value| preset.min(value * 1000))
 }
 
 /// Captures, encodes and sends frames until the share stops or capture fails. A failure's
@@ -330,7 +348,10 @@ fn encode_loop(
 	)?;
 	let mut encoding = None;
 	let mut first_frame_deadline = Some(Instant::now() + Duration::from_secs(15));
+	#[cfg(not(target_os = "windows"))]
 	let mut next_frame = Instant::now();
+	#[cfg(not(target_os = "windows"))]
+	let interval = Duration::from_secs_f64(1.0 / f64::from(settings.fps));
 	let mut latest_frame = None;
 	let mut preview_shown = preview_visible.load(Ordering::Acquire);
 
@@ -407,13 +428,15 @@ fn encode_loop(
 		if !encode {
 			continue;
 		}
-		// Pace on an accumulating schedule with a little tolerance: capture timing jitter must
-		// not skip every other frame, and a stalled encoder resumes from now instead of bursting.
-		let interval = Duration::from_secs_f64(1.0 / f64::from(settings.fps));
-		if now + Duration::from_millis(2) < next_frame {
-			continue;
+		// Windows already paces at the capture callback. A second clock here would discard
+		// admitted pictures when GPU readback or worker wakeup varies from one frame to the next.
+		#[cfg(not(target_os = "windows"))]
+		{
+			if now + Duration::from_millis(2) < next_frame {
+				continue;
+			}
+			next_frame = (next_frame + interval).max(now + interval / 2);
 		}
-		next_frame = (next_frame + interval).max(now + interval / 2);
 		// Drop before encoding while the transport is behind, so the encoder never references
 		// a picture the receiver did not get.
 		if send.capacity() == 0 {
@@ -465,7 +488,8 @@ fn encode_loop(
 		}
 		let frame = EncodedFrame {
 			data,
-			timestamp: (origin.elapsed().as_micros() * 90 / 1000) as u32,
+			// A slow encode delays delivery without changing the picture's media timestamp.
+			timestamp: (now.duration_since(origin).as_micros() * 90 / 1000) as u32,
 			keyframe: is_keyframe,
 		};
 		if send.try_send(frame).is_err() {
@@ -793,6 +817,13 @@ fn fit_frame(frame: RawFrame, width: u32, height: u32) -> Result<Vec<u8>, &'stat
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn bitrate_override_can_lower_but_not_raise_the_screen_preset() {
+		assert_eq!(capped_bitrate(8_000_000, Some("4000")), 4_000_000);
+		assert_eq!(capped_bitrate(2_000_000, Some("4000")), 2_000_000);
+		assert_eq!(capped_bitrate(8_000_000, Some("10")), 8_000_000);
+	}
 
 	#[test]
 	fn idle_screen_keyframe_uses_latest_snapshot_only_when_ready() {

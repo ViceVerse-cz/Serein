@@ -507,6 +507,12 @@ Like Discord, the quality row offers every choice, smallest first: 480p (854×48
 
 Target bitrate is 2 Mbps at 480p, 4 Mbps at 720p, and 8 Mbps at 1080p for 15 and 30 fps. 60 fps doubles that, 90 fps triples it, and 120 fps quadruples it, with a ceiling of 16 Mbps. Above 1080p the 8 Mbps base scales with pixel count, up to 12 Mbps before the frame-rate multiplier; 2160p uses a 16 Mbps base. Encoder support for these sizes depends on the installed hardware and plugins, and the software fallback costs substantially more CPU.
 
+On Windows, set `SEREIN_SCREEN_MAX_BITRATE_KBPS` before starting Serein (for example,
+`4000` for 4 Mbps) to lower the screen-share bitrate target at the selected resolution
+and frame rate. Values from 250 through 16000 are accepted and can only lower the
+selected preset. Transport feedback can reduce the target further. This setting
+limits the encoder target, so bursts and protocol overhead can exceed the value.
+
 Capture uses macOS 14+ ScreenCaptureKit or Windows Graphics Capture. On macOS,
 Share Screen offers the native `SCContentSharingPicker` to choose one display or
 window. Source discovery only advertises that choice; it does not enumerate private
