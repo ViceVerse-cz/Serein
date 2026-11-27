@@ -100,10 +100,11 @@ pub struct TimelineView {
 	/// The reader dismissed the unread banner while this was the channel's latest message.
 	unread_dismissed: Option<Option<Id>>,
 	/// The unread banner asked to acknowledge this channel up to its latest message.
-	/// Channels waiting for a read acknowledgement (banner button or Escape), oldest first. A
-	/// read already in flight defers them, so they are kept, deduplicated, and drained in order;
-	/// at `MARK_READ_QUEUE` entries the oldest is dropped.
-	pub(super) mark_channel_reads: Vec<Id>,
+	/// Channels waiting for a read acknowledgement (banner button or Escape) with the latest
+	/// message each had when it was asked for, oldest first. A read already in flight defers
+	/// them, so they are kept, deduplicated, and drained in order; at `MARK_READ_QUEUE` entries
+	/// the oldest is dropped. Later arrivals are never acknowledged by an earlier request.
+	pub(super) mark_channel_reads: Vec<(Id, Id)>,
 	/// Escape asked to return to the present in this channel; the next paint decides how far.
 	pub(super) present_requested: Option<Id>,
 	pub(super) reaction_picker: Option<(Id, egui::Rect, egui::Id)>,
@@ -2511,15 +2512,21 @@ impl TimelineView {
 		self.mark_unread = None;
 		self.seen_latest = None;
 	}
-	pub(super) fn queue_mark_channel_read(&mut self, channel: Option<Id>) {
-		let Some(channel) = channel else {
+	/// Queues an acknowledgement of the selected channel up to its latest message now. A repeat
+	/// for the same channel replaces the earlier entry: the reader has seen at least as much.
+	pub(super) fn queue_mark_channel_read(&mut self, state: &State) {
+		let Some(channel) = state.selected else {
 			return;
 		};
-		self.mark_channel_reads.retain(|queued| *queued != channel);
+		let Some(message) = state.channel(channel).and_then(|c| c.last_message) else {
+			return;
+		};
+		self.mark_channel_reads
+			.retain(|(queued, _)| *queued != channel);
 		if self.mark_channel_reads.len() >= MARK_READ_QUEUE {
 			self.mark_channel_reads.remove(0);
 		}
-		self.mark_channel_reads.push(channel);
+		self.mark_channel_reads.push((channel, message));
 	}
 	/// Escape: dismiss the unread banner like its "Mark as read" button and head back to the
 	/// present like the round control. Returns the channel to acknowledge when one is selected.
@@ -2531,7 +2538,7 @@ impl TimelineView {
 		self.mark_read = None;
 		// The same hand-off as the banner's button, so the acknowledgement is queued in the
 		// place that already waits out a pending one.
-		self.queue_mark_channel_read(Some(channel));
+		self.queue_mark_channel_read(state);
 		self.present_requested = Some(channel);
 		Some(channel)
 	}
@@ -2626,7 +2633,11 @@ impl TimelineView {
 			let mark_channel_reads = std::mem::take(&mut self.mark_channel_reads);
 			let leave_read = self
 				.channel
-				.filter(|channel| !mark_channel_reads.contains(channel))
+				.filter(|channel| {
+					!mark_channel_reads
+						.iter()
+						.any(|(queued, _)| queued == channel)
+				})
 				.zip(self.seen_latest);
 			*self = Self {
 				extension_actions: self.extension_actions.clone(),
@@ -2995,7 +3006,7 @@ impl TimelineView {
 				}
 				if mark_read {
 					self.hold_read_ack = false;
-					self.queue_mark_channel_read(state.selected);
+					self.queue_mark_channel_read(state);
 				}
 			}
 			return;
@@ -5601,7 +5612,7 @@ impl TimelineView {
 			if mark_read {
 				self.unread_dismissed = Some(channel_latest);
 				self.hold_read_ack = false;
-				self.queue_mark_channel_read(state.selected);
+				self.queue_mark_channel_read(state);
 			}
 		}
 		// Older pages appended to the live timeline keep their cursor after loading; that
@@ -9064,7 +9075,10 @@ mod tests {
 			.map(|(_, rect)| rect.center())
 			.expect("the held unread banner offers Mark as read");
 		click_at(&ctx, &mut view, &mut state, pos);
-		assert_eq!(std::mem::take(&mut view.mark_channel_reads), [Id(20)]);
+		assert_eq!(
+			std::mem::take(&mut view.mark_channel_reads),
+			[(Id(20), Id(40))]
+		);
 		let labels = banner_frame(&ctx, &mut view, &mut state, vec![], false);
 		assert!(
 			!labels.iter().any(|(text, _)| text == "Mark as read"),

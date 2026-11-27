@@ -6746,29 +6746,33 @@ impl MessagingUi {
 				self.timeline.pending_channel_reference = None;
 			}
 		}
-		// Deferred acknowledgements go out in order as the single read slot frees; entries that
-		// can no longer be sent are dropped.
-		for channel in std::mem::take(&mut self.timeline.mark_channel_reads) {
-			if Some(channel) == state.selected {
-				self.timeline.mark_read = None;
-			}
-			if let Some(command) = state.prepare_mark_channel_read(channel) {
-				commands.push(command);
-			} else if state.auth == client_core::auth::AuthState::Authenticated
-				&& state.gateway_connected
-				&& state.unread(channel) == Some(true)
-				&& state
-					.channel(channel)
-					.and_then(|c| c.last_message)
-					.is_some()
-			{
-				self.timeline.mark_channel_reads.push(channel);
-			}
-		}
 		if let Some((channel, message)) = self.timeline.leave_read.take()
 			&& let Some(command) = state.prepare_mark_left_channel_read(channel, message)
 		{
 			commands.push(command);
+		}
+		// Deferred acknowledgements go out in order as the single read slot frees, each up to
+		// the message captured when it was asked for. Entries that can no longer be sent
+		// (read since, channel gone or offline) are dropped. Leaving a channel above has first
+		// call on the slot, because its request is one-shot.
+		for (channel, message) in std::mem::take(&mut self.timeline.mark_channel_reads) {
+			if Some(channel) == state.selected {
+				self.timeline.mark_read = None;
+			}
+			if let Some(command) = state.prepare_mark_left_channel_read(channel, message) {
+				commands.push(command);
+			} else if state.auth == client_core::auth::AuthState::Authenticated
+				&& state.gateway_connected
+				&& state
+					.read_marker(channel)
+					.is_some_and(|read| read.is_none_or(|read| message > read))
+				&& state
+					.channel(channel)
+					.and_then(|c| c.last_message)
+					.is_some_and(|latest| message <= latest)
+			{
+				self.timeline.mark_channel_reads.push((channel, message));
+			}
 		}
 		if forum_pane
 			&& !settings_open
@@ -8856,7 +8860,7 @@ mod composer_tests {
 		state.selected = Some(Id(11));
 		assert!(!marks(&frame(&mut view, &mut state, vec![])));
 		assert_eq!(view.timeline.present_requested, None);
-		assert_eq!(view.timeline.mark_channel_reads, [Id(10)]);
+		assert_eq!(view.timeline.mark_channel_reads, [(Id(10), Id(20))]);
 		// A second Escape in another channel queues behind the first instead of replacing it.
 		let mut third = state.channels[0].clone();
 		third.id = Id(13);
@@ -8875,7 +8879,10 @@ mod composer_tests {
 		state.selected = Some(Id(13));
 		frame(&mut view, &mut state, vec![]);
 		frame(&mut view, &mut state, escape());
-		assert_eq!(view.timeline.mark_channel_reads, [Id(10), Id(13)]);
+		assert_eq!(
+			view.timeline.mark_channel_reads,
+			[(Id(10), Id(20)), (Id(13), Id(50))]
+		);
 		let read = |commands: &[Command]| {
 			commands.iter().find_map(|command| match command {
 				Command::MarkRead {
@@ -8887,6 +8894,8 @@ mod composer_tests {
 				_ => None,
 			})
 		};
+		// A message arriving while the request waits is not part of what was acknowledged.
+		state.channels[0].last_message = Some(Id(25));
 		let mut pending = pending_request;
 		let mut marked = Vec::new();
 		let mut done = (Id(11), Id(30));
@@ -8901,11 +8910,43 @@ mod composer_tests {
 				.unwrap();
 			let (channel, message, request) =
 				read(&frame(&mut view, &mut state, vec![])).expect("the next queued read goes out");
-			marked.push(channel);
+			marked.push((channel, message));
 			(pending, done) = (request, (channel, message));
 		}
-		assert_eq!(marked, [Id(10), Id(13)], "both channels are acknowledged");
+		assert_eq!(
+			marked,
+			[(Id(10), Id(20)), (Id(13), Id(50))],
+			"both channels are acknowledged up to what was seen at request time"
+		);
 		assert!(view.timeline.mark_channel_reads.is_empty());
+		// A deferred read that frees the slot in the frame a chat is left does not take the
+		// one-shot leave acknowledgement's place.
+		state
+			.apply_read_state(client_core::read_state::Event::Result {
+				channel: done.0,
+				message: done.1,
+				request: pending,
+				result: Ok(()),
+			})
+			.unwrap();
+		let mut left = state.channels[0].clone();
+		left.id = Id(14);
+		left.last_message = Some(Id(60));
+		state.channels.push(left);
+		state
+			.apply_read_state(client_core::read_state::Event::Ack {
+				channel: Id(14),
+				message: Some(Id(1)),
+				manual: false,
+				mention_count: None,
+				version: Some(4),
+			})
+			.unwrap();
+		view.timeline.mark_channel_reads = vec![(Id(10), Id(25))];
+		view.timeline.leave_read = Some((Id(14), Id(60)));
+		let sent = frame(&mut view, &mut state, vec![]);
+		assert_eq!(read(&sent).map(|(c, m, _)| (c, m)), Some((Id(14), Id(60))));
+		assert_eq!(view.timeline.mark_channel_reads, [(Id(10), Id(25))]);
 		view.voice_focus = None;
 		state.selected = Some(Id(10));
 		frame(&mut view, &mut state, vec![]);
