@@ -330,7 +330,10 @@ impl Audio {
 					if callbacks != active.input_callbacks {
 						active.input_callbacks = callbacks;
 						active.input_activity = Instant::now();
-						rebuild_devices_for_input = true;
+						heard_microphone(
+							&mut rebuild_devices_for_input,
+							active.input_opened.elapsed(),
+						);
 					}
 					if active._input.is_some()
 						&& active.input_activity.elapsed() >= Duration::from_secs(5)
@@ -615,10 +618,20 @@ const RECOVERY_DELAY: Duration = Duration::from_millis(250);
 /// How long a live call waits between attempts while its devices stay away.
 const RECOVERY_PATIENCE: Duration = Duration::from_secs(5);
 
+/// How long a microphone must stay open before its loss may rebuild the stream pair.
+const MICROPHONE_SETTLED: Duration = Duration::from_secs(5);
+
 enum MicrophoneRetry<T> {
 	Missing,
 	ReopenDevices,
 	ReopenInput(T),
+}
+
+// A replacement that delivers a callback and then fails must not rebuild playback again.
+fn heard_microphone(rebuild_devices: &mut bool, input_age: Duration) {
+	if input_age >= MICROPHONE_SETTLED {
+		*rebuild_devices = true;
+	}
 }
 
 fn microphone_retry<T>(
@@ -656,6 +669,7 @@ struct Streams {
 	input_gate: crate::activity::InputGate,
 	input_callbacks: u64,
 	input_activity: Instant,
+	input_opened: Instant,
 	_input: Option<cpal::Stream>,
 	_output: cpal::Stream,
 	input: rtrb::Consumer<Frame>,
@@ -783,6 +797,7 @@ impl Streams {
 			host,
 			input_callbacks: gate.input_callbacks.load(Ordering::Acquire),
 			input_activity: Instant::now(),
+			input_opened: Instant::now(),
 			_input: input_stream,
 			_output: output_stream,
 			input: input_read,
@@ -804,6 +819,7 @@ impl Streams {
 				self.input_id = id;
 				self.input_callbacks = gate.input_callbacks.load(Ordering::Acquire);
 				self.input_activity = Instant::now();
+				self.input_opened = Instant::now();
 				gate.echo_reset.store(true, Ordering::Release);
 				gate.input_failed_revision.load(Ordering::Acquire) != revision
 			}
@@ -1669,6 +1685,13 @@ mod tests {
 		let gate = Gate::default();
 		let revision = || gate.revision.load(Ordering::Acquire);
 		let mut rebuild_devices = false;
+		// A replacement that delivers one callback and then fails keeps playback running.
+		heard_microphone(&mut rebuild_devices, Duration::from_millis(20));
+		assert!(!rebuild_devices);
+		// A microphone that was in use before it went quiet earns one pair rebuild.
+		heard_microphone(&mut rebuild_devices, MICROPHONE_SETTLED);
+		assert!(rebuild_devices);
+		rebuild_devices = false;
 		let mut retry = |device: Option<&'static str>| {
 			microphone_retry(device, &mut rebuild_devices, &gate, revision())
 		};
