@@ -675,7 +675,12 @@ impl MessagingUi {
 		entry: &RosterEntry,
 	) {
 		let colors = design::palette(ui);
-		let (user, name) = resolve_member(state, entry);
+		let member = roster_member(state, entry);
+		let (user, name) = resolve_member_with(state, member, entry);
+		// Like the member list, the name takes the member's highest colored role.
+		let role_colors = member
+			.and_then(|member| state.member_roles(entry.guild, member).1)
+			.map(|role| role.colors());
 		ui.push_id(
 			("voice-participant", entry.channel, entry.participant.user),
 			|ui| {
@@ -781,8 +786,21 @@ impl MessagingUi {
 						egui::vec2(ui.available_width(), 28.0),
 						egui::Layout::left_to_right(egui::Align::Center),
 						|ui| {
+							let text = crate::role_names::galley(
+								ui,
+								name,
+								egui::TextStyle::Body.resolve(ui.style()),
+								role_colors,
+								if hovered {
+									colors.hover
+								} else {
+									colors.sidebar
+								},
+								name_color,
+								ui.available_width(),
+							);
 							ui.add(
-								egui::Label::new(RichText::new(name).color(name_color))
+								egui::Label::new(text)
 									.truncate()
 									.show_tooltip_when_elided(false)
 									.selectable(false),
@@ -5123,7 +5141,12 @@ pub(crate) fn resolve_member<'a>(
 	state: &'a State,
 	entry: &'a RosterEntry,
 ) -> (Option<&'a model::User>, &'a str) {
-	let member = entry.member.as_ref().or_else(|| {
+	resolve_member_with(state, roster_member(state, entry), entry)
+}
+
+/// The participant's guild member, from the roster entry or the loaded member list.
+fn roster_member<'a>(state: &'a State, entry: &'a RosterEntry) -> Option<&'a model::Member> {
+	entry.member.as_ref().or_else(|| {
 		state
 			.members
 			.as_ref()
@@ -5138,8 +5161,7 @@ pub(crate) fn resolve_member<'a>(
 					})
 					.find(|m| m.user.id == entry.participant.user)
 			})
-	});
-	resolve_member_with(state, member, entry)
+	})
 }
 
 /// [`resolve_member`] with the member already resolved, so a roster walker can share one
