@@ -5740,22 +5740,10 @@ impl MessagingUi {
 				let lists = ui.available_rect_before_wrap();
 				// A window image continues the lists into the card strip, so only it stays square.
 				let rounded = !design::has_window_background(ui);
-				ui.painter().rect_filled(
-					lists,
-					if rounded {
-						egui::CornerRadius {
-							nw: 8,
-							sw: 8,
-							..Default::default()
-						}
-					} else {
-						egui::CornerRadius::ZERO
-					},
-					design::section_surface(
-						ui,
-						background.sidebar,
-						design::ImageSection::ChannelList,
-					),
+				let fill = design::section_surface(
+					ui,
+					background.sidebar,
+					design::ImageSection::ChannelList,
 				);
 				if rounded && layered {
 					// No column coat sits under the corners, so the rail's material fills the
@@ -5765,12 +5753,18 @@ impl MessagingUi {
 						background.base,
 						design::ImageSection::ServerList,
 					);
-					for (corner, inward) in [
-						(lists.left_top(), egui::vec2(1.0, 1.0)),
-						(lists.left_bottom(), egui::vec2(1.0, -1.0)),
-					] {
-						design::paint_corner_notch(ui.painter(), corner, inward, 8.0, notch);
-					}
+					design::paint_left_rounded_surface(ui.painter(), lists, 8.0, fill, notch);
+				} else {
+					let radius = if rounded {
+						egui::CornerRadius {
+							nw: 8,
+							sw: 8,
+							..Default::default()
+						}
+					} else {
+						egui::CornerRadius::ZERO
+					};
+					ui.painter().rect_filled(lists, radius, fill);
 				}
 				self.sidebar(ui, state, &title, &mut commands);
 			});

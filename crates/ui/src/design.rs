@@ -678,42 +678,61 @@ pub fn layered_sections(ui: &egui::Ui) -> bool {
 	has_window_background(ui) || (enabled && transparency > 0)
 }
 
-/// Fill the notches outside a rounded corner at `corner`, for surfaces that cannot paint a
-/// shared coat underneath. `inward` points from the corner into the rounded rect.
+/// Fill `rect` with `fill`, its left corners rounded by `radius` with `notch` outside each
+/// curve, for see-through surfaces that cannot paint a shared coat underneath.
 ///
-/// A feathered polygon would miter its anti-aliasing at the cusps where the arc meets the
-/// straight edges and spill a second coat onto the neighbouring surfaces. Only the arc is
-/// anti-aliased, mirroring the rounded rect's edge; the straight edges stay crisp.
-pub fn paint_corner_notch(
+/// One mesh covers the whole rect, so every pixel receives exactly one coat. Two translucent
+/// anti-aliased shapes meeting on the curve would each be partly transparent there and let the
+/// window behind show through as a line; overlapping them would draw a darker one instead.
+/// The curve is anti-aliased by blending `notch` into `fill`; the straight edges stay crisp.
+pub fn paint_left_rounded_surface(
 	painter: &egui::Painter,
-	corner: egui::Pos2,
-	inward: egui::Vec2,
+	rect: egui::Rect,
 	radius: f32,
-	color: Color32,
+	fill: Color32,
+	notch: Color32,
 ) {
 	const STEPS: u32 = 8;
-	let center = corner + inward * radius;
+	let radius = radius.min(rect.width()).min(rect.height() / 2.0);
 	let half_feather = 0.5 / painter.pixels_per_point();
-	// Keeps the arc's inner feather edge inside the notch square.
-	let clamp = |point: egui::Pos2| {
-		let offset = (point - corner) * inward;
-		corner + egui::vec2(offset.x.max(0.0), offset.y.max(0.0)) * inward
-	};
 	let mut mesh = egui::Mesh::default();
-	mesh.colored_vertex(corner, color);
-	for step in 0..=STEPS {
-		let angle = std::f32::consts::FRAC_PI_2 * step as f32 / STEPS as f32;
-		// Unit vector from the arc point towards the arc's centre.
-		let toward = egui::vec2(inward.x * angle.cos(), inward.y * angle.sin());
-		let point = center - toward * radius;
-		mesh.colored_vertex(clamp(point - toward * half_feather), color);
-		mesh.colored_vertex(point + toward * half_feather, Color32::TRANSPARENT);
-		if step > 0 {
-			let (inner, outer) = (2 * step - 1, 2 * step);
-			let (next_inner, next_outer) = (2 * step + 1, 2 * step + 2);
-			mesh.add_triangle(0, inner, next_inner);
-			mesh.add_triangle(inner, outer, next_outer);
-			mesh.add_triangle(inner, next_outer, next_inner);
+	let mut quad = |min: egui::Pos2, max: egui::Pos2| {
+		if min.x < max.x && min.y < max.y {
+			mesh.add_colored_rect(egui::Rect::from_min_max(min, max), fill);
+		}
+	};
+	quad(
+		rect.left_top() + egui::vec2(0.0, radius),
+		egui::pos2(rect.left() + radius, rect.bottom() - radius),
+	);
+	for (corner, inward) in [
+		(rect.left_top(), egui::vec2(1.0, 1.0)),
+		(rect.left_bottom(), egui::vec2(1.0, -1.0)),
+	] {
+		let center = corner + inward * radius;
+		// Keeps the curve's outer feather edge inside the corner square.
+		let clamp = |point: egui::Pos2| {
+			let offset = (point - corner) * inward;
+			corner + egui::vec2(offset.x.max(0.0), offset.y.max(0.0)) * inward
+		};
+		let first = mesh.vertices.len() as u32;
+		mesh.colored_vertex(corner, notch);
+		mesh.colored_vertex(center, fill);
+		for step in 0..=STEPS {
+			let angle = std::f32::consts::FRAC_PI_2 * step as f32 / STEPS as f32;
+			// Unit vector from the curve towards its centre.
+			let toward = egui::vec2(inward.x * angle.cos(), inward.y * angle.sin());
+			let point = center - toward * radius;
+			mesh.colored_vertex(clamp(point - toward * half_feather), notch);
+			mesh.colored_vertex(point + toward * half_feather, fill);
+			if step > 0 {
+				let outer = first + 2 + 2 * step;
+				let (previous_outer, previous_inner, inner) = (outer - 2, outer - 1, outer + 1);
+				mesh.add_triangle(first, previous_outer, outer);
+				mesh.add_triangle(previous_outer, previous_inner, inner);
+				mesh.add_triangle(previous_outer, inner, outer);
+				mesh.add_triangle(first + 1, previous_inner, inner);
+			}
 		}
 	}
 	painter.add(egui::Shape::mesh(mesh));
