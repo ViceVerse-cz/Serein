@@ -2856,11 +2856,9 @@ fn gif_url_slug(url: &str) -> Option<String> {
 		without_query
 	};
 	let segment = path.rsplit('/').find(|part| !part.is_empty())?;
-	let stem = strip_media_extension(segment);
-	if stem.is_empty() {
-		return None;
-	}
-	let lower = percent_decode_lossy(stem).to_lowercase();
+	// Decode first: an encoded dot (`party%2Egif`) must still lose its media extension.
+	let decoded = percent_decode_lossy(segment);
+	let lower = strip_media_extension(&decoded).to_lowercase();
 	(!lower.is_empty()).then_some(lower)
 }
 
@@ -2886,6 +2884,11 @@ mod tests {
 	use super::*;
 	#[test]
 	fn gif_favorites_search_filters_locally_by_title_and_url_slug_without_remote_requests() {
+		// An encoded dot still drops the media extension, so "gif" does not match every URL.
+		assert_eq!(
+			gif_url_slug("https://media.example/party%2Egif?x=1").as_deref(),
+			Some("party")
+		);
 		let ctx = egui::Context::default();
 		crate::emoji::install(&ctx).unwrap();
 		let mut state = test_support::demo_state();
