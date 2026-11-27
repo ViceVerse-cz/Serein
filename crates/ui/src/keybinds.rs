@@ -188,6 +188,8 @@ struct SideCapture {
 	/// again until every one of them is released.
 	held: u8,
 	tainted: bool,
+	/// A non-side key is down, so a side press now would be part of a combination.
+	blocked: bool,
 }
 
 fn is_side_key(key: Key) -> bool {
@@ -212,7 +214,7 @@ fn side_step(state: &mut SideCapture, event: &Event) -> Option<&'static str> {
 		} if is_side_key(*key) => {
 			state.tainted |= state.held != 0;
 			state.held |= side_bit(*key);
-			state.armed = (!state.tainted).then_some(*key);
+			state.armed = (!state.tainted && !state.blocked).then_some(*key);
 		}
 		Event::Key {
 			key,
@@ -231,11 +233,11 @@ fn side_step(state: &mut SideCapture, event: &Event) -> Option<&'static str> {
 			key, pressed: true, ..
 		} if !is_side_key(*key) => state.armed = None,
 		// egui-winit turns Ctrl+C/X/V into these instead of key presses.
-		Event::PointerButton { pressed: true, .. }
-		| Event::Copy
-		| Event::Cut
-		| Event::Paste(_)
-		| Event::WindowFocused(false) => state.armed = None,
+		Event::PointerButton { pressed: true, .. } | Event::Copy | Event::Cut | Event::Paste(_) => {
+			state.armed = None;
+		}
+		// Releases made in another app never arrive, so forget every key, as egui does.
+		Event::WindowFocused(false) => *state = SideCapture::default(),
 		_ => {}
 	}
 	None
@@ -258,7 +260,7 @@ fn capture(ui: &mut egui::Ui, bindings: &mut Keybinds, capturing: &mut Option<Ca
 		.data_mut(|data| data.remove_temp::<CaptureStarted>(capture_started_id()))
 		.is_some()
 	{
-		// Side keys already down when recording starts mark any later side press as overlapping.
+		// Keys already down when recording starts mean a later side press is not alone.
 		let held = ui.input(|input| {
 			input
 				.keys_down
@@ -280,6 +282,9 @@ fn capture(ui: &mut egui::Ui, bindings: &mut Keybinds, capturing: &mut Option<Ca
 	let side_allowed = action.is_some_and(KeybindAction::is_global) && side_keys_supported();
 	let mut side =
 		ui.data_mut(|data| *data.get_temp_mut_or_default::<SideCapture>(side_capture_id()));
+	// A key held from before the click (or one with no binding name) makes any side press part
+	// of a combination until it is released.
+	side.blocked = ui.input(|input| input.keys_down.iter().any(|key| !is_side_key(*key)));
 	let mut captured = None;
 	let mut cancelled = false;
 	for event in ui.input(|input| input.events.clone()) {
@@ -1455,13 +1460,42 @@ mod tests {
 			assert!(still);
 			assert_eq!(bindings, Keybinds::default());
 		}
-		// Left Ctrl held from before the click makes a Right Shift tap an overlap too.
-		let (bindings, still) = record_after(
-			KeybindAction::PushToTalk,
+		for before in [
+			// Left Ctrl held from before the click makes a Right Shift tap an overlap too.
 			vec![ctrl(true)],
-			vec![vec![shift(true)], vec![shift(false)]],
+			// So does any other key held from before the click.
+			vec![key(Key::A, true, Modifiers::NONE)],
+		] {
+			let (bindings, still) = record_after(
+				KeybindAction::PushToTalk,
+				before,
+				vec![vec![shift(true)], vec![shift(false)]],
+			);
+			assert!(still);
+			assert_eq!(bindings, Keybinds::default());
+		}
+	}
+
+	#[test]
+	fn focus_loss_forgets_side_keys_released_elsewhere() {
+		let shift = |pressed| key(Key::ShiftRight, pressed, Modifiers::NONE);
+		// Left Ctrl goes down, focus leaves, and its release happens in another app.
+		let (bindings, still) = record(
+			KeybindAction::PushToTalk,
+			vec![
+				vec![key(Key::ControlLeft, true, Modifiers::CTRL)],
+				vec![Event::WindowFocused(false)],
+				vec![Event::WindowFocused(true)],
+				vec![shift(true)],
+				vec![shift(false)],
+			],
 		);
-		assert!(still);
-		assert_eq!(bindings, Keybinds::default());
+		if side_keys_supported() {
+			assert!(!still);
+			assert_eq!(
+				bindings.chord(KeybindAction::PushToTalk),
+				&KeyChord::new("ShiftRight", 0)
+			);
+		}
 	}
 }
