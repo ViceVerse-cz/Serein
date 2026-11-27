@@ -48,6 +48,7 @@ requests are squashed from the PR head that was reviewed; all of them are unmerg
 | 0028 | Serein | egui | Exposes an explicit TextEdit undo checkpoint for the message composer. |
 | 0029 | Serein | `eframe`, `egui-wgpu` | Paint-only frames: the root viewport's last pass is presented again without running the ui, described below. |
 | 0030 | Serein | `egui-winit` | A pasted lone file path also sends the image copied beside it, described under image paste below. |
+| 0031 | Serein | `epaint`, `egui` | `FontTweak::color_transfer_function` gives one face its own coverage ramp, described below. |
 
 ## Serein patch: RTL shaping metadata
 
@@ -176,6 +177,20 @@ text beside `image/png`. When the pasted text is one absolute path or `file://` 
 current OS, paste also sends `Event::PasteImage` if the clipboard holds an image, so Serein's
 composer attaches the screenshot instead of the path. Other text never triggers an image read,
 so rich copies that carry a bitmap (spreadsheet cells) still paste as text.
+
+## Serein patch: coverage ramp per face
+
+Patch 0031: `TextOptions::color_transfer_function` ramps every glyph's coverage once per
+appearance. Serein uses `Gamma(0.5)` in dark mode, which suits light text on dark surfaces, and
+none in light mode, which suits dark text on light ones. A theme whose accent text falls on the
+far side of its accent, such as black on a light purple, painted the labels on accent fills with
+the ramp for the opposite polarity: too heavy and soft-edged in dark mode, too thin in light
+mode. `FontTweak::color_transfer_function` (`Option`) lets a face carry its own ramp; `None`
+keeps the global setting. Serein (`crates/ui/src/fonts.rs`) publishes a twin of each weight
+family whose faces share their source's bytes and differ only in that ramp, and lays out only
+text on accent fills in the twin (`design::ink_family`), so labels do not move. Color glyphs
+still skip the transfer, and `egui`'s debug font tweak UI leaves the new field at its default.
+Layout, shaping and atlas budgeting are unchanged.
 
 ## Updating
 

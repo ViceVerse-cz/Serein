@@ -1034,7 +1034,15 @@ fn row(
 				icon.center(),
 				egui::Align2::CENTER_CENTER,
 				"@",
-				egui::FontId::proportional(16.0),
+				egui::FontId::new(
+					16.0,
+					crate::design::ink_family(
+						ui,
+						crate::design::Weight::Regular,
+						colors.accent_text,
+						colors.accent,
+					),
+				),
 				colors.accent_text,
 			);
 			format!("@{name}")
@@ -2255,7 +2263,7 @@ pub(crate) fn debug_member_search_check(state: &State, channel: Id) {
 	assert_eq!(draft, "<@987654321> ");
 }
 
-#[cfg(debug_assertions)]
+#[cfg(any(test, debug_assertions))]
 pub(crate) fn debug_pointer_check(state: &mut State, channel: Id) {
 	state.game_mentions.finish(Ok(vec![model::GameMention {
 		id: Id(42),

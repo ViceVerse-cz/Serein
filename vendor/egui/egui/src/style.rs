@@ -3239,6 +3239,7 @@ pub fn font_tweak_ui(ui: &mut Ui, tweak: &mut FontTweak, axes: &[FontVariationAx
                 thin_space_width,
                 tab_size,
                 subpixel_binning,
+                ..
             } = tweak;
 
             ui.label("Scale");

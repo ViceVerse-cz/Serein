@@ -18,7 +18,7 @@ mod resample;
 #[cfg(feature = "demo")]
 pub use avatars::media::debug_heic_layout_check;
 pub use avatars::media::{Lane, MAX_FRAMES, Motion, Rendition, Size, fit_edge, is_motion_video};
-pub use avatars::{EFFECT_EDGE, EMBED_EDGE, FRAME_EDGE, GifFrames};
+pub use avatars::{EFFECT_EDGE, EMBED_EDGE, FRAME_EDGE, GifFrames, is_hover_animated_key};
 mod categories;
 #[cfg(feature = "demo")]
 pub use categories::debug_thread_navigation_check;
@@ -1462,6 +1462,25 @@ impl MessagingUi {
 	pub fn take_avatar_requests(&mut self) -> Vec<String> {
 		self.avatars.take_requests()
 	}
+	pub fn begin_animation_pass(&mut self, pass: u64, paint_only: bool) {
+		self.avatars.begin_pass(pass, paint_only);
+	}
+	pub fn has_active_animations(&self) -> bool {
+		self.avatars.has_active_animations()
+	}
+	pub fn take_animation_paint_only(&mut self) -> Option<std::time::Duration> {
+		self.avatars.take_paint_only_delay()
+	}
+	pub fn paint_only_animations(
+		&mut self,
+		ctx: &egui::Context,
+		update: impl FnMut(egui::TextureId, &egui::ColorImage) -> bool,
+	) -> (bool, Option<std::time::Duration>) {
+		self.avatars.paint_only_animations(ctx, update)
+	}
+	pub fn take_freed_memory_bytes(&mut self) -> usize {
+		self.avatars.take_freed_bytes()
+	}
 	/// Next idle animation/inline texture release; see `take_avatar_requests`.
 	pub fn avatar_release_at(&self) -> Option<std::time::Instant> {
 		self.avatars.next_release()
@@ -2595,9 +2614,10 @@ impl MessagingUi {
 			.show(ui, |ui| {
 				let ctx = ui.ctx().clone();
 				if self.guild.is_none() {
-					// Search and Friends share one row; Friends is the compact glyph beside it.
+					// Search and Friends share one row at the control height; Friends is the square beside it.
 					ui.horizontal(|ui| {
 						ui.spacing_mut().item_spacing.x = 6.0;
+						let side = ui.spacing().interact_size.y.max(30.0);
 						let find = ui
 							.add_enabled_ui(
 								!self.ime_active
@@ -2608,8 +2628,11 @@ impl MessagingUi {
 											.any(|event| matches!(event, egui::Event::Ime(_)))
 									}),
 								|ui| {
+									// The label centres itself, so without vertical padding the
+									// button is exactly `side` tall, like the Friends square.
+									ui.spacing_mut().button_padding.y = 0.0;
 									ui.add_sized(
-										[(ui.available_width() - 36.0).max(60.0), 30.0],
+										[(ui.available_width() - side - 6.0).max(60.0), side],
 										egui::Button::new(language.text("find-conversation"))
 											.truncate(),
 									)
@@ -2629,12 +2652,12 @@ impl MessagingUi {
 						}
 						let friends = state.selected.is_none();
 						let (rect, response) =
-							ui.allocate_exact_size(egui::vec2(30.0, 30.0), egui::Sense::click());
+							ui.allocate_exact_size(egui::vec2(side, side), egui::Sense::click());
 						let hovered = response.hovered() || response.has_focus();
 						if friends || hovered {
 							ui.painter().rect_filled(
 								rect,
-								6,
+								ui.visuals().widgets.inactive.corner_radius,
 								if friends {
 									colors.selected
 								} else {
@@ -2645,7 +2668,7 @@ impl MessagingUi {
 						icons::paint(
 							ui.painter(),
 							icons::Icon::People,
-							rect.shrink(7.0),
+							rect.shrink(side * (7.0 / 30.0)),
 							if friends || hovered {
 								colors.text_strong
 							} else {
@@ -3650,11 +3673,15 @@ impl MessagingUi {
 				let button = |ui: &mut egui::Ui, label: String, fill, text| {
 					ui.add_enabled(
 						enabled,
-						egui::Button::new(design::medium(ui, &label, 14.0).color(text))
-							.fill(fill)
-							.stroke(egui::Stroke::NONE)
-							.corner_radius(6)
-							.min_size(egui::vec2(88.0, 32.0)),
+						egui::Button::new(
+							design::medium(ui, &label, 14.0)
+								.family(design::ink_family(ui, design::Weight::Medium, text, fill))
+								.color(text),
+						)
+						.fill(fill)
+						.stroke(egui::Stroke::NONE)
+						.corner_radius(6)
+						.min_size(egui::vec2(88.0, 32.0)),
 					)
 					.clicked()
 				};
@@ -5358,6 +5385,7 @@ impl MessagingUi {
 	/// Draws one frame of the signed-in client and returns the commands it produced for the
 	/// service layer.
 	pub fn show(&mut self, ui: &mut egui::Ui, state: &mut State) -> Vec<Command> {
+		self.avatars.sync_pass(ui.ctx().cumulative_pass_nr());
 		let commands = self.show_frame(ui, state);
 		self.end_frame_snapshot(ui.ctx());
 		commands

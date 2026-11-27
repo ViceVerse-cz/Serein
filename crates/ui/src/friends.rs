@@ -920,7 +920,19 @@ fn header_tab(
 	accent: bool,
 ) -> egui::Response {
 	let colors = design::palette(ui);
-	let font = egui::FontId::new(14.0, design::medium_family(ui.ctx()));
+	let font = egui::FontId::new(
+		14.0,
+		if accent && !selected {
+			design::ink_family(
+				ui,
+				design::Weight::Medium,
+				colors.accent_text,
+				colors.accent,
+			)
+		} else {
+			design::medium_family(ui.ctx())
+		},
+	);
 	let galley = ui
 		.painter()
 		.layout_no_wrap(title.to_owned(), font, Color32::WHITE);

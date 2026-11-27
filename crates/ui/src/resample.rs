@@ -73,16 +73,12 @@ pub(crate) fn downscale_filter(
 		.max(1) as u32;
 	let nh = ((u64::from(height) * u64::from(edge) + u64::from(longest) / 2) / u64::from(longest))
 		.max(1) as u32;
-	let mut raw = Vec::with_capacity(image.pixels().len() * 4);
-	for pixel in image.pixels() {
-		raw.extend(pixel.to_array());
-	}
-	let Some(buffer) = image::RgbaImage::from_raw(width, height, raw) else {
+	let Some(view) =
+		image::ImageBuffer::<image::Rgba<u8>, &[u8]>::from_raw(width, height, image.as_raw())
+	else {
 		return image.clone();
 	};
-	let scaled = image::DynamicImage::ImageRgba8(buffer)
-		.resize_exact(nw, nh, filter)
-		.into_rgba8();
+	let scaled = image::imageops::resize(&view, nw, nh, filter);
 	ColorImage::from_rgba_premultiplied(
 		[scaled.width() as usize, scaled.height() as usize],
 		scaled.as_raw(),

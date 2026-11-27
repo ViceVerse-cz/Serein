@@ -1,4 +1,4 @@
-use crate::text::VariationCoords;
+use crate::{FontColorTransferFunction, text::VariationCoords};
 
 /// Extra scale and vertical tweak to apply to all text of a certain font.
 #[derive(Clone, Debug, PartialEq)]
@@ -44,6 +44,14 @@ pub struct FontTweak {
     /// `None` means use the global setting in [`TextOptions::subpixel_binning`](crate::text::TextOptions::subpixel_binning).
     pub subpixel_binning: Option<bool>,
 
+    /// Override the global coverage transfer function for this specific font.
+    ///
+    /// `None` means use the global setting in [`TextOptions::color_transfer_function`](crate::TextOptions::color_transfer_function).
+    ///
+    /// A face registered only for text whose contrast runs against the theme's own polarity,
+    /// such as dark text on a light accent fill in dark mode, picks the ramp for that polarity.
+    pub color_transfer_function: Option<FontColorTransferFunction>,
+
     /// Override the font's default variation coordinates for its axes ("wght", etc.).
     pub coords: VariationCoords,
 
@@ -70,6 +78,7 @@ impl Default for FontTweak {
             hinting: None,
             hinting_target: HintingTarget::default(),
             subpixel_binning: None,
+            color_transfer_function: None,
             coords: VariationCoords::default(),
             thin_space_width: 0.5,
             tab_size: 4.0,

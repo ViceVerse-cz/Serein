@@ -57,12 +57,12 @@ pub fn check_live_dimensions(width: u32, height: u32) -> Result<(), &'static str
 }
 
 /// One decoded live picture.
-pub type LiveFrame = Picture;
+pub type LiveFrame<'a> = Picture<&'a [u8]>;
 
 /// Receives live pictures from the decoder's own thread, in decode order.
-pub type LiveSink = Box<dyn Fn(LiveFrame) + Send + Sync>;
+pub type LiveSink = Box<dyn Fn(LiveFrame<'_>) + Send + Sync>;
 /// Preserves the caller's opaque millisecond tag through asynchronous decoding.
-pub type TimedLiveSink = Box<dyn Fn(LiveFrame, u64) + Send + Sync>;
+pub type TimedLiveSink = Box<dyn Fn(LiveFrame<'_>, u64) + Send + Sync>;
 
 #[cfg(target_os = "linux")]
 mod gst;

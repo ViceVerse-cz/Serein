@@ -10,6 +10,13 @@ const CUSTOM: [&str; 3] = [
 ];
 const DEFINITIONS_KEY: &str = "serein-font-definitions";
 
+/// The font definitions in use, and the coverage ramp that text on accent fills needs from them.
+struct Shared {
+	definitions: FontDefinitions,
+	/// The ramp of the twin faces for text on accent fills; `None` publishes none.
+	on_accent: Option<egui::epaint::FontColorTransferFunction>,
+}
+
 #[derive(Clone)]
 pub struct CustomFont {
 	pub name: String,
@@ -365,11 +372,11 @@ pub fn revision(ctx: &Context) -> (usize, usize, u32) {
 }
 
 pub fn apply_custom(ctx: &Context, font: Option<&CustomFont>) {
-	let shared = ctx.data(|data| {
-		data.get_temp::<Arc<Mutex<FontDefinitions>>>(egui::Id::unique(DEFINITIONS_KEY))
-	});
+	let shared =
+		ctx.data(|data| data.get_temp::<Arc<Mutex<Shared>>>(egui::Id::unique(DEFINITIONS_KEY)));
 	let Some(shared) = shared else { return };
-	let mut definitions = shared.lock().expect("font definitions");
+	let mut shared = shared.lock().expect("font definitions");
+	let definitions = &mut shared.definitions;
 	for (family, name, weight) in [
 		(FontFamily::Proportional, CUSTOM[0], 400.0),
 		(
@@ -401,8 +408,8 @@ pub fn apply_custom(ctx: &Context, font: Option<&CustomFont>) {
 				.insert(0, name.into());
 		}
 	}
-	sync_name_families(&mut definitions);
-	ctx.set_fonts(definitions.clone());
+	sync_name_families(definitions);
+	ctx.set_fonts(published(&shared));
 	ctx.request_repaint();
 }
 
@@ -512,13 +519,12 @@ pub(crate) fn name_family(ctx: &Context, font: u32) -> Option<FontFamily> {
 	if ctx.fonts(|fonts| fonts.definitions().families.contains_key(family)) {
 		return Some(family.clone());
 	}
-	let shared = ctx.data(|data| {
-		data.get_temp::<Arc<Mutex<FontDefinitions>>>(egui::Id::unique(DEFINITIONS_KEY))
-	})?;
-	let mut definitions = shared.lock().expect("font definitions");
-	if !definitions.families.contains_key(family) {
-		add_name_font(&mut definitions, family.clone(), index);
-		ctx.set_fonts(definitions.clone());
+	let shared =
+		ctx.data(|data| data.get_temp::<Arc<Mutex<Shared>>>(egui::Id::unique(DEFINITIONS_KEY)))?;
+	let mut shared = shared.lock().expect("font definitions");
+	if !shared.definitions.families.contains_key(family) {
+		add_name_font(&mut shared.definitions, family.clone(), index);
+		ctx.set_fonts(published(&shared));
 		ctx.request_repaint();
 	}
 	None
@@ -558,53 +564,215 @@ const _: () = assert!(
 	CHECKED_JOBS * (size_of::<egui::text::LayoutJob>() + 3 * size_of::<usize>()) <= CHECKED_BYTES
 );
 
+fn is_cjk(c: char) -> bool {
+	matches!(
+		c as u32,
+		0x1100..=0x11ff
+			| 0x2e80..=0xa4cf
+			| 0xa960..=0xa97f
+			| 0xac00..=0xd7af
+			| 0xd7b0..=0xd7ff
+			| 0xf900..=0xfaff
+			| 0xfe30..=0xffef
+			| 0x20000..=0x323af
+	)
+}
+
+const MAX_PASS_CJK_CHARS: usize = 64;
+const HASH_INIT: u64 = 0xcbf2_9ce4_8422_2325;
+
+fn mix_job(hash: u64, job: &Arc<egui::text::LayoutJob>) -> u64 {
+	(hash ^ (Arc::as_ptr(job) as u64)).wrapping_mul(0x0100_0000_01b3)
+}
+
+fn shape_fingerprint(shape: &egui::Shape, count: &mut usize, hash: &mut u64) {
+	match shape {
+		egui::Shape::Text(text) => {
+			*count += 1;
+			*hash = mix_job(*hash, &text.galley.job);
+		}
+		egui::Shape::Vec(shapes) => {
+			for shape in shapes {
+				shape_fingerprint(shape, count, hash);
+			}
+		}
+		_ => {}
+	}
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PassOutcome {
+	/// Every job in the frame has been inspected without truncation.
+	Complete,
+	/// Stopped early at `MAX_PASS_CJK_CHARS` or saw the skipped prefix change; repaint to continue.
+	Continue,
+	/// The view shrank past the saved cursor before scanning any job; rescan from 0 in this pass.
+	RescanFromStart,
+}
+
 #[derive(Default)]
 struct CjkScan {
 	checked: Vec<Weak<egui::text::LayoutJob>>,
+	layers: Vec<egui::LayerId>,
+	chars: Vec<(FontFamily, char)>,
+	truncated: bool,
+	seen: usize,
+	resume_from: usize,
+	pass_hash: u64,
+	prefix_hash: u64,
+	prefix_dirty: bool,
+	rolled_over: bool,
+	completed_frame: Option<(usize, u64, (usize, usize, u32))>,
 }
 
 impl CjkScan {
-	fn text(&mut self, job: &Arc<egui::text::LayoutJob>) -> bool {
+	fn begin_pass(&mut self) {
+		self.chars.clear();
+		self.truncated = false;
+		self.seen = 0;
+		self.pass_hash = HASH_INIT;
+		if self.resume_from == 0 {
+			self.prefix_hash = HASH_INIT;
+			self.prefix_dirty = false;
+		}
+	}
+
+	fn finish_pass(&mut self, font_revision: (usize, usize, u32)) -> PassOutcome {
+		if self.truncated {
+			return PassOutcome::Continue;
+		}
+		let skipped_all = self.resume_from > 0 && self.seen <= self.resume_from;
+		let dirty_prefix = self.resume_from > 0 && self.prefix_dirty;
+		self.resume_from = 0;
+		self.prefix_hash = HASH_INIT;
+		self.prefix_dirty = false;
+		if skipped_all {
+			self.rolled_over = false;
+			return PassOutcome::RescanFromStart;
+		}
+		if dirty_prefix {
+			self.rolled_over = false;
+			return PassOutcome::Continue;
+		}
+		if self.rolled_over {
+			self.completed_frame = Some((self.seen, self.pass_hash, font_revision));
+			self.rolled_over = false;
+		}
+		PassOutcome::Complete
+	}
+
+	fn push_cjk(&mut self, family: &FontFamily, text: &str) {
+		if text.is_ascii() {
+			return;
+		}
+		for ch in text.chars().filter(|c| is_cjk(*c)) {
+			if !self.chars.iter().any(|(existing_family, existing_ch)| {
+				*existing_ch == ch && existing_family == family
+			}) {
+				self.chars.push((family.clone(), ch));
+			}
+		}
+	}
+
+	fn scan_job(&mut self, job: &Arc<egui::text::LayoutJob>) {
+		if self.truncated {
+			return;
+		}
+		let position = self.seen;
+		self.seen += 1;
+		if position < self.resume_from {
+			self.pass_hash = mix_job(self.pass_hash, job);
+			if self.seen == self.resume_from && self.pass_hash != self.prefix_hash {
+				self.prefix_dirty = true;
+			}
+			return;
+		}
 		let index = match self
 			.checked
 			.binary_search_by_key(&(Arc::as_ptr(job) as usize), |entry| {
 				entry.as_ptr() as usize
 			}) {
-			Ok(_) => return false,
+			Ok(_) => {
+				self.pass_hash = mix_job(self.pass_hash, job);
+				return;
+			}
 			Err(index) => index,
 		};
-		if !job.text.is_ascii() && job.text.chars().any(|c| matches!(c as u32, 0x1100..=0x11ff | 0x2e80..=0xa4cf | 0xa960..=0xa97f | 0xac00..=0xd7af | 0xd7b0..=0xd7ff | 0xf900..=0xfaff | 0xfe30..=0xffef | 0x20000..=0x323af)) {
-			return true;
+		if self.chars.len() >= MAX_PASS_CJK_CHARS {
+			self.truncated = true;
+			self.resume_from = position;
+			self.prefix_hash = self.pass_hash;
+			return;
+		}
+		if !job.text.is_ascii() {
+			if job.sections.is_empty() {
+				self.push_cjk(&FontFamily::Proportional, &job.text);
+			} else {
+				for section in &job.sections {
+					let range = section.byte_range.start.0..section.byte_range.end.0;
+					if let Some(text) = job.text.get(range) {
+						self.push_cjk(&section.format.font_id.family, text);
+					}
+				}
+			}
 		}
 		// Keep allocation identities alive so allocator address reuse cannot hide new text.
 		// Arc::make_mut also dissociates these weak references before editing a job.
 		if self.checked.capacity() == 0 {
 			self.checked.reserve_exact(CHECKED_JOBS);
 		}
-		// ponytail: clear the fixed cache at capacity; unusually busy views rescan text.
+		// ponytail: clear the fixed cache at capacity; unusually busy views rely on the
+		// traversal cursor and rollover fingerprint so continuation still converges.
 		let index = if self.checked.len() == CHECKED_JOBS {
 			self.checked.clear();
+			self.rolled_over = true;
 			0
 		} else {
 			index
 		};
 		self.checked.insert(index, Arc::downgrade(job));
-		false
+		self.pass_hash = mix_job(self.pass_hash, job);
 	}
 
-	fn shape(&mut self, shape: &egui::Shape) -> bool {
+	#[cfg(test)]
+	fn text(&mut self, job: &Arc<egui::text::LayoutJob>) -> bool {
+		self.resume_from = 0;
+		self.completed_frame = None;
+		self.begin_pass();
+		self.scan_job(job);
+		!self.chars.is_empty()
+	}
+
+	fn shape(&mut self, shape: &egui::Shape) {
+		if self.truncated {
+			return;
+		}
 		match shape {
-			egui::Shape::Text(text) => self.text(&text.galley.job),
-			egui::Shape::Vec(shapes) => shapes.iter().any(|shape| self.shape(shape)),
-			_ => false,
+			egui::Shape::Text(text) => self.scan_job(&text.galley.job),
+			egui::Shape::Vec(shapes) => {
+				for shape in shapes {
+					self.shape(shape);
+					if self.truncated {
+						break;
+					}
+				}
+			}
+			_ => {}
 		}
 	}
 }
 
 /// Install once during application creation, before the first UI pass.
 pub fn install(ctx: &Context) {
-	let shared = Arc::new(Mutex::new(definitions(false)));
-	ctx.set_fonts(shared.lock().expect("font definitions").clone());
+	let shared = Arc::new(Mutex::new(Shared {
+		definitions: definitions(false),
+		on_accent: None,
+	}));
+	ctx.set_fonts(published(&shared.lock().expect("font definitions")));
+	ctx.on_end_pass(
+		"On-accent text",
+		std::sync::Arc::new(|ui| crate::design::sync_on_accent(ui.ctx())),
+	);
 	ctx.data_mut(|data| data.insert_temp(egui::Id::unique(DEFINITIONS_KEY), shared.clone()));
 	let installed = std::sync::atomic::AtomicBool::new(false);
 	let scan = Mutex::new(CjkScan::default());
@@ -618,14 +786,62 @@ pub fn install(ctx: &Context) {
 			}
 			let mut scan = scan.lock().expect("CJK scan");
 			let ctx = ui.ctx();
-			let layers: Vec<_> = ctx.memory(|memory| memory.layer_ids().collect());
-			let needed = ctx.graphics(|graphics| {
-				layers.iter().any(|layer| {
-					graphics.get(*layer).is_some_and(|list| {
-						list.all_entries().any(|entry| scan.shape(&entry.shape))
+			let mut layers = std::mem::take(&mut scan.layers);
+			layers.clear();
+			ctx.memory(|memory| layers.extend(memory.layer_ids()));
+			let font_revision = revision(ctx);
+			if let Some(expected) = scan.completed_frame {
+				let mut count = 0usize;
+				let mut hash = HASH_INIT;
+				ctx.graphics(|graphics| {
+					for layer in &layers {
+						if let Some(list) = graphics.get(*layer) {
+							for entry in list.all_entries() {
+								shape_fingerprint(&entry.shape, &mut count, &mut hash);
+							}
+						}
+					}
+				});
+				if (count, hash, font_revision) == expected {
+					if layers.capacity() > 64 {
+						layers.shrink_to(64);
+					}
+					scan.layers = layers;
+					return;
+				}
+				scan.completed_frame = None;
+			}
+			let traverse = |scan: &mut CjkScan| {
+				scan.begin_pass();
+				ctx.graphics(|graphics| {
+					for layer in &layers {
+						if let Some(list) = graphics.get(*layer) {
+							for entry in list.all_entries() {
+								scan.shape(&entry.shape);
+								if scan.truncated {
+									return;
+								}
+							}
+						}
+					}
+				});
+			};
+			traverse(&mut scan);
+			let outcome = match scan.finish_pass(font_revision) {
+				PassOutcome::RescanFromStart => {
+					traverse(&mut scan);
+					scan.finish_pass(font_revision)
+				}
+				outcome => outcome,
+			};
+			// Prefer mmap'd system CJK fonts discovered by egui_system_font_provider; only
+			// inflate the 19 MiB bundled archive when a required family lacks a glyph yet.
+			let needed = !scan.chars.is_empty()
+				&& ctx.fonts_mut(|fonts| {
+					scan.chars.iter().any(|(family, ch)| {
+						!fonts.has_glyph(&egui::FontId::new(14.0, family.clone()), *ch)
 					})
-				})
-			});
+				});
 			if needed {
 				*scan = CjkScan::default();
 				installed.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -644,18 +860,30 @@ pub fn install(ctx: &Context) {
 					install_cjk(ctx, &shared);
 					ctx.request_repaint();
 				}
+			} else {
+				if matches!(outcome, PassOutcome::Continue) {
+					ctx.request_repaint();
+				}
+				scan.chars.clear();
+				if scan.chars.capacity() > 256 {
+					scan.chars.shrink_to(256);
+				}
+				if layers.capacity() > 64 {
+					layers.shrink_to(64);
+				}
+				scan.layers = layers;
 			}
 		}),
 	);
 	crate::design::weights_installed(ctx);
 }
 
-fn install_cjk(ctx: &Context, shared: &Mutex<FontDefinitions>) {
+fn install_cjk(ctx: &Context, shared: &Mutex<Shared>) {
 	let mut data = FontData::from_owned(cjk());
-	let mut definitions = shared.lock().expect("font definitions");
+	let mut shared = shared.lock().expect("font definitions");
 	data.index = cjk_index(crate::i18n::current());
-	add_fallback(&mut definitions, "Noto Sans CJK", data);
-	ctx.set_fonts(definitions.clone());
+	add_fallback(&mut shared.definitions, "Noto Sans CJK", data);
+	ctx.set_fonts(published(&shared));
 }
 
 fn cjk_index(language: crate::i18n::Language) -> u32 {
@@ -667,14 +895,14 @@ fn cjk_index(language: crate::i18n::Language) -> u32 {
 	}
 }
 
-fn update_cjk(ctx: &Context, shared: &Mutex<FontDefinitions>, index: u32) {
-	let mut definitions = shared.lock().expect("font definitions");
-	let Some(data) = definitions.font_data.get_mut("Noto Sans CJK") else {
+fn update_cjk(ctx: &Context, shared: &Mutex<Shared>, index: u32) {
+	let mut shared = shared.lock().expect("font definitions");
+	let Some(data) = shared.definitions.font_data.get_mut("Noto Sans CJK") else {
 		return;
 	};
 	if data.index != index {
 		Arc::make_mut(data).index = index;
-		ctx.set_fonts(definitions.clone());
+		ctx.set_fonts(published(&shared));
 		ctx.request_repaint();
 	}
 }
@@ -697,6 +925,74 @@ fn add_fallback(definitions: &mut FontDefinitions, name: &str, data: FontData) {
 		if matches!(family, FontFamily::Name(family) if family.starts_with("Serein Name ")) {
 			list.push(name.into());
 		}
+	}
+}
+
+/// `shared` as egui sees it: its definitions with twin faces for text on accent fills while a
+/// ramp is set.
+fn published(shared: &Shared) -> FontDefinitions {
+	let mut definitions = shared.definitions.clone();
+	if let Some(ramp) = shared.on_accent {
+		add_on_accent(&mut definitions, ramp);
+	}
+	definitions
+}
+
+/// Each weight family once more under its on-accent name, listing twin copies of the same faces
+/// with `ramp` as their coverage transfer. Text in a twin lays out exactly like its source's.
+fn add_on_accent(definitions: &mut FontDefinitions, ramp: egui::epaint::FontColorTransferFunction) {
+	for (family, twin) in [
+		(FontFamily::Proportional, crate::design::ON_ACCENT[0]),
+		(
+			FontFamily::Name(crate::design::MEDIUM.into()),
+			crate::design::ON_ACCENT[1],
+		),
+		(
+			FontFamily::Name(crate::design::SEMIBOLD.into()),
+			crate::design::ON_ACCENT[2],
+		),
+	] {
+		let faces = definitions.families.entry(family).or_default().clone();
+		let twins = faces
+			.iter()
+			.filter_map(|name| on_accent_face(definitions, name, ramp))
+			.collect();
+		definitions
+			.families
+			.insert(FontFamily::Name(twin.into()), twins);
+	}
+}
+
+/// The twin of the face installed as `name`; `None` when no face has that name.
+fn on_accent_face(
+	definitions: &mut FontDefinitions,
+	name: &str,
+	ramp: egui::epaint::FontColorTransferFunction,
+) -> Option<String> {
+	let mut data = definitions.font_data.get(name)?.as_ref().clone();
+	data.tweak.color_transfer_function = Some(ramp);
+	let twin = format!("{name} (on accent)");
+	definitions
+		.font_data
+		.entry(twin.clone())
+		.or_insert(Arc::new(data));
+	Some(twin)
+}
+
+/// Publish the definitions with the twin faces for `ramp`, when it changed. Any thread may
+/// publish the definitions, including the one that decodes the CJK face, so the ramp lives
+/// with them instead of on the thread that chose it.
+pub(crate) fn set_on_accent(ctx: &Context, ramp: Option<egui::epaint::FontColorTransferFunction>) {
+	let shared =
+		ctx.data(|data| data.get_temp::<Arc<Mutex<Shared>>>(egui::Id::unique(DEFINITIONS_KEY)));
+	let Some(shared) = shared else {
+		return;
+	};
+	let mut shared = shared.lock().expect("font definitions");
+	if shared.on_accent != ramp {
+		shared.on_accent = ramp;
+		ctx.set_fonts(published(&shared));
+		ctx.request_repaint();
 	}
 }
 
@@ -789,7 +1085,13 @@ mod tests {
 			scan.text(&job),
 			"editing an already checked job must detect CJK"
 		);
-		assert!(scan.checked[0].upgrade().is_none());
+		assert_eq!(
+			scan.checked
+				.iter()
+				.filter(|entry| entry.upgrade().is_none())
+				.count(),
+			1
+		);
 		for index in 0..CHECKED_JOBS * 2 {
 			let job = Arc::new(egui::text::LayoutJob {
 				text: format!("Synthetic {index}"),
@@ -808,6 +1110,311 @@ mod tests {
 			scan.text(&job),
 			"cache rollover must not suppress new CJK text"
 		);
+
+		// Every unique (family, char) in a checked job must be collected, and jobs past the
+		// per-pass cap must stay unchecked so the next pass inspects them rather than dropping
+		// uncovered glyphs past an arbitrary prefix.
+		let mut scan = CjkScan::default();
+		let mixed = Arc::new(egui::text::LayoutJob {
+			text: "一二三四五六七八九十한국어𠀀".into(),
+			..Default::default()
+		});
+		scan.scan_job(&mixed);
+		assert!(!scan.truncated);
+		assert!(scan.chars.contains(&(FontFamily::Proportional, '한')));
+		assert!(scan.chars.contains(&(FontFamily::Proportional, '𠀀')));
+
+		let mut multi_section = egui::text::LayoutJob::default();
+		multi_section.append(
+			"日本語 ",
+			0.0,
+			egui::TextFormat::simple(FontId::proportional(14.0), egui::Color32::WHITE),
+		);
+		multi_section.append(
+			"日本語",
+			0.0,
+			egui::TextFormat::simple(FontId::monospace(14.0), egui::Color32::WHITE),
+		);
+		let mut scan = CjkScan::default();
+		scan.scan_job(&Arc::new(multi_section));
+		assert!(scan.chars.contains(&(FontFamily::Proportional, '日')));
+		assert!(scan.chars.contains(&(FontFamily::Monospace, '日')));
+
+		let mut scan = CjkScan::default();
+		let saturating = Arc::new(egui::text::LayoutJob {
+			text: (0x4e00..0x4e00 + MAX_PASS_CJK_CHARS as u32)
+				.filter_map(char::from_u32)
+				.collect(),
+			..Default::default()
+		});
+		let deferred = Arc::new(egui::text::LayoutJob {
+			text: "Deferred 한글".into(),
+			..Default::default()
+		});
+		scan.begin_pass();
+		scan.scan_job(&saturating);
+		assert_eq!(scan.chars.len(), MAX_PASS_CJK_CHARS);
+		assert!(
+			!scan.truncated,
+			"hitting the cap on the final job must not mark the pass truncated"
+		);
+		scan.scan_job(&deferred);
+		assert!(
+			scan.truncated,
+			"stopping before an unchecked job must mark the pass truncated"
+		);
+		assert_eq!(scan.finish_pass((0, 0, 0)), PassOutcome::Continue);
+		assert_eq!(
+			scan.checked.len(),
+			1,
+			"uninspected job past per-pass cap must remain unchecked for the next pass"
+		);
+		scan.begin_pass();
+		scan.scan_job(&saturating);
+		scan.scan_job(&deferred);
+		assert!(!scan.truncated);
+		assert_eq!(scan.finish_pass((0, 0, 0)), PassOutcome::Complete);
+		assert!(scan.chars.contains(&(FontFamily::Proportional, '한')));
+
+		// Continuation progress must survive `checked` cache eviction when more than
+		// CHECKED_JOBS live jobs appear in one frame.
+		let mut scan = CjkScan::default();
+		let live_prefix: Vec<_> = (0..CHECKED_JOBS)
+			.map(|index| {
+				Arc::new(egui::text::LayoutJob {
+					text: format!("Live {index}"),
+					..Default::default()
+				})
+			})
+			.collect();
+		let run = |scan: &mut CjkScan| {
+			scan.begin_pass();
+			for job in &live_prefix {
+				scan.scan_job(job);
+			}
+			scan.scan_job(&saturating);
+			scan.scan_job(&deferred);
+			scan.finish_pass((0, 0, 0))
+		};
+		assert_eq!(run(&mut scan), PassOutcome::Continue);
+		assert_eq!(scan.resume_from, CHECKED_JOBS + 1);
+		assert_eq!(
+			scan.checked.len(),
+			1,
+			"filling CHECKED_JOBS live entries must evict earlier entries on rollover"
+		);
+		assert_eq!(run(&mut scan), PassOutcome::Complete);
+		assert!(
+			scan.chars.contains(&(FontFamily::Proportional, '한')),
+			"deferred job past cache eviction must be reached on the continuation pass"
+		);
+		assert!(scan.completed_frame.is_some());
+	}
+
+	#[test]
+	fn cjk_fallback_checks_section_families_and_repaints_only_when_truncated() {
+		use std::time::Duration;
+
+		let ctx = Context::default();
+		install(&ctx);
+		let custom_cjk = CustomFont {
+			name: "Synthetic CJK".into(),
+			data: FontData::from_owned(cjk()),
+		};
+		apply_custom(&ctx, Some(&custom_cjk));
+
+		let pass = |ui_fn: &mut dyn FnMut(&mut egui::Ui)| -> Duration {
+			let output = ctx.run_ui(Default::default(), ui_fn);
+			let delay = output
+				.viewport_output
+				.get(&egui::ViewportId::ROOT)
+				.map_or(Duration::MAX, |viewport| viewport.repaint_delay);
+			output.drop_without_applying_deltas();
+			delay
+		};
+
+		// Settle initial font-install repaints before measuring scan-triggered repaints.
+		for _ in 0..4 {
+			if pass(&mut |ui| {
+				ui.label("ready");
+			}) != Duration::ZERO
+			{
+				break;
+			}
+		}
+		ctx.fonts(|fonts| {
+			let monospace = &fonts.definitions().families[&FontFamily::Monospace];
+			assert!(
+				!CUSTOM
+					.iter()
+					.any(|name| monospace.iter().any(|entry| entry == name)),
+				"apply_custom must not add the custom interface font to Monospace"
+			);
+		});
+
+		// A single job hitting MAX_PASS_CJK_CHARS with no skipped jobs must not request a repaint.
+		let exact_cap: String = (0x4e00..0x4e00 + MAX_PASS_CJK_CHARS as u32)
+			.filter_map(char::from_u32)
+			.collect();
+		let delay = pass(&mut |ui| {
+			ui.label(&exact_cap);
+		});
+		assert_ne!(
+			delay,
+			Duration::ZERO,
+			"pass that inspected every job must not request an extra repaint"
+		);
+		assert!(!ctx.fonts(|fonts| fonts.definitions().font_data.contains_key("Noto Sans CJK")));
+
+		// Stopping early before another unchecked job must request one additional repaint,
+		// then stop requesting repaints once the follow-up pass inspects the deferred job.
+		let second_cap: String = (0x4e40..0x4e40 + MAX_PASS_CJK_CHARS as u32)
+			.filter_map(char::from_u32)
+			.collect();
+		let delay = pass(&mut |ui| {
+			ui.label(&second_cap);
+			ui.label("日本語");
+		});
+		assert_eq!(
+			delay,
+			Duration::ZERO,
+			"truncated pass without fallback install must request one continuation repaint"
+		);
+		assert!(!ctx.fonts(|fonts| fonts.definitions().font_data.contains_key("Noto Sans CJK")));
+
+		let mut prev_causes = Vec::new();
+		let _ = pass(&mut |ui| {
+			prev_causes = ui.ctx().repaint_causes();
+			ui.label(&second_cap);
+			ui.label("日本語");
+		});
+		assert!(
+			!prev_causes.is_empty(),
+			"truncated pass must record a repaint request"
+		);
+		assert!(!ctx.fonts(|fonts| fonts.definitions().font_data.contains_key("Noto Sans CJK")));
+
+		// egui schedules one automatic settling pass after any immediate repaint; the
+		// follow-up pass itself must not record another repaint cause.
+		let delay = pass(&mut |ui| {
+			prev_causes = ui.ctx().repaint_causes();
+			ui.label(&second_cap);
+			ui.label("日本語");
+		});
+		assert!(
+			prev_causes.is_empty(),
+			"follow-up pass that finishes deferred jobs must not request another repaint"
+		);
+		assert_ne!(
+			delay,
+			Duration::ZERO,
+			"repainting must stop after the deferred jobs are inspected"
+		);
+		assert!(!ctx.fonts(|fonts| fonts.definitions().font_data.contains_key("Noto Sans CJK")));
+
+		// A busy view with more than CHECKED_JOBS live labels must still reach deferred jobs
+		// past cache eviction and stop repainting once every covered job has been inspected.
+		let busy_prefix: Vec<String> = (0..CHECKED_JOBS).map(|i| format!("row-{i}")).collect();
+		let third_cap: String = (0x4e80..0x4e80 + MAX_PASS_CJK_CHARS as u32)
+			.filter_map(char::from_u32)
+			.collect();
+		let show_busy = |ui: &mut egui::Ui, monospace_tail: bool| {
+			let painter = ui.painter();
+			for row in &busy_prefix {
+				painter.text(
+					egui::Pos2::ZERO,
+					egui::Align2::LEFT_TOP,
+					row,
+					FontId::proportional(14.0),
+					egui::Color32::WHITE,
+				);
+			}
+			painter.text(
+				egui::Pos2::ZERO,
+				egui::Align2::LEFT_TOP,
+				&third_cap,
+				FontId::proportional(14.0),
+				egui::Color32::WHITE,
+			);
+			if monospace_tail {
+				painter.text(
+					egui::Pos2::ZERO,
+					egui::Align2::LEFT_TOP,
+					"日本語",
+					FontId::monospace(14.0),
+					egui::Color32::WHITE,
+				);
+			} else {
+				painter.text(
+					egui::Pos2::ZERO,
+					egui::Align2::LEFT_TOP,
+					"東京大阪",
+					FontId::proportional(14.0),
+					egui::Color32::WHITE,
+				);
+			}
+		};
+		let delay = pass(&mut |ui| show_busy(ui, false));
+		assert_eq!(
+			delay,
+			Duration::ZERO,
+			"truncated pass after checked cache rollover must request a continuation repaint"
+		);
+		assert!(!ctx.fonts(|fonts| fonts.definitions().font_data.contains_key("Noto Sans CJK")));
+
+		let _ = pass(&mut |ui| {
+			prev_causes = ui.ctx().repaint_causes();
+			show_busy(ui, false);
+		});
+		assert!(!prev_causes.is_empty());
+		assert!(!ctx.fonts(|fonts| fonts.definitions().font_data.contains_key("Noto Sans CJK")));
+
+		let delay = pass(&mut |ui| {
+			prev_causes = ui.ctx().repaint_causes();
+			show_busy(ui, false);
+		});
+		assert!(
+			prev_causes.is_empty(),
+			"continuation pass past cache rollover must settle without oscillating repaints"
+		);
+		assert_ne!(
+			delay,
+			Duration::ZERO,
+			"unchanged busy view must stop repainting after full sweep completes"
+		);
+		assert!(!ctx.fonts(|fonts| fonts.definitions().font_data.contains_key("Noto Sans CJK")));
+
+		// A Monospace code block past cache eviction must still be reached and install the
+		// bundled fallback even when the custom interface font covers the same glyphs in
+		// Proportional.
+		let (tx, rx) = std::sync::mpsc::channel();
+		ctx.set_request_repaint_callback(move |_| {
+			let _ = tx.send(());
+		});
+		let delay = pass(&mut |ui| show_busy(ui, true));
+		assert_eq!(delay, Duration::ZERO);
+		let _ = pass(&mut |ui| show_busy(ui, true));
+		let deadline = std::time::Instant::now() + Duration::from_secs(10);
+		while !ctx.fonts(|fonts| fonts.definitions().font_data.contains_key("Noto Sans CJK")) {
+			let remaining = deadline
+				.checked_duration_since(std::time::Instant::now())
+				.expect("bundled CJK fallback worker must install Noto Sans CJK");
+			rx.recv_timeout(remaining)
+				.expect("bundled CJK fallback worker must request repaint");
+			let _ = pass(&mut |ui| {
+				ui.label(egui::RichText::new("日本語").monospace());
+			});
+		}
+		assert!(ctx.fonts_mut(|fonts| fonts.has_glyph(&FontId::monospace(14.0), '日')));
+		ctx.fonts(|fonts| {
+			let monospace = &fonts.definitions().families[&FontFamily::Monospace];
+			assert!(
+				!CUSTOM
+					.iter()
+					.any(|name| monospace.iter().any(|entry| entry == name)),
+				"Monospace must keep using fallback rather than the custom interface font"
+			);
+		});
 	}
 
 	#[test]
@@ -905,6 +1512,133 @@ mod tests {
 				.collect();
 			assert_eq!(*names, without_cjk);
 		}
+	}
+
+	#[test]
+	fn on_accent_faces_take_the_other_ramp_and_lay_out_like_their_sources() {
+		use egui::{Color32, epaint::FontColorTransferFunction};
+		struct Restore(Option<[u8; 3]>);
+		impl Drop for Restore {
+			fn drop(&mut self) {
+				crate::design::set_primary_color(self.0);
+			}
+		}
+		let _restore = Restore(crate::design::primary_color());
+		let ctx = Context::default();
+		ctx.set_theme(egui::ThemePreference::Dark);
+		install(&ctx);
+		crate::design::apply(&ctx);
+		ctx.run_ui(Default::default(), |ui| {
+			let ink = crate::design::ink_family(
+				ui,
+				crate::design::Weight::Medium,
+				Color32::BLACK,
+				Color32::WHITE,
+			);
+			assert_eq!(ink, crate::design::medium_family(ui.ctx()));
+			assert!(!ui.fonts(|fonts| {
+				fonts
+					.definitions()
+					.families
+					.contains_key(&FontFamily::Name(crate::design::ON_ACCENT[1].into()))
+			}));
+		})
+		.drop_without_applying_deltas();
+
+		// A light accent takes dark text, which runs against dark mode.
+		crate::design::set_primary_color(Some([0xc0, 0x84, 0xfc]));
+		crate::design::apply(&ctx);
+		ctx.run_ui(Default::default(), |ui| {
+			let accent = Color32::from_rgb(0xc0, 0x84, 0xfc);
+			let ink = crate::design::ink_family(
+				ui,
+				crate::design::Weight::Medium,
+				Color32::BLACK,
+				accent,
+			);
+			assert_eq!(ink, FontFamily::Name(crate::design::ON_ACCENT[1].into()));
+			// Light text on a dark surface keeps the ordinary face.
+			assert_eq!(
+				crate::design::ink_family(
+					ui,
+					crate::design::Weight::Medium,
+					Color32::WHITE,
+					Color32::BLACK,
+				),
+				crate::design::medium_family(ui.ctx())
+			);
+			// An unfilled control shows the surface behind it, which is not the accent.
+			assert_eq!(
+				crate::design::ink_family(
+					ui,
+					crate::design::Weight::Medium,
+					Color32::BLACK,
+					Color32::TRANSPARENT,
+				),
+				crate::design::medium_family(ui.ctx())
+			);
+			ui.fonts(|fonts| {
+				let definitions = fonts.definitions();
+				let source = &definitions.families[&crate::design::medium_family(ui.ctx())];
+				let twin = &definitions.families[&ink];
+				assert_eq!(twin.len(), source.len());
+				for (source, twin) in source.iter().zip(twin) {
+					assert_eq!(twin, &format!("{source} (on accent)"));
+					let (source, twin) =
+						(&definitions.font_data[source], &definitions.font_data[twin]);
+					assert_eq!(source.tweak.color_transfer_function, None);
+					assert_eq!(
+						twin.tweak.color_transfer_function,
+						Some(FontColorTransferFunction::Off)
+					);
+					assert!(Arc::ptr_eq(&source.font, &twin.font));
+				}
+			});
+			let width = |ui: &mut egui::Ui, family: &FontFamily| {
+				ui.fonts_mut(|fonts| {
+					fonts
+						.layout_no_wrap(
+							"Send request".into(),
+							FontId::new(14.0, family.clone()),
+							Color32::WHITE,
+						)
+						.size()
+				})
+			};
+			assert_eq!(
+				width(ui, &ink),
+				width(ui, &crate::design::medium_family(ui.ctx())),
+				"the twin must not move or resize the label"
+			);
+		})
+		.drop_without_applying_deltas();
+
+		// The CJK face is installed from a worker thread. It must publish the twins as well.
+		let shared = ctx
+			.data(|data| data.get_temp::<Arc<Mutex<Shared>>>(egui::Id::unique(DEFINITIONS_KEY)))
+			.expect("font definitions");
+		let worker = ctx.clone();
+		std::thread::spawn(move || install_cjk(&worker, &shared))
+			.join()
+			.expect("cjk-font worker");
+		ctx.run_ui(Default::default(), |ui| {
+			let ink = crate::design::ink_family(
+				ui,
+				crate::design::Weight::Medium,
+				Color32::BLACK,
+				Color32::from_rgb(0xc0, 0x84, 0xfc),
+			);
+			assert_eq!(ink, FontFamily::Name(crate::design::ON_ACCENT[1].into()));
+			ui.fonts(|fonts| {
+				assert!(
+					fonts.definitions().families[&ink]
+						.iter()
+						.any(|face| face == "Noto Sans CJK (on accent)"),
+					"the worker must publish the fallback in the twin family too"
+				);
+			});
+		})
+		.drop_without_applying_deltas();
 	}
 
 	#[test]

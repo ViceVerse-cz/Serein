@@ -67,6 +67,80 @@ pub(super) struct Menu {
 	pub retry: bool,
 }
 
+/// Relevance tier of a command for a lowercase query, lower is better: 0 exact name, 1 name
+/// prefix, 2 word-start inside the name, 3 elsewhere in the name, 4 only the description or
+/// the (already lowercase) application name. `name` is the full path the user types, such as
+/// `cmd group sub`. An empty query is the bare `/` browse list, where everything ties.
+fn relevance(name: &str, description: &str, application: &str, query: &str) -> Option<u8> {
+	if query.is_empty() {
+		return Some(1);
+	}
+	let name = name.to_lowercase();
+	if name == query {
+		Some(0)
+	} else if name.starts_with(query) {
+		Some(1)
+	} else if name.match_indices(query).any(|(at, _)| {
+		name[..at]
+			.chars()
+			.next_back()
+			.is_none_or(|before| !before.is_alphanumeric())
+	}) {
+		Some(2)
+	} else if name.contains(query) {
+		Some(3)
+	} else if application.contains(query) || description.to_lowercase().contains(query) {
+		Some(4)
+	} else {
+		None
+	}
+}
+
+/// Total order: relevance first, then applications before built-ins, by application and name.
+fn order(a: &(u8, Pick), b: &(u8, Pick)) -> std::cmp::Ordering {
+	fn key((tier, pick): &(u8, Pick)) -> (u8, bool, &str, Option<Id>, &str) {
+		(
+			*tier,
+			pick.application_id.is_none(),
+			pick.application.as_str(),
+			pick.application_id,
+			pick.name.as_str(),
+		)
+	}
+	key(a).cmp(&key(b))
+}
+
+/// Best `RESULTS` candidates so far. Compacting whenever twice that many accumulate bounds
+/// memory at 2 * RESULTS picks however large the catalog grows.
+struct Top {
+	found: Vec<(u8, Pick)>,
+	worst: u8,
+}
+
+impl Top {
+	fn new() -> Self {
+		Self {
+			found: Vec::new(),
+			worst: u8::MAX,
+		}
+	}
+	/// Whether a candidate of this tier can still reach the final list.
+	fn wants(&self, tier: u8) -> bool {
+		tier <= self.worst
+	}
+	fn push(&mut self, tier: u8, pick: Pick) {
+		self.found.push((tier, pick));
+		if self.found.len() >= RESULTS * 2 {
+			self.finish();
+			self.worst = self.found.last().map_or(u8::MAX, |(tier, _)| *tier);
+		}
+	}
+	fn finish(&mut self) {
+		self.found.sort_by(order);
+		self.found.truncate(RESULTS);
+	}
+}
+
 impl Menu {
 	pub fn suspend(&mut self, state: &State, channel: Id) {
 		if self.channel != Some(channel) || self.generation != state.generation {
@@ -159,21 +233,29 @@ impl Menu {
 		let Some(channel) = self.channel else {
 			return;
 		};
+		// Rank before truncating so the best match can never be dropped. Candidates are
+		// pruned to the best RESULTS whenever twice that many have accumulated, which
+		// bounds memory at 2 * RESULTS picks however large the catalog (at most
+		// MAX_COMMANDS commands with their subcommand leaves) grows.
+		let mut top = Top::new();
 		if matches!(self.filter, Filter::All | Filter::Builtins) {
 			for entry in slash_builtin::ALL {
 				if entry.command.available(state, channel)
-					&& (entry.name.contains(query)
-						|| entry.description.to_lowercase().contains(query))
+					&& let Some(tier) = relevance(entry.name, entry.description, "", query)
+					&& top.wants(tier)
 				{
-					self.items.push(Pick {
-						id: None,
-						path: Vec::new(),
-						name: entry.name.into(),
-						description: entry.description.into(),
-						application: "Built-In".into(),
-						application_id: None,
-						icon: None,
-					});
+					top.push(
+						tier,
+						Pick {
+							id: None,
+							path: Vec::new(),
+							name: entry.name.into(),
+							description: entry.description.into(),
+							application: "Built-In".into(),
+							application_id: None,
+							icon: None,
+						},
+					);
 				}
 			}
 		}
@@ -183,9 +265,7 @@ impl Menu {
 			}
 			self.applications.insert(command.application_id);
 			if self.filter != Filter::Builtins {
-				if self.items.len() >= RESULTS
-					|| matches!(self.filter, Filter::Application(id) if id != command.application_id)
-				{
+				if matches!(self.filter, Filter::Application(id) if id != command.application_id) {
 					continue;
 				}
 				let mut leaves = Vec::new();
@@ -209,46 +289,34 @@ impl Menu {
 				} else {
 					leaves.push((Vec::new(), command.description.as_str()));
 				}
+				let application = command.application_name.to_lowercase();
 				for (path, description) in leaves {
 					let name = if path.is_empty() {
 						command.name.clone()
 					} else {
 						format!("{} {}", command.name, path.join(" "))
 					};
-					if [name.as_str(), description, &command.application_name]
-						.iter()
-						.any(|text| text.to_lowercase().contains(query))
+					if let Some(tier) = relevance(&name, description, &application, query)
+						&& top.wants(tier)
 					{
-						self.items.push(Pick {
-							id: Some(command.id),
-							path,
-							name,
-							description: description.into(),
-							application: command.application_name.clone(),
-							application_id: Some(command.application_id),
-							icon: command.application_icon.clone(),
-						});
-						if self.items.len() >= RESULTS {
-							break;
-						}
+						top.push(
+							tier,
+							Pick {
+								id: Some(command.id),
+								path,
+								name,
+								description: description.into(),
+								application: command.application_name.clone(),
+								application_id: Some(command.application_id),
+								icon: command.application_icon.clone(),
+							},
+						);
 					}
 				}
 			}
 		}
-		self.items.sort_by(|a, b| {
-			(
-				a.application_id.is_none(),
-				&a.application,
-				a.application_id,
-				&a.name,
-			)
-				.cmp(&(
-					b.application_id.is_none(),
-					&b.application,
-					b.application_id,
-					&b.name,
-				))
-		});
+		top.finish();
+		self.items = top.found.into_iter().map(|(_, pick)| pick).collect();
 		self.selected = self.selected.min(self.items.len().saturating_sub(1));
 	}
 	pub fn visible(&self) -> bool {
@@ -2349,6 +2417,100 @@ mod tests {
 			invocation.options[0].value,
 			Some(Value::String(local.to_string()))
 		);
+	}
+
+	#[test]
+	fn slash_search_ranks_the_best_match_first() {
+		use model::application_commands::Command as Synthetic;
+		let command =
+			|id: u64, application: u64, app: &str, name: &str, description: &str| Synthetic {
+				id: Id(id),
+				version: Id(1),
+				application_id: Id(application),
+				guild_id: None,
+				kind: 1,
+				name: name.into(),
+				description: description.into(),
+				options: Vec::new(),
+				contexts: None,
+				integration_types: None,
+				application_name: app.into(),
+				application_icon: None,
+				default_member_permissions: None,
+				permissions: Default::default(),
+				application_permissions: Default::default(),
+			};
+		let mut state = test_support::demo_state();
+		let channel = state.selected.unwrap();
+		state.auth = client_core::auth::AuthState::Authenticated;
+		state.gateway_connected = true;
+		let mut permissions = test_support::permission_snapshot(&state);
+		for guild in &mut permissions.guilds {
+			for role in guild.roles.iter_mut().flatten() {
+				role.bits |= model::permissions::USE_APPLICATION_COMMANDS
+					| model::permissions::SEND_MESSAGES;
+			}
+		}
+		state.permissions.replace(permissions).unwrap();
+		let mut menu = Menu::default();
+		let set = |state: &mut State, commands: Vec<Synthetic>| {
+			state.application_commands.commands = commands;
+			state.application_commands.request += 1;
+		};
+		set(
+			&mut state,
+			vec![
+				command(1, 10, "Aardvark Colours", "swatch", "Show a colour"),
+				command(2, 20, "Mudae", "wa", "Roll a waifu"),
+				command(3, 10, "Aardvark Colours", "zebra", "wa"),
+			],
+		);
+		menu.refresh(&state, channel, "/wa", true);
+		assert_eq!(menu.items[0].name, "wa");
+		assert_eq!(menu.items[0].application, "Mudae");
+		assert_eq!(menu.selected, 0);
+		let names: Vec<_> = menu.items.iter().map(|pick| pick.name.as_str()).collect();
+		assert_eq!(
+			names,
+			["wa", "swatch", "zebra"],
+			"description matches rank last"
+		);
+
+		let mut crowded: Vec<_> = (0..RESULTS as u64 * 3)
+			.map(|id| command(100 + id, 10, "Aardvark Colours", &format!("wax{id}"), ""))
+			.collect();
+		crowded.push(command(2, 20, "Mudae", "wa", "Roll a waifu"));
+		set(&mut state, crowded);
+		menu.refresh(&state, channel, "/wa", true);
+		assert_eq!(menu.items.len(), RESULTS);
+		assert_eq!(
+			menu.items[0].name, "wa",
+			"the exact match survives compaction"
+		);
+
+		let mut canvas = command(5, 40, "Artist", "canvas", "Draw");
+		canvas.options = vec![CommandOption {
+			kind: 2,
+			name: "image".into(),
+			options: vec![CommandOption {
+				kind: 1,
+				name: "create".into(),
+				..Default::default()
+			}],
+			..Default::default()
+		}];
+		set(
+			&mut state,
+			vec![
+				canvas,
+				command(6, 10, "Aardvark Colours", "pixel", "canvas image"),
+			],
+		);
+		menu.refresh(&state, channel, "/canvas im", true);
+		assert_eq!(menu.items[0].name, "canvas image create");
+		assert_eq!(menu.items[0].path, ["image", "create"]);
+		assert_eq!(menu.items.len(), 2, "a description-only match ranks last");
+		assert_eq!(menu.items[1].name, "pixel");
 	}
 
 	#[test]

@@ -1,0 +1,158 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: x <x@x>
+Date: Fri, 27 Nov 2026 02:22:24 -0800
+Subject: [PATCH] Serein: let a font override the coverage transfer function
+
+Serein ramps glyph coverage once per appearance: Gamma(0.5) in dark mode, for light text on dark
+surfaces, and none in light mode. A theme whose accent text falls on the far side of its accent,
+such as black on a light purple, painted that text with the wrong ramp: too heavy in dark mode,
+too thin in light mode. FontTweak::color_transfer_function lets a face pick its own ramp, so the
+app can register a twin of each weight family with the ramp for the opposite polarity and lay
+out only the text on accent fills in it. Color glyphs keep skipping the transfer, and the debug
+font tweak UI leaves the new field at its default.
+---
+ crates/egui/src/style.rs              |  1 +
+ crates/epaint/src/text/font_face.rs   | 21 ++++++++++++++++++---
+ crates/epaint/src/text/font_tweak.rs  | 11 ++++++++++-
+ crates/epaint/src/text/glyph_atlas.rs |  6 +++++-
+ 4 files changed, 34 insertions(+), 5 deletions(-)
+
+diff --git a/crates/egui/src/style.rs b/crates/egui/src/style.rs
+index 28a1433..07df9fb 100644
+--- a/crates/egui/src/style.rs
++++ b/crates/egui/src/style.rs
+@@ -3239,6 +3239,7 @@ pub fn font_tweak_ui(ui: &mut Ui, tweak: &mut FontTweak, axes: &[FontVariationAx
+                 thin_space_width,
+                 tab_size,
+                 subpixel_binning,
++                ..
+             } = tweak;
+ 
+             ui.label("Scale");
+diff --git a/crates/epaint/src/text/font_face.rs b/crates/epaint/src/text/font_face.rs
+index 819330e..584940b 100644
+--- a/crates/epaint/src/text/font_face.rs
++++ b/crates/epaint/src/text/font_face.rs
+@@ -10,7 +10,7 @@ use skrifa::{GlyphId, MetadataProvider as _};
+ use vello_cpu::{color, kurbo};
+ 
+ use crate::{
+-    ColorImage, TextOptions,
++    ColorImage, FontColorTransferFunction, TextOptions,
+     text::{
+         FontTweak, GlyphBitmap, VariationCoords,
+         font_data::Blob,
+@@ -342,6 +342,7 @@ pub struct FontFace {
+     font: FontCell,
+     tweak: FontTweak,
+     subpixel_binning: bool,
++    color_transfer_function: FontColorTransferFunction,
+ 
+     /// The font as seen by `harfrust`, which caches its parsed GSUB/GPOS tables.
+     shaper_font: harfrust::Font,
+@@ -425,29 +426,37 @@ impl FontFace {
+         })?;
+ 
+         let subpixel_binning = tweak.subpixel_binning.unwrap_or(options.subpixel_binning);
++        let color_transfer_function = tweak
++            .color_transfer_function
++            .unwrap_or(options.color_transfer_function);
+ 
+         Ok(Self {
+             name,
+             font,
+             tweak,
+             subpixel_binning,
++            color_transfer_function,
+             shaper_font,
+             glyph_id_cache: Default::default(),
+             advance_width_cache: Default::default(),
+         })
+     }
+ 
+-    /// Apply new [`TextOptions`]: hinting on/off and sub-pixel binning.
++    /// Apply new [`TextOptions`]: hinting on/off, sub-pixel binning and the coverage transfer.
+     ///
+-    /// Anything cached about glyph ids and advances stays valid, since neither affects them.
++    /// Anything cached about glyph ids and advances stays valid, since none affects them.
+     pub(crate) fn set_options(&mut self, options: TextOptions) {
+         let Self {
+             font,
+             tweak,
+             subpixel_binning,
++            color_transfer_function,
+             ..
+         } = self;
+         *subpixel_binning = tweak.subpixel_binning.unwrap_or(options.subpixel_binning);
++        *color_transfer_function = tweak
++            .color_transfer_function
++            .unwrap_or(options.color_transfer_function);
+         let hinting_enabled = tweak.hinting.unwrap_or(options.font_hinting);
+         font.with_dependent_mut(|_, font_data| {
+             font_data.hinting_instance = hinting_enabled
+@@ -656,6 +665,12 @@ impl FontFace {
+         self.subpixel_binning
+     }
+ 
++    /// The coverage transfer function for this face's outline glyphs.
++    #[inline]
++    pub(crate) fn color_transfer_function(&self) -> FontColorTransferFunction {
++        self.color_transfer_function
++    }
++
+     /// Does this face draw `c` with a color glyph, e.g. a color emoji?
+     pub(super) fn has_color_glyph_for(&mut self, c: char) -> bool {
+         core::cfg_select! {
+diff --git a/crates/epaint/src/text/font_tweak.rs b/crates/epaint/src/text/font_tweak.rs
+index 29958ed..e6c6b73 100644
+--- a/crates/epaint/src/text/font_tweak.rs
++++ b/crates/epaint/src/text/font_tweak.rs
+@@ -1,4 +1,4 @@
+-use crate::text::VariationCoords;
++use crate::{FontColorTransferFunction, text::VariationCoords};
+ 
+ /// Extra scale and vertical tweak to apply to all text of a certain font.
+ #[derive(Clone, Debug, PartialEq)]
+@@ -44,6 +44,14 @@ pub struct FontTweak {
+     /// `None` means use the global setting in [`TextOptions::subpixel_binning`](crate::text::TextOptions::subpixel_binning).
+     pub subpixel_binning: Option<bool>,
+ 
++    /// Override the global coverage transfer function for this specific font.
++    ///
++    /// `None` means use the global setting in [`TextOptions::color_transfer_function`](crate::TextOptions::color_transfer_function).
++    ///
++    /// A face registered only for text whose contrast runs against the theme's own polarity,
++    /// such as dark text on a light accent fill in dark mode, picks the ramp for that polarity.
++    pub color_transfer_function: Option<FontColorTransferFunction>,
++
+     /// Override the font's default variation coordinates for its axes ("wght", etc.).
+     pub coords: VariationCoords,
+ 
+@@ -70,6 +78,7 @@ impl Default for FontTweak {
+             hinting: None,
+             hinting_target: HintingTarget::default(),
+             subpixel_binning: None,
++            color_transfer_function: None,
+             coords: VariationCoords::default(),
+             thin_space_width: 0.5,
+             tab_size: 4.0,
+diff --git a/crates/epaint/src/text/glyph_atlas.rs b/crates/epaint/src/text/glyph_atlas.rs
+index 5303ea1..d9bbd6a 100644
+--- a/crates/epaint/src/text/glyph_atlas.rs
++++ b/crates/epaint/src/text/glyph_atlas.rs
+@@ -304,7 +304,11 @@ impl GlyphAtlas {
+         let allocation = *outline_glyphs.entry(key).or_insert_with(|| {
+             face.rasterize_glyph(metrics, glyph_id, bin)
+                 .and_then(|bitmap| {
+-                    let transfer = Self::transfer_function(atlas, bitmap.is_color);
++                    let transfer = if bitmap.is_color {
++                        FontColorTransferFunction::Off
++                    } else {
++                        face.color_transfer_function()
++                    };
+                     let mut uv_rect =
+                         Self::allocate_bitmap(atlas, &bitmap, metrics.pixels_per_point, transfer)?;
+                     uv_rect.offset.y += metrics.y_offset_in_points;
+-- 
+2.55.0.windows.5
+

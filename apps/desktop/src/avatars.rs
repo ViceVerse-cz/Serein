@@ -28,31 +28,9 @@ const ANIMATION_ALLOC: u64 = 3 * 2048 * 2048 * 4;
 const QUEUED: usize = 1024;
 const RESULT_BYTES: usize = 128 * 1024 * 1024;
 fn is_animated_key(key: &str) -> bool {
-	if key.starts_with("anim:") {
-		return true;
-	}
-	if let Some(cosmetic) = Cosmetic::parse(key) {
-		return cosmetic.animated();
-	}
-	if let Some(value) = key.strip_prefix("banner-") {
-		return value
-			.split_once('-')
-			.is_some_and(|(_, hash)| hash.starts_with("a_"));
-	}
-	if let Some(value) = key.strip_prefix("member-banner-") {
-		let mut parts = value.split('-');
-		return parts.nth(2).is_some_and(|hash| hash.starts_with("a_"));
-	}
-	if let Some(value) = key.strip_prefix("member-avatar-") {
-		let mut parts = value.split('-');
-		return parts.nth(2).is_some_and(|hash| hash.starts_with("a_"));
-	}
-	if let Some((id, hash)) = key.split_once('-')
-		&& id.parse::<Id>().is_ok()
-	{
-		return hash.starts_with("a_");
-	}
-	false
+	key.starts_with("anim:")
+		|| Cosmetic::parse(key).is_some_and(Cosmetic::animated)
+		|| ui::is_hover_animated_key(key)
 }
 fn encoded_limit(key: &str) -> usize {
 	if let Some(cosmetic) = Cosmetic::parse(key) {
@@ -1400,6 +1378,9 @@ async fn run(
 			_reservation: None,
 		}) => if !result { break },
 		}
+		if jobs.is_empty() && viewer.is_empty() && artwork.is_empty() && inline.is_empty() {
+			platform::memory::release_freed_memory();
+		}
 	}
 	jobs.abort_all();
 }
@@ -1903,15 +1884,19 @@ fn decode_motion_video(
 					pts,
 					picture,
 				}))) => {
+					if !index.is_multiple_of(stride) {
+						#[cfg(target_os = "linux")]
+						decoder.recycle(picture);
+						index += 1;
+						continue;
+					}
 					// Clip frames are resized and cached once, so the CPU conversion stays.
 					let (width, height, rgba) = picture.to_rgba()?;
+					#[cfg(target_os = "linux")]
+					decoder.recycle(picture);
 					let pixels = (width as usize).checked_mul(height as usize)?;
 					if width == 0 || height == 0 || rgba.len() != pixels.checked_mul(4)? {
 						return None;
-					}
-					if !index.is_multiple_of(stride) {
-						index += 1;
-						continue;
 					}
 					let image = image::RgbaImage::from_raw(width, height, rgba)?;
 					let image = resize_to(image, fit);

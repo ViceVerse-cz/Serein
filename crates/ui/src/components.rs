@@ -297,8 +297,18 @@ impl Components {
 					let label = component_label(c);
 					let linked = c.style == Some(5);
 					let text = egui::RichText::new(label);
-					let text = if matches!(c.style, Some(1 | 3 | 4)) {
-						text.color(colors.accent_text)
+					let text = if let Some(surface) = match c.style {
+						Some(1) => Some(colors.accent),
+						Some(3) => Some(colors.positive),
+						Some(4) => Some(colors.danger),
+						_ => None,
+					} {
+						text.color(colors.accent_text).family(design::ink_family(
+							ui,
+							design::Weight::Medium,
+							colors.accent_text,
+							surface,
+						))
 					} else {
 						text
 					};
