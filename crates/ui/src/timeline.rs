@@ -2375,7 +2375,14 @@ fn show_system(
 	}
 }
 impl TimelineView {
-	pub(super) fn show_fullscreen_video(&mut self, ctx: &egui::Context, state: &State) -> bool {
+	/// `search_previews` are the message shells of the current search page, which draw the
+	/// same media as the chat for results from other channels or outside the timeline.
+	pub(super) fn show_fullscreen_video(
+		&mut self,
+		ctx: &egui::Context,
+		state: &State,
+		search_previews: &std::collections::HashMap<Id, Message>,
+	) -> bool {
 		if self.video.is_fullscreen() {
 			// Runs before the timeline lays out, so the tweak is read directly.
 			let hide_blocked =
@@ -2386,7 +2393,7 @@ impl TimelineView {
 				.active
 				.as_ref()
 				.and_then(|(channel, id, attachment)| {
-					state
+					let in_timeline = state
 						.timeline
 						.get(*id)
 						.or_else(|| {
@@ -2397,11 +2404,15 @@ impl TimelineView {
 								.find(|message| message.id == *id)
 						})
 						.filter(|message| {
+							let revealed = self
+								.revealed
+								.get(id)
+								.is_some_and(|reveal| reveal.media && reveal.matches(message));
 							state.selected == Some(*channel)
 								&& !(hide_blocked
 									&& state.user_blocked(message.author.id) == Some(true))
 								&& message.channel == *channel
-								&& crate::video::shown_in(message, attachment, origin)
+								&& crate::video::shown_in(message, attachment, origin, revealed)
 								&& (self.component_viewing
 									== Some((
 										message.id,
@@ -2411,10 +2422,17 @@ impl TimelineView {
 										))
 										.value(),
 									)) || !crate::embeds::attachment_spoiler(attachment)
-									|| self.revealed.get(id).is_some_and(|reveal| {
-										reveal.media && reveal.matches(message)
-									}))
+									|| revealed)
+						});
+					// A search card shows a hit's media only without spoiler media.
+					let in_search = || {
+						search_previews.get(id).filter(|message| {
+							!crate::embeds::has_media_spoilers(message)
+								&& crate::video::shown_in(message, attachment, origin, false)
 						})
+					};
+					in_timeline
+						.or_else(in_search)
 						.map(|message| (message, attachment.clone()))
 				});
 			if let Some((message, attachment)) = current {
@@ -5619,7 +5637,9 @@ impl TimelineView {
 			self.embed_viewing = None;
 			self.viewing = Some((message_id, attachment_id));
 		}
-		self.show_fullscreen_video(ui.ctx(), state);
+		// The app's own call, with the search page's previews, runs before this pass; none are
+		// open while the timeline itself draws.
+		self.show_fullscreen_video(ui.ctx(), state, &Default::default());
 		if let Some((message, media)) = self.download.embed_view_request.take()
 			&& let Some(source) = display_message(state, message)
 		{

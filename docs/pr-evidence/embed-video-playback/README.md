@@ -1,9 +1,10 @@
 # Inline playback of link-embed videos
 
 Baseline `e19b15cd`: `main` (`e5fe9f0b`) plus only this PR's synthetic fixture commit, which adds a
-video link embed to `--demo-video`. The changed build is this PR's head (`28f6fc40`). Both are
-release builds with demo support (thin LTO, 16 codegen units) on Windows 11, 100% scale, 1120×760
-window, captured with `PrintWindow`:
+video link embed to `--demo-video`. The measured revision is `28f6fc40`, the code change; later
+commits only adjust the embed URL check and the fullscreen lookup, which the fixture does not
+exercise. Both are release builds with demo support (thin LTO, 16 codegen units) on Windows 11, 100%
+scale, 1120×760 window, captured with `PrintWindow`:
 
 ```sh
 CARGO_PROFILE_RELEASE_LTO=thin CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16 \

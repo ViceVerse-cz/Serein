@@ -37,7 +37,8 @@ pub struct SearchUi {
 	history: Vec<String>,
 	formats: crate::markdown::FormatCache,
 	/// Bounded message shells for the current page so the chat media renderers can draw hits.
-	previews: std::collections::HashMap<Id, model::Message>,
+	/// Read by the timeline's fullscreen video check: a hit may not be in the open channel.
+	pub(super) previews: std::collections::HashMap<Id, model::Message>,
 	/// Attachment viewer open on a result: (message, attachment).
 	viewing: Option<(Id, Id)>,
 	pub opening: Option<String>,

@@ -901,12 +901,20 @@ impl Drop for VideoUi {
 		self.exit_fullscreen();
 	}
 }
-/// Whether `message` still draws the stage for `attachment` from `origin`.
-pub(crate) fn shown_in(message: &Message, attachment: &Attachment, origin: VideoOrigin) -> bool {
+/// Whether `message` still draws the stage for `attachment` from `origin`. An embed video is
+/// drawn only with the consent the chat card needs: no spoiler-marked embed text, or
+/// `media_revealed` for this message.
+pub(crate) fn shown_in(
+	message: &Message,
+	attachment: &Attachment,
+	origin: VideoOrigin,
+	media_revealed: bool,
+) -> bool {
 	match origin {
 		VideoOrigin::Attachment => message.attachments.contains(attachment),
 		VideoOrigin::Embed => {
 			!message.embeds_suppressed
+				&& (media_revealed || !crate::embeds::has_embed_spoilers(message))
 				&& message
 					.embeds
 					.iter()
@@ -1387,5 +1395,40 @@ mod tests {
 		assert!(!video.posters.contains_key(&Id(4)));
 		assert!(!video.poster_seen.contains(&Id(3)));
 		assert!(video.poster_bytes <= POSTER_BUDGET);
+	}
+
+	#[test]
+	fn an_embed_video_stage_needs_the_cards_spoiler_consent() {
+		let embed = model::Embed {
+			kind: "video".into(),
+			video: Some(model::EmbedMedia {
+				proxy_url: Some(
+					"https://images-ext-1.discordapp.net/external/synthetic/https/example.org/clip.mp4".into(),
+				),
+				..Default::default()
+			}),
+			..Default::default()
+		};
+		let mut message = test_support::message(1, Id(2));
+		message.attachments.clear();
+		message.embeds = vec![embed.clone()];
+		let attachment = crate::embeds::video_attachment(&embed).unwrap();
+		assert!(shown_in(&message, &attachment, VideoOrigin::Embed, false));
+		assert!(!shown_in(
+			&message,
+			&attachment,
+			VideoOrigin::Attachment,
+			false
+		));
+		// Spoiler-marked embed text conceals the player until the media is revealed.
+		message.embeds[0].title = Some("||synthetic|| clip".into());
+		assert!(!shown_in(&message, &attachment, VideoOrigin::Embed, false));
+		assert!(shown_in(&message, &attachment, VideoOrigin::Embed, true));
+		// Suppressed embeds and a removed clip end the stage either way.
+		message.embeds_suppressed = true;
+		assert!(!shown_in(&message, &attachment, VideoOrigin::Embed, true));
+		message.embeds_suppressed = false;
+		message.embeds.clear();
+		assert!(!shown_in(&message, &attachment, VideoOrigin::Embed, true));
 	}
 }

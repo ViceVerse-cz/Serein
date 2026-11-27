@@ -5464,7 +5464,10 @@ impl MessagingUi {
 				.rect_filled(ui.max_rect(), 0, egui::Color32::BLACK);
 			return commands;
 		}
-		if self.timeline.show_fullscreen_video(ui.ctx(), state) {
+		if self
+			.timeline
+			.show_fullscreen_video(ui.ctx(), state, &self.search.previews)
+		{
 			ui.painter()
 				.rect_filled(ui.max_rect(), 0, egui::Color32::BLACK);
 			return commands;
