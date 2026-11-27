@@ -114,6 +114,26 @@ impl ChannelPreferences {
 		PreferenceEdit::Changed
 	}
 
+	/// Moves an existing pin before or after another pin in display order.
+	pub fn reorder_pinned(&mut self, source: Id, target: Id, after: bool) -> bool {
+		let (Some(source), Some(target)) = (
+			self.pinned.iter().position(|id| *id == source),
+			self.pinned.iter().position(|id| *id == target),
+		) else {
+			return false;
+		};
+		if source == target {
+			return false;
+		}
+		let destination = target + usize::from(after) - usize::from(source < target);
+		match source.cmp(&destination) {
+			std::cmp::Ordering::Less => self.pinned[source..=destination].rotate_left(1),
+			std::cmp::Ordering::Greater => self.pinned[destination..=source].rotate_right(1),
+			std::cmp::Ordering::Equal => return false,
+		}
+		true
+	}
+
 	pub fn category_collapsed(&self, category: Id) -> bool {
 		self.collapsed_categories.contains(&category)
 	}
