@@ -2146,17 +2146,21 @@ come from the synthetic source only, and stream and camera pictures are still co
 every platform. Package size was not measured. `video::gst::tests::native_mov_decodes_audio_video_and_seeks` fails
 on the Asahi machine ("no frame after seek") with and without this change.
 
-## SoundCloud track and audio link players — November 27, 2026
+## SoundCloud track and audio link players — November 28, 2026
 
 A SoundCloud track link's card and an audio file link's card now carry their artwork as the
 card's image with the inline audio player beneath it, instead of a side thumbnail and a browser
 link or a "not supported" line. Nothing runs for these cards while nothing plays: the player
 starts on a click, and the SoundCloud resolver makes no request until then.
 
-Pending on this base (`main` `6d1fa13f`): package size from `cargo xtask package`, not yet built
-here. Not measured: idle CPU and memory with the cards shown. The host was in use for other
-work when the change was rebased onto `main`, so an idle sample there would not have been
-comparable, and the earlier samples were taken against a different base with one card fewer in
-the scene. Both release demo builds completed on Windows (`--features demo`, thin LTO). Also not
-measured: CPU, memory, time to first audio and seek latency while a track or a proxied audio
-file streams, and other platforms.
+`cargo xtask package` (the shipped build: `--no-default-features`, the workspace release
+profile with fat LTO and one codegen unit) against `main` `6d1fa13f`, cold builds on the same
+Windows 11 host: `serein.exe` 110,461,440 → 110,631,424 bytes (+169,984, +0.15%), the `dist`
+folder 114,850,808 → 115,020,792 bytes (+169,984). Only `serein.exe` differs between the two
+folders.
+
+Not measured: idle CPU and memory with the cards shown, CPU, memory, time to first audio and
+seek latency while a track or a proxied audio file streams, and other platforms. The host was
+in use for other work when the change was rebased onto `main`, so an idle sample there would
+not have been comparable, and the earlier samples were taken against a different base with one
+card fewer in the scene.
