@@ -35,7 +35,11 @@ What the NVENC backend configures, and why it is not just "hardware H.264":
   screen share cannot spend.
 - Main profile for screen sharing and Baseline for the camera, I/P pictures only, a keyframe every 10
   seconds while sharing and every 2 seconds on the camera, and SPS/PPS repeated with every IDR so a
-  viewer that joined or lost packets can decode from any keyframe.
+  viewer that joined or lost packets can decode from any keyframe. AV1 repeats the sequence header on
+  every IDR (`repeatSeqHdr`) for the same reason, and for one more: libwebrtc marks an AV1 packet as a
+  keyframe only when the frame is a key frame **and** its first OBU is a sequence header, so a keyframe
+  that repeats no header travels as a delta frame and a viewer that joined since the last one never
+  starts — which is exactly what a viewer's connection error looks like.
 - A live rate change through `nvEncReconfigureEncoder`, so a congestion cut does not cost an IDR.
 - A device picture whose luma pitch is the visible width rounded up to four bytes, with the picture
   uploaded as two two-dimensional copies. NVENC refuses to register a CUDA picture with a pitch it

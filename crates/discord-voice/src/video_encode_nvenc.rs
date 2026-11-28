@@ -575,11 +575,22 @@ fn preset_config(
 	Ok(preset_cfg)
 }
 
-/// Writes the codec-specific block: the keyframe period, and for H.264 the IDR repetition that
-/// lets a viewer decode from any keyframe.
+/// Writes the codec-specific block: the keyframe period, and the header repetition that lets a
+/// viewer start decoding at any keyframe.
+///
+/// The repetition matters beyond convenience: libwebrtc marks an AV1 packet as a keyframe only when
+/// the frame is a key frame *and* its first OBU is a sequence header, so a keyframe that repeats no
+/// header is carried as a delta frame and a viewer that joined since the last one never starts.
 fn apply_codec_config(config: &mut NV_ENC_CONFIG, codec: Codec, gop: u32) {
 	match codec {
-		Codec::Av1 => config.encodeCodecConfig.av1Config.idrPeriod = gop,
+		Codec::Av1 => {
+			config.encodeCodecConfig.av1Config.idrPeriod = gop;
+			// SAFETY: the codec GUID is AV1, so this is the union's active member and the driver
+			// filled it in for this session.
+			unsafe {
+				config.encodeCodecConfig.av1Config.set_repeatSeqHdr(1);
+			}
+		}
 		Codec::H264 => {
 			config.encodeCodecConfig.h264Config.idrPeriod = gop;
 			// SAFETY: the codec GUID is H.264, so this is the union's active member and the
@@ -817,8 +828,13 @@ mod tests {
 		assert!(data.starts_with(&[0, 0, 0, 1]));
 	}
 
-	/// AV1 needs the driver's AV1 encoder; where it exists, its output must be OBU-framed, keyframe
-	/// first, and parseable by the same OBU walker the sender framing and the receiver use.
+	/// AV1 needs the driver's AV1 encoder; where it exists, its output must be OBU-framed, every
+	/// keyframe must repeat the sequence header, and the sender framing must accept it.
+	///
+	/// The repetition is what keeps a keyframe a keyframe on the wire: libwebrtc marks a packet as a
+	/// keyframe only when the frame is a key frame and its first OBU is a sequence header, so a
+	/// keyframe without one is carried as a delta frame and a viewer that joined since the last
+	/// sequence header never starts.
 	#[test]
 	fn av1_encodes_a_keyframe_the_viewer_side_can_parse() {
 		if !support().av1 {
@@ -838,8 +854,9 @@ mod tests {
 		let length = picture_bytes(width, height).expect("a picture size");
 		let mut encoded = Vec::new();
 		for frame in 0..4u8 {
+			let forced = frame == 0 || frame == 2;
 			let (data, keyframe) = encoder
-				.encode_with(length, frame == 0, |picture| {
+				.encode_with(length, forced, |picture| {
 					let (luma, chroma) = picture.split_at_mut(length * 2 / 3);
 					for (row, line) in luma.chunks_exact_mut(width as usize).enumerate() {
 						line.fill(frame.wrapping_mul(16).wrapping_add((row / 4) as u8));
@@ -853,9 +870,8 @@ mod tests {
 				info.keyframe, keyframe,
 				"keyframe detection matches the OBUs"
 			);
-			if frame == 0 {
-				assert!(keyframe, "the first picture is a keyframe");
-				assert!(info.sequence, "a keyframe carries the sequence header");
+			if keyframe {
+				assert!(info.sequence, "every keyframe repeats the sequence header");
 			}
 			crate::video::av1_sender_frame(&data)
 				.expect("the sender framing accepts encoder output");
