@@ -171,10 +171,13 @@ never draws a picture and shows Discord's error **2012**, which Discord document
 timeout: it receives nothing it can decode. Sharing the same screen, at the same quality, over H.264
 from the same machine is watched by that viewer normally.
 
-So AV1 stays an opt-in and is not a supported way to share. What the test does not separate is whether
-the official client rejects our AV1 payload, whether DAVE's AV1 framing is read differently on its side,
-or whether Discord does not relay AV1 from a third-party sender at all; separating them needs the
-viewer's own client log, which this repository cannot obtain.
+So AV1 stays an opt-in and is not a supported way to share. The wire format itself is not the
+problem: `the_reference_depacketizer_accepts_the_av1_packets_we_send` ports libwebrtc's
+`video_rtp_depacketizer_av1.cc` and shows it accepts these payloads — for a keyframe carrying a
+sequence header and for a delta frame — and assembles the same OBUs the sender framed. What remains
+unseparated is whether the official client advertises AV1 for a Go Live stream at all, and whether
+Discord relays AV1 from a sender that is not its own client; both are decisions on its side, and
+telling them apart needs that client's own log.
 
 **Other vendors.** AMD's AMF and Intel's QSV expose the same shape of controls. The seam added here
 takes one more backend each; neither is planned yet.

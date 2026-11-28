@@ -774,6 +774,170 @@ mod tests {
 		assert_eq!(av1_rebuild(&packets), frame);
 	}
 
+	/// libwebrtc's `video_rtp_depacketizer_av1.cc`, ported close enough to answer one question: does
+	/// the code the official client runs accept the packets this sender writes? A rejection here is a
+	/// rejection there, and this repository's own receiver cannot answer that — sender and receiver
+	/// were written together.
+	fn reference_assemble(payloads: &[&[u8]]) -> Result<Vec<u8>, &'static str> {
+		fn leb(data: &[u8]) -> Option<(u64, usize)> {
+			let mut value = 0u64;
+			for (index, byte) in data.iter().copied().enumerate() {
+				if index == 8 {
+					return None;
+				}
+				value |= u64::from(byte & 0x7f) << (index * 7);
+				if byte & 0x80 == 0 {
+					return Some((value, index + 1));
+				}
+			}
+			None
+		}
+		fn encode_leb(mut value: u64) -> Vec<u8> {
+			let mut bytes = Vec::new();
+			loop {
+				let byte = (value & 0x7f) as u8;
+				value >>= 7;
+				if value == 0 {
+					bytes.push(byte);
+					return bytes;
+				}
+				bytes.push(byte | 0x80);
+			}
+		}
+		let mut obus: Vec<Vec<u8>> = Vec::new();
+		let mut expects_continuation = false;
+		for payload in payloads {
+			let Some((&header, body)) = payload.split_first() else {
+				return Err("empty payload");
+			};
+			// The reference also rejects the reserved bits, and this sender leaves them clear.
+			if header & 0x07 != 0 {
+				return Err("reserved aggregation bits set");
+			}
+			let continues = header & 0x80 != 0;
+			if continues != expects_continuation {
+				return Err("Z bit disagrees with the previous packet");
+			}
+			let expected = usize::from((header >> 4) & 0x03);
+			if body.is_empty() {
+				if expected != 1 {
+					return Err("packet carries only an aggregation header");
+				}
+				if !continues {
+					obus.push(Vec::new());
+				}
+				expects_continuation = header & 0x40 != 0;
+				continue;
+			}
+			let (mut at, mut index) = (0usize, 1usize);
+			while at < body.len() {
+				let has_size = index != expected;
+				let (size, prefix) = if has_size {
+					let (size, used) = leb(&body[at..]).ok_or("element size")?;
+					(usize::try_from(size).map_err(|_| "element size")?, used)
+				} else {
+					(body.len() - at, 0)
+				};
+				if size > body.len() - at - prefix {
+					return Err("element runs past the packet");
+				}
+				let element = &body[at + prefix..at + prefix + size];
+				if index == 1 && continues {
+					obus.last_mut()
+						.ok_or("continuation without an OBU")?
+						.extend_from_slice(element);
+				} else {
+					obus.push(element.to_vec());
+				}
+				at += prefix + size;
+				index += 1;
+			}
+			expects_continuation = header & 0x40 != 0;
+		}
+		if expects_continuation {
+			return Err("the last packet ends inside an OBU");
+		}
+		let mut frame = Vec::new();
+		for obu in obus {
+			let Some((&header, rest)) = obu.split_first() else {
+				return Err("empty OBU");
+			};
+			let prefix = if header & 0x04 != 0 {
+				if rest.is_empty() {
+					return Err("OBU extension missing");
+				}
+				2
+			} else {
+				1
+			};
+			let (payload, size_field) = if header & 0x02 == 0 {
+				(obu.len() - prefix, 0)
+			} else {
+				let (declared, used) = leb(&obu[prefix..]).ok_or("OBU size")?;
+				let actual = obu.len() - prefix - used;
+				if declared as usize != actual {
+					return Err("declared OBU size disagrees with the segment");
+				}
+				(actual, used)
+			};
+			// The reference sets the size bit on the header it writes, whatever the wire carried.
+			let mut head = obu[..prefix].to_vec();
+			head[0] |= 0x02;
+			frame.extend_from_slice(&head);
+			frame.extend_from_slice(&encode_leb(payload as u64));
+			frame.extend_from_slice(&obu[prefix + size_field..]);
+		}
+		Ok(frame)
+	}
+
+	/// The OBU sequence as `(type, payload)`, so frames assembled with different size fields still
+	/// compare by what they carry.
+	fn obu_payloads(data: &[u8]) -> Vec<(u8, Vec<u8>)> {
+		obus_av1(data)
+			.expect("an OBU walk")
+			.into_iter()
+			.map(|(start, end)| {
+				let obu = &data[start..end];
+				let header = obu[0];
+				let mut at = if header & 0x04 != 0 { 2 } else { 1 };
+				if header & 0x02 != 0 {
+					while obu.get(at).is_some_and(|byte| byte & 0x80 != 0) {
+						at += 1;
+					}
+					at += 1;
+				}
+				((header >> 3) & 15, obu[at..].to_vec())
+			})
+			.collect()
+	}
+
+	/// The official client runs libwebrtc's AV1 depacketizer, so a share only reaches it when that
+	/// code accepts these packets. This checks a keyframe that carries a sequence header and a delta
+	/// frame that does not.
+	#[test]
+	fn the_reference_depacketizer_accepts_the_av1_packets_we_send() {
+		let keyframe = [
+			0x12, 0x00, // temporal delimiter
+			0x0a, 2, 0x20, 0x10, // sequence header
+			0x32, 3, 0x20, 0x30, 0x10, // frame
+		];
+		let delta = [0x32, 3, 0x20, 0x30, 0x10];
+		for encoder in [keyframe.to_vec(), delta.to_vec()] {
+			let frame = av1_sender_frame(&encoder).expect("a framed access unit");
+			let packets = av1_packets(&frame);
+			let payloads: Vec<&[u8]> = packets
+				.iter()
+				.map(|packet| packet.payload.as_slice())
+				.collect();
+			let assembled = reference_assemble(&payloads).expect("libwebrtc accepts the packets");
+			assert_eq!(
+				obu_payloads(&assembled),
+				obu_payloads(&frame),
+				"the reference assembles the same OBUs the sender framed"
+			);
+		}
+	}
+
 	fn depacketize(packets: &[Packet]) -> Vec<u8> {
 		let mut frame = Vec::new();
 		let mut fragmented = false;
