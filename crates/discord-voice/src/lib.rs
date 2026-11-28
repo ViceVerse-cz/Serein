@@ -9,6 +9,7 @@ mod jitter;
 mod mixer;
 mod presentation;
 pub mod screen;
+pub mod soundboard;
 mod stream_audio_receive;
 mod stream_playout;
 mod stream_sync;
@@ -50,6 +51,8 @@ pub struct Controls {
 	pub user_volumes: [(u64, u16); 64],
 	/// Watched stream playback percentage, independently muted with zero.
 	pub stream_volume: u16,
+	/// Session sounds may reach the outgoing stream; speaking permission and server mute clear it.
+	pub sound: bool,
 }
 impl Default for Controls {
 	fn default() -> Self {
@@ -61,6 +64,7 @@ impl Default for Controls {
 			deafened: false,
 			user_volumes: [(0, 100); 64],
 			stream_volume: 100,
+			sound: true,
 		}
 	}
 }
@@ -79,6 +83,8 @@ pub enum Status {
 	Latency(Option<std::time::Duration>),
 	/// Latest active user IDs, zero-padded to the 64-participant limit.
 	Speaking(Box<[u64; 64]>),
+	/// Sound being played into the call, cleared when it ends or is stopped.
+	Soundboard(Option<u64>),
 }
 
 #[cfg(test)]

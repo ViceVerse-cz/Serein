@@ -10,6 +10,9 @@ use discord_voice::{
 };
 use eframe::egui;
 use model::{Id, notification_preferences::Sound};
+
+/// Sounds this session keeps; each is bounded by the decoder to a minute of 48 kHz mono.
+const MAX_SOUNDS: usize = 16;
 use std::{
 	sync::{Arc, OnceLock, mpsc},
 	time::{Duration, Instant},
@@ -139,6 +142,7 @@ impl Pending {
 }
 enum Notice {
 	TransportReady(u64),
+	Soundboard(Option<u64>),
 	CameraAvailable(bool),
 	WaitingForPeer,
 	Progress(Phase),
@@ -168,6 +172,8 @@ struct Live {
 	audio: Audio,
 	controls: watch::Sender<Controls>,
 	events: mpsc::Receiver<Notice>,
+	/// Sounds queued for this call's outgoing audio.
+	sound: mpsc::SyncSender<discord_voice::soundboard::Message>,
 	// Terminal errors must survive a full progress queue; retain the first safe reason.
 	failure: Arc<OnceLock<&'static str>>,
 	speakers: watch::Receiver<[u64; 64]>,
@@ -362,6 +368,91 @@ struct Rejoin {
 	departure_confirmed: bool,
 }
 
+/// One decoded sound kept for this session.
+struct Clip {
+	id: u64,
+	samples: std::sync::Arc<[f32]>,
+}
+/// A sound decoding on a worker: its clip name and the one result it reports.
+type SoundDecode = (String, mpsc::Receiver<Result<Vec<f32>, &'static str>>);
+/// Keeps the popup's rows and the decoded samples describing one session.
+///
+/// A session end clears the samples while the popup keeps its rows, and a reset view keeps its
+/// rows while the samples stay. Reconcile both ways, so a listed row always has a sound to play,
+/// a sample always has a row, and stale rows are neither shown nor counted against the limit.
+fn reconcile_soundboard(ui: &mut ui::MessagingUi, sounds: &mut Vec<Clip>) {
+	ui.soundboard
+		.retain(|clip| sounds.iter().any(|sound| sound.id == clip.id));
+	sounds.retain(|sound| ui.soundboard.iter().any(|clip| clip.id == sound.id));
+	if ui
+		.soundboard_playing
+		.is_some_and(|playing| ui.soundboard.iter().all(|clip| clip.id != playing))
+	{
+		ui.soundboard_playing = None;
+	}
+}
+/// Hands one soundboard message to the call without ever losing it.
+///
+/// The transport drains the bounded queue only while it is ticking, and a signaling write can
+/// delay a tick for seconds with the gate still open, so a burst of plays can fill the queue just
+/// as the caller presses Stop. Keep the one message that did not fit and retry it from the poll;
+/// a newer request replaces the waiting one, so a stop is never overridden by an older play.
+fn queue_sound(
+	sound: &mpsc::SyncSender<discord_voice::soundboard::Message>,
+	pending: &mut Option<discord_voice::soundboard::Message>,
+	message: discord_voice::soundboard::Message,
+) -> bool {
+	if matches!(message, discord_voice::soundboard::Message::Play { .. }) {
+		*pending = None;
+	}
+	match sound.try_send(message) {
+		Ok(()) => {
+			*pending = None;
+			true
+		}
+		Err(mpsc::TrySendError::Full(message)) => {
+			*pending = Some(message);
+			true
+		}
+		Err(mpsc::TrySendError::Disconnected(_)) => false,
+	}
+}
+/// Whether this frame's call state lets a sound reach the outgoing stream.
+///
+/// The transport's gate is published from the same fields later in the poll, so the retry must be
+/// judged here rather than by the value the previous poll left in the watch channel.
+fn sound_gate(state: &State) -> bool {
+	let Some(call) = state.voice.active.as_ref() else {
+		return false;
+	};
+	sound_gate_open(
+		call.deafened || call.server_deafened,
+		state.can_speak(call.channel),
+		call.server_muted,
+	)
+}
+/// The gate itself: deafening, a lost speaking permission or a server mute closes it.
+fn sound_gate_open(deafened: bool, can_speak: bool, server_muted: bool) -> bool {
+	!deafened && can_speak && !server_muted
+}
+/// Retries the message a full queue refused; a closed gate or an ended call drops it.
+fn flush_sound(
+	sound: &mpsc::SyncSender<discord_voice::soundboard::Message>,
+	pending: &mut Option<discord_voice::soundboard::Message>,
+	gate_open: bool,
+) {
+	let Some(message) = pending.take() else {
+		return;
+	};
+	if !gate_open {
+		// A request made while the gate was closed never plays after it reopens.
+		return;
+	}
+	if let Err(mpsc::TrySendError::Full(message)) = sound.try_send(message) {
+		*pending = Some(message);
+	}
+}
+
 #[derive(Default)]
 pub struct Voice {
 	camera_test: Option<CameraTest>,
@@ -388,6 +479,13 @@ pub struct Voice {
 	/// Media dropped and a rejoin is scheduled: the main gateway may have died with it, so the
 	/// app should confirm that socket before the rejoin depends on it.
 	pub gateway_check: bool,
+	/// Session soundboard clips decoded on this device.
+	sounds: Vec<Clip>,
+	next_sound: u64,
+	/// A soundboard message the call's full queue refused; retried on the next poll.
+	pending_sound: Option<discord_voice::soundboard::Message>,
+	/// A sound decoding on a worker: its clip name and the one result it reports.
+	sound_decode: Option<SoundDecode>,
 }
 impl Voice {
 	/// Hands over the renderer's paint-only handle once it exists; `None` keeps full repaints.
@@ -445,6 +543,8 @@ impl Voice {
 		self.screen.stop();
 		self.watch.stop();
 		self.pending = None;
+		// A queued sound belongs to the call that is ending; never replay it into the next one.
+		self.pending_sound = None;
 		self.stop_camera();
 		if let Some(live) = self.live.take() {
 			live.audio.set_ready(false);
@@ -454,6 +554,13 @@ impl Voice {
 	}
 	/// Hang up this device's call. A call it had joined plays the leave cue on the next poll,
 	/// mirroring its local join cue; a call still connecting ends silently.
+	/// Ending the session (logout, account switch, a session that failed) drops the soundboard
+	/// this account kept, including a decode the previous session started; a hangup keeps them.
+	pub fn end_session(&mut self) {
+		self.stop();
+		self.sounds.clear();
+		self.sound_decode = None;
+	}
 	pub fn hang_up(&mut self, state: &State) {
 		self.leave_cue |= self
 			.live
@@ -1017,6 +1124,129 @@ impl Voice {
 			),
 		}
 	}
+	/// Session soundboard: the popup lists names, the decoded samples stay here.
+	fn poll_soundboard(&mut self, ui: &mut ui::MessagingUi, ctx: &egui::Context) {
+		// A logout or account switch ends the session's samples before the popup is polled here.
+		reconcile_soundboard(ui, &mut self.sounds);
+		self.poll_sound_decode(ui);
+		let Some(request) = ui.soundboard_request.take() else {
+			return;
+		};
+		match request {
+			ui::SoundboardRequest::Add => {
+				if self.sounds.len() >= MAX_SOUNDS {
+					ui.soundboard_status = "Remove a sound before adding another";
+					return;
+				}
+				if self.sound_decode.is_some() {
+					ui.soundboard_status = "Still reading the sound you chose";
+					return;
+				}
+				let Some(path) = platform::save::pick_audio_file() else {
+					return;
+				};
+				let name: String = path
+					.file_stem()
+					.and_then(|name| name.to_str())
+					.unwrap_or("Sound")
+					.chars()
+					.take(48)
+					.collect();
+				// Reading and resampling a whole file must not block the call controls.
+				let (send, receive) = mpsc::sync_channel(1);
+				let wake = ctx.clone();
+				match std::thread::Builder::new()
+					.name("sound-decode".into())
+					.spawn(move || {
+						let decoded = crate::audio::decode_sound(&path, &|| true);
+						let _ = send.send(decoded);
+						wake.request_repaint();
+					}) {
+					Ok(_) => {
+						self.sound_decode = Some((name, receive));
+						ui.soundboard_status = "Reading that sound";
+					}
+					Err(_) => ui.soundboard_status = "Could not start sound decoding",
+				}
+			}
+			ui::SoundboardRequest::Play(id) => {
+				let Some(sound) = self.sounds.iter().find(|sound| sound.id == id) else {
+					return;
+				};
+				let message = discord_voice::soundboard::Message::Play {
+					id,
+					samples: sound.samples.clone(),
+				};
+				if !self.send_sound(message) {
+					ui.soundboard_status = "Join a call to play sounds";
+				}
+			}
+			ui::SoundboardRequest::Stop => {
+				self.send_sound(discord_voice::soundboard::Message::Stop);
+			}
+			ui::SoundboardRequest::Forget(id) => {
+				self.sounds.retain(|sound| sound.id != id);
+				ui.soundboard.retain(|clip| clip.id != id);
+				// A play the transport has not reported yet is still queued, so stop unless another
+				// clip is the one reported playing.
+				if ui.soundboard_playing.is_none_or(|playing| playing == id) {
+					self.send_sound(discord_voice::soundboard::Message::Stop);
+					ui.soundboard_playing = None;
+				}
+			}
+		}
+		ctx.request_repaint();
+	}
+	/// A finished decode joins the session clips; the worker keeps the UI free meanwhile.
+	fn poll_sound_decode(&mut self, ui: &mut ui::MessagingUi) {
+		let Some((name, decode)) = &self.sound_decode else {
+			return;
+		};
+		let result = match decode.try_recv() {
+			Ok(result) => result,
+			Err(mpsc::TryRecvError::Empty) => return,
+			Err(mpsc::TryRecvError::Disconnected) => Err("Sound decoding stopped"),
+		};
+		let name = name.clone();
+		self.sound_decode = None;
+		match result {
+			Ok(samples) => {
+				let id = self.next_sound;
+				self.next_sound += 1;
+				ui.soundboard.push(ui::SoundClip {
+					id,
+					name,
+					seconds: samples.len() as f32 / 48_000.0,
+				});
+				self.sounds.push(Clip {
+					id,
+					samples: samples.into(),
+				});
+				ui.soundboard_status = "";
+			}
+			Err(error) => ui.soundboard_status = error,
+		}
+	}
+	/// Queue one soundboard message; false when no call is live to play it.
+	fn send_sound(&mut self, message: discord_voice::soundboard::Message) -> bool {
+		let Some(live) = self.live.as_ref() else {
+			return false;
+		};
+		let sound = live.sound.clone();
+		queue_sound(&sound, &mut self.pending_sound, message)
+	}
+	/// Retries a message the call's queue refused while it was busy.
+	fn flush_sound(&mut self, gate_open: bool) {
+		let Some(live) = self.live.as_ref() else {
+			self.pending_sound = None;
+			return;
+		};
+		// A retained request is outside the call's queue, so the transport's closed-gate rule
+		// cannot reach it: drop it here instead of playing it once the gate reopens. A clip that
+		// was already playing is cleared by the same gate, so both sides agree.
+		let sound = live.sound.clone();
+		flush_sound(&sound, &mut self.pending_sound, gate_open);
+	}
 	pub fn poll(
 		&mut self,
 		runtime: &Runtime,
@@ -1025,6 +1255,12 @@ impl Voice {
 		ctx: &egui::Context,
 	) -> Option<Command> {
 		self.reap();
+		self.flush_sound(sound_gate(state));
+		self.poll_soundboard(ui, ctx);
+		// A sound plays only through a live call; retiring or replacing the transport ends it.
+		if self.live.is_none() {
+			ui.soundboard_playing = None;
+		}
 		if !state.demo {
 			ui.voice_latency = ui::VoiceLatency::default();
 		}
@@ -1212,6 +1448,8 @@ impl Voice {
 		if let Some(live) = &mut self.live {
 			let call = state.voice.active.as_ref().expect("matching active call");
 			let deafened = call.deafened || call.server_deafened;
+			// A sound follows the speaking permission; a voluntary microphone mute keeps it.
+			let sound = state.can_speak(call.channel) && !call.server_muted;
 			let muted = call.muted
 				|| permission_mutes_microphone(
 					state,
@@ -1236,6 +1474,7 @@ impl Voice {
 			live.controls.send_if_modified(|control| {
 				if control.muted == muted
 					&& control.deafened == deafened
+					&& control.sound == sound
 					&& control.user_volumes == user_volumes
 					&& control.stream_volume == stream_volume
 					&& control.activity_threshold_db == activity_threshold_db
@@ -1244,6 +1483,7 @@ impl Voice {
 				} else {
 					control.muted = muted;
 					control.deafened = deafened;
+					control.sound = sound;
 					control.user_volumes = user_volumes;
 					control.stream_volume = stream_volume;
 					control.activity_threshold_db = activity_threshold_db;
@@ -1309,6 +1549,7 @@ impl Voice {
 					}
 					// Notices wake the UI; only the current device configuration can be ready.
 					Notice::DeviceReady | Notice::RemoteAudio => {}
+					Notice::Soundboard(id) => ui.soundboard_playing = id,
 				}
 			}
 			if live.negotiation.is_none() && live.waiting_for_peer {
@@ -1940,6 +2181,7 @@ impl Voice {
 		let (camera_frames, camera_receive) =
 			mpsc::sync_channel(discord_voice::camera_video::MAX_QUEUED_FRAMES);
 		let (stream_audio, stream_audio_receive) = mpsc::sync_channel(8);
+		let (sound, sound_receive) = mpsc::sync_channel(8);
 		let (playback, playback_receive) = mpsc::sync_channel(8);
 		let (send, events) = mpsc::sync_channel(8);
 		let failure = Arc::new(OnceLock::new());
@@ -1980,6 +2222,7 @@ impl Voice {
 			deafened: false,
 			user_volumes: ui.voice_user_volumes(),
 			stream_volume: ui.voice_stream_volume(),
+			sound: input_enabled,
 		});
 		let remote_video: Arc<std::sync::Mutex<RemotePictures>> =
 			Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -2042,6 +2285,7 @@ impl Voice {
 				},
 				Some(sink),
 				Some(stream_audio_receive),
+				Some(sound_receive),
 				move |event| {
 					let notice = match event {
 						Status::TransportReady => Notice::TransportReady(negotiation_revision),
@@ -2057,6 +2301,7 @@ impl Voice {
 							Notice::MediaReady(privacy_code)
 						}
 						Status::RemoteAudio => Notice::RemoteAudio,
+						Status::Soundboard(id) => Notice::Soundboard(id),
 						Status::Latency(sample) => {
 							if let Some(sample) = sample {
 								latency_send.send_modify(|latency| latency.push(sample));
@@ -2099,6 +2344,7 @@ impl Voice {
 			cues: CallCues::default(),
 			audio,
 			controls,
+			sound,
 			events,
 			failure,
 			speakers,
@@ -2326,6 +2572,122 @@ pub fn takeover_notice(state: &State, event: &Event) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn a_session_end_drops_soundboard_rows_and_a_reset_view_drops_samples() {
+		let mut view = ui::MessagingUi::default();
+		let clip = |id| ui::SoundClip {
+			id,
+			name: format!("sound {id}"),
+			seconds: 1.0,
+		};
+		view.soundboard = vec![clip(1), clip(2)];
+		view.soundboard_playing = Some(2);
+		// Logout cleared the samples of both rows before this poll.
+		let mut sounds = Vec::new();
+		reconcile_soundboard(&mut view, &mut sounds);
+		assert!(
+			view.soundboard.is_empty(),
+			"a row without a sound is unplayable"
+		);
+		assert_eq!(view.soundboard_playing, None);
+		// A live session keeps both, and a reported clip whose row is gone stops being reported.
+		sounds.push(Clip {
+			id: 3,
+			samples: Vec::new().into(),
+		});
+		view.soundboard = vec![clip(2), clip(3)];
+		reconcile_soundboard(&mut view, &mut sounds);
+		assert_eq!(
+			view.soundboard
+				.iter()
+				.map(|clip| clip.id)
+				.collect::<Vec<_>>(),
+			[3]
+		);
+		assert_eq!(sounds.len(), 1);
+		assert_eq!(sounds[0].id, 3);
+		// The other direction: a reset view drops the samples it can no longer list.
+		view.soundboard.clear();
+		reconcile_soundboard(&mut view, &mut sounds);
+		assert!(sounds.is_empty());
+	}
+
+	#[test]
+	fn a_stop_survives_a_full_sound_queue_and_replaces_a_waiting_play() {
+		use discord_voice::soundboard::Message;
+		let play = |id| Message::Play {
+			id,
+			samples: Vec::new().into(),
+		};
+		let (sound, received) = mpsc::sync_channel(1);
+		let mut pending = None;
+		assert!(queue_sound(&sound, &mut pending, play(1)));
+		assert!(pending.is_none());
+		// The transport is busy: the next play waits instead of being dropped.
+		assert!(queue_sound(&sound, &mut pending, play(2)));
+		assert!(matches!(pending, Some(Message::Play { id: 2, .. })));
+		// Stop while the queue is still full: it replaces the waiting play, so a stale sound
+		// cannot start after the stop.
+		assert!(queue_sound(&sound, &mut pending, Message::Stop));
+		assert!(matches!(pending, Some(Message::Stop)));
+		flush_sound(&sound, &mut pending, true);
+		assert!(matches!(pending, Some(Message::Stop)));
+		assert!(matches!(
+			received.try_recv().unwrap(),
+			Message::Play { id: 1, .. }
+		));
+		flush_sound(&sound, &mut pending, true);
+		assert!(matches!(received.try_recv().unwrap(), Message::Stop));
+		assert!(pending.is_none());
+		// A newer play is the caller's latest intent and supersedes a waiting stop.
+		assert!(queue_sound(&sound, &mut pending, Message::Stop));
+		assert!(queue_sound(&sound, &mut pending, play(3)));
+		assert!(matches!(pending, Some(Message::Play { id: 3, .. })));
+		// The queued stop drains first; the waiting play follows on the next flush.
+		assert!(matches!(received.try_recv().unwrap(), Message::Stop));
+		flush_sound(&sound, &mut pending, true);
+		assert!(pending.is_none());
+		assert!(matches!(
+			received.try_recv().unwrap(),
+			Message::Play { id: 3, .. }
+		));
+	}
+
+	#[test]
+	fn a_retained_sound_is_dropped_when_the_gate_closes_this_frame() {
+		use discord_voice::soundboard::Message;
+		assert!(!sound_gate(&test_support::demo_state()), "no call, no gate");
+		// The poll reads this frame's gate from the call fields, not from the value the previous
+		// poll published into the watch channel.
+		assert!(sound_gate_open(false, true, false));
+		assert!(!sound_gate_open(true, true, false), "deafened");
+		assert!(
+			!sound_gate_open(false, false, false),
+			"no speaking permission"
+		);
+		assert!(!sound_gate_open(false, true, true), "server mute");
+		let (sound, received) = mpsc::sync_channel(1);
+		let retained = || {
+			Some(Message::Play {
+				id: 7,
+				samples: Vec::new().into(),
+			})
+		};
+		// Deafened this frame: the retained play never reaches the call and is dropped.
+		let mut pending = retained();
+		flush_sound(&sound, &mut pending, sound_gate_open(true, true, false));
+		assert!(pending.is_none());
+		assert!(received.try_recv().is_err(), "nothing reached the call");
+		// An open gate retries it instead of dropping it.
+		let mut pending = retained();
+		flush_sound(&sound, &mut pending, sound_gate_open(false, true, false));
+		assert!(pending.is_none());
+		assert!(matches!(
+			received.try_recv().unwrap(),
+			Message::Play { id: 7, .. }
+		));
+	}
 
 	#[test]
 	fn call_cues_track_joins_and_departures_without_reconnect_noise() {
@@ -3129,6 +3491,7 @@ mod tests {
 		});
 		let transport = task.abort_handle();
 		let (controls, _control_events) = watch::channel(Controls::default());
+		let (sound, _sound) = mpsc::sync_channel(1);
 		let (_notices, events) = mpsc::sync_channel(8);
 		let (_speaking, speakers) = watch::channel([0; 64]);
 		let (_latency, latency) = watch::channel(ui::VoiceLatency::default());
@@ -3152,6 +3515,7 @@ mod tests {
 			identity: discord_voice::Identity::generate(),
 			audio,
 			controls,
+			sound,
 			events,
 			failure: Arc::new(OnceLock::new()),
 			speakers,

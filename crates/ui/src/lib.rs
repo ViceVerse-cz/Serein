@@ -283,6 +283,7 @@ struct ProfileImage {
 
 pub const DEFAULT_IDLE_TIMEOUT_SECS: u32 = 10 * 60;
 
+pub use voice::{SoundClip, SoundboardRequest};
 #[derive(Default)]
 pub struct MessagingUi {
 	/// Interface tweaks switched on by enabled plugins.
@@ -592,6 +593,13 @@ pub struct MessagingUi {
 	pub voice_processing: model::voice_settings::VoiceProcessing,
 	pub voice_preview_requested: bool,
 	pub voice_preview_level: Option<f32>,
+	/// Session soundboard clips; the desktop keeps the decoded samples.
+	pub soundboard: Vec<voice::SoundClip>,
+	/// Soundboard action from the in-call popup, drained by the desktop.
+	pub soundboard_request: Option<voice::SoundboardRequest>,
+	pub soundboard_playing: Option<u64>,
+	/// Why the last sound action failed; empty when it succeeded.
+	pub soundboard_status: &'static str,
 	pub voice_preview_status: &'static str,
 	/// Device-local application shortcuts; the desktop host mirrors the global binding.
 	pub keybinds: model::Keybinds,

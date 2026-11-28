@@ -13,6 +13,21 @@ use model::{
 	voice_settings::{CameraFrameRate, InputProfile, NoiseSuppression},
 };
 
+/// One session sound in the call popup; the decoded samples stay with the desktop.
+#[derive(Clone)]
+pub struct SoundClip {
+	pub id: u64,
+	pub name: String,
+	pub seconds: f32,
+}
+/// A soundboard action the desktop performs after this frame.
+pub enum SoundboardRequest {
+	Add,
+	Play(u64),
+	Stop,
+	Forget(u64),
+}
+
 /// Local mutes share the 64 per-user volume slots sent to the mixer.
 const MAX_USER_MUTES: usize = 64;
 
@@ -2726,6 +2741,54 @@ impl MessagingUi {
 						.wrap(),
 				);
 			});
+		}
+		if active && input {
+			ui.separator();
+			ui.label(design::medium(ui, "Soundboard", 15.0));
+			ui.label(
+				RichText::new(
+					"Play a sound into the call. Clips stay in this session; up to a minute each.",
+				)
+				.size(12.0)
+				.color(colors.muted),
+			);
+			let mut request = None;
+			for clip in &self.soundboard {
+				ui.horizontal(|ui| {
+					let playing = self.soundboard_playing == Some(clip.id);
+					if ui
+						.selectable_label(playing, format!("{} · {:.1}s", clip.name, clip.seconds))
+						.on_hover_text(if playing {
+							"Stop this sound"
+						} else {
+							"Play this sound into the call"
+						})
+						.clicked()
+					{
+						request = Some(if playing {
+							SoundboardRequest::Stop
+						} else {
+							SoundboardRequest::Play(clip.id)
+						});
+					}
+					if ui.button("Remove").clicked() {
+						request = Some(SoundboardRequest::Forget(clip.id));
+					}
+				});
+			}
+			if ui.button("Add sound").clicked() {
+				request = Some(SoundboardRequest::Add);
+			}
+			if let Some(request) = request {
+				self.soundboard_request = Some(request);
+			}
+			if !self.soundboard_status.is_empty() {
+				ui.label(
+					RichText::new(self.soundboard_status)
+						.size(12.0)
+						.color(colors.warning),
+				);
+			}
 		}
 	}
 
