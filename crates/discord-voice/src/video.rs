@@ -434,8 +434,17 @@ fn obus_av1(data: &[u8]) -> Option<Vec<(usize, usize)>> {
 /// sender has to produce what the receiver reconstructs.
 pub(crate) fn av1_sender_frame(data: &[u8]) -> Result<Vec<u8>, &'static str> {
 	const INVALID: &str = "Invalid AV1 frame";
-	let spans = obus_av1(data).ok_or(INVALID)?;
+	// Temporal delimiters, tile lists and padding carry no coded data: DAVE drops them before it
+	// encrypts, so they must not stand between the last real OBU and the frame end here either.
+	// Left in, the last surviving OBU would keep a size field and the protocol data DAVE appends
+	// would be parsed as one more OBU.
+	const DROPPED: [u8; 3] = [2, 8, 15];
+	let mut spans = obus_av1(data).ok_or(INVALID)?;
+	spans.retain(|(start, _)| !DROPPED.contains(&((data[*start] >> 3) & 15)));
 	let count = spans.len();
+	if count == 0 {
+		return Err(INVALID);
+	}
 	let mut frame = Vec::with_capacity(data.len());
 	for (index, (start, end)) in spans.into_iter().enumerate() {
 		let obu = &data[start..end];
@@ -489,6 +498,14 @@ pub(crate) fn packetize_av1(
 		return Err("DAVE AV1 frame exceeds the sharing limit");
 	}
 	let spans = obus_av1(frame).ok_or("Invalid AV1 frame")?;
+	// `N` marks the packet carrying the start of a coded video sequence, which is the packet that
+	// carries the sequence header first; the receiver resets its dependency state on it.
+	let starts_sequence = spans
+		.first()
+		.is_some_and(|(start, _)| (frame[*start] >> 3) & 15 == 1);
+	// The receiver refuses a payload with more than 64 elements, so the sender flushes before
+	// packing the 65th even when the bytes still fit.
+	const MAX_ELEMENTS: u8 = 64;
 	let mut packets = Vec::new();
 	let mut payload = vec![0u8; 1];
 	let mut elements = 0u8;
@@ -497,7 +514,9 @@ pub(crate) fn packetize_av1(
 		let mut prefix = [0u8; 3];
 		let prefix = size_bytes(element.len(), &mut prefix);
 		if 1 + prefix.len() + element.len() <= MAX_PAYLOAD {
-			if payload.len() + prefix.len() + element.len() > MAX_PAYLOAD {
+			if payload.len() + prefix.len() + element.len() > MAX_PAYLOAD
+				|| elements == MAX_ELEMENTS
+			{
 				flush_av1(
 					&mut payload,
 					&mut elements,
@@ -554,6 +573,9 @@ pub(crate) fn packetize_av1(
 	)?;
 	if packets.is_empty() {
 		return Err("AV1 frame has no OBUs");
+	}
+	if starts_sequence {
+		packets[0].payload[0] |= 0x08;
 	}
 	let last = packets.len() - 1;
 	packets[last].header[1] |= 0x80;
@@ -718,6 +740,38 @@ mod tests {
 		// A reserved OBU type is not encoder output.
 		// The forbidden bit cannot appear in encoder output.
 		assert!(av1_sender_frame(&[0x80, 1]).is_err());
+	}
+
+	#[test]
+	fn av1_obus_dave_drops_never_stand_last() {
+		// A keyframe as an encoder emits it: temporal delimiter, sequence header, frame, padding.
+		let encoder = [
+			0x12, 0x00, // temporal delimiter
+			0x0a, 2, 0x20, 0x10, // sequence header
+			0x32, 3, 0x20, 0x30, 0x10, // frame
+			0x7a, 3, 0, 0, 0, // padding
+		];
+		let frame = av1_sender_frame(&encoder).expect("a framed access unit");
+		// Padding must not keep the frame OBU's size field, which DAVE would then leave in place
+		// while appending its protocol data behind it.
+		assert_eq!(frame, [0x0a, 2, 0x20, 0x10, 0x30, 0x20, 0x30, 0x10]);
+		let packets = av1_packets(&frame);
+		assert_ne!(
+			packets[0].payload[0] & 0x08,
+			0,
+			"the packet carrying the sequence header opens a coded video sequence"
+		);
+		assert_eq!(av1_rebuild(&packets), frame);
+	}
+
+	#[test]
+	fn av1_payloads_stay_within_the_receivers_element_budget() {
+		// Sixty-five OBUs fit one payload by bytes alone; the receiver stops at 64 elements.
+		let encoder: Vec<u8> = (0..65).flat_map(|_| [0x32, 1, 0x00]).collect();
+		let frame = av1_sender_frame(&encoder).expect("a framed access unit");
+		let packets = av1_packets(&frame);
+		assert_eq!(packets.len(), 2, "the 65th element opens a second payload");
+		assert_eq!(av1_rebuild(&packets), frame);
 	}
 
 	fn depacketize(packets: &[Packet]) -> Vec<u8> {

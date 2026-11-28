@@ -488,6 +488,7 @@ unsafe fn parameter_sets(
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use crate::video_encode::Codec;
 
 	const SCREEN: Config = Config {
 		width: 1280,
@@ -496,6 +497,7 @@ mod tests {
 		bit_rate: 4_000_000,
 		max_bytes: 2 * 1024 * 1024,
 		profile: Profile::Main,
+		codec: Codec::H264,
 	};
 	const CAMERA: Config = Config {
 		width: 640,
@@ -504,6 +506,7 @@ mod tests {
 		bit_rate: 600_000,
 		max_bytes: 128 * 1024,
 		profile: Profile::Baseline,
+		codec: Codec::H264,
 	};
 
 	#[test]

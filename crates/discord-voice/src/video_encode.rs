@@ -21,6 +21,10 @@ pub(crate) use macos as hardware;
 /// Why an AV1 share could not start; the share dialog and diagnostics show it verbatim.
 pub(crate) const AV1_UNAVAILABLE: &str = "NVENC AV1 encoding is unavailable on this machine";
 
+/// Why an AV1 share stopped: the transport has already labelled the stream AV1, so there is no
+/// H.264 substitute to hand over to mid-share.
+pub(crate) const AV1_ENCODER_FAILED: &str = "the AV1 encoder stopped";
+
 /// Codec a hardware backend is asked to produce. Only the Windows NVENC backend implements AV1;
 /// every other backend refuses it instead of silently encoding H.264.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

@@ -565,6 +565,11 @@ struct ScreenEncoder {
 #[cfg(not(target_os = "linux"))]
 impl ScreenEncoder {
 	fn new(settings: Settings, bitrate: u32, codec: StreamCodec) -> Result<Self, &'static str> {
+		// An AV1 share has no software substitute: the transport labels every frame with the
+		// negotiated codec, so an openh264 picture would reach viewers as undecodable AV1.
+		if codec == StreamCodec::Av1 && !crate::video_encode::av1_supported() {
+			return Err(crate::video_encode::AV1_UNAVAILABLE);
+		}
 		let config = crate::video_encode::Config {
 			width: settings.width,
 			height: settings.height,
@@ -585,10 +590,12 @@ impl ScreenEncoder {
 		.ok();
 		#[cfg(target_os = "windows")]
 		let hardware = crate::video_encode::hardware::Encoder::new(config).ok();
-		let software = if hardware.is_none() {
-			Some(encoder(settings, bitrate)?)
-		} else {
+		let software = if hardware.is_some() {
 			None
+		} else if codec == StreamCodec::Av1 {
+			return Err(crate::video_encode::AV1_UNAVAILABLE);
+		} else {
+			Some(encoder(settings, bitrate)?)
 		};
 		Ok(Self {
 			diagnostics: crate::diagnostics::EncoderRegistration::new(true, hardware.is_some()),
@@ -647,9 +654,14 @@ impl ScreenEncoder {
 			if let Ok(encoded) = encoded {
 				return Ok(encoded);
 			}
-			// The viewer must restart from a keyframe once the software encoder takes over.
 			self.hardware = None;
 			self.diagnostics.set(None);
+			// Only an H.264 share may hand over to openh264: an AV1 stream that suddenly carries
+			// H.264 pictures is worse than a stream that stops.
+			if self.codec == StreamCodec::Av1 {
+				return Err(crate::video_encode::AV1_ENCODER_FAILED);
+			}
+			// The viewer must restart from a keyframe once the software encoder takes over.
 			self.software = Some(encoder(self.settings, self.bitrate)?);
 			self.diagnostics.set(Some(false));
 			software_force = true;

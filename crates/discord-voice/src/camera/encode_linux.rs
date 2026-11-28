@@ -254,6 +254,7 @@ fn set_flag(element: &gst::Element, name: &str, value: bool) {
 mod tests {
 	use super::*;
 	use crate::camera::{HEIGHT, WIDTH};
+	use crate::video_encode::Codec;
 
 	const CAMERA: Config = Config {
 		width: WIDTH as u32,
@@ -262,6 +263,7 @@ mod tests {
 		bit_rate: crate::camera::BIT_RATE,
 		max_bytes: crate::camera::MAX_ENCODED_BYTES,
 		profile: Profile::Baseline,
+		codec: Codec::H264,
 	};
 
 	/// Exercises the real pipeline with whichever H.264 encoder this machine has. Development

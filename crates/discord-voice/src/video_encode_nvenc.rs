@@ -211,6 +211,8 @@ pub(crate) struct Encoder {
 	session: *mut c_void,
 	/// NV12 picture in device memory, registered as the encoder's input resource.
 	picture: CUdeviceptr,
+	/// Row pitch of the device picture: the visible width rounded up to what NVENC accepts.
+	pitch: usize,
 	registered: NV_ENC_REGISTERED_PTR,
 	bitstream: NV_ENC_OUTPUT_PTR,
 	config: NV_ENC_CONFIG,
@@ -256,6 +258,7 @@ impl Encoder {
 			rung,
 			session,
 			picture: 0,
+			pitch: 0,
 			registered: std::ptr::null_mut(),
 			bitstream: std::ptr::null_mut(),
 			config: encode_config,
@@ -312,9 +315,20 @@ impl Encoder {
 		let Some(length) = picture_bytes(self.width, self.height) else {
 			return Err(UNAVAILABLE);
 		};
+		// The screen settings round a shared source to an even size, not to a four-aligned one,
+		// and NVENC refuses to register a CUDA picture whose luma pitch those settings would give
+		// it — a 1366×768 display would have no hardware encoder at all. Allocate the aligned
+		// pitch instead and upload the visible rows into it.
+		self.pitch = aligned_pitch(self.width);
+		let device = self
+			.pitch
+			.checked_mul(self.height as usize)
+			.and_then(|bytes| bytes.checked_mul(3))
+			.map(|bytes| bytes / 2)
+			.ok_or(UNAVAILABLE)?;
 		let driver = mini_cuda::require_driver().map_err(|_| UNAVAILABLE)?;
 		// SAFETY: the allocation is owned by this encoder and freed in Drop.
-		if unsafe { (driver.cuMemAlloc_v2)(&mut self.picture, length) } != CUresult::CUDA_SUCCESS {
+		if unsafe { (driver.cuMemAlloc_v2)(&mut self.picture, device) } != CUresult::CUDA_SUCCESS {
 			return Err(failed_step("device picture"));
 		}
 		// SAFETY: registering the device picture once; the handle is released in Drop.
@@ -324,7 +338,7 @@ impl Encoder {
 		resource.width = self.width;
 		resource.height = self.height;
 		// NVENC takes the luma plane's row pitch in bytes for a device pointer.
-		resource.pitch = self.width;
+		resource.pitch = self.pitch as u32;
 		resource.resourceToRegister = self.picture as usize as *mut c_void;
 		resource.bufferFormat = NV_ENC_BUFFER_FORMAT::NV12;
 		resource.bufferUsage = NV_ENC_BUFFER_USAGE::INPUT_IMAGE;
@@ -420,23 +434,14 @@ impl Encoder {
 		}
 		fill(&mut self.host)?;
 		let driver = mini_cuda::require_driver().map_err(|_| UNAVAILABLE)?;
-		// An asynchronous copy stages pageable memory through the driver's own pinned buffers,
-		// which is faster than the synchronous pageable path; the context is synchronized before
-		// the encoder reads the picture.
-		// SAFETY: the destination is this encoder's allocation of exactly `length` bytes, and the
-		// source slice stays alive until the copy completes.
-		let upload = unsafe {
-			(driver.cuMemcpyHtoDAsync_v2)(
-				self.picture,
-				self.host.as_ptr().cast(),
-				length,
-				std::ptr::null_mut(),
-			)
-		};
-		// SAFETY: waits for the copy above on the calling thread's context.
-		let synchronized = upload == CUresult::CUDA_SUCCESS
-			&& unsafe { (driver.cuCtxSynchronize)() } == CUresult::CUDA_SUCCESS;
-		if !synchronized {
+		if !upload_picture(
+			driver,
+			self.picture,
+			self.pitch,
+			&self.host,
+			self.width,
+			self.height,
+		) {
 			return Err(FAILED);
 		}
 		// SAFETY: the registered resource is mapped for exactly one picture, then unmapped.
@@ -465,23 +470,32 @@ impl Encoder {
 		}
 		// SAFETY: one synchronous picture on the owning thread.
 		let status = unsafe { (self.api.nvEncEncodePicture)(self.session, &mut picture) };
-		// SAFETY: the mapping belongs to the picture submitted above.
-		unsafe { (self.api.nvEncUnmapInputResource)(self.session, mapped) };
 		self.frame = self.frame.wrapping_add(1);
+		// The input stays mapped until the blocking lock reports the picture complete, which is
+		// what `take_bitstream` waits for; unmapping here would release a resource the driver may
+		// still be reading.
+		let taken = self.take_bitstream(mapped);
 		if status != NVENCSTATUS::SUCCESS {
 			return Err(FAILED);
 		}
-		self.take_bitstream()
+		taken
 	}
 
-	/// Locks the encoded picture, copies it out and reports whether it was a keyframe.
-	fn take_bitstream(&mut self) -> Result<(Vec<u8>, bool), &'static str> {
+	/// Locks the encoded picture, unmaps the input once the driver has reported it complete, copies
+	/// the bitstream out and reports whether it was a keyframe.
+	fn take_bitstream(
+		&mut self,
+		mapped: NV_ENC_INPUT_PTR,
+	) -> Result<(Vec<u8>, bool), &'static str> {
 		// SAFETY: blocking lock of this encoder's output buffer, released below.
 		let mut lock: NV_ENC_LOCK_BITSTREAM = unsafe { core::mem::zeroed() };
 		lock.version = self.rung.lock_bitstream_ver();
 		lock.outputBitstream = self.bitstream;
-		if unsafe { (self.api.nvEncLockBitstream)(self.session, &mut lock) } != NVENCSTATUS::SUCCESS
-		{
+		let status = unsafe { (self.api.nvEncLockBitstream)(self.session, &mut lock) };
+		// SAFETY: the mapping belongs to the picture submitted before the lock, and the lock
+		// returns only after the driver finished encoding it.
+		unsafe { (self.api.nvEncUnmapInputResource)(self.session, mapped) };
+		if status != NVENCSTATUS::SUCCESS {
 			return Err(FAILED);
 		}
 		let length = lock.bitstreamSizeInBytes as usize;
@@ -589,7 +603,7 @@ fn rate_control(rung: NvencApiVersion, bit_rate: u32, codec: Codec) -> NV_ENC_RC
 	rc.rateControlMode = NV_ENC_PARAMS_RC_MODE::VBR;
 	rc.averageBitRate = bit_rate;
 	rc.maxBitRate = peak_bits(bit_rate);
-	rc.vbvBufferSize = buffer_bytes(bit_rate);
+	rc.vbvBufferSize = buffer_bits(bit_rate);
 	rc.vbvInitialDelay = rc.vbvBufferSize;
 	rc.lookaheadDepth = lookahead(codec);
 	// Adaptive quantization spends bits where the picture needs them; the strength stays on the
@@ -607,9 +621,10 @@ fn peak_bits(bit_rate: u32) -> u32 {
 	bit_rate.saturating_add(bit_rate / 2)
 }
 
-/// Rate-control buffer: 250 ms at the mean rate, in bytes as NVENC expects.
-fn buffer_bytes(bit_rate: u32) -> u32 {
-	bit_rate / 32
+/// Rate-control buffer: 250 ms at the mean rate. `NV_ENC_RC_PARAMS` measures it in bits, so a
+/// bitrate is quartered rather than divided by eight.
+fn buffer_bits(bit_rate: u32) -> u32 {
+	bit_rate / 4
 }
 
 fn keyframe_interval(profile: Profile, fps: u32) -> u32 {
@@ -626,6 +641,67 @@ fn picture_bytes(width: u32, height: u32) -> Option<usize> {
 	pixels.checked_mul(3)?.checked_div(2)
 }
 
+/// Row pitch NVENC accepts for a CUDA NV12 input: the visible width rounded up to a multiple of
+/// four. A shared source is rounded to an even size only, so a 1366-wide display needs this.
+fn aligned_pitch(width: u32) -> usize {
+	(width as usize).next_multiple_of(4)
+}
+
+/// Uploads one tightly packed NV12 picture into the device picture, whose rows are `pitch` bytes
+/// apart, and waits for both copies. The luma rows come first in `host`, the interleaved chroma
+/// rows behind them, which is the layout the screen converter fills.
+fn upload_picture(
+	driver: &mini_cuda::driver::DriverApi,
+	picture: CUdeviceptr,
+	pitch: usize,
+	host: &[u8],
+	width: u32,
+	height: u32,
+) -> bool {
+	let (width, height) = (width as usize, height as usize);
+	let Some(luma) = width.checked_mul(height) else {
+		return false;
+	};
+	let (Some(luma_rows), Some(chroma_rows)) = (host.get(..luma), host.get(luma..)) else {
+		return false;
+	};
+	let copy = |src: *const c_void, rows: usize, dst: CUdeviceptr| {
+		// `CUmemorytype` has no zero discriminant, so the descriptor is built field by field
+		// instead of zeroed.
+		let descriptor = mini_cuda::CUDA_MEMCPY2D_st {
+			srcXInBytes: 0,
+			srcY: 0,
+			srcMemoryType: mini_cuda::CUmemorytype::CU_MEMORYTYPE_HOST,
+			srcHost: src,
+			srcDevice: 0,
+			srcArray: std::ptr::null_mut(),
+			srcPitch: width,
+			dstXInBytes: 0,
+			dstY: 0,
+			dstMemoryType: mini_cuda::CUmemorytype::CU_MEMORYTYPE_DEVICE,
+			dstHost: std::ptr::null_mut(),
+			dstDevice: dst,
+			dstArray: std::ptr::null_mut(),
+			dstPitch: pitch,
+			WidthInBytes: width,
+			Height: rows,
+		};
+		// SAFETY: a host-to-device two-dimensional copy of `width` byte rows into the allocation
+		// this encoder owns; the source slice outlives the synchronous wait below.
+		unsafe {
+			(driver.cuMemcpy2DAsync_v2)(&descriptor, std::ptr::null_mut()) == CUresult::CUDA_SUCCESS
+		}
+	};
+	copy(luma_rows.as_ptr().cast(), height, picture)
+		&& copy(
+			chroma_rows.as_ptr().cast(),
+			height / 2,
+			picture + (pitch * height) as u64,
+		)
+		// SAFETY: waits for the two copies above on the calling thread's context.
+		&& unsafe { (driver.cuCtxSynchronize)() } == CUresult::CUDA_SUCCESS
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -637,7 +713,9 @@ mod tests {
 		assert_eq!(rc.rateControlMode, NV_ENC_PARAMS_RC_MODE::VBR);
 		assert_eq!(rc.averageBitRate, 8_000_000);
 		assert_eq!(rc.maxBitRate, 12_000_000);
-		assert_eq!(rc.vbvBufferSize, 250_000);
+		// 250 ms of the mean rate, in the bits NVENC measures it in.
+		assert_eq!(rc.vbvBufferSize, 2_000_000);
+		assert_eq!(rc.vbvInitialDelay, 2_000_000);
 		assert_eq!(rc.enableAQ(), 1);
 		assert_eq!(
 			rc.multiPass,
@@ -707,6 +785,36 @@ mod tests {
 				})
 				.is_ok()
 		);
+	}
+
+	/// 1366×768 is a real laptop mode and an even but not four-aligned width, which is the cheapest
+	/// test of the row pitch NVENC registers for a device picture: the screen settings round a
+	/// shared source to an even size, not to a multiple of four.
+	#[test]
+	fn encodes_a_picture_whose_width_is_not_a_multiple_of_four() {
+		if !support().h264 {
+			return;
+		}
+		let (width, height) = (1366u32, 768u32);
+		let mut encoder = Encoder::new(Config {
+			width,
+			height,
+			fps: 30,
+			bit_rate: 2_000_000,
+			max_bytes: 1 << 20,
+			profile: Profile::Main,
+			codec: Codec::H264,
+		})
+		.expect("an NVENC session for a laptop display");
+		let length = picture_bytes(width, height).expect("a picture size");
+		let (data, keyframe) = encoder
+			.encode_with(length, true, |picture| {
+				picture.fill(0x40);
+				Ok(())
+			})
+			.expect("an encoded picture");
+		assert!(keyframe, "the first picture is a keyframe");
+		assert!(data.starts_with(&[0, 0, 0, 1]));
 	}
 
 	/// AV1 needs the driver's AV1 encoder; where it exists, its output must be OBU-framed, keyframe

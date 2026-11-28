@@ -9,8 +9,8 @@ official Discord client ships, what the two send formats configure, and what is 
 Go Live video is H.264 by default and AV1 on request. `crates/discord-voice/src/video_codec.rs`
 assigns payload 101 to H.264, 103 to H.265 and 105 to AV1 (RTX 102/104/106); H.265 stays receive-only
 and only on Linux, AV1 is sent when `SEREIN_STREAM_CODEC=av1` selects it and the driver has an AV1
-encoder. The stream advertises exactly the codec it encodes and refuses a session that negotiates
-another one.
+encoder. The stream's only encode-capable entry is the codec it sends, and it refuses a session that
+negotiates another one.
 
 Screen sharing and the camera share one encoder seam, `crates/discord-voice/src/video_encode.rs`
 (`Config`, `Profile`, `Codec`, `hardware::Encoder`). On Windows that seam prefers the direct NVENC
@@ -27,8 +27,9 @@ What the NVENC backend configures, and why it is not just "hardware H.264":
   tuning. The encoder's `ULTRA_HIGH_QUALITY` tuning rejects a picture structure without B-frames on
   this driver (617.42, NVENC 13.1), so the quality tier is a follow-up, not a silent downgrade.
 - Peak-constrained VBR: the transport feedback keeps owning the mean bitrate, the peak stays at 1.5×
-  the mean, and the VBV buffer is 250 ms at the mean rate, mirroring the Media Foundation backend so
-  congestion control behaves the same whichever encoder wins.
+  the mean, and the VBV buffer is 250 ms at the mean rate (NVENC measures it in bits, so the value is
+  the bitrate quartered), mirroring the Media Foundation backend so congestion control behaves the
+  same whichever encoder wins.
 - Adaptive quantization on, driven by the preset's auto strength. Lookahead, temporal AQ and
   multi-pass stay off: each trades a picture of latency for rate accuracy, which an interactive
   screen share cannot spend.
@@ -36,6 +37,11 @@ What the NVENC backend configures, and why it is not just "hardware H.264":
   seconds while sharing and every 2 seconds on the camera, and SPS/PPS repeated with every IDR so a
   viewer that joined or lost packets can decode from any keyframe.
 - A live rate change through `nvEncReconfigureEncoder`, so a congestion cut does not cost an IDR.
+- A device picture whose luma pitch is the visible width rounded up to four bytes, with the picture
+  uploaded as two two-dimensional copies. NVENC refuses to register a CUDA picture with a pitch it
+  does not like, and the screen settings round a shared source to an even width only, so without
+  this a 1366×768 display — or any other source two bytes past a multiple of four — would have no
+  hardware encoder at all.
 
 ## The AV1 send path
 
@@ -45,9 +51,14 @@ AV1 changes the framing around the encoder, not just the codec:
   into the framing the receiving side rebuilds: every OBU keeps its size field except the last, whose
   size the frame boundary implies. DAVE encrypts exactly those bytes, so sender and receiver must
   agree byte for byte.
+- That framing drops the OBUs DAVE drops before encrypting (temporal delimiter, tile list, padding).
+  Left in, a trailing padding OBU would mean the last coded OBU keeps its size field, and the
+  authentication data DAVE appends behind it would be parsed as one more OBU.
 - `packetize_av1` produces AOM AV1 RTP v1.0.0 payloads: one aggregation header per packet, then
-  size-prefixed elements, `Z`/`Y` marking an OBU that continues across packets, and the marker bit on
-  the final packet. Payload type 105, RTX 106.
+  size-prefixed elements, `Z`/`Y` marking an OBU that continues across packets, `N` on the packet that
+  carries the sequence header, and the marker bit on the final packet. Payload type 105, RTX 106. A
+  payload never carries more than 64 elements, the receiver's own budget, even when the bytes would
+  still fit.
 - `stream_codecs` advertises AV1 with `encode: true` and lists it first so the server picks it;
   `stream_codec` accepts the answer and the sender refuses a session that negotiates a different codec
   instead of sending mislabeled media.
@@ -59,46 +70,42 @@ Serein client on Windows or macOS has no AV1 decoder. Whether Discord's SFU tran
 rejects those viewers is unverified; that is why AV1 is an opt-in rather than the default, and why the
 next step is a Windows AV1 decoder through the Media Foundation transform.
 
+An AV1 share has no software substitute. The transport labels every frame with the negotiated codec,
+so `ScreenEncoder` refuses to start an AV1 share without a hardware encoder and stops the share if the
+encoder dies mid-stream, instead of handing openh264 pictures to an AV1 stream. H.264 keeps the
+mid-stream hand-over.
+
 ## What the official client does
 
-Evidence is limited to the shipped client, Discord 1.0.9270 on Windows. `modules/discord_voice-1/discord_voice/discord_voice.node`
-contains a Rust video stack, and its strings name the components. The web bundle that decides which
-codec a stream advertises is fetched at run time and its cache files were locked by the running
-client, so the protocol-level codec choice is **unverified** here.
+Discord 1.0.9270 splits encoding across two processes: `discord_voice.node` owns capture, encoder,
+encryption and packetization, and `gpu_encoder_helper.exe` runs only to answer whether a given GPU
+vendor encodes a given codec from a given kind of source. It names eighteen hardware encoders —
+NVIDIA CUDA/DX11 × H.264/H.265/AV1, AMD DX11, Intel QSV, and Media Foundation — and pins encoding to
+the capture adapter by LUID.
 
-Encoders and codecs, from the module's strings:
+`docs/discord-video-encoding.md` reads both binaries component by component: the probe contract, the
+NVENC and AMF and QSV and Media Foundation backends, the shared D3D11 device and bounded surface
+pool, the capture backends, and the per-stage encoder statistics. Two facts from it shape this
+repository's work:
 
-- Backends: `Nvidia/NVENC CUDA H.264 encoder (HW)`, `Nvidia/NVENC DX11 H.264 encoder (HW)`,
-  the same pair for H.265 and AV1, `AMD/AMF DX11 H.264/H.265/AV1 encoder (HW)`,
-  `Intel/QSV AV1 encoder (HW)`, `MediaFoundation H.264/H.265/AV1 encoder (HW)`, plus
-  `MediaFoundation SW` and CPU paths.
-- Codec set: `H264H265AV1` appears as the encoder selection and as
-  `DimensionswidthheightH264H265AV1`; `Failed to create video encoder because we only suppport H.264, H.265 and AV1`.
-- Capability probing per vendor: `GpuEncoderSupport`, `NvidiaGpuEncoderProbeResult`,
-  `AmdGpuEncoderProbeResult`, `IntelGpuEncoderProbeResult`,
-  `WindowsMediaFoundationGpuEncoderProbeResult`, `Enumerating hardware encoders for codec:`, and
-  per-driver refusals `nvenc: AV1 codec not supported on this driver version` and
-  `nvenc: H.265 codec not supported on this driver version`.
-- NVENC knobs the client itself keeps: `NVENC config, codec:`, `latency:`, `preset:`, `vbv buffer size:`,
-  and the tokens `Preset rc_mode tuning multi_pass` with `Low Medium High Unlimited` and `UltraLow`.
-  There is no reference to lookahead depth, temporal AQ, multipass full-res or ultra-high-quality
-  tuning, so the heavy NVENC tuning that Blackwell enables is not something the official client turns
-  on.
-- Rate control and quality surveillance per codec: `Encoded.Qp.Vp9`, `Encoded.Qp.H265`, `Encoded.Qp.Av1`
-  with `.S0`, `.S1`, `.S2` spatial layers, `WebRTC-QCM-Static-AV1`, `WebRTC-QCM-Dynamic-AV1`,
-  `WebRTC-AV1-OverridePriorityBitrate`, `av1_kbps`, `av1_qp_low`, `av1_qp_high`.
-- RTP: `rtp_packetizer_h265.cc`, `rtp_packetizer_av1.cc`,
-  `aomediacodec.github.io/av1-rtp-spec`, `dav1d_decoder.cc`, `WebRTC-H265-QualityScaling` — the same
-  AV1 dependency-descriptor layout the receive path in this repository already parses.
-- Capture: `graphics_capture_window_source`, `graphics_capture_display_source`, `dxgi_window_source`,
-  `dxgi_display_source`, `gdi_window_source` (`BitBlt` and `PrintWindow`), `video_hook`,
-  `capture backend in use:`, and `hdr_tonemapped` on the captured surface.
+- The Media Foundation backend is driven **asynchronously**, enumerates transforms with `MFTEnum2`,
+  filters them by adapter LUID, rejects candidates without dynamic format change or async mode, drains
+  with a deadline on shutdown, and detects keyframes by parsing the bitstream (`Parse bitstream to
+  detect IDR`).
+- NVENC codec availability is gated per codec with a readable refusal, not by the API version alone
+  (`nvenc: AV1 codec not supported on this driver version`), and the encoder session is modelled as a
+  configuration of codec, preset, rate-control mode, tuning, multi-pass, VBV size and IDR period.
 
-The official client picks a codec after probing the GPU vendor's encoder, configures a preset, a
-rate-control mode, a tuning, an optional multi-pass and a VBV buffer, and keeps per-codec QP
-statistics for its quality controller. Serein's NVENC backend follows that shape for the codec it
-sends: probe, preset and tuning, peak-constrained VBR with a VBV buffer, and a live reconfiguration
-instead of a new session.
+The strings establish which controls exist in the client; they do not establish which values a Go
+Live stream receives, because the configuration object is shared with the camera and the codec choice
+itself lives in a web bundle fetched at run time. Where this document says the client differs from
+Serein, it compares designs, not measured streams.
+
+Serein's NVENC backend follows that shape for the codec it sends: a per-codec capability check,
+preset and tuning, peak-constrained VBR with a VBV buffer, and a live reconfiguration instead of a new
+session. It does not follow the eighteen-name inventory (one backend per vendor, NVENC → Media
+Foundation → software) and does not do the zero-copy CUDA/D3D11 hand-off yet, both deliberately. The
+adoption list and its reasoning are at the end of `docs/discord-video-encoding.md`.
 
 ## What the backend needs to load
 
@@ -119,12 +126,14 @@ for comparison on the same content:
 
 | Picture | NVENC | openh264 |
 | --- | --- | --- |
-| 1920×1080 | 7.5 ms | 4.0 ms |
-| 2560×1440 | 9.6 ms | 7.3 ms |
-| 3840×2160 | 15.7 ms | 17.5 ms |
+| 1920×1080 | 6.6 ms | 4.4 ms |
+| 2560×1440 | 9.3 ms | 8.0 ms |
+| 3840×2160 | 15.0 ms | 20.4 ms |
 
-The hardware figure is wall-clock time on the encoder thread, mostly the synchronous copy and the
-driver wait, not CPU. At 60 fps it takes about half the frame budget at 1080p; at 30 fps a third.
+The hardware figure is wall-clock time on the encoder thread, mostly the two synchronous copies and
+the driver wait, not CPU. At 60 fps it takes about 40% of the frame budget at 1080p; at 30 fps, a
+fifth. The software numbers move a couple of milliseconds between runs on this machine, so read the
+two columns as the same order of magnitude below 4K and a clear hardware win at 4K.
 
 ## Remaining work
 
@@ -141,10 +150,14 @@ no AV1 receive path at all today.
 **H.265 sending.** The same packetization work as AV1 (H.265 RTP follows RFC 7798, not the AV1 payload
 format) plus a decoder on every platform.
 
-**Quality mode.** The encoder's `ULTRA_HIGH_QUALITY` tuning needs B-frames, and B-frames need an
-output queue on the sender and the reorder buffer on the receiver before they can be turned on. The
-same applies to lookahead and multi-pass: they trade latency for rate accuracy, so they belong to an
-explicit quality setting rather than the default.
+**Quality mode.** The encoder's `ULTRA_HIGH_QUALITY` tuning is documented for AV1 from the NVENC 13.0
+headers and rejects a picture structure without B-frames on this driver (617.42, NVENC 13.1), so
+turning it on needs B-frames — and B-frames need an output queue on the sender and the reorder buffer
+on the receiver. The other rate-accuracy controls carry their own limits: `lookaheadDepth` accepts at
+most `31 - B frames` and only with `enableLookahead` set; multi-pass means
+`NV_ENC_TWO_PASS_QUARTER_RESOLUTION` or `NV_ENC_TWO_PASS_FULL_RESOLUTION`; `targetQuality` is `0` for
+automatic, with `0-51` above it for H.264 and H.265 and `0-63` for AV1. All of them trade latency for
+rate accuracy, so they belong to an explicit quality setting rather than the default.
 
 **Interoperation.** AV1 sending has been verified synthetically only: the sender's packets round-trip
 through this repository's own receiver, and the encoder's output is OBU-framed with a keyframe first.
