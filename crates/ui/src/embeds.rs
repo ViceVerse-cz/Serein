@@ -174,6 +174,92 @@ fn clip_media(embed: &Embed) -> Option<&model::EmbedMedia> {
 	.then_some(clip)
 }
 
+/// The file name of a proxied media address, before any percent-encoded source query.
+fn proxied_name(proxy: &str) -> &str {
+	let path = proxy.split(['?', '#']).next().unwrap_or(proxy);
+	let name = path.rsplit('/').next().unwrap_or(path);
+	// The proxy may carry the source query percent-encoded after the file name.
+	name.as_bytes()
+		.windows(3)
+		.position(|window| window.eq_ignore_ascii_case(b"%3f"))
+		.map_or(name, |end| &name[..end])
+}
+
+/// An audio file named by a link. Discord sends a direct link to an audio file as an `audio`
+/// embed whose `audio.proxy_url` is a Discord media-proxy file; Serein plays that file itself.
+/// The id is derived from the proxied address, stable across frames and distinct per file.
+pub fn audio_link(embed: &Embed) -> Option<model::Attachment> {
+	let media = embed.audio.as_ref()?;
+	let proxy = media.proxy_url.as_deref()?;
+	let mut hasher = DefaultHasher::new();
+	("audio", proxy).hash(&mut hasher);
+	Some(model::Attachment {
+		id: model::Id(hasher.finish()),
+		filename: proxied_name(proxy).to_owned(),
+		description: None,
+		content_type: None,
+		size: 0,
+		media: media.clone(),
+		spoiler: false,
+		duration_ms: None,
+		waveform: Vec::new(),
+	})
+	.filter(|file| file.is_audio())
+}
+
+/// Room a SoundCloud card's player takes beneath its artwork, in points.
+const TRACK_PLAYER_HEIGHT: f32 = 100.0;
+
+/// A SoundCloud track link. Discord sends its hosted player's address as the embed's video, and
+/// that address names the track; Serein streams the track itself instead of embedding the
+/// player page. The id is derived from the track, stable across frames and distinct per track.
+pub fn soundcloud_track(embed: &Embed) -> Option<model::Attachment> {
+	let widget = url::Url::parse(embed.video.as_ref()?.url.as_deref()?).ok()?;
+	let player = (widget.scheme() == "https"
+		&& widget.host_str() == Some("w.soundcloud.com")
+		&& widget.port().is_none()
+		&& widget.username().is_empty()
+		&& widget.password().is_none()
+		&& matches!(widget.path(), "/player" | "/player/"))
+	.then(|| {
+		widget
+			.query_pairs()
+			.find(|(key, _)| key == "url")
+			.map(|(_, value)| value)
+	})
+	.flatten()?;
+	// The player address carries the track address percent-encoded, so the track's own name
+	// (`soundcloud:tracks:<id>`) arrives still encoded once. Digits alone leave no room for
+	// another host, port, query or fragment in the address.
+	let tail = player.strip_prefix("https://api.soundcloud.com/tracks/")?;
+	let encoded = format!("id={tail}");
+	let name = url::form_urlencoded::parse(encoded.as_bytes())
+		.next()
+		.map(|(_, value)| value)?;
+	let id = name.strip_prefix("soundcloud:tracks:").unwrap_or(&name);
+	let id = Some(id)
+		.filter(|id| !id.is_empty() && id.len() <= 20 && id.bytes().all(|b| b.is_ascii_digit()))?;
+	let mut hasher = DefaultHasher::new();
+	("soundcloud", id).hash(&mut hasher);
+	Some(model::Attachment {
+		id: model::Id(hasher.finish()),
+		filename: embed
+			.title
+			.clone()
+			.unwrap_or_else(|| "SoundCloud track".into()),
+		description: None,
+		content_type: None,
+		size: 0,
+		media: model::EmbedMedia {
+			url: Some(format!("https://api.soundcloud.com/tracks/{id}")),
+			..Default::default()
+		},
+		spoiler: false,
+		duration_ms: None,
+		waveform: Vec::new(),
+	})
+}
+
 // Discord link previews carry additional images as same-URL embed entries.
 // Only consume continuations without independent content (or with repeated metadata).
 fn gallery_len(embeds: &[Embed]) -> usize {
@@ -392,14 +478,17 @@ pub(crate) fn gif_for_media(
 	gif.valid().then_some(gif)
 }
 
-/// Discord shows a sizable landscape link preview thumbnail as the card's large image.
-/// Bot (`rich`) embeds keep their explicit side thumbnail.
+/// Discord shows a sizable link preview, video card or audio card thumbnail as the card's
+/// large image: landscape for article and link previews, any aspect for video and audio cards,
+/// whose thumbnail is the poster or the artwork. Bot (`rich`) embeds keep their explicit side
+/// thumbnail.
 fn large_thumbnail(embed: &Embed) -> Option<&model::EmbedMedia> {
 	embed.thumbnail.as_ref().filter(|thumbnail| {
 		embed.image.is_none()
-			&& matches!(embed.kind.as_str(), "article" | "link" | "video")
+			&& matches!(embed.kind.as_str(), "article" | "link" | "video" | "audio")
 			&& thumbnail.width >= 300
-			&& thumbnail.width as f32 >= thumbnail.height as f32 * 1.2
+			&& (matches!(embed.kind.as_str(), "video" | "audio")
+				|| thumbnail.width as f32 >= thumbnail.height as f32 * 1.2)
 	})
 }
 
@@ -547,6 +636,169 @@ fn clip_preview(ui: &mut egui::Ui, clip: &model::EmbedMedia, images: &mut Avatar
 	);
 }
 
+/// A SoundCloud track or an audio link: its artwork takes a click to play, pause or retry, a
+/// second control opens the link, and the card beneath seeks and sets the volume.
+#[allow(clippy::too_many_arguments)]
+fn audio_embed_player(
+	ui: &mut egui::Ui,
+	message: &Message,
+	embed: &Embed,
+	clip: &model::Attachment,
+	artwork: Option<&model::EmbedMedia>,
+	images: &mut Avatars,
+	audio: &mut crate::audio::AudioUi,
+	download: &mut DownloadUi,
+	opening: &mut Option<String>,
+	demo: bool,
+) {
+	use crate::audio::{AudioOrigin, AudioState};
+	let mut width = ui.available_width();
+	if let Some(artwork) = artwork {
+		let colors = crate::design::palette(ui);
+		let shown = images.show_media(
+			ui,
+			artwork,
+			egui::vec2(
+				ui.available_width(),
+				crate::avatars::media::MEDIA_MAX_HEIGHT,
+			),
+			demo,
+			Surface::Inline,
+		);
+		let rect = shown.response.rect;
+		width = rect.width();
+		embed_context_menu(&shown.response, artwork, download, demo);
+		let active = audio.holds(message, clip, AudioOrigin::Embed);
+		let state = if active {
+			audio.state
+		} else {
+			AudioState::Idle
+		};
+		let label = crate::i18n::translate(match state {
+			AudioState::Loading => "audio-control-cancel",
+			AudioState::Playing => "audio-control-pause",
+			AudioState::Ended => "audio-control-replay",
+			AudioState::Failed(_) => "audio-control-retry",
+			_ => "audio-control-play",
+		});
+		let action = ui.interact(
+			rect,
+			shown.response.id.with("embed-play"),
+			egui::Sense::click(),
+		);
+		action
+			.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), &label));
+		let painter = ui.painter().with_clip_rect(rect);
+		let white = egui::Color32::WHITE;
+		// One dark pill at the artwork's centre: playback on its left, the track page on its right.
+		let pill = egui::Rect::from_center_size(rect.center(), egui::vec2(76.0, 44.0));
+		let split = pill.center().x + 10.0;
+		let button = egui::Rect::from_min_max(pill.min, egui::pos2(split, pill.max.y));
+		let hovered = action.hovered() || action.has_focus();
+		painter.rect_filled(
+			pill,
+			12,
+			egui::Color32::from_black_alpha(if hovered { 200 } else { 160 }),
+		);
+		match state {
+			AudioState::Playing => {
+				for x in [-9.0, -1.0] {
+					painter.rect_filled(
+						egui::Rect::from_center_size(
+							pill.center() + egui::vec2(x, 0.0),
+							egui::vec2(3.0, 12.0),
+						),
+						1,
+						white,
+					);
+				}
+			}
+			AudioState::Loading => {
+				ui.put(button, egui::Spinner::new().size(22.0).color(white));
+			}
+			AudioState::Ended | AudioState::Failed(_) => {
+				crate::icons::paint(
+					&painter,
+					crate::icons::Icon::Reload,
+					button.shrink(9.0),
+					white,
+				);
+			}
+			_ => {
+				let center = button.center();
+				painter.add(egui::Shape::convex_polygon(
+					vec![
+						center + egui::vec2(-4.0, -7.0),
+						center + egui::vec2(7.0, 0.0),
+						center + egui::vec2(-4.0, 7.0),
+					],
+					white,
+					egui::Stroke::NONE,
+				));
+			}
+		}
+		if action.has_focus() {
+			painter.rect_stroke(
+				pill,
+				12,
+				egui::Stroke::new(2.0, colors.accent),
+				egui::StrokeKind::Inside,
+			);
+		}
+		// Elapsed audio runs along the artwork's bottom edge.
+		if active && audio.duration > 0.0 {
+			let played = rect.width() * (audio.position / audio.duration).clamp(0.0, 1.0) as f32;
+			painter.rect_filled(
+				egui::Rect::from_min_max(
+					egui::pos2(rect.left(), rect.bottom() - 3.0),
+					egui::pos2(rect.left() + played, rect.bottom()),
+				),
+				0,
+				colors.accent,
+			);
+		}
+		// Added after the artwork, so it is the control a click there reaches.
+		if let Some(link) = embed.url.as_deref().and_then(external_url) {
+			let open = ui.interact(
+				egui::Rect::from_min_max(egui::pos2(split, pill.min.y), pill.max),
+				shown.response.id.with("embed-open"),
+				egui::Sense::click(),
+			);
+			let name = crate::i18n::translate("attachments-media-menu-open-original");
+			open.widget_info(|| {
+				egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), &name)
+			});
+			crate::icons::paint(
+				&painter,
+				crate::icons::Icon::External,
+				egui::Rect::from_center_size(open.rect.center(), egui::vec2(16.0, 16.0)),
+				white,
+			);
+			if open
+				.on_hover_text(&name)
+				.on_hover_cursor(egui::CursorIcon::PointingHand)
+				.clicked()
+			{
+				*opening = Some(link);
+			}
+		}
+		if action
+			.on_hover_cursor(egui::CursorIcon::PointingHand)
+			.clicked()
+		{
+			audio.toggle(message, clip, AudioOrigin::Embed, state);
+		}
+		// The artwork is the player's face: while it is on screen the clip may play, with
+		// the controls beneath it clipped.
+		audio.watch(ui, rect, message, clip, AudioOrigin::Embed);
+	}
+	// The player spans the artwork's width, so the two read as one player.
+	ui.scope(|ui| {
+		ui.set_max_width(width);
+		audio.show(ui, message, clip, AudioOrigin::Embed);
+	});
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn show(
 	ui: &mut egui::Ui,
@@ -555,6 +807,7 @@ pub fn show(
 	images: &mut Avatars,
 	opening: &mut Option<String>,
 	download: &mut DownloadUi,
+	audio: &mut crate::audio::AudioUi,
 	profile: &mut crate::profiles::ProfileSession,
 	state: &client_core::State,
 	card_surface: crate::design::MessageCardSurface,
@@ -668,20 +921,31 @@ pub fn show(
 				.inner_margin(12)
 				.show(ui, |ui| {
 					ui.set_width((width - 24.0).max(1.0));
-					// Size independently of the remaining timeline viewport.
-					ui.set_max_height(640.0);
+					let track = soundcloud_track(embed)
+						.or_else(|| audio_link(embed))
+						.filter(|_| count == 1);
+					// Size independently of the remaining timeline viewport. A card with a player
+					// beneath its artwork may stand taller.
+					let bound = if track.is_some() {
+						640.0 + TRACK_PLAYER_HEIGHT
+					} else {
+						640.0
+					};
+					ui.set_max_height(bound);
 					// Bound exceptional cards' geometry; normal cards grow to their content height.
 					egui::ScrollArea::vertical()
 						.id_salt("embed-content")
-						.max_height(640.0)
+						.max_height(bound)
 						.auto_shrink([false, true])
 						.show(ui, |ui| {
 							let part = 1 + index as u16 * 64;
 							let large = large_thumbnail(embed).filter(|_| count == 1);
-							let thumbnail = embed
-								.thumbnail
-								.as_ref()
-								.filter(|_| large.is_none() && ui.available_width() >= 300.0);
+							// A played card's artwork is its player's face, whatever its size.
+							let artwork =
+								large.or_else(|| track.as_ref().and(embed.thumbnail.as_ref()));
+							let thumbnail = embed.thumbnail.as_ref().filter(|_| {
+								track.is_none() && large.is_none() && ui.available_width() >= 300.0
+							});
 							let body_width = (ui.available_width()
 								- if thumbnail.is_some() { 96.0 } else { 0.0 })
 							.max(1.0);
@@ -792,6 +1056,11 @@ pub fn show(
 							}
 							if count > 1 {
 								gallery(ui, group, images, message.id, download, demo);
+							} else if let Some(clip) = &track {
+								audio_embed_player(
+									ui, message, embed, clip, artwork, images, audio, download,
+									opening, demo,
+								);
 							} else if let Some(image) = embed.image.as_ref().or(large) {
 								image_preview(
 									ui,
@@ -808,8 +1077,9 @@ pub fn show(
 							} else if let Some(clip) = clip_media(embed) {
 								clip_preview(ui, clip, images, demo);
 							}
-							if thumbnail.is_none()
-								&& large.is_none() && let Some(image) = &embed.thumbnail
+							if track.is_none()
+								&& thumbnail.is_none() && large.is_none()
+								&& let Some(image) = &embed.thumbnail
 							{
 								image_preview(
 									ui,
@@ -821,8 +1091,9 @@ pub fn show(
 									demo,
 								);
 							}
-							if embed.video.is_some()
-								|| matches!(embed.kind.as_str(), "video" | "gifv")
+							if track.is_none()
+								&& (embed.video.is_some()
+									|| matches!(embed.kind.as_str(), "video" | "gifv"))
 							{
 								ui.small(crate::i18n::translate(
 									"embeds-show-video-preview-playback-opens-in-your-browser",
@@ -918,10 +1189,12 @@ pub fn show(
 									"embeds-show-embed-display-limited",
 								));
 							}
+							// An audio card is supported once it holds a playable file.
 							if !matches!(
 								embed.kind.as_str(),
 								"rich" | "article" | "link" | "image" | "video" | "gifv"
-							) {
+							) && track.is_none()
+							{
 								ui.small(crate::i18n::translate(
 									"embeds-show-additional-embed-content-is-not-supported",
 								));
@@ -947,8 +1220,13 @@ pub fn estimated_height(embeds: &[Embed]) -> f32 {
 	while index < embeds.len() {
 		let count = gallery_len(&embeds[index..]);
 		let e = &embeds[index];
+		let track = soundcloud_track(e)
+			.or_else(|| audio_link(e))
+			.filter(|_| count == 1);
 		let image_height = if count > 1 {
 			gallery_rect(count, count - 1, 456.0).bottom()
+		} else if track.is_some() {
+			crate::avatars::media::MEDIA_MAX_HEIGHT + TRACK_PLAYER_HEIGHT
 		} else if e.image.is_some() || large_thumbnail(e).is_some() || clip_media(e).is_some() {
 			200.0
 		} else {
@@ -1003,7 +1281,13 @@ pub fn estimated_height(embeds: &[Embed]) -> f32 {
 			} else {
 				0.0
 			};
-			(text.max(thumb) + e.fields.len() as f32 * 44.0 + image_height).min(664.0)
+			(text.max(thumb) + e.fields.len() as f32 * 44.0 + image_height).min(
+				if track.is_some() {
+					664.0 + TRACK_PLAYER_HEIGHT
+				} else {
+					664.0
+				},
+			)
 		};
 		index += count;
 	}
@@ -1048,6 +1332,7 @@ mod tests {
 					&mut images,
 					&mut None,
 					&mut DownloadUi::default(),
+					&mut crate::audio::AudioUi::default(),
 					&mut crate::profiles::ProfileSession::default(),
 					&client_core::State::default(),
 					crate::design::MessageCardSurface::Conversation,
@@ -1072,6 +1357,170 @@ mod tests {
 		// Nothing to fetch is not a preview area.
 		embed.video = Some(model::EmbedMedia::default());
 		assert!(clip_media(&embed).is_none());
+	}
+
+	/// A SoundCloud link arrives as a `video` card whose "video" is the hosted player page and
+	/// whose thumbnail is the square track artwork. Nothing in it is a file the player can
+	/// open, and the card shows the artwork as its image.
+	#[test]
+	fn a_video_card_shows_its_square_artwork_and_gets_no_player() {
+		let embed = Embed {
+			kind: "video".into(),
+			title: Some("Synthetic track (prod synthetic)".into()),
+			url: Some("https://example.com/synthetic/soundcloud-track".into()),
+			provider: Some(model::EmbedAuthor {
+				name: "SoundCloud (synthetic)".into(),
+				url: Some("https://example.com/".into()),
+				..Default::default()
+			}),
+			thumbnail: Some(model::EmbedMedia {
+				url: Some("https://example.com/synthetic/artwork-t500x500.jpg".into()),
+				proxy_url: Some(
+					"https://images-ext-1.discordapp.net/external/abcdefghijklmnop/https/example.com/synthetic/artwork-t500x500.jpg"
+						.into(),
+				),
+				width: 500,
+				height: 500,
+				..Default::default()
+			}),
+			video: Some(model::EmbedMedia {
+				url: Some(
+					"https://player.example.com/player/?url=https%3A%2F%2Fapi.example.com%2Ftracks%2F1&auto_play=false"
+						.into(),
+				),
+				width: 435,
+				height: 400,
+				..Default::default()
+			}),
+			..Default::default()
+		};
+		// The hosted player page is not a clip: no clip preview.
+		assert!(clip_media(&embed).is_none());
+		let artwork = large_thumbnail(&embed).expect("square artwork is the card's image");
+		assert_eq!((artwork.width, artwork.height), (500, 500));
+		// A bot card keeps the same picture as its side thumbnail.
+		let mut rich = embed.clone();
+		rich.kind = "rich".into();
+		assert!(large_thumbnail(&rich).is_none());
+		// The card asks for the artwork once, at image size, not as the 84 px side thumbnail.
+		let mut message = test_support::message(1, model::Id(2));
+		message.content = embed.url.clone().unwrap();
+		message.attachments.clear();
+		message.embeds = vec![embed];
+		let mut images = Avatars::default();
+		egui::Context::default()
+			.run_ui(egui::RawInput::default(), |ui| {
+				show(
+					ui,
+					&message,
+					&mut FormatCache::default(),
+					&mut images,
+					&mut None,
+					&mut DownloadUi::default(),
+					&mut crate::audio::AudioUi::default(),
+					&mut crate::profiles::ProfileSession::default(),
+					&client_core::State::default(),
+					crate::design::MessageCardSurface::Conversation,
+					false,
+				);
+			})
+			.drop_without_applying_deltas();
+		let edges: Vec<u32> = images
+			.take_requests()
+			.iter()
+			.filter(|request| request.contains("artwork"))
+			.filter_map(|request| request.strip_prefix("media:is:"))
+			.filter_map(|rest| rest.split_once(':'))
+			.map(|(size, _)| {
+				size.trim_start_matches('e')
+					.split_once('x')
+					.map_or(size, |(width, _)| width)
+					.parse()
+					.expect("numeric size")
+			})
+			.collect();
+		assert_eq!(edges.len(), 1, "one artwork request at image size");
+		assert!(edges[0] >= 300, "{}", edges[0]);
+	}
+
+	#[test]
+	fn a_soundcloud_card_streams_only_the_hosted_players_own_track() {
+		let card = |video: String| {
+			soundcloud_track(&model::Embed {
+				title: Some("Synthetic track".into()),
+				video: Some(model::EmbedMedia {
+					url: Some(video),
+					..Default::default()
+				}),
+				..Default::default()
+			})
+		};
+		let player =
+			|track: &str| format!("https://w.soundcloud.com/player/?url={track}&visual=true");
+		let plain = "https%3A%2F%2Fapi.soundcloud.com%2Ftracks%2F2420480568";
+		let prefixed =
+			"https%3A%2F%2Fapi.soundcloud.com%2Ftracks%2Fsoundcloud%253Atracks%253A2420480568";
+		let clip = card(player(plain)).unwrap();
+		assert_eq!(
+			clip.media.url.as_deref(),
+			Some("https://api.soundcloud.com/tracks/2420480568")
+		);
+		assert_eq!(clip.filename, "Synthetic track");
+		// The service writes either address for one track, so both name one player.
+		assert_eq!(card(player(prefixed)), Some(clip.clone()));
+		// Anything but the hosted player's own track address names no stream.
+		let other = [
+			"https://soundcloud.example/player/?url=https%3A%2F%2Fapi.soundcloud.com%2Ftracks%2F1"
+				.to_owned(),
+			"https://user@w.soundcloud.com/player/?url=https%3A%2F%2Fapi.soundcloud.com%2Ftracks%2F1"
+				.to_owned(),
+			player("https%3A%2F%2Fapi.soundcloud.example%2Ftracks%2F1"),
+			player("http%3A%2F%2Fapi.soundcloud.com%2Ftracks%2F1"),
+			player("https%3A%2F%2Fapi.soundcloud.com%2Fplaylists%2F1"),
+			player("https%3A%2F%2Fapi.soundcloud.com%2Ftracks%2F1%2Fstream"),
+			player("https%3A%2F%2Fapi.soundcloud.com%2Ftracks%2F1%3Fsecret"),
+			player("https%3A%2F%2Fapi.soundcloud.com%2Ftracks%2F"),
+		];
+		for video in &other {
+			assert!(card(video.clone()).is_none(), "{video}");
+		}
+	}
+
+	#[test]
+	fn an_audio_link_plays_only_a_proxied_audio_file() {
+		let card = |proxy: Option<String>| {
+			audio_link(&model::Embed {
+				kind: "audio".into(),
+				audio: Some(model::EmbedMedia {
+					url: Some("https://cdn.example.com/a/mix.mp3".into()),
+					proxy_url: proxy,
+					..Default::default()
+				}),
+				..Default::default()
+			})
+		};
+		let proxy = "https://media.discordapp.net/external/hash/https/cdn.example.com/a/mix.mp3";
+		let clip = card(Some(proxy.to_owned())).unwrap();
+		assert_eq!(clip.filename, "mix.mp3");
+		assert_eq!(clip.media.proxy_url.as_deref(), Some(proxy));
+		assert_eq!(clip.size, 0, "an embed carries no size");
+		// The file name may sit before the source query the proxy percent-encodes.
+		assert_eq!(
+			card(Some(format!("{proxy}%3Ftoken%3D1")))
+				.expect("named before the query")
+				.filename,
+			"mix.mp3"
+		);
+		// A distinct file is a distinct player.
+		assert_ne!(
+			card(Some(proxy.replace("mix.mp3", "other.mp3")))
+				.expect("another file")
+				.id,
+			clip.id
+		);
+		// Nothing plays without a proxied audio file.
+		assert_eq!(card(None), None);
+		assert_eq!(card(Some(proxy.replace("mix.mp3", "mix.pdf"))), None);
 	}
 
 	#[test]
@@ -1198,6 +1647,7 @@ mod tests {
 								&mut images,
 								&mut opening,
 								&mut DownloadUi::default(),
+								&mut crate::audio::AudioUi::default(),
 								&mut crate::profiles::ProfileSession::default(),
 								&client_core::State::default(),
 								crate::design::MessageCardSurface::Conversation,
@@ -1289,6 +1739,7 @@ mod tests {
 									&mut images,
 									&mut opening,
 									&mut download,
+									&mut crate::audio::AudioUi::default(),
 									&mut profile,
 									&client_core::State::default(),
 									crate::design::MessageCardSurface::Conversation,

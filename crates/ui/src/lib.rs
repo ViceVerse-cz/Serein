@@ -7,12 +7,13 @@ mod audio;
 mod badges;
 mod forwarding;
 mod role_names;
-pub use audio::{AudioCommand, AudioState, AudioUi};
+pub use audio::{AudioCommand, AudioOrigin, AudioState, AudioUi};
 mod video;
 pub use video::{VideoCommand, VideoState, VideoUi};
 mod attachments;
 pub mod external_upload;
 pub use attachments::DownloadUi;
+pub use embeds::{audio_link, soundcloud_track};
 mod avatars;
 mod resample;
 #[cfg(feature = "demo")]

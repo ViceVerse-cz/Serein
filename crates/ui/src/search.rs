@@ -1913,6 +1913,7 @@ impl SearchUi {
 												avatars,
 												&mut self.opening,
 												media.download,
+												media.audio,
 												profile,
 												state,
 												crate::design::MessageCardSurface::Opaque,

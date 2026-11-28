@@ -20,6 +20,7 @@ pub struct EmbedDto {
 	image: Option<MediaDto>,
 	thumbnail: Option<MediaDto>,
 	video: Option<MediaDto>,
+	audio: Option<MediaDto>,
 }
 #[derive(Deserialize, Default)]
 #[serde(default)]
@@ -126,6 +127,7 @@ impl EmbedDto {
 			image: media(self.image, &mut limited),
 			thumbnail: media(self.thumbnail, &mut limited),
 			video: media(self.video, &mut limited),
+			audio: media(self.audio, &mut limited),
 			limited,
 		};
 		while embed.bytes() > model::MAX_EMBED_BYTES && !embed.fields.is_empty() {

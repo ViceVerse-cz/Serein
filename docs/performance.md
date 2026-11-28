@@ -2145,3 +2145,17 @@ no hardware decoder is installed. Real calls and streams were not run: the strea
 come from the synthetic source only, and stream and camera pictures are still copied on
 every platform. Package size was not measured. `video::gst::tests::native_mov_decodes_audio_video_and_seeks` fails
 on the Asahi machine ("no frame after seek") with and without this change.
+
+## SoundCloud track and audio link players — November 27, 2026
+
+A SoundCloud track link's card and an audio file link's card now carry their artwork as the
+card's image with the inline audio player beneath it, instead of a side thumbnail and a browser
+link or a "not supported" line. Nothing runs for these cards while nothing plays: the player
+starts on a click, and the SoundCloud resolver makes no request until then.
+
+Not measured on this base (`main` `6d1fa13f`): idle CPU and memory with the cards shown, and
+package size. The host was in use for other work when the change was rebased onto `main`, so an
+idle sample there would not have been comparable, and the earlier samples were taken against a
+different base with one card fewer in the scene. Both release demo builds completed on Windows
+(`--features demo`, thin LTO). Also not measured: CPU, memory, time to first audio and seek
+latency while a track or a proxied audio file streams, and other platforms.

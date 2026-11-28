@@ -3114,6 +3114,59 @@ The clip's own host is normally not a source this client fetches. When the paylo
 media proxy beside the clip, that proxied URL is the one requested, and the still is decoded from the
 clip instead of asking the image proxy for a webp of a video. Issue #820 supplied screenshots and the
 offline embeds preview, not a live payload, so that link's exact wire shape stays unverified.
+
+## SoundCloud link embeds — November 27, 2026
+
+Checked against one live message: the owner posted a SoundCloud track link in a channel they
+control, and a throwaway local build recorded the embed's field shapes (not committed). One track
+link and one profile link were observed; other SoundCloud pages may differ.
+
+The track arrives as `type: "video"` with `provider` SoundCloud, an `author` (the uploader), a title,
+a description the service cuts near 200 characters, a 500×500 `thumbnail` (the artwork, with its
+Discord media-proxy URL and ThumbHash), and a `video` whose `url` is SoundCloud's hosted player page
+(`https://w.soundcloud.com/player/?…`, `content_type: text/html`, 435×400) with no `proxy_url`. The
+profile link arrived as a plain `link` card. No field carries an audio file: Discord's client plays
+the track by embedding that player page, which this client does not do for third-party sites.
+
+The track card shows the provider, uploader, title and description with the artwork as the card's
+image, as it already did for landscape link previews; before, the square artwork was an 84 px side
+thumbnail. A click on the artwork plays the track inline under the card, whose controls seek and
+set the volume as an attachment's do; a second control on the artwork opens the track page through
+the link confirmation, as the card's own links do. The "Video preview" line is not shown for a
+track. `--demo-soundcloud` shows a synthetic card of this shape; the demo plays a bundled clip.
+
+Inline playback is unofficial and restricted: it uses SoundCloud's public web API as the service's
+own web player does, which SoundCloud neither documents nor promises, so it can stop at any time.
+The embed is admitted only when its video is exactly SoundCloud's hosted player over HTTPS naming
+one track, `https://api.soundcloud.com/tracks/<digits>` (with or without a `soundcloud:tracks:`
+prefix); every other address gets no player. Streaming one track then makes these requests, each
+identified by an honest `Serein/<version>` user agent with no cookie, account, proxy or redirect,
+with every response bounded and dropped after decoding: the home page and up to eight of its script
+bundles, for the public client ID the web player sends (kept in memory for the session and read
+again once if a track request is refused); `api-v2.soundcloud.com/tracks/<id>` for the track's best
+HLS AAC stream and its `track_authorization`; that stream's playlist; then the playlist's init
+segment and segments. Only `soundcloud.com`, `sndcdn.com` and `soundcloud.cloud` hosts are
+contacted, whatever a response says. The player accepts a finished, unencrypted playlist of whole
+segments up to two hours, 20,000 segments and 8 MiB per segment; encrypted streams, master
+playlists, byte ranges and live windows are refused with "This SoundCloud track cannot be played
+here". A seek restarts in the segment holding the target. Nothing is kept between sessions or
+written to disk. The embed's shape was checked live; the stream pipeline was checked against one
+real track's requests and segments, and playback of a track from a live conversation in Serein was
+not exercised.
+
+## Audio file link embeds — November 27, 2026
+
+Documented: Discord generates embeds for direct links to audio files, of type `audio`, whose
+`audio` field is an Embed Audio Structure (`url`, `proxy_url`, `content_type`, `description`); its
+media proxy passes audio files through unmodified. Unverified: no live message with an audio
+link was recorded, so the actual payload is untested here. Serein reads an `audio` embed whose
+`audio.proxy_url` names a file with an audio extension and plays that proxied file itself; the
+card then draws the thumbnail as its image with the same player a SoundCloud track gets, and the
+"Video preview" line is not shown. The file is read over HTTPS from Discord's media proxy like an
+attachment, except that an embed carries no size: the first range request reports the length,
+and a file past the link limit is refused. No third-party host is contacted. `--demo-soundcloud` also
+shows a synthetic card of this shape; the demo plays a bundled clip.
+
 ## Opening an unloaded thread — October 26, 2026
 
 The owner reported a private thread that opens in the official desktop and mobile clients but

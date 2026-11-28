@@ -4233,6 +4233,7 @@ impl TimelineView {
 													avatars,
 													&mut self.opening,
 													&mut self.download,
+													&mut self.audio,
 													profile,
 													state,
 													crate::design::MessageCardSurface::Conversation,
@@ -10801,6 +10802,7 @@ mod tests {
 					&mut crate::avatars::Avatars::default(),
 					&mut None,
 					&mut crate::attachments::DownloadUi::default(),
+					&mut crate::audio::AudioUi::default(),
 					&mut profile,
 					&State {
 						demo: true,

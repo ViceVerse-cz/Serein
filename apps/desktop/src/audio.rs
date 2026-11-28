@@ -1,4 +1,7 @@
-//! Explicit, memory-only MP3/WAV/Ogg playback. One lazy worker, one replaceable request.
+//! Explicit, memory-only MP3/WAV/Ogg playback and SoundCloud track streams. One lazy worker,
+//! one replaceable request.
+#[path = "audio/soundcloud.rs"]
+mod soundcloud;
 #[path = "audio/source.rs"]
 mod source;
 #[path = "audio/streaming.rs"]
@@ -89,7 +92,11 @@ impl Gate {
 struct Request {
 	generation: u64,
 	url: Option<url::Url>,
-	expected: usize,
+	/// The attachment's byte size. `None` for a SoundCloud track and for an audio link's file,
+	/// which carries none and learns it from its first range.
+	expected: Option<usize>,
+	/// A SoundCloud track address; then `url` is unset and the worker resolves the stream.
+	soundcloud: Option<url::Url>,
 	#[cfg(feature = "demo")]
 	voice_message: bool,
 	duration: Duration,
@@ -104,43 +111,75 @@ pub struct Audio {
 	gate: Arc<Gate>,
 	worker: Option<Worker>,
 	status: Status,
+	/// The current request streams a SoundCloud track, which may be longer than an attachment.
+	streaming: bool,
 }
 impl Audio {
-	/// Replace playback with a validated attachment; fetching and output stay on the worker.
+	/// Replace playback with a validated attachment or SoundCloud track; fetching and output
+	/// stay on the worker.
 	pub fn start(
 		&mut self,
 		attachment: Attachment,
+		origin: ui::AudioOrigin,
 		runtime: &tokio::runtime::Handle,
 		context: &eframe::egui::Context,
 		demo: bool,
 	) -> Result<(), &'static str> {
 		self.stop();
-		let result = self.start_inner(attachment, runtime, context, demo);
+		let result = self.start_inner(attachment, origin, runtime, context, demo);
 		if let Err(error) = result {
 			self.status.state = State::Failed(error);
 		}
 		result
 	}
-	/// Admit a nonempty attachment through the shared CDN validator and publish one request.
+	/// Admit a nonempty attachment through the shared CDN validator, or a SoundCloud track by
+	/// its API address, and publish one request.
 	fn start_inner(
 		&mut self,
 		attachment: Attachment,
+		origin: ui::AudioOrigin,
 		runtime: &tokio::runtime::Handle,
 		context: &eframe::egui::Context,
 		demo: bool,
 	) -> Result<(), &'static str> {
-		let expected = usize::try_from(attachment.size)
-			.ok()
-			.filter(|size| *size > 0)
-			.ok_or("Audio attachment size is invalid")?;
-		let url = if demo {
-			None
+		let (url, expected, soundcloud) = if origin == ui::AudioOrigin::Embed {
+			if demo {
+				(None, None, None)
+			} else if let Some(track) = attachment
+				.media
+				.url
+				.as_deref()
+				.and_then(soundcloud::track_url)
+			{
+				// A SoundCloud track streams from the service.
+				(None, None, Some(track))
+			} else {
+				// An audio link's proxied file is read like an attachment; its first range
+				// reports a size the embed does not carry.
+				let link = attachment
+					.media
+					.proxy_url
+					.as_deref()
+					.and_then(crate::avatars::embed_audio_url)
+					.ok_or("Audio link unavailable")?;
+				(Some(link), None, None)
+			}
 		} else {
-			Some(
-				crate::downloads::original_url(&attachment)
-					.ok_or("Audio attachment unavailable")?,
-			)
+			let expected = usize::try_from(attachment.size)
+				.ok()
+				.filter(|size| *size > 0)
+				.ok_or("Audio attachment size is invalid")?;
+			let url = if demo {
+				None
+			} else {
+				Some(
+					crate::downloads::original_url(&attachment)
+						.ok_or("Audio attachment unavailable")?,
+				)
+			};
+			(url, Some(expected), None)
 		};
+		self.streaming = soundcloud.is_some();
 		if self.worker.is_none() {
 			let (requests, receiver) = watch::channel(None);
 			let (status, updates) = watch::channel((0, Status::default()));
@@ -179,6 +218,7 @@ impl Audio {
 			generation,
 			url,
 			expected,
+			soundcloud,
 			#[cfg(feature = "demo")]
 			voice_message: attachment.is_voice_message(),
 			duration: Duration::from_millis(u64::from(attachment.duration_ms.unwrap_or(0))),
@@ -220,7 +260,12 @@ impl Audio {
 		}
 	}
 	pub fn seek(&mut self, position: Duration) {
-		let millis = position.min(Duration::from_secs(MAX_SECONDS)).as_millis() as u64;
+		let limit = if self.streaming {
+			soundcloud::MAX_TRACK_SECONDS
+		} else {
+			MAX_SECONDS
+		};
+		let millis = position.min(Duration::from_secs(limit)).as_millis() as u64;
 		// Show the target while decoding restarts; output callbacks are muted until it resumes.
 		let rate = u64::from(self.gate.sample_rate.load(Ordering::Acquire));
 		self.gate
@@ -874,6 +919,7 @@ fn check_large_attachment_admission() {
 			wake: Arc::new(Notify::new()),
 		}),
 		status: Status::default(),
+		streaming: false,
 	};
 	attachment.size = 24 * 1024 * 1024;
 	for (filename, kind) in [
@@ -895,7 +941,13 @@ fn check_large_attachment_admission() {
 				attachment.media.url =
 					Some(format!("https://{host}/{path}?ex=123&is=123&hm=synthetic&"));
 				assert_eq!(
-					audio.start(attachment.clone(), runtime.handle(), &context, false),
+					audio.start(
+						attachment.clone(),
+						ui::AudioOrigin::Attachment,
+						runtime.handle(),
+						&context,
+						false,
+					),
 					Ok(()),
 					"{host}/{path}"
 				);
@@ -903,7 +955,7 @@ fn check_large_attachment_admission() {
 				{
 					let published = receiver.borrow();
 					let request = published.as_ref().expect("large attachment admitted");
-					assert_eq!(request.expected, attachment.size as usize);
+					assert_eq!(request.expected, Some(attachment.size as usize));
 					assert_eq!(
 						request.url.as_ref().unwrap().as_str(),
 						format!("https://cdn.discordapp.com/{path}?ex=123&is=123&hm=synthetic&")
@@ -919,7 +971,13 @@ fn check_large_attachment_admission() {
 		attachment.size = size;
 		assert!(
 			audio
-				.start(attachment.clone(), runtime.handle(), &context, false)
+				.start(
+					attachment.clone(),
+					ui::AudioOrigin::Attachment,
+					runtime.handle(),
+					&context,
+					false,
+				)
 				.is_err()
 		);
 		assert!(matches!(audio.status.state, State::Failed(_)));
@@ -941,7 +999,8 @@ pub fn debug_voice_message_check() {
 		let request = Request {
 			generation: 0,
 			url: None,
-			expected: 1,
+			expected: Some(1),
+			soundcloud: None,
 			voice_message,
 			duration: Duration::ZERO,
 		};

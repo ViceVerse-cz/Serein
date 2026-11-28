@@ -1,9 +1,9 @@
-//! One second of PCM ahead of playback; decoder reads drive bounded HTTP ranges.
-//! Output starts after a short pre-roll and, after an underrun, waits for a re-buffer
+//! One second of PCM ahead of playback; decoder reads drive attachment ranges or SoundCloud
+//! segments. Output starts after a short pre-roll and, after an underrun, waits for a re-buffer
 //! threshold, so a slow network pauses audio once instead of stuttering.
 use super::*;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use rtrb::{Consumer, RingBuffer};
+use rtrb::{Consumer, Producer, RingBuffer};
 
 struct Playback {
 	frames: Consumer<[f32; 2]>,
@@ -152,6 +152,224 @@ fn output<T: cpal::SizedSample + cpal::FromSample<f32>>(
 	)
 }
 
+/// PCM hand-off shared by the attachment and SoundCloud decoders: it drops the frames before
+/// the seek target, queues one second ahead and opens the output once the pre-roll is buffered.
+pub(super) struct Feed<'a, P: Fn(Status)> {
+	gate: &'a Arc<Gate>,
+	wake: &'a Arc<Notify>,
+	runtime: &'a tokio::runtime::Handle,
+	publish: &'a P,
+	generation: u64,
+	/// The seek target this pass starts from, in milliseconds.
+	pub(super) target: u64,
+	/// Frames of the clip before the first one this pass decodes: a SoundCloud pass starts at
+	/// the segment holding its target.
+	pub(super) origin: u64,
+	pub(super) rate: u32,
+	pub(super) duration: Duration,
+	pub(super) total_frames: u64,
+	/// Built with the ring; output opens once enough audio is queued.
+	producer: Option<Producer<[f32; 2]>>,
+	pending: Option<Playback>,
+	stream: Option<cpal::Stream>,
+	eof: Arc<AtomicBool>,
+	finished: Arc<AtomicBool>,
+}
+impl<'a, P: Fn(Status)> Feed<'a, P> {
+	#[allow(clippy::too_many_arguments)]
+	pub(super) fn new(
+		gate: &'a Arc<Gate>,
+		wake: &'a Arc<Notify>,
+		runtime: &'a tokio::runtime::Handle,
+		publish: &'a P,
+		generation: u64,
+		target: u64,
+		origin: u64,
+		duration: Duration,
+	) -> Self {
+		Self {
+			gate,
+			wake,
+			runtime,
+			publish,
+			generation,
+			target,
+			origin,
+			rate: 0,
+			duration,
+			total_frames: 0,
+			producer: None,
+			pending: None,
+			stream: None,
+			eof: Arc::new(AtomicBool::new(false)),
+			finished: Arc::new(AtomicBool::new(false)),
+		}
+	}
+	/// The clip is still current and no seek is waiting to restart it.
+	pub(super) fn current(&self) -> bool {
+		self.gate.current(self.generation)
+			&& self.gate.seek_millis.load(Ordering::Acquire) == NO_SEEK
+	}
+
+	pub(super) fn generation(&self) -> u64 {
+		self.generation
+	}
+	fn wait(&self) {
+		self.runtime.block_on(async {
+			tokio::select! { _ = self.wake.notified() => {}, _ = tokio::time::sleep(Duration::from_millis(20)) => {} }
+		})
+	}
+	/// Opens the output for the audio queued so far.
+	fn open(&mut self) -> Result<(), &'static str> {
+		if let Some(playback) = self.pending.take() {
+			self.stream = Some(open_output(playback, self.gate.clone(), self.generation)?);
+			(self.publish)(Status {
+				state: State::Playing,
+				position: Duration::from_millis(self.target),
+				duration: self.duration,
+			});
+		}
+		Ok(())
+	}
+	pub(super) fn push(
+		&mut self,
+		samples: &[f32],
+		channels: usize,
+		sample_rate: u32,
+		known_duration: Option<Duration>,
+	) -> Result<(), &'static str> {
+		self.rate = sample_rate;
+		self.gate.sample_rate.store(self.rate, Ordering::Release);
+		if let Some(known) = known_duration {
+			self.duration = known;
+		}
+		let target_frame = self.target.saturating_mul(u64::from(self.rate)) / 1000;
+		let packet_frames = (samples.len() / channels) as u64;
+		let before = self.origin.saturating_add(self.total_frames);
+		let skip = target_frame.saturating_sub(before).min(packet_frames) as usize;
+		self.total_frames += packet_frames;
+		if skip == packet_frames as usize {
+			return Ok(());
+		}
+		if self.producer.is_none() {
+			let (sender, frames) = RingBuffer::new(self.rate as usize);
+			let start = before + skip as u64;
+			self.gate.position_frames.store(start, Ordering::Release);
+			self.pending = Some(Playback {
+				frames,
+				current: None,
+				phase: 0.0,
+				position: start as f64,
+				rate: self.rate,
+				eof: self.eof.clone(),
+				finished: self.finished.clone(),
+				rebuffering: false,
+			});
+			self.producer = Some(sender);
+		}
+		let producer = self.producer.as_mut().expect("initialized above");
+		pump(
+			producer,
+			&mut self.pending,
+			&mut self.stream,
+			self.gate,
+			self.wake,
+			self.runtime,
+			self.generation,
+			self.target,
+			self.duration,
+			self.publish,
+			samples,
+			skip,
+			channels,
+		)?;
+		let queued = self.rate as usize - producer.slots();
+		if self.stream.is_none() && queued >= (self.rate / PREROLL_DIVISOR) as usize {
+			self.open()?;
+		}
+		Ok(())
+	}
+	/// Decoding ended: play what was queued and wait for the output to drain.
+	pub(super) fn finish(&mut self) -> Result<(), &'static str> {
+		self.eof.store(true, Ordering::Release);
+		// A clip shorter than the pre-roll still plays.
+		if self.stream.is_none() && self.pending.is_some() {
+			self.open()?;
+		}
+		while self.stream.is_some() && !self.finished.load(Ordering::Acquire) && self.current() {
+			if self.gate.failed.load(Ordering::Acquire) {
+				return Err("Audio output disconnected");
+			}
+			self.wait();
+		}
+		Ok(())
+	}
+}
+
+/// Queues one decoded packet, waiting for room or for a pause to end. A ring that fills is
+/// past the pre-roll, so the output opens before waiting on it.
+#[allow(clippy::too_many_arguments)]
+fn pump(
+	producer: &mut Producer<[f32; 2]>,
+	pending: &mut Option<Playback>,
+	stream: &mut Option<cpal::Stream>,
+	gate: &Arc<Gate>,
+	wake: &Arc<Notify>,
+	runtime: &tokio::runtime::Handle,
+	generation: u64,
+	target: u64,
+	duration: Duration,
+	publish: &impl Fn(Status),
+	samples: &[f32],
+	skip: usize,
+	channels: usize,
+) -> Result<(), &'static str> {
+	let current =
+		|| gate.current(generation) && gate.seek_millis.load(Ordering::Acquire) == NO_SEEK;
+	let wait = || {
+		runtime.block_on(async {
+			tokio::select! { _ = wake.notified() => {}, _ = tokio::time::sleep(Duration::from_millis(20)) => {} }
+		})
+	};
+	for frame in samples[skip * channels..].chunks_exact(channels) {
+		// A full ring is past the pre-roll; open output before waiting on it.
+		if producer.slots() == 0
+			&& stream.is_none()
+			&& let Some(playback) = pending.take()
+		{
+			*stream = Some(open_output(playback, gate.clone(), generation)?);
+			publish(Status {
+				state: State::Playing,
+				position: Duration::from_millis(target),
+				duration,
+			});
+		}
+		while gate.paused.load(Ordering::Acquire) || producer.slots() == 0 {
+			if !current() {
+				return Err("Cancelled");
+			}
+			if gate.failed.load(Ordering::Acquire) {
+				return Err("Audio output disconnected");
+			}
+			wait();
+		}
+		if !current() {
+			return Err("Cancelled");
+		}
+		let clean = |sample: f32| {
+			if sample.is_finite() {
+				sample.clamp(-1.0, 1.0)
+			} else {
+				0.0
+			}
+		};
+		producer
+			.push([clean(frame[0]), clean(frame[channels - 1])])
+			.map_err(|_| INVALID)?;
+	}
+	Ok(())
+}
+
 pub(super) fn play(
 	request: &Request,
 	gate: &Arc<Gate>,
@@ -159,48 +377,36 @@ pub(super) fn play(
 	runtime: &tokio::runtime::Handle,
 	publish: &impl Fn(Status),
 ) -> Result<(), &'static str> {
+	if request.soundcloud.is_some() {
+		return super::soundcloud::play(request, gate, wake, runtime, publish);
+	}
 	let mut target = 0;
+	// A pass learns the clip's length as it decodes; a pass restarted by a seek starts with
+	// what the last one knew.
+	let mut duration = request.duration.min(Duration::from_secs(MAX_SECONDS));
 	loop {
-		let current = || {
-			gate.current(request.generation) && gate.seek_millis.load(Ordering::Acquire) == NO_SEEK
-		};
 		if !gate.current(request.generation) {
 			return Ok(());
 		}
 		gate.failed.store(false, Ordering::Release);
 		gate.buffering.store(true, Ordering::Release);
-		let mut duration = request.duration.min(Duration::from_secs(MAX_SECONDS));
 		publish(Status {
 			state: State::Loading,
 			position: Duration::from_millis(target),
 			duration,
 		});
-		let mut producer = None;
-		let mut stream = None;
-		// Built with the ring; output opens once enough audio is queued.
-		let mut pending = None;
-		let eof = Arc::new(AtomicBool::new(false));
-		let finished = Arc::new(AtomicBool::new(false));
-		let mut total_frames = 0u64;
-		let mut rate = 0;
-		let open = |pending: &mut Option<Playback>,
-		            stream: &mut Option<cpal::Stream>,
-		            duration: Duration|
-		 -> Result<(), &'static str> {
-			if let Some(playback) = pending.take() {
-				*stream = Some(open_output(playback, gate.clone(), request.generation)?);
-				publish(Status {
-					state: State::Playing,
-					position: Duration::from_millis(target),
-					duration,
-				});
-			}
-			Ok(())
-		};
-		let wait = || {
-			runtime.block_on(async {
-			tokio::select! { _ = wake.notified() => {}, _ = tokio::time::sleep(Duration::from_millis(20)) => {} }
-		})
+		let mut feed = Feed::new(
+			gate,
+			wake,
+			runtime,
+			publish,
+			request.generation,
+			target,
+			0,
+			duration,
+		);
+		let current = || {
+			gate.current(request.generation) && gate.seek_millis.load(Ordering::Acquire) == NO_SEEK
 		};
 		let result = super::source::source(request, gate.clone(), wake.clone(), runtime.clone())
 			.and_then(|source| {
@@ -208,85 +414,15 @@ pub(super) fn play(
 					source,
 					&current,
 					&mut |samples, channels, sample_rate, known_duration| {
-						rate = sample_rate;
-						gate.sample_rate.store(rate, Ordering::Release);
-						if let Some(known) = known_duration {
-							duration = known;
-						}
-						let target_frame = target.saturating_mul(u64::from(rate)) / 1000;
-						let packet_frames = (samples.len() / channels) as u64;
-						let skip =
-							target_frame.saturating_sub(total_frames).min(packet_frames) as usize;
-						total_frames += packet_frames;
-						if skip == packet_frames as usize {
-							return Ok(());
-						}
-						if producer.is_none() {
-							let (sender, frames) = RingBuffer::new(rate as usize);
-							gate.position_frames.store(target_frame, Ordering::Release);
-							pending = Some(Playback {
-								frames,
-								current: None,
-								phase: 0.0,
-								position: target_frame as f64,
-								rate,
-								eof: eof.clone(),
-								finished: finished.clone(),
-								rebuffering: false,
-							});
-							producer = Some(sender);
-						}
-						let producer = producer.as_mut().expect("initialized above");
-						for frame in samples[skip * channels..].chunks_exact(channels) {
-							// A full ring is past the pre-roll; open output before waiting on it.
-							if producer.slots() == 0 && stream.is_none() {
-								open(&mut pending, &mut stream, duration)?;
-							}
-							while gate.paused.load(Ordering::Acquire) || producer.slots() == 0 {
-								if !current() {
-									return Err("Cancelled");
-								}
-								if gate.failed.load(Ordering::Acquire) {
-									return Err("Audio output disconnected");
-								}
-								wait();
-							}
-							if !current() {
-								return Err("Cancelled");
-							}
-							let clean = |sample: f32| {
-								if sample.is_finite() {
-									sample.clamp(-1.0, 1.0)
-								} else {
-									0.0
-								}
-							};
-							producer
-								.push([clean(frame[0]), clean(frame[channels - 1])])
-								.map_err(|_| INVALID)?;
-						}
-						let queued = rate as usize - producer.slots();
-						if stream.is_none() && queued >= (rate / PREROLL_DIVISOR) as usize {
-							open(&mut pending, &mut stream, duration)?;
-						}
-						Ok(())
+						feed.push(samples, channels, sample_rate, known_duration)
 					},
 				)
 			});
 		if result.is_ok() {
-			eof.store(true, Ordering::Release);
-			// A clip shorter than the pre-roll still plays.
-			if stream.is_none() && pending.is_some() {
-				open(&mut pending, &mut stream, duration)?;
-			}
-			while stream.is_some() && !finished.load(Ordering::Acquire) && current() {
-				if gate.failed.load(Ordering::Acquire) {
-					return Err("Audio output disconnected");
-				}
-				wait();
-			}
+			feed.finish()?;
 		}
-		drop(stream);
+		let (total_frames, rate, known) = (feed.total_frames, feed.rate, feed.duration);
+		drop(feed);
 		if !gate.current(request.generation) {
 			return Ok(());
 		}
@@ -294,10 +430,11 @@ pub(super) fn play(
 		if seek != NO_SEEK {
 			// ponytail: seeking replays decoding from the start; add a bounded index if long-clip seeking matters.
 			target = seek;
+			duration = known;
 			continue;
 		}
 		result?;
-		let duration = Duration::from_secs_f64(total_frames as f64 / f64::from(rate.max(1)));
+		duration = Duration::from_secs_f64(total_frames as f64 / f64::from(rate.max(1)));
 		publish(Status {
 			state: State::Ended,
 			position: duration,

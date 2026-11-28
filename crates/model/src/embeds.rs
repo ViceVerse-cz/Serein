@@ -53,6 +53,7 @@ pub struct Embed {
 	pub image: Option<EmbedMedia>,
 	pub thumbnail: Option<EmbedMedia>,
 	pub video: Option<EmbedMedia>,
+	pub audio: Option<EmbedMedia>,
 	pub limited: bool,
 }
 fn string_bytes(value: &Option<String>) -> usize {
@@ -102,7 +103,7 @@ impl Embed {
 				.iter()
 				.map(|f| f.name.capacity() + f.value.capacity())
 				.sum::<usize>()
-			+ [&self.image, &self.thumbnail, &self.video]
+			+ [&self.image, &self.thumbnail, &self.video, &self.audio]
 				.into_iter()
 				.flatten()
 				.map(EmbedMedia::bytes)
@@ -125,7 +126,7 @@ impl Embed {
 				.all(EmbedAuthor::valid)
 			&& self.footer.as_ref().is_none_or(|f| {
 				f.text.len() <= 8192 && f.icon.as_ref().is_none_or(EmbedMedia::valid)
-			}) && [&self.image, &self.thumbnail, &self.video]
+			}) && [&self.image, &self.thumbnail, &self.video, &self.audio]
 			.into_iter()
 			.flatten()
 			.all(EmbedMedia::valid)

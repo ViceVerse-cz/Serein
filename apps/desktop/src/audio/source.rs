@@ -15,6 +15,10 @@ const MAX_BLOCK: usize = 256 * 1024;
 /// Downloaded bytes kept per clip so seeking, which replays decoding from the start, does not
 /// download again. Ranges are kept from the start of the file until the budget is spent.
 const MAX_DOWNLOADS: usize = 16 * 1024 * 1024;
+/// Longest file an audio link may name. An embed carries no size, so its first range reports it.
+const MAX_LINK_BYTES: usize = 32 * 1024 * 1024;
+/// Reported for a link past [`MAX_LINK_BYTES`], before anything is decoded.
+const LINK_TOO_LARGE: &str = "Audio link limit: 32 MiB file";
 
 /// Ranges already downloaded for one clip generation; replaced when the generation changes.
 #[derive(Default)]
@@ -65,10 +69,7 @@ pub(super) fn source(
 	wake: Arc<Notify>,
 	runtime: Handle,
 ) -> Result<Box<dyn MediaSource>, &'static str> {
-	let raw = if let Some(url) = &request.url {
-		if request.expected == 0 {
-			return Err(INVALID);
-		}
+	let mut raw = if let Some(url) = &request.url {
 		Raw {
 			input: Input::Http {
 				client: wreq::Client::builder()
@@ -88,7 +89,7 @@ pub(super) fn source(
 				ahead: None,
 			},
 			position: 0,
-			len: request.expected,
+			len: request.expected.unwrap_or(0),
 			#[cfg(debug_assertions)]
 			bytes_read: 0,
 		}
@@ -102,17 +103,24 @@ pub(super) fn source(
 			super::demo_wav()
 		})
 	};
+	// An audio link's file carries no size: its first range reports the length.
+	if request.url.is_some() && request.expected.is_none() {
+		raw.learn_length()?;
+	}
 	Sanitized::new(raw)
 		.map(|source| Box::new(source) as Box<dyn MediaSource>)
-		.map_err(|error| {
-			if error.kind() == io::ErrorKind::Unsupported {
-				RANGE_UNSUPPORTED
-			} else if error.kind() == io::ErrorKind::ConnectionAborted {
-				"Cancelled"
-			} else {
-				INVALID
-			}
-		})
+		.map_err(reason)
+}
+
+/// The playback label of a failed read.
+fn reason(error: io::Error) -> &'static str {
+	if error.kind() == io::ErrorKind::Unsupported {
+		RANGE_UNSUPPORTED
+	} else if error.kind() == io::ErrorKind::ConnectionAborted {
+		"Cancelled"
+	} else {
+		INVALID
+	}
 }
 
 enum Input {
@@ -193,38 +201,104 @@ async fn fetch(
 				RANGE_UNSUPPORTED,
 			));
 		}
-		if response
-			.headers()
-			.get(wreq::header::CONTENT_ENCODING)
-			.is_some_and(|v| v != "identity")
-			|| response
-				.content_length()
-				.is_some_and(|size| size != count as u64)
-		{
-			return Err(invalid());
-		}
-		let mut bytes = Vec::with_capacity(count);
-		let mut response_body = std::pin::pin!(response.bytes_stream());
-		while let Some(chunk) = futures_util::StreamExt::next(&mut response_body)
-			.await
-			.transpose()
-			.map_err(|_| invalid())?
-		{
-			if chunk.len() > count - bytes.len() {
-				return Err(invalid());
-			}
-			bytes.extend_from_slice(&chunk);
-		}
-		if bytes.len() != count {
-			return Err(invalid());
-		}
-		Ok(bytes)
+		body(response, count).await
 	};
 	tokio::select! { biased;
 		// read_exact retries Interrupted, so cancellation must be terminal.
 		_ = cancelled => Err(io::Error::new(io::ErrorKind::ConnectionAborted, "Cancelled")),
 		result = transfer => result,
 	}
+}
+
+/// The identity-encoded body of `response`, exactly `count` bytes.
+async fn body(response: wreq::Response, count: usize) -> io::Result<Vec<u8>> {
+	if response
+		.headers()
+		.get(wreq::header::CONTENT_ENCODING)
+		.is_some_and(|v| v != "identity")
+		|| response
+			.content_length()
+			.is_some_and(|size| size != count as u64)
+	{
+		return Err(invalid());
+	}
+	let mut bytes = Vec::with_capacity(count);
+	let mut response_body = std::pin::pin!(response.bytes_stream());
+	while let Some(chunk) = futures_util::StreamExt::next(&mut response_body)
+		.await
+		.transpose()
+		.map_err(|_| invalid())?
+	{
+		if chunk.len() > count - bytes.len() {
+			return Err(invalid());
+		}
+		bytes.extend_from_slice(&chunk);
+	}
+	if bytes.len() != count {
+		return Err(invalid());
+	}
+	Ok(bytes)
+}
+
+/// The first range of a file whose length is unknown, and the length the answer names.
+async fn head(
+	client: wreq::Client,
+	url: url::Url,
+	gate: Arc<Gate>,
+	wake: Arc<Notify>,
+	generation: u64,
+) -> io::Result<(Arc<[u8]>, usize)> {
+	let cancelled = async {
+		loop {
+			if !gate.current(generation) || gate.seek_millis.load(Ordering::Acquire) != NO_SEEK {
+				break;
+			}
+			tokio::time::sleep(Duration::from_millis(20)).await;
+		}
+	};
+	let transfer = async {
+		while gate.paused.load(Ordering::Acquire) {
+			wake.notified().await;
+		}
+		let response =
+			client_core::fingerprint::discord_request(client.get(url.as_str()), url.as_str())
+				.header(wreq::header::ACCEPT_ENCODING, "identity")
+				.header(wreq::header::RANGE, format!("bytes=0-{}", CHUNK - 1))
+				.send()
+				.await
+				.map_err(|_| invalid())?;
+		if response.status() != wreq::StatusCode::PARTIAL_CONTENT {
+			return Err(io::Error::new(
+				io::ErrorKind::Unsupported,
+				RANGE_UNSUPPORTED,
+			));
+		}
+		let range = response
+			.headers()
+			.get(wreq::header::CONTENT_RANGE)
+			.and_then(|v| v.to_str().ok())
+			.and_then(content_range);
+		let Some((last, total)) = range else {
+			return Err(invalid());
+		};
+		let bytes: Arc<[u8]> = body(response, last + 1).await?.into();
+		Ok((bytes, total))
+	};
+	tokio::select! { biased;
+		_ = cancelled => Err(io::Error::new(io::ErrorKind::ConnectionAborted, "Cancelled")),
+		result = transfer => result,
+	}
+}
+
+/// `bytes 0-{last}/{total}` answering the first range of up to [`CHUNK`] bytes.
+fn content_range(value: &str) -> Option<(usize, usize)> {
+	let parse = |part: &str| part.parse::<usize>().ok();
+	let (range, total) = value.trim().strip_prefix("bytes ")?.split_once('/')?;
+	let (first, last) = range.split_once('-')?;
+	let (Some(first), Some(last), Some(total)) = (parse(first), parse(last), parse(total)) else {
+		return None;
+	};
+	(first == 0 && total > 0 && last == CHUNK.min(total) - 1).then_some((last, total))
 }
 struct Raw {
 	input: Input,
@@ -246,6 +320,42 @@ impl Raw {
 			#[cfg(debug_assertions)]
 			bytes_read: 0,
 		}
+	}
+	/// Learns `len` from the first range of a file whose size is unknown. That range is kept
+	/// for the first read.
+	fn learn_length(&mut self) -> Result<(), &'static str> {
+		let (gate, generation, found) = match &mut self.input {
+			Input::Http {
+				client,
+				url,
+				gate,
+				wake,
+				runtime,
+				generation,
+				..
+			} => {
+				let found = runtime
+					.block_on(head(
+						client.clone(),
+						url.clone(),
+						gate.clone(),
+						wake.clone(),
+						*generation,
+					))
+					.map_err(reason)?;
+				(gate, *generation, found)
+			}
+			#[cfg(any(test, feature = "demo"))]
+			Input::Memory(_) => return Err(INVALID),
+		};
+		if found.1 > MAX_LINK_BYTES {
+			return Err(LINK_TOO_LARGE);
+		}
+		if let Ok(mut downloads) = gate.downloads.lock() {
+			downloads.put(generation, 0, &found.0);
+		}
+		self.len = found.1;
+		Ok(())
 	}
 	fn jump(&mut self, position: usize) -> io::Result<()> {
 		if position > self.len {
@@ -879,13 +989,13 @@ pub(super) fn debug_check() {
 	assert_eq!(source.raw.position, 4106);
 	assert!(source.raw.bytes_read < 64, "ID3 payload is never fetched");
 
-	check_remote(24 * 1024 * 1024);
+	check_remote(24 * 1024 * 1024, true);
 }
 
 /// Decode a synthetic WAV of `len` bytes from a local range server: startup is one small
 /// request, steady reads are prefetched in growing blocks, and a mismatched range is rejected.
 #[cfg(any(test, all(debug_assertions, feature = "demo")))]
-fn check_remote(len: usize) {
+fn check_remote(len: usize, known: bool) {
 	use std::{
 		io::Write,
 		sync::atomic::{AtomicBool, AtomicUsize},
@@ -970,7 +1080,8 @@ fn check_remote(len: usize) {
 		duration: Duration::ZERO,
 		generation: 0,
 		url: Some(url),
-		expected,
+		expected: known.then_some(expected),
+		soundcloud: None,
 		#[cfg(feature = "demo")]
 		voice_message: false,
 	};
@@ -990,15 +1101,22 @@ fn check_remote(len: usize) {
 	// A corrupt range must reach the network, not a cached copy of the first one.
 	gate.clear_downloads();
 	corrupt.store(true, Ordering::Release);
-	assert!(
+	let reopened = || {
 		self::source(
 			&request,
 			gate.clone(),
 			wake.clone(),
-			runtime.handle().clone()
+			runtime.handle().clone(),
 		)
-		.is_err()
-	);
+	};
+	if known {
+		assert!(reopened().is_err());
+	} else {
+		// The first answer names the length; a later range that disagrees with it is rejected.
+		assert!(
+			super::decode_stream(reopened().unwrap(), &|| true, &mut |_, _, _, _| Ok(())).is_err()
+		);
+	}
 	let decode = || {
 		let before = requests.load(Ordering::Acquire);
 		let remote = self::source(
@@ -1034,7 +1152,9 @@ fn check_remote(len: usize) {
 		"{again} range requests to replay {expected} bytes"
 	);
 	if expected <= MAX_DOWNLOADS {
-		assert_eq!(again, 0);
+		// A link learns its length again when it reopens; that answer carries the first range,
+		// so nothing else is downloaded twice.
+		assert_eq!(again, usize::from(!known));
 	}
 	gate.clear_downloads();
 	assert!(gate.downloads.lock().unwrap().get(0, 0).is_none());
@@ -1119,7 +1239,30 @@ mod tests {
 
 	#[test]
 	fn remote_audio_streams_through_few_prefetched_ranges() {
-		super::check_remote(4 * 1024 * 1024);
+		super::check_remote(4 * 1024 * 1024, true);
+	}
+
+	#[test]
+	fn remote_audio_links_learn_their_length_from_the_first_range() {
+		super::check_remote(256 * 1024, false);
+	}
+
+	#[test]
+	fn a_first_range_must_name_the_whole_file_length() {
+		let range = |value: &str| content_range(value);
+		assert_eq!(range("bytes 0-16383/1000000"), Some((16383, 1_000_000)));
+		// A file shorter than the first range ends there.
+		assert_eq!(range("bytes 0-999/1000"), Some((999, 1000)));
+		for other in [
+			"bytes 1-16383/1000000",
+			"bytes 0-16383/16383",
+			"bytes 0-8191/1000000",
+			"bytes 0-16383/0",
+			"bytes 0-16383/*",
+			"1000000",
+		] {
+			assert_eq!(range(other), None, "{other}");
+		}
 	}
 
 	#[test]
