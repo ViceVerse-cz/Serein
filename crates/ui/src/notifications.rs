@@ -402,6 +402,16 @@ impl MessagingUi {
 								continue;
 							};
 							let in_call = Some(channel.id) == call;
+							// The conversation read at its live edge in a focused window is
+							// acknowledged this frame. Listing it until that ACK returns would
+							// flash its avatar on every incoming message.
+							if !in_call
+								&& Some(channel.id) == state.selected
+								&& ui.input(|i| i.focused)
+								&& self.timeline.viewing_latest(channel.id)
+							{
+								continue;
+							}
 							let response = if channel.kind == 3 {
 								self.avatars
 									.show_group_rail(ui, channel, RAIL_AVATAR, state.demo)
@@ -541,6 +551,50 @@ mod tests {
 		assert_eq!(view.guild, None);
 		assert_eq!(state.selected, None);
 		assert!(!view.search.open);
+	}
+
+	/// The open DM is acknowledged while read at its live edge, so it never flashes on the
+	/// rail while that acknowledgement is in flight (#1200).
+	#[test]
+	fn rail_omits_the_direct_conversation_read_at_its_live_edge() {
+		let mut state = test_support::notification_demo_state();
+		state.selected = Some(Id(22));
+		let name = state.channel(Id(22)).unwrap().name.clone();
+		let ctx = egui::Context::default();
+		ctx.enable_accesskit();
+		let mut view = MessagingUi::default();
+		let listed = |view: &mut MessagingUi, state: &mut State, focused| {
+			let output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(800.0, 700.0),
+					)),
+					focused,
+					..Default::default()
+				},
+				|ui| view.notification_rail(ui, state, &mut vec![]),
+			);
+			let listed = output
+				.platform_output
+				.accesskit_update
+				.iter()
+				.flat_map(|update| update.nodes.iter())
+				.filter_map(|(_, node)| node.label())
+				.any(|label| label.contains(&name));
+			output.drop_without_applying_deltas();
+			listed
+		};
+		assert!(
+			listed(&mut view, &mut state, true),
+			"scrolled away from the latest message, the unread DM stays listed"
+		);
+		view.timeline.read_at_live_edge(Id(22));
+		assert!(!listed(&mut view, &mut state, true));
+		assert!(
+			listed(&mut view, &mut state, false),
+			"an unfocused window does not acknowledge, so the DM stays listed"
+		);
 	}
 
 	/// Checks that the hidden-request-counts tweak removes the request count from the Home

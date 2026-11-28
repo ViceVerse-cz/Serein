@@ -2438,6 +2438,13 @@ impl TimelineView {
 	pub(super) fn preview_image_viewer(&mut self, message: Id, attachment: Id) {
 		self.pending_viewer = Some((message, attachment));
 	}
+	/// Test-only: read `channel` at its live edge, as after scrolling to the bottom.
+	#[cfg(test)]
+	pub(super) fn read_at_live_edge(&mut self, channel: Id) {
+		self.channel = Some(channel);
+		self.following = true;
+		self.at_current_latest = true;
+	}
 	pub(super) fn viewing_latest(&self, channel: Id) -> bool {
 		self.channel == Some(channel) && self.following && self.at_current_latest
 	}
