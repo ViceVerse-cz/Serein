@@ -1270,6 +1270,9 @@ impl Voice {
 							.negotiation
 							.as_ref()
 							.and_then(|pending| pending.confirm_transport(revision));
+						if command.is_some() {
+							note(Level::Info, "voice transport ready", &[]);
+						}
 					}
 					Notice::WaitingForPeer => {
 						live.waiting_for_peer = true;
@@ -1473,12 +1476,17 @@ impl Voice {
 			note(Level::Error, "removed by the service", &[]);
 			return self.give_up_rejoin(state, discord_voice::DISCONNECTED_BY_DISCORD, true);
 		}
-		if failure.is_some()
+		if let Some(reason) = failure
 			&& self
 				.live
 				.as_ref()
 				.is_some_and(|live| live.negotiation.is_some())
 		{
+			note(
+				Level::Warn,
+				"voice negotiation failed",
+				&[("reason", reason.into())],
+			);
 			let mut pending = self.live.as_mut().unwrap().negotiation.take().unwrap();
 			pending.failed_candidate = true;
 			self.stop();

@@ -316,6 +316,13 @@ pub(super) fn announce_video(
 	retain_sources(decoder, receivers);
 	Ok(())
 }
+fn discovery_probe(ssrc: u32) -> [u8; 74] {
+	let mut probe = [0; 74];
+	probe[..4].copy_from_slice(&[0, 1, 0, 70]);
+	probe[4..8].copy_from_slice(&ssrc.to_be_bytes());
+	probe
+}
+
 fn discovery(packet: &[u8], ssrc: u32) -> Result<(IpAddr, u16), &'static str> {
 	if packet.len() != 74 || packet[..4] != [0, 2, 0, 70] || packet[4..8] != ssrc.to_be_bytes() {
 		return Err("Invalid voice UDP discovery reply");
@@ -445,6 +452,7 @@ async fn run_inner(
 	let mut udp_failures = UdpFailures::default();
 	let mut discovering = false;
 	let mut discovery_deadline = Instant::now();
+	let mut next_discovery_probe = Instant::now();
 	let mut ssrc = 0u32;
 	let mut video = crate::camera_video::Sender::default();
 	// Earliest moment the camera may be asked for another keyframe.
@@ -600,6 +608,10 @@ async fn run_inner(
 					   let now=Instant::now();
 					   if deadline.is_some_and(|d|now>=d) {return Err(negotiation_timeout(heartbeat_ms.is_some(),udp.is_some(),encryption.is_some(),&dave,resuming));}
 					   if discovering && now>=discovery_deadline {return Err("Discord voice UDP discovery timed out; check the network firewall");}
+					   if discovering && now>=next_discovery_probe && let Some(socket)=&udp {
+						   udp_failures.try_send(socket,&discovery_probe(ssrc),"Voice UDP discovery failed")?;
+						   next_discovery_probe=now+Duration::from_secs(1);
+					   }
 					   if !discovering && now>=next_udp_ping && let Some(socket)=&udp {
 						   udp_keepalive(socket,&mut udp_failures,&mut udp_ping_sequence)?;
 						   next_udp_ping=now+Duration::from_secs(5);
@@ -853,8 +865,9 @@ async fn run_inner(
 									   if !data["modes"].as_array().is_some_and(|m|m.iter().any(|m|m.as_str()==Some(MODE))){return Err("Required voice transport encryption is unavailable");}
 									   let socket=UdpSocket::bind(if address.is_ipv4(){"0.0.0.0:0"}else{"[::]:0"}).await.map_err(|_|"Could not bind voice UDP socket")?;
 									   socket.connect(SocketAddr::new(address,port)).await.map_err(|_|"Could not connect voice UDP socket")?;
-									   let mut probe=[0;74];probe[..4].copy_from_slice(&[0,1,0,70]);probe[4..8].copy_from_slice(&ssrc.to_be_bytes());socket.send(&probe).await.map_err(|_|"Voice UDP discovery failed")?;
-									   udp=Some(socket);discovering=true;discovery_deadline=Instant::now()+Duration::from_secs(8);
+									   socket.send(&discovery_probe(ssrc)).await.map_err(|_|"Voice UDP discovery failed")?;
+									   let now=Instant::now();
+									   udp=Some(socket);discovering=true;discovery_deadline=now+Duration::from_secs(8);next_discovery_probe=now+Duration::from_secs(1);
 									   emit(Status::Discovering).map_err(|_|"Call interface closed")?;
 								   },
 								   4=>{
@@ -2935,6 +2948,12 @@ mod tests {
 			let mut probe = [0; 4096];
 			let (n, client) = udp.recv_from(&mut probe).await.unwrap();
 			assert_eq!(n, 74);
+			if guild && terminal_code == 4014 {
+				let first_probe: [u8; 74] = probe[..n].try_into().unwrap();
+				let (retry_len, retry_client) = udp.recv_from(&mut probe).await.unwrap();
+				assert_eq!(retry_client, client);
+				assert_eq!(&probe[..retry_len], &first_probe);
+			}
 			probe[..4].copy_from_slice(&[0, 2, 0, 70]);
 			probe[8..17].copy_from_slice(b"127.0.0.1");
 			probe[72..74].copy_from_slice(&client.port().to_be_bytes());
