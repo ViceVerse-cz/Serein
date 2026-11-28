@@ -234,6 +234,7 @@ impl Reply {
 	pub fn into_page(self, parent: Id, guild: Id) -> Result<Page, &'static str> {
 		let invalid = "Invalid forum post page";
 		let mut threads = Vec::with_capacity(self.threads.len());
+		let mut pinned = Vec::new();
 		for thread in self.threads {
 			// An archived row here would duplicate the archive page and mislead the post list.
 			if thread
@@ -242,7 +243,12 @@ impl Reply {
 			{
 				return Err(invalid);
 			}
-			threads.push(crate::threads::into_thread(thread.channel, guild).map_err(|_| invalid)?);
+			let pin = model::threads::pinned(thread.channel.flags);
+			let thread = crate::threads::into_thread(thread.channel, guild).map_err(|_| invalid)?;
+			if pin {
+				pinned.push(thread.id);
+			}
+			threads.push(thread);
 		}
 		let mut previews: Vec<(Id, Starter)> = Vec::new();
 		for (id, starter) in self.first_messages.into_iter().filter_map(preview) {
@@ -256,6 +262,7 @@ impl Reply {
 			threads,
 			more: self.has_more,
 			previews,
+			pinned,
 		};
 		if !page.valid(parent, guild) {
 			return Err(invalid);
@@ -279,15 +286,32 @@ impl GuildActive {
 			if thread.parent_id != Some(parent) {
 				continue;
 			}
-			threads.push(crate::threads::into_thread(thread, guild).map_err(|_| invalid)?);
+			let pin = model::threads::pinned(thread.flags);
+			threads.push((
+				pin,
+				crate::threads::into_thread(thread, guild).map_err(|_| invalid)?,
+			));
 		}
-		threads.sort_by_key(|thread| std::cmp::Reverse(thread.last_message.unwrap_or(thread.id)));
+		// Pinned posts first, so truncating to one page never drops them.
+		threads.sort_by_key(|(pin, thread)| {
+			(
+				!pin,
+				std::cmp::Reverse(thread.last_message.unwrap_or(thread.id)),
+			)
+		});
 		threads.truncate(model::forum::PAGE_SIZE);
+		let pinned = threads
+			.iter()
+			.filter(|(pin, _)| *pin)
+			.map(|(_, thread)| thread.id)
+			.collect();
+		let mut threads: Vec<_> = threads.into_iter().map(|(_, thread)| thread).collect();
 		threads.shrink_to_fit();
 		let page = Page {
 			threads,
 			more: false,
 			previews: Vec::new(),
+			pinned,
 		};
 		if !page.valid(parent, guild) {
 			return Err(invalid);
@@ -355,7 +379,9 @@ mod tests {
 				.unwrap(),
 			)
 		};
-		let page = decode(vec![thread(3, 11, false), thread(9, 11, false)], true)
+		let mut pinned = thread(9, 11, false);
+		pinned["flags"] = json!(2);
+		let page = decode(vec![thread(3, 11, false), pinned], true)
 			.unwrap()
 			.into_page(Id(2), Id(1))
 			.unwrap();
@@ -363,6 +389,7 @@ mod tests {
 			page.threads.iter().map(|t| t.id).collect::<Vec<_>>(),
 			vec![Id(3), Id(9)]
 		);
+		assert_eq!(page.pinned, vec![Id(9)]);
 		assert!(page.more);
 		// A missing metadata block still lists; only an archived row is rejected.
 		let mut bare = thread(3, 11, false);
@@ -421,15 +448,13 @@ mod tests {
 				.into_page(Id(2), Id(1))
 				.is_err()
 		);
-		let crowded: Vec<_> = (3..=32).map(|id| thread(id, 11, false)).collect();
-		assert_eq!(
-			guild_active(crowded)
-				.into_page(Id(2), Id(1))
-				.unwrap()
-				.threads
-				.len(),
-			model::forum::PAGE_SIZE
-		);
+		// The oldest post would fall past the page, but a pin keeps it first.
+		let mut crowded: Vec<_> = (3..=32).map(|id| thread(id, 11, false)).collect();
+		crowded[0]["flags"] = json!(2);
+		let page = guild_active(crowded).into_page(Id(2), Id(1)).unwrap();
+		assert_eq!(page.threads.len(), model::forum::PAGE_SIZE);
+		assert_eq!(page.threads[0].id, Id(3));
+		assert_eq!(page.pinned, vec![Id(3)]);
 		assert!(decode(vec![thread(3, 11, false); 26], false).is_err());
 		assert!(
 			decode(vec![thread(3, 11, false); 2], false)

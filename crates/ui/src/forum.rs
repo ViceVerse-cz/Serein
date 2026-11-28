@@ -179,7 +179,9 @@ impl ForumUi {
 						let mut posts: Vec<&Channel> = state.forum_posts(forum);
 						let unlisted = posts.is_empty();
 						if self.sort == Sort::Created {
-							posts.sort_by_key(|post| std::cmp::Reverse(post.id));
+							posts.sort_by_key(|post| {
+								(!state.post_pinned(post.id), std::cmp::Reverse(post.id))
+							});
 						}
 						let active: Vec<_> =
 							posts.into_iter().filter(|post| matches(post)).collect();
@@ -2532,6 +2534,7 @@ mod tests {
 					}],
 					more: false,
 					previews: Vec::new(),
+					pinned: Vec::new(),
 				}),
 			);
 			forum.query.clear();

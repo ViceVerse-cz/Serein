@@ -239,15 +239,26 @@ impl State {
 			.is_some_and(|c| c.guild.is_some() && matches!(c.kind, 15 | 16))
 	}
 
-	/// Loaded posts of a forum: active threads the gateway delivered, newest activity first.
+	/// Loaded posts of a forum: active threads the gateway delivered, pinned posts first,
+	/// then newest activity first.
 	pub fn forum_posts(&self, parent: Id) -> Vec<&Channel> {
 		let mut posts: Vec<_> = self
 			.channels
 			.iter()
 			.filter(|c| c.parent_id == Some(parent) && matches!(c.kind, 11 | 12))
 			.collect();
-		posts.sort_by_key(|c| std::cmp::Reverse(c.last_message.unwrap_or(c.id)));
+		posts.sort_by_key(|c| {
+			(
+				!self.post_pinned(c.id),
+				std::cmp::Reverse(c.last_message.unwrap_or(c.id)),
+			)
+		});
 		posts
+	}
+
+	/// Pinned to the top of its forum, whatever the list's sort order.
+	pub fn post_pinned(&self, post: Id) -> bool {
+		self.thread_info.get(&post).is_some_and(|info| info.pinned)
 	}
 
 	/// Is one post unread on its card? An opened post follows its own read row. A post the
@@ -495,7 +506,10 @@ impl State {
 		}
 		// Every returned row advances the offset, even one this state already knew.
 		let returned = page.threads.len();
+		let pinned = page.pinned;
 		for post in page.threads {
+			// Each row states its flags, so a post missing from `pinned` was unpinned.
+			let pin = (post.id, pinned.contains(&post.id));
 			if let Some(index) = self.channel_index(post.id) {
 				let existing = &self.channels[index];
 				if existing.parent_id == Some(parent) && existing.guild == Some(guild) {
@@ -516,6 +530,7 @@ impl State {
 					existing.name = post.name;
 					existing.tags = post.tags;
 					self.set_navigation_bytes(bytes);
+					self.thread_info.entry(pin.0).or_default().pinned = pin.1;
 				}
 				continue;
 			}
@@ -530,6 +545,7 @@ impl State {
 			}
 			self.channels.push(post);
 			self.invalidate_navigation();
+			self.thread_info.entry(pin.0).or_default().pinned = pin.1;
 		}
 		self.posts.loaded = self.posts.loaded.saturating_add(returned);
 		self.posts.fetched = true;
@@ -795,6 +811,7 @@ mod tests {
 				threads: Vec::new(),
 				more: false,
 				previews: Vec::new(),
+				pinned: Vec::new(),
 			}),
 		);
 		assert!(state.request_forum_posts(Id(20), false).is_none());
@@ -817,6 +834,7 @@ mod tests {
 					threads: vec![channel(21, Some(Id(20)), 11)],
 					more: true,
 					previews: Vec::new(),
+					pinned: Vec::new(),
 				}),
 			);
 			assert!(matches!(
@@ -858,6 +876,7 @@ mod tests {
 				threads: vec![post],
 				more: false,
 				previews: Vec::new(),
+				pinned: Vec::new(),
 			}),
 		);
 		assert_eq!(state.navigation_bytes(), expected);
@@ -880,6 +899,7 @@ mod tests {
 				threads: vec![post],
 				more: true,
 				previews: Vec::new(),
+				pinned: Vec::new(),
 			}),
 		);
 		assert!(state.channel(Id(21)) == Some(&original));
@@ -914,20 +934,27 @@ mod tests {
 					.collect(),
 				more,
 				previews: Vec::new(),
+				pinned: Vec::new(),
 			};
 			// A stale reply for another request is ignored.
 			state.apply_forum_posts(Id(20), request.wrapping_sub(1), Ok(page(&[30], false)));
 			assert!(state.channels.iter().all(|c| c.id != Id(30)));
-			state.apply_forum_posts(Id(20), request, Ok(page(&[23, 21], true)));
+			// A pinned post leads the list even though its activity is the oldest.
+			let mut first = page(&[23, 21], true);
+			first.pinned = vec![Id(21)];
+			state.apply_forum_posts(Id(20), request, Ok(first));
 			let posts: Vec<_> = state.forum_posts(Id(20)).iter().map(|c| c.id).collect();
-			assert_eq!(posts, vec![Id(22), Id(23), Id(21)]);
+			assert_eq!(posts, vec![Id(21), Id(22), Id(23)]);
 			assert_eq!(state.posts.loaded, 2);
 			let Some(Command::ForumPosts { offset: 2, .. }) =
 				state.request_forum_posts(Id(20), true)
 			else {
 				panic!("the next page continues from the loaded count");
 			};
-			state.apply_forum_posts(Id(20), state.posts.request, Ok(page(&[], false)));
+			// Listed again without the flag, the post was unpinned and falls back by activity.
+			state.apply_forum_posts(Id(20), state.posts.request, Ok(page(&[21], false)));
+			let posts: Vec<_> = state.forum_posts(Id(20)).iter().map(|c| c.id).collect();
+			assert_eq!(posts, vec![Id(22), Id(23), Id(21)]);
 			assert!(!state.posts.more && state.posts.error.is_none());
 			assert!(state.request_forum_posts(Id(20), true).is_none());
 			// A page scoped to another parent or guild never reaches navigation.
