@@ -66,9 +66,11 @@ AV1 changes the framing around the encoder, not just the codec:
   encrypts the payloads, exactly as the receive path expects.
 
 The receive side of this repository still decodes AV1 only on Linux (`available_av1`), so another
-Serein client on Windows or macOS has no AV1 decoder. Whether Discord's SFU transcodes per viewer or
-rejects those viewers is unverified; that is why AV1 is an opt-in rather than the default, and why the
-next step is a Windows AV1 decoder through the Media Foundation transform.
+Serein client on Windows or macOS has no AV1 decoder. A live test against an official viewer showed
+that the official client does not watch this AV1 stream either, while it watches the same share over
+H.264 without trouble; `docs/video-encoding.md`'s "Interoperation" section records the evidence. That is
+why AV1 is an opt-in rather than the default, and why the next step is a Windows AV1 decoder through the
+Media Foundation transform — a decoder here would at least make a Serein-to-Serein share work.
 
 An AV1 share has no software substitute. The transport labels every frame with the negotiated codec,
 so `ScreenEncoder` refuses to start an AV1 share without a hardware encoder and stops the share if the
@@ -159,9 +161,20 @@ most `31 - B frames` and only with `enableLookahead` set; multi-pass means
 automatic, with `0-51` above it for H.264 and H.265 and `0-63` for AV1. All of them trade latency for
 rate accuracy, so they belong to an explicit quality setting rather than the default.
 
-**Interoperation.** AV1 sending has been verified synthetically only: the sender's packets round-trip
-through this repository's own receiver, and the encoder's output is OBU-framed with a keyframe first.
-A live call against an official client is required before the opt-in becomes a default.
+**Interoperation.** An AV1 share against an **official Discord viewer** does not work, and the failure
+is not on the sending side. With `SEREIN_VOICE_DIAGNOSTICS=1` the sender reports
+`[Serein voice Stream] codec=AV1 payload=105 rtx=106`, then
+`[Serein voice Stream] first frame bytes=112738 keyframe=true packets=99`, and its per-window counters
+keep `session_av1=1` with `dave_ready`, `group_ready`, `announced` and `capture_ready` all advancing for
+the whole share — the session is negotiated as AV1, DAVE is ready and frames go out. The viewer still
+never draws a picture and shows Discord's error **2012**, which Discord documents as a video viewer
+timeout: it receives nothing it can decode. Sharing the same screen, at the same quality, over H.264
+from the same machine is watched by that viewer normally.
+
+So AV1 stays an opt-in and is not a supported way to share. What the test does not separate is whether
+the official client rejects our AV1 payload, whether DAVE's AV1 framing is read differently on its side,
+or whether Discord does not relay AV1 from a third-party sender at all; separating them needs the
+viewer's own client log, which this repository cannot obtain.
 
 **Other vendors.** AMD's AMF and Intel's QSV expose the same shape of controls. The seam added here
 takes one more backend each; neither is planned yet.
