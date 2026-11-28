@@ -2153,9 +2153,10 @@ card's image with the inline audio player beneath it, instead of a side thumbnai
 link or a "not supported" line. Nothing runs for these cards while nothing plays: the player
 starts on a click, and the SoundCloud resolver makes no request until then.
 
-Not measured on this base (`main` `6d1fa13f`): idle CPU and memory with the cards shown, and
-package size. The host was in use for other work when the change was rebased onto `main`, so an
-idle sample there would not have been comparable, and the earlier samples were taken against a
-different base with one card fewer in the scene. Both release demo builds completed on Windows
-(`--features demo`, thin LTO). Also not measured: CPU, memory, time to first audio and seek
-latency while a track or a proxied audio file streams, and other platforms.
+Pending on this base (`main` `6d1fa13f`): package size from `cargo xtask package`, not yet built
+here. Not measured: idle CPU and memory with the cards shown. The host was in use for other
+work when the change was rebased onto `main`, so an idle sample there would not have been
+comparable, and the earlier samples were taken against a different base with one card fewer in
+the scene. Both release demo builds completed on Windows (`--features demo`, thin LTO). Also not
+measured: CPU, memory, time to first audio and seek latency while a track or a proxied audio
+file streams, and other platforms.
