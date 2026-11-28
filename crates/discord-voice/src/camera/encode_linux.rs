@@ -14,7 +14,7 @@
 //! property is matched against its own `ParamSpec` before being set. Setting one blindly, or
 //! from a string, aborts the process when the name or type does not match.
 
-use crate::video_encode::{Config, Profile};
+use crate::video_encode::{Codec, Config, Profile};
 use gstreamer as gst;
 use gstreamer::glib;
 use gstreamer::prelude::*;
@@ -54,6 +54,9 @@ impl Encoder {
 	}
 
 	fn start(config: Config, backend: &str) -> Result<Self, &'static str> {
+		// The pipelines below encode H.264 only, so a caller asking for another codec is a
+		// programming error rather than something to fall back from: Linux has no AV1 sender.
+		debug_assert_eq!(config.codec, Codec::H264);
 		let encoder = make(backend)?;
 		Self::assemble(config, encoder)
 	}
@@ -254,7 +257,6 @@ fn set_flag(element: &gst::Element, name: &str, value: bool) {
 mod tests {
 	use super::*;
 	use crate::camera::{HEIGHT, WIDTH};
-	use crate::video_encode::Codec;
 
 	const CAMERA: Config = Config {
 		width: WIDTH as u32,
