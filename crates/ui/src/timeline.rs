@@ -2438,15 +2438,22 @@ impl TimelineView {
 	pub(super) fn preview_image_viewer(&mut self, message: Id, attachment: Id) {
 		self.pending_viewer = Some((message, attachment));
 	}
-	/// Test-only: read `channel` at its live edge, as after scrolling to the bottom.
+	/// Test-only: read `channel` at its live edge, as after scrolling to the bottom. `held`
+	/// keeps its unread section above the loaded page, which holds the automatic read.
 	#[cfg(test)]
-	pub(super) fn read_at_live_edge(&mut self, channel: Id) {
+	pub(super) fn read_at_live_edge(&mut self, channel: Id, held: bool) {
 		self.channel = Some(channel);
 		self.following = true;
 		self.at_current_latest = true;
+		self.hold_read_ack = held;
 	}
 	pub(super) fn viewing_latest(&self, channel: Id) -> bool {
 		self.channel == Some(channel) && self.following && self.at_current_latest
+	}
+	/// Each message arriving in `channel` is read on the frame it lands, if the window has
+	/// focus. A held read keeps its unread section until the reader acts on it.
+	pub(super) fn reads_arrivals(&self, channel: Id) -> bool {
+		self.viewing_latest(channel) && !self.hold_read_ack
 	}
 	/// An explicit "Mark unread" starts a new section at the chosen message.
 	pub(super) fn reset_unread_divider(&mut self) {

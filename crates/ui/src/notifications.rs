@@ -408,7 +408,7 @@ impl MessagingUi {
 							if !in_call
 								&& Some(channel.id) == state.selected
 								&& ui.input(|i| i.focused)
-								&& self.timeline.viewing_latest(channel.id)
+								&& self.timeline.reads_arrivals(channel.id)
 							{
 								continue;
 							}
@@ -589,11 +589,16 @@ mod tests {
 			listed(&mut view, &mut state, true),
 			"scrolled away from the latest message, the unread DM stays listed"
 		);
-		view.timeline.read_at_live_edge(Id(22));
+		view.timeline.read_at_live_edge(Id(22), false);
 		assert!(!listed(&mut view, &mut state, true));
 		assert!(
 			listed(&mut view, &mut state, false),
 			"an unfocused window does not acknowledge, so the DM stays listed"
+		);
+		view.timeline.read_at_live_edge(Id(22), true);
+		assert!(
+			listed(&mut view, &mut state, true),
+			"a held read keeps its unread section, so the DM stays listed"
 		);
 	}
 
