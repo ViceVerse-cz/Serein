@@ -404,10 +404,11 @@ impl MessagingUi {
 							let in_call = Some(channel.id) == call;
 							// The conversation read at its live edge in a focused window is
 							// acknowledged this frame. Listing it until that ACK returns would
-							// flash its avatar on every incoming message.
+							// flash its avatar on every incoming message. An open settings
+							// dialog disables this `ui` and the timeline's, which stops that read.
 							if !in_call
 								&& Some(channel.id) == state.selected
-								&& ui.input(|i| i.focused)
+								&& ui.is_enabled() && ui.input(|i| i.focused)
 								&& self.timeline.reads_arrivals(channel.id)
 							{
 								continue;
@@ -563,7 +564,8 @@ mod tests {
 		let ctx = egui::Context::default();
 		ctx.enable_accesskit();
 		let mut view = MessagingUi::default();
-		let listed = |view: &mut MessagingUi, state: &mut State, focused| {
+		// `enabled: false` draws the rail as an open settings dialog leaves it.
+		let listed = |view: &mut MessagingUi, state: &mut State, focused: bool, enabled: bool| {
 			let output = ctx.run_ui(
 				egui::RawInput {
 					screen_rect: Some(egui::Rect::from_min_size(
@@ -573,7 +575,12 @@ mod tests {
 					focused,
 					..Default::default()
 				},
-				|ui| view.notification_rail(ui, state, &mut vec![]),
+				|ui| {
+					if !enabled {
+						ui.disable();
+					}
+					view.notification_rail(ui, state, &mut vec![]);
+				},
 			);
 			let listed = output
 				.platform_output
@@ -586,18 +593,22 @@ mod tests {
 			listed
 		};
 		assert!(
-			listed(&mut view, &mut state, true),
+			listed(&mut view, &mut state, true, true),
 			"scrolled away from the latest message, the unread DM stays listed"
 		);
 		view.timeline.read_at_live_edge(Id(22), false);
-		assert!(!listed(&mut view, &mut state, true));
+		assert!(!listed(&mut view, &mut state, true, true));
 		assert!(
-			listed(&mut view, &mut state, false),
+			listed(&mut view, &mut state, false, true),
 			"an unfocused window does not acknowledge, so the DM stays listed"
+		);
+		assert!(
+			listed(&mut view, &mut state, true, false),
+			"an open settings dialog stops the read, so the DM stays listed"
 		);
 		view.timeline.read_at_live_edge(Id(22), true);
 		assert!(
-			listed(&mut view, &mut state, true),
+			listed(&mut view, &mut state, true, true),
 			"a held read keeps its unread section, so the DM stays listed"
 		);
 	}
