@@ -4196,7 +4196,10 @@ impl MessagingUi {
 		};
 		let colors = design::palette(ui);
 		let title = share.title.as_deref().unwrap_or("Your screen");
-		let quality = format!("{}p {}FPS", share.height, share.fps);
+		let quality = match self.screen.codec {
+			Some(codec) => format!("{}p {}FPS · {codec}", share.height, share.fps),
+			None => format!("{}p {}FPS", share.height, share.fps),
+		};
 		let mut stop = false;
 		egui::Frame::new()
 			.inner_margin(egui::Margin::same(8))

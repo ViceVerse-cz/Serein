@@ -79,7 +79,7 @@ pub enum StreamCodec {
 impl StreamCodec {
 	/// The codec a share will encode on this machine. AV1 is an explicit opt-in while its wire
 	/// format is verified against other clients.
-	fn requested() -> Self {
+	pub fn requested() -> Self {
 		if crate::video_encode::av1_supported()
 			&& std::env::var("SEREIN_STREAM_CODEC")
 				.is_ok_and(|value| value.eq_ignore_ascii_case("av1"))
@@ -87,6 +87,14 @@ impl StreamCodec {
 			Self::Av1
 		} else {
 			Self::H264
+		}
+	}
+
+	/// The codec's name as the interface shows it.
+	pub fn name(self) -> &'static str {
+		match self {
+			Self::H264 => "H.264",
+			Self::Av1 => "AV1",
 		}
 	}
 }
@@ -154,6 +162,8 @@ pub struct Worker {
 	status: Arc<Mutex<&'static str>>,
 	preview_visible: Arc<AtomicBool>,
 	captured: Arc<AtomicBool>,
+	/// Codec this share encodes, which the transport advertises exactly.
+	codec: StreamCodec,
 }
 
 impl Worker {
@@ -266,6 +276,7 @@ impl Worker {
 				status,
 				preview_visible,
 				captured,
+				codec,
 			},
 			Video {
 				settings,
@@ -283,6 +294,11 @@ impl Worker {
 
 	pub fn set_preview_visible(&self, visible: bool) {
 		self.preview_visible.store(visible, Ordering::Release);
+	}
+
+	/// The codec this share encodes with, which the transport advertises exactly.
+	pub fn codec(&self) -> StreamCodec {
+		self.codec
 	}
 
 	/// True after capture has produced one frame. Linux can be waiting on the system picker before that.
@@ -919,6 +935,7 @@ mod tests {
 			status: Arc::new(Mutex::new("")),
 			preview_visible: Arc::new(AtomicBool::new(true)),
 			captured: Arc::new(AtomicBool::new(false)),
+			codec: StreamCodec::H264,
 		};
 		assert!(worker.take_preview().is_some());
 		assert!(worker.take_preview().is_none());

@@ -276,6 +276,7 @@ impl Screen {
 			ui.screen.request = None;
 			ui.screen.busy = false;
 			ui.screen.sharing = false;
+			ui.screen.codec = None;
 			ui.screen.supported = false;
 			ui.screen.preview = None;
 			ui.screen.preview_paused = false;
@@ -493,6 +494,9 @@ impl Screen {
 			.live
 			.as_ref()
 			.is_some_and(|live| live.worker.captured());
+		// A share encodes one codec for its whole life; the strip names it so a viewer that cannot
+		// decode AV1 is a known limit rather than a mystery.
+		ui.screen.codec = self.live.as_ref().map(|live| live.worker.codec().name());
 		// The worker is live while the Linux system picker is still open.
 		if self
 			.live
