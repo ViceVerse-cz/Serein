@@ -1690,5 +1690,109 @@ mod tests {
 			!shown(&texts, &friends),
 			"the plugin's window takes the pane back: {texts:?}"
 		);
+		// An interface that stops offering the control cannot strand the user on Friends.
+		let (_, names) = client.frame(&mut state, vec![]);
+		let button = names
+			.iter()
+			.find(|(name, _)| *name == friends)
+			.map(|(_, bounds)| bounds.center())
+			.expect("friends control beside the window");
+		client.frame(&mut state, vec![egui::Event::PointerMoved(button)]);
+		click(&mut client, &mut state, button);
+		let (texts, _) = client.frame(&mut state, vec![]);
+		assert!(shown(&texts, &friends), "Friends reopened: {texts:?}");
+		let mut without = chosen(Some(InterfaceWindow::Chat {
+			channel_id: "20".into(),
+		}))
+		.unwrap();
+		without.tree.controls.clear();
+		client.view.set_plugin_interface(Some(without));
+		let (texts, _) = client.frame(&mut state, vec![]);
+		assert!(
+			shown(&texts, "Lobby"),
+			"the tree returns with the control gone: {texts:?}"
+		);
+	}
+
+	/// A direct message opened from the Friends page stays in that pane, even though the
+	/// plugin keeps restating a chat window of its own.
+	#[test]
+	fn friends_pane_keeps_an_open_direct_message() {
+		use extensions::InterfaceWindow;
+		let mut state = one_server();
+		let mut dm = channel(40, 1, "Robin");
+		dm.guild = None;
+		dm.recipients = vec![user(2, "Robin")];
+		state.channels.push(dm);
+		state
+			.permissions
+			.replace(test_support::permission_snapshot(&state))
+			.unwrap();
+		state.invalidate_navigation();
+		let friends = crate::i18n::translate("friends");
+		let chosen = || {
+			let mut interface = interface(
+				vec![node("channel:30", "Lobby")],
+				Some(InterfaceWindow::Chat {
+					channel_id: "20".into(),
+				}),
+			);
+			interface.tree.controls = vec![extensions::InterfaceControl::Friends];
+			Some(interface)
+		};
+		let mut client = Client::new(chosen());
+		client.frame(&mut state, vec![]);
+		let (_, names) = client.frame(&mut state, vec![]);
+		let button = names
+			.iter()
+			.find(|(name, _)| *name == friends)
+			.map(|(_, bounds)| bounds.center())
+			.expect("friends control");
+		client.frame(&mut state, vec![egui::Event::PointerMoved(button)]);
+		for pressed in [true, false] {
+			client.frame(
+				&mut state,
+				vec![egui::Event::PointerButton {
+					pos: button,
+					button: egui::PointerButton::Primary,
+					pressed,
+					modifiers: egui::Modifiers::NONE,
+				}],
+			);
+		}
+		let (texts, _) = client.frame(&mut state, vec![]);
+		let shown = |texts: &[(String, egui::Pos2)], needle: &str| {
+			texts.iter().any(|(text, _)| text.contains(needle))
+		};
+		assert!(shown(&texts, &friends), "the Friends page shows: {texts:?}");
+		let plugin_chat = crate::i18n::translate_args(
+			"composer-placeholder-channel",
+			&[("channel", "plans-and-notes")],
+		);
+		assert!(
+			!shown(&texts, &plugin_chat),
+			"the plugin's chat stays hidden: {texts:?}"
+		);
+		// Opening a friend's conversation selects its DM; restating the same interface
+		// must not let the plugin's own chat window take the pane back.
+		let _ = state.select(Id(40));
+		for _ in 0..2 {
+			client.view.set_plugin_interface(chosen());
+			client.frame(&mut state, vec![]);
+		}
+		let (texts, _) = client.frame(&mut state, vec![]);
+		assert_eq!(
+			state.selected,
+			Some(Id(40)),
+			"the direct message stays selected"
+		);
+		assert!(
+			shown(&texts, "Message @"),
+			"the direct message shows: {texts:?}"
+		);
+		assert!(
+			!shown(&texts, &plugin_chat),
+			"the plugin's chat still hidden: {texts:?}"
+		);
 	}
 }

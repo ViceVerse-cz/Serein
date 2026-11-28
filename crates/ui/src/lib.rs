@@ -5376,11 +5376,18 @@ impl MessagingUi {
 		let window = interface
 			.as_ref()
 			.and_then(|interface| interface.tree.window.clone());
-		let previous = self
-			.plugin_interface
-			.as_ref()
-			.and_then(|interface| interface.tree.window.clone());
-		if interface.is_none() || window != previous {
+		let previous = self.plugin_interface.as_ref();
+		let previous_window = previous.and_then(|interface| interface.tree.window.clone());
+		// The pane is only reachable through its own control, so an interface that stops
+		// offering it (or a different plugin taking the layout) must not trap the user there.
+		let keeps_toggle = interface.as_ref().is_some_and(|interface| {
+			interface
+				.tree
+				.controls
+				.contains(&extensions::InterfaceControl::Friends)
+				&& previous.is_some_and(|previous| previous.plugin == interface.plugin)
+		});
+		if !keeps_toggle || window != previous_window {
 			self.interface_home = false;
 		}
 		if interface.is_none() {
