@@ -114,9 +114,20 @@ the same configuration, next to per-codec override names.
 
 *Inferred* from that shape: the client models the NVENC session as a small configuration object
 (codec, preset, rate-control mode, tuning, multi-pass, VBV size, IDR period, and per-codec
-overrides) and applies it at session creation. *Unverified*: which concrete values a Go Live stream
-receives; the configuration object is shared with camera and other consumers, so the presence of a
-tuning token does not mean the stream path sets it.
+overrides) and applies it at session creation.
+
+**Preset tiers** (file offsets `0xe5e388`–`0xe5e3e8`, six 16-byte GUIDs, *observed*). The image
+carries a table of `NV_ENC_PRESET_LOW_LATENCY_HP`, `P1`, `NV_ENC_PRESET_LOW_LATENCY_HQ`,
+`NV_ENC_PRESET_HQ`, `P4` and `P6`, in that order, followed directly by the capture-source names. It
+mixes the legacy `hq`/`ll*` presets with the modern P-series, and `P2`, `P3`, `P5` and `P7` are absent
+from the whole file. The quality tokens visible in the strings are five (`Low`, `Medium`, `High`,
+`Unlimited`, `UltraLow`), so either the table is not that enum or one tier has no name in this build;
+the strings do not say which.
+
+*Unverified*: which entry a Go Live share selects, and whether this table is what the configuration
+indexes at all. The configuration object is shared with the camera and other consumers, so the
+presence of a tuning token does not mean the stream path sets it, and the table has no direct code
+reference to follow (see "Open questions").
 
 **Frame submission** (`nvidia-media-encoding/src/native/input_frame.rs`). The failure string
 `couldn't register input frame with nvenc` shows the texture is registered as an input resource per
@@ -304,9 +315,17 @@ Deliberately not adopted:
 
 ## Open questions
 
-- Which values the Go Live path actually sets for `preset`, `rc_mode`, `tuning`, `multi_pass` and
-  the VBV size. The configuration object is shared across consumers, so the tokens alone do not
-  answer it; a live capture of the client's own log output would.
+- Which values the Go Live path sets for `preset`, `rc_mode`, `tuning`, `multi_pass` and the VBV size,
+  and which of the six preset tiers a quality level picks. Known: the preset table above, and that the
+  configuration object is shared with the camera, so the tokens alone do not answer it.
+  What blocks the rest: neither the configuration log strings nor the preset table is the target of a
+  direct reference. A scan of the whole `.text` section for `lea r64, [rip + disp32]` finds 45,629
+  destinations inside `.rdata` but neither of those two addresses, and no absolute pointer to either
+  appears anywhere in the image, so the code reaches them through an indirection that only a control
+  flow graph can resolve. A whole-image `angr` CFG did not finish on this 22.6 MB Rust binary (88,890
+  functions discovered before it ran out of time). The remaining routes are a local CFG rooted at a
+  candidate function found another way, or recording the client's own `nvEncInitializeEncoder` call at
+  run time.
 - Whether the client renegotiates the stream codec when a hardware encoder fails mid-share, or ends
   the share. There is a `Failed to create video encoder because we only support H.264, H.265 and AV1`
   path and a per-codec error callback exposed to JavaScript, but the policy above them is in the web
