@@ -615,13 +615,14 @@ mod mp4 {
 						)))
 						.map_err(|_| UNSUPPORTED)?;
 						at += 4;
-						if flags & 0x004 != 0 {
-							at += 4;
-						}
 						moof + offset
 					} else {
 						run_end.ok_or(UNSUPPORTED)?
 					};
+					// `first_sample_flags` is independent of the data offset.
+					if flags & 0x004 != 0 {
+						at += 4;
+					}
 					if samples.len() + count > MAX_SAMPLES {
 						return Err(UNSUPPORTED);
 					}
@@ -732,13 +733,18 @@ mod media_tests {
 		)
 	}
 	/// A fragment whose `traf` holds two runs: the first names its data, the second has no data
-	/// offset and continues where the first ended.
-	fn two_runs(second: usize) -> Vec<u8> {
-		let run = |flags: u32, offset: Option<i32>, sizes: &[u32]| {
+	/// offset, so it continues where the first ended. Its flags are `flags`.
+	fn two_runs(second: usize, flags: u32) -> Vec<u8> {
+		// A run: flags, sample count, the optional data offset and first-sample flags, then
+		// the per-sample sizes.
+		let run = |flags: u32, count: usize, offset: Option<i32>, sizes: &[u32]| {
 			let mut trun = flags.to_be_bytes().to_vec();
-			trun.extend_from_slice(&u32(sizes.len() as u32));
+			trun.extend_from_slice(&u32(count as u32));
 			if let Some(offset) = offset {
 				trun.extend_from_slice(&offset.to_be_bytes());
+			}
+			if flags & 0x004 != 0 {
+				trun.extend_from_slice(&u32(0));
 			}
 			for size in sizes {
 				trun.extend_from_slice(&u32(*size));
@@ -755,15 +761,12 @@ mod media_tests {
 			]
 			.concat(),
 		);
-		// No flags: the run names no data offset, so it continues the first run.
-		let mut continued = 0_u32.to_be_bytes().to_vec();
-		continued.extend_from_slice(&u32(second as u32));
 		let traf = boxed(
 			b"traf",
 			&[
 				tfhd,
-				run(SIZES, Some(0), &[2, 3]),
-				boxed(b"trun", &continued),
+				run(SIZES, 2, Some(0), &[2, 3]),
+				run(flags, second, None, &[3; 2]),
 			]
 			.concat(),
 		);
@@ -820,18 +823,23 @@ mod media_tests {
 
 	#[test]
 	fn a_run_without_an_offset_continues_the_previous_one() {
-		let bytes = two_runs(2);
-		let offset = bytes.len() - 11;
-		assert_eq!(
-			mp4::fragment(&bytes).unwrap(),
-			[
-				(offset, 2),
-				(offset + 2, 3),
-				(offset + 5, 3),
-				(offset + 8, 3)
-			]
-		);
-		assert!(mp4::fragment(&two_runs(mp4::MAX_SAMPLES)).is_err());
+		// A continued run uses the header's default size, or its own, or its own after a
+		// first-sample flags field; all three read the same bytes.
+		for flags in [0, 0x200, 0x204] {
+			let bytes = two_runs(2, flags);
+			let offset = bytes.len() - 11;
+			assert_eq!(
+				mp4::fragment(&bytes).unwrap(),
+				[
+					(offset, 2),
+					(offset + 2, 3),
+					(offset + 5, 3),
+					(offset + 8, 3)
+				],
+				"flags {flags:#x}"
+			);
+		}
+		assert!(mp4::fragment(&two_runs(mp4::MAX_SAMPLES, 0)).is_err());
 	}
 }
 
@@ -975,7 +983,10 @@ pub(super) fn play(
 	let duration = Duration::from_secs_f64(playlist.seconds);
 	let mut target: u64 = 0;
 	// Reports the pass complete, then hands back a seek accepted before that report went out:
-	// it restarts the pass at its target instead of staying unread behind an ended track.
+	// it restarts the pass at its target instead of staying unread behind an ended track. A seek
+	// the player accepts from a state read before that report, but stores after this last look,
+	// is dropped and the track stays ended; a new play clears it, so it never reaches that play.
+	// Closing that window would take a completion handshake with the player.
 	let ended = || {
 		publish(Status {
 			state: State::Ended,
