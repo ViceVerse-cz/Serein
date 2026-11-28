@@ -1218,6 +1218,17 @@ impl Voice {
 			self.pending_sound = None;
 			return;
 		};
+		// A retained request is outside the call's queue, so the transport's closed-gate rule
+		// cannot reach it: drop it here instead of playing it once the gate reopens. A clip that
+		// was already playing is cleared by the same gate, so both sides agree.
+		let gate_closed = {
+			let controls = live.controls.borrow();
+			controls.deafened || !controls.sound
+		};
+		if gate_closed {
+			self.pending_sound = None;
+			return;
+		}
 		let sound = live.sound.clone();
 		flush_sound(&sound, &mut self.pending_sound);
 	}
