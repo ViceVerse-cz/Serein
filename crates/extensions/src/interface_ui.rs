@@ -144,6 +144,8 @@ pub enum InterfaceControl {
 	Mute,
 	/// Toggle your headphones.
 	Deafen,
+	/// Open the Friends / Direct Messages list in place of the window.
+	Friends,
 	/// Open the client's settings.
 	Settings,
 }

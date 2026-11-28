@@ -569,6 +569,8 @@ pub struct MessagingUi {
 	plugin_interface: Option<std::sync::Arc<interface_ui::PluginInterface>>,
 	/// The chat window channel the plugin interface last opened through selection.
 	interface_chat: Option<Id>,
+	/// The Friends control swapped the plugin layout's window for the client's Friends page.
+	interface_home: bool,
 	pub voice_inputs: Vec<(String, String)>,
 	pub voice_outputs: Vec<(String, String)>,
 	pub voice_input: Option<String>,
@@ -1699,6 +1701,11 @@ impl MessagingUi {
 							.layout(egui::Layout::left_to_right(egui::Align::Center)),
 						|ui| {
 							ui.spacing_mut().item_spacing.x = 4.0;
+							// A plugin's interface replaces the panes these arrows navigate
+							// between, so they would be dead controls; the trait is hidden.
+							if self.plugin_interface.is_some() {
+								return;
+							}
 							if ui
 								.add_enabled_ui(
 									self.settings.open
@@ -5364,6 +5371,18 @@ impl MessagingUi {
 	/// Replaces the interface a granted plugin asked to show in place of the main panes;
 	/// `None` restores the normal layout.
 	pub fn set_plugin_interface(&mut self, interface: Option<interface_ui::PluginInterface>) {
+		// The Friends page stands in for the plugin's window; a plugin that switches or
+		// closes its window (a double-clicked channel, a joined call) takes the pane back.
+		let window = interface
+			.as_ref()
+			.and_then(|interface| interface.tree.window.clone());
+		let previous = self
+			.plugin_interface
+			.as_ref()
+			.and_then(|interface| interface.tree.window.clone());
+		if interface.is_none() || window != previous {
+			self.interface_home = false;
+		}
 		if interface.is_none() {
 			self.interface_chat = None;
 		}
