@@ -1450,6 +1450,7 @@ mod tests {
 			}],
 			channels: vec![Channel {
 				user_limit: None,
+				bitrate: None,
 				slowmode: 0,
 				id: Id(20),
 				guild: Some(Id(10)),
@@ -1662,6 +1663,57 @@ mod tests {
 	}
 
 	#[test]
+	fn channel_updates_change_and_clear_the_voice_bitrate() {
+		let mut state = ClientState {
+			channels: vec![Channel {
+				user_limit: None,
+				bitrate: Some(64_000),
+				slowmode: 0,
+				id: Id(20),
+				guild: Some(Id(10)),
+				kind: 2,
+				name: "Room".into(),
+				last_message: None,
+				parent_id: None,
+				position: 0,
+				recipients: vec![],
+				icon: None,
+				member_list_id: None,
+				tags: None,
+				message_count: None,
+			}],
+			..ClientState::default()
+		};
+		let patch = |bitrate| {
+			CoreEvent::ChannelChanged(model::ChannelPatch {
+				user_limit: model::Patch::Absent,
+				bitrate,
+				slowmode: model::Patch::Absent,
+				id: Id(20),
+				name: model::Patch::Absent,
+				icon: model::Patch::Absent,
+				last_message: model::Patch::Absent,
+				parent_id: model::Patch::Absent,
+				position: model::Patch::Absent,
+				kind: model::Patch::Absent,
+				message_count: model::Patch::Absent,
+				tags: model::Patch::Absent,
+			})
+		};
+		for (update, expected) in [
+			(model::Patch::Value(96_000), Some(96_000)),
+			(model::Patch::Absent, Some(96_000)),
+			(model::Patch::Null, None),
+		] {
+			state.apply(Envelope {
+				generation: state.generation,
+				event: patch(update),
+			});
+			assert_eq!(state.channel(Id(20)).unwrap().bitrate, expected);
+		}
+	}
+
+	#[test]
 	fn guild_roster_moves_mutes_limits_and_selection_never_join_implicitly() {
 		{
 			let mut state = ClientState {
@@ -1691,6 +1743,7 @@ mod tests {
 					.into_iter()
 					.map(|id| Channel {
 						user_limit: None,
+						bitrate: None,
 						slowmode: 0,
 						id: Id(id),
 						guild: Some(Id(10)),
@@ -1975,6 +2028,7 @@ mod tests {
 					.into_iter()
 					.map(|id| Channel {
 						user_limit: None,
+						bitrate: None,
 						slowmode: 0,
 						id: Id(id),
 						guild: Some(Id(10)),
@@ -2113,6 +2167,7 @@ mod tests {
 			}),
 			channels: vec![Channel {
 				user_limit: None,
+				bitrate: None,
 				slowmode: 0,
 				last_message: None,
 				id: Id(2),
@@ -2408,6 +2463,7 @@ mod tests {
 				}),
 				channels: vec![Channel {
 					user_limit: None,
+					bitrate: None,
 					slowmode: 0,
 					last_message: None,
 					id: Id(2),

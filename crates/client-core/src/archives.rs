@@ -282,6 +282,7 @@ mod tests {
 	fn channel(id: u64, parent: Option<Id>, kind: u8) -> Channel {
 		Channel {
 			user_limit: None,
+			bitrate: None,
 			slowmode: 0,
 			id: Id(id),
 			guild: Some(Id(1)),
@@ -575,6 +576,7 @@ mod tests {
 							guild: Id(guild),
 							patch: model::ChannelPatch {
 								user_limit: model::Patch::Absent,
+								bitrate: model::Patch::Absent,
 								slowmode: model::Patch::Absent,
 								icon: model::Patch::Absent,
 								id: Id(id),

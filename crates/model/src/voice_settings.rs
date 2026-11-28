@@ -19,6 +19,30 @@ impl CameraFrameRate {
 	}
 }
 
+/// Bitrate a voice channel uses when the service did not send one, as in DM and group calls.
+pub const DEFAULT_CHANNEL_BITRATE: u32 = 64_000;
+
+/// How the microphone is encoded in calls.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MicrophoneQuality {
+	/// Like Discord's own client: the channel's bitrate, variable, with in-band loss recovery.
+	#[default]
+	Channel,
+	/// Stereo Opus at the 510 kb/s maximum, constant bitrate, without loss recovery.
+	Maximum,
+}
+impl MicrophoneQuality {
+	/// Opus target in bits per second for a channel bitrate, if known.
+	pub fn bitrate(self, channel: Option<u32>) -> u32 {
+		match self {
+			Self::Channel => channel
+				.unwrap_or(DEFAULT_CHANNEL_BITRATE)
+				.clamp(8_000, 510_000),
+			Self::Maximum => 510_000,
+		}
+	}
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum InputProfile {
 	#[default]
@@ -120,5 +144,20 @@ impl VoiceProcessing {
 		}
 		self.profile = InputProfile::Custom;
 		&mut self.custom
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn microphone_follows_the_channel_unless_maximum() {
+		assert_eq!(MicrophoneQuality::default(), MicrophoneQuality::Channel);
+		assert_eq!(MicrophoneQuality::Channel.bitrate(None), 64_000);
+		assert_eq!(MicrophoneQuality::Channel.bitrate(Some(96_000)), 96_000);
+		assert_eq!(MicrophoneQuality::Channel.bitrate(Some(1)), 8_000);
+		assert_eq!(MicrophoneQuality::Channel.bitrate(Some(u32::MAX)), 510_000);
+		assert_eq!(MicrophoneQuality::Maximum.bitrate(Some(64_000)), 510_000);
 	}
 }

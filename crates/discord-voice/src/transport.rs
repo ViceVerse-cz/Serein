@@ -477,20 +477,16 @@ async fn run_inner(
 	let mut heard = false;
 	let mut speaking = false;
 	let mut silence = 0u8;
-	// Capture stays mono; each mono frame is sent as dual-mono stereo Opus at the
-	// maximum 510 kb/s constant-bitrate Music profile (1,275-byte 20 ms packets,
-	// about 528 kb/s on the wire with RTP/DAVE/transport overhead).
+	// Capture stays mono. The default follows the channel bitrate with VBR and in-band FEC,
+	// as Discord's client does; Maximum sends dual-mono stereo at 510 kb/s CBR (1,275-byte
+	// 20 ms packets, about 528 kb/s on the wire with RTP/DAVE/transport overhead).
 	let mut encoder = Encoder::new(48_000, Channels::Stereo, Application::Audio)
 		.map_err(|_| "Opus encoder initialization failed")?;
-	encoder
-		.set_bitrate(Bitrate::Bits(510_000))
-		.map_err(|_| "Opus bitrate configuration failed")?;
-	encoder
-		.set_vbr(false)
-		.map_err(|_| "Opus VBR configuration failed")?;
-	encoder
-		.set_vbr_constraint(false)
-		.map_err(|_| "Opus VBR constraint configuration failed")?;
+	let mut microphone = {
+		let control = *controls.borrow();
+		crate::microphone::Encoding::new(control.microphone, control.channel_bitrate)
+	};
+	microphone.apply(&mut encoder)?;
 	// Capture is 32-bit float; the source carries at least 24 significant bits.
 	encoder
 		.set_lsb_depth(24)
@@ -499,20 +495,8 @@ async fn run_inner(
 		.set_complexity(10)
 		.map_err(|_| "Opus complexity configuration failed")?;
 	encoder
-		.set_signal(opus2::Signal::Music)
-		.map_err(|_| "Opus signal configuration failed")?;
-	encoder
-		.set_force_channels(Some(Channels::Stereo))
-		.map_err(|_| "Opus stereo configuration failed")?;
-	encoder
 		.set_max_bandwidth(opus2::Bandwidth::Fullband)
 		.map_err(|_| "Opus bandwidth configuration failed")?;
-	encoder
-		.set_inband_fec(false)
-		.map_err(|_| "Opus FEC configuration failed")?;
-	encoder
-		.set_packet_loss_perc(0)
-		.map_err(|_| "Opus packet-loss configuration failed")?;
 	encoder
 		.set_dtx(false)
 		.map_err(|_| "Opus DTX configuration failed")?;
@@ -663,6 +647,8 @@ async fn run_inner(
 						   for media in requests {let (header,body)=pli(ssrc,media);udp_failures.send(socket,&crypto.seal_rtcp(&header,&body)?,"Voice RTCP send failed")?;}
 					   }
 					   let control=*controls.borrow();
+					   let wanted=crate::microphone::Encoding::new(control.microphone,control.channel_bitrate);
+					   if wanted!=microphone {wanted.apply(&mut encoder)?;microphone=wanted;}
 					   let camera_enabled=enabled && video.available() && control.camera!=0;
 					   let camera_changed=video.generation!=control.camera;
 					   if !camera_enabled || camera_changed {video.restart();}
@@ -3106,12 +3092,21 @@ mod tests {
 				.session
 				.decrypt(1, davey::MediaType::AUDIO, &ciphertext)
 				.unwrap();
-			// Retain upstream's stereo CBR microphone wire format through this integration.
-			assert_eq!(
-				opus2::packet::get_nb_channels(&encoded).unwrap(),
-				Channels::Stereo
-			);
-			assert_eq!(encoded.len(), 1275);
+			// Guild calls here choose Maximum: upstream's stereo CBR wire format. DM calls use
+			// the default, which follows the 64 kb/s DM bitrate with mono VBR packets.
+			if guild {
+				assert_eq!(
+					opus2::packet::get_nb_channels(&encoded).unwrap(),
+					Channels::Stereo
+				);
+				assert_eq!(encoded.len(), 1275);
+			} else {
+				assert_eq!(
+					opus2::packet::get_nb_channels(&encoded).unwrap(),
+					Channels::Mono
+				);
+				assert!(encoded.len() < 1275);
+			}
 			let mut decoder = Decoder::new(48_000, Channels::Mono).unwrap();
 			let mut out = [0.0; 960];
 			assert_eq!(
@@ -3202,7 +3197,14 @@ mod tests {
 		let (capture_tx, capture) = std::sync::mpsc::sync_channel(8);
 		capture_tx.try_send([0.25; 960]).unwrap();
 		let (playback, playback_rx) = std::sync::mpsc::sync_channel(8);
-		let (control_tx, control_rx) = watch::channel(Controls::default());
+		let (control_tx, control_rx) = watch::channel(Controls {
+			microphone: if guild {
+				model::voice_settings::MicrophoneQuality::Maximum
+			} else {
+				model::voice_settings::MicrophoneQuality::Channel
+			},
+			..Controls::default()
+		});
 		let (_camera_tx, camera_rx) = std::sync::mpsc::sync_channel(1);
 		let (status_tx, mut status_rx) = tokio::sync::mpsc::channel(8);
 		let (latency_tx, latency_rx) = std::sync::mpsc::sync_channel(8);

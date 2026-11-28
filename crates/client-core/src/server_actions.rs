@@ -603,6 +603,7 @@ mod tests {
 			}],
 			channels: vec![model::Channel {
 				user_limit: None,
+				bitrate: None,
 				slowmode: 0,
 				id: Id(3),
 				guild: Some(Id(2)),

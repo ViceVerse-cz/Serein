@@ -590,6 +590,7 @@ pub struct MessagingUi {
 	pub voice_muted: bool,
 	pub voice_deafened: bool,
 	pub voice_processing: model::voice_settings::VoiceProcessing,
+	pub voice_microphone_quality: model::voice_settings::MicrophoneQuality,
 	pub voice_preview_requested: bool,
 	pub voice_preview_level: Option<f32>,
 	pub voice_preview_status: &'static str,
@@ -7792,6 +7793,7 @@ mod composer_tests {
 			selected: Some(Id(10)),
 			channels: vec![model::Channel {
 				user_limit: None,
+				bitrate: None,
 				slowmode: 0,
 				id: Id(10),
 				guild: None,
@@ -9995,6 +9997,7 @@ mod composer_tests {
 			state.selected = Some(Id(11));
 			state.channels.push(model::Channel {
 				user_limit: None,
+				bitrate: None,
 				slowmode: 0,
 				id: Id(11),
 				guild: None,
@@ -10070,6 +10073,7 @@ mod composer_tests {
 			selected: Some(Id(1)),
 			channels: vec![model::Channel {
 				user_limit: None,
+				bitrate: None,
 				slowmode: 0,
 				last_message: None,
 				id: Id(1),
@@ -10267,6 +10271,7 @@ mod composer_tests {
 			}),
 			channels: vec![model::Channel {
 				user_limit: None,
+				bitrate: None,
 				slowmode: 0,
 				last_message: None,
 				id: Id(1),
@@ -10672,6 +10677,7 @@ mod composer_tests {
 				selected: Some(Id(1)),
 				channels: vec![model::Channel {
 					user_limit: None,
+					bitrate: None,
 					slowmode: 0,
 					last_message: None,
 					id: Id(1),
@@ -11176,6 +11182,7 @@ mod composer_tests {
 			selected: Some(Id(1)),
 			channels: vec![model::Channel {
 				user_limit: None,
+				bitrate: None,
 				slowmode: 0,
 				last_message: None,
 				id: Id(1),

@@ -499,6 +499,7 @@ mod join_tests {
 			gateway_connected: true,
 			channels: vec![model::Channel {
 				user_limit: None,
+				bitrate: None,
 				slowmode: 0,
 				id: group_id,
 				guild: None,
@@ -531,6 +532,7 @@ mod join_tests {
 			channels: vec![
 				model::Channel {
 					user_limit: None,
+					bitrate: None,
 					slowmode: 0,
 					id: group_id,
 					guild: None,
@@ -547,6 +549,7 @@ mod join_tests {
 				},
 				model::Channel {
 					user_limit: None,
+					bitrate: None,
 					slowmode: 0,
 					id: other_id,
 					guild: None,

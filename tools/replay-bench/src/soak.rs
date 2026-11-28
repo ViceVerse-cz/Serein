@@ -25,6 +25,7 @@ fn ready(state: &mut State) {
 			channels: (20..52)
 				.map(|id| Channel {
 					user_limit: None,
+					bitrate: None,
 					slowmode: 0,
 					id: Id(id),
 					guild: None,

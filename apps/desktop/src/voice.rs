@@ -1233,12 +1233,18 @@ impl Voice {
 				.effective()
 				.sensitivity_db
 				.unwrap_or(-70);
+			let microphone = ui.voice_microphone_quality;
+			let channel_bitrate = state
+				.channel(call.channel)
+				.and_then(|channel| channel.bitrate);
 			live.controls.send_if_modified(|control| {
 				if control.muted == muted
 					&& control.deafened == deafened
 					&& control.user_volumes == user_volumes
 					&& control.stream_volume == stream_volume
 					&& control.activity_threshold_db == activity_threshold_db
+					&& control.microphone == microphone
+					&& control.channel_bitrate == channel_bitrate
 				{
 					false
 				} else {
@@ -1247,6 +1253,8 @@ impl Voice {
 					control.user_volumes = user_volumes;
 					control.stream_volume = stream_volume;
 					control.activity_threshold_db = activity_threshold_db;
+					control.microphone = microphone;
+					control.channel_bitrate = channel_bitrate;
 					true
 				}
 			});
@@ -1980,6 +1988,9 @@ impl Voice {
 			deafened: false,
 			user_volumes: ui.voice_user_volumes(),
 			stream_volume: ui.voice_stream_volume(),
+			microphone: ui.voice_microphone_quality,
+			// Set from the call's channel on the next control update, before media flows.
+			channel_bitrate: None,
 		});
 		let remote_video: Arc<std::sync::Mutex<RemotePictures>> =
 			Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -2192,11 +2203,21 @@ pub fn debug_mic_preview_check() {
 		view.voice_processing.effective().suppression,
 		model::voice_settings::NoiseSuppression::RnNoise
 	);
+	// Preferences from before the setting follow the channel bitrate.
+	assert_eq!(
+		view.voice_microphone_quality,
+		model::voice_settings::MicrophoneQuality::Channel
+	);
 	view.voice_processing.custom.sensitivity_db = Some(-63);
+	view.voice_microphone_quality = model::voice_settings::MicrophoneQuality::Maximum;
 	preferences.observe(&view);
 	let saved = serde_json::to_string(&preferences.current).unwrap();
 	let restored: local_store::AppPreferences = serde_json::from_str(&saved).unwrap();
 	assert_eq!(restored.voice_processing, Some(view.voice_processing));
+	assert_eq!(
+		restored.voice_microphone_quality,
+		model::voice_settings::MicrophoneQuality::Maximum
+	);
 	assert!(restored.is_valid());
 	let mut voice = Voice::default();
 	view.voice_preview_requested = true;

@@ -381,6 +381,8 @@ pub struct Channel {
 	pub message_count: Option<u32>,
 	/// Voice or stage channel user limit; None when unlimited or unknown.
 	pub user_limit: Option<u16>,
+	/// Voice or stage channel audio bitrate in bits per second; None for other channels or unknown.
+	pub bitrate: Option<u32>,
 	/// Seconds a member waits between messages here; zero when slowmode is off.
 	pub slowmode: u16,
 	/// Forum tags offered by a forum or media channel, or applied to one of its posts.
@@ -412,6 +414,8 @@ pub struct ChannelPatch {
 	pub message_count: Patch<u32>,
 	/// Null clears a limit; zero arrives as Null.
 	pub user_limit: Patch<u16>,
+	/// Null clears the bitrate; zero arrives as Null.
+	pub bitrate: Patch<u32>,
 	/// Null arrives as a zero value.
 	pub slowmode: Patch<u16>,
 	/// Channel updates carry whole objects, so present tags replace the known ones.

@@ -255,6 +255,7 @@ mod tests {
 	fn thread_snapshots_preserve_other_scopes_and_cancel_removed_history() {
 		let channel = |id, guild, parent_id: Option<u64>, kind| Channel {
 			user_limit: None,
+			bitrate: None,
 			slowmode: 0,
 			id: Id(id),
 			guild: Some(Id(guild)),
@@ -525,6 +526,7 @@ mod tests {
 	fn invalid_thread_snapshots_leave_navigation_and_drafts_unchanged() {
 		let channel = |id, guild, parent_id: Option<u64>, kind| Channel {
 			user_limit: None,
+			bitrate: None,
 			slowmode: 0,
 			id: Id(id),
 			guild: Some(Id(guild)),

@@ -2871,6 +2871,7 @@ mod tests {
 			selected: Some(Id(10)),
 			channels: vec![model::Channel {
 				user_limit: None,
+				bitrate: None,
 				slowmode: 0,
 				id: Id(10),
 				guild: None,

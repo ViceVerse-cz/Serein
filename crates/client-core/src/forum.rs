@@ -683,6 +683,7 @@ mod tests {
 	fn channel(id: u64, parent: Option<Id>, kind: u8) -> Channel {
 		Channel {
 			user_limit: None,
+			bitrate: None,
 			slowmode: 0,
 			id: Id(id),
 			guild: Some(Id(1)),

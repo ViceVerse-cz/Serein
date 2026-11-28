@@ -4069,6 +4069,7 @@ mod tests {
 		{
 			let mut channel = model::Channel {
 				user_limit: None,
+				bitrate: None,
 				slowmode: 0,
 				id: Id(10),
 				guild: Some(Id(20)),
@@ -5070,6 +5071,7 @@ mod tests {
 		.into_iter()
 		.map(|(id, kind, guild)| model::Channel {
 			user_limit: None,
+			bitrate: None,
 			slowmode: 0,
 			id: Id(id),
 			kind,
@@ -6469,6 +6471,7 @@ mod tests {
 				crate::fonts::install(&ctx);
 				let channels = [model::Channel {
 					user_limit: None,
+					bitrate: None,
 					slowmode: 0,
 					id: Id(2),
 					kind: 2,
@@ -6866,6 +6869,7 @@ mod tests {
 		));
 		let channels = [model::Channel {
 			user_limit: None,
+			bitrate: None,
 			slowmode: 0,
 			id: Id(2),
 			kind: 0,

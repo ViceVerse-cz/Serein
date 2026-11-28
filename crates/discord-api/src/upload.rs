@@ -1159,6 +1159,7 @@ mod tests {
 						tags: None,
 						message_count: None,
 						user_limit: None,
+						bitrate: None,
 						slowmode: 0,
 					}],
 					selected: Some(model::Id(1)),

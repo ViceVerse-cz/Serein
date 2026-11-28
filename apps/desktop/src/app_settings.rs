@@ -74,6 +74,7 @@ impl Settings {
 			voice_noise_suppression: ui.voice_processing.effective().suppression
 				!= model::voice_settings::NoiseSuppression::Off,
 			voice_processing: Some(ui.voice_processing),
+			voice_microphone_quality: ui.voice_microphone_quality,
 			voice_push_to_talk: ui.voice_push_to_talk,
 			confirm_call_switch: !ui.skip_call_switch_confirmation,
 			voice_muted: ui.voice_muted,
@@ -134,6 +135,7 @@ impl Settings {
 		ui.voice_processing = value.voice_processing.unwrap_or_else(|| {
 			model::voice_settings::VoiceProcessing::from_legacy(value.voice_noise_suppression)
 		});
+		ui.voice_microphone_quality = value.voice_microphone_quality;
 		ui.voice_push_to_talk = value.voice_push_to_talk;
 		ui.skip_call_switch_confirmation = !value.confirm_call_switch;
 		ui.voice_muted = value.voice_muted;

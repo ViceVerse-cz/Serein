@@ -445,6 +445,7 @@ mod tests {
 			channels: (1..=MAX_WINDOWS as u64 + 2)
 				.map(|id| Channel {
 					user_limit: None,
+					bitrate: None,
 					slowmode: 0,
 					id: Id(id),
 					guild: None,
@@ -852,6 +853,7 @@ mod tests {
 			for event in [
 				Event::ChannelChanged(model::ChannelPatch {
 					user_limit: Patch::Absent,
+					bitrate: Patch::Absent,
 					slowmode: Patch::Absent,
 					icon: model::Patch::Absent,
 					id: Id(1),

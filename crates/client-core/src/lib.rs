@@ -3447,6 +3447,11 @@ impl State {
 						Patch::Null => channel.user_limit = None,
 						Patch::Absent => {}
 					}
+					match patch.bitrate {
+						Patch::Value(bits) => channel.bitrate = Some(bits),
+						Patch::Null => channel.bitrate = None,
+						Patch::Absent => {}
+					}
 					if let Patch::Value(seconds) = patch.slowmode {
 						channel.slowmode = seconds;
 					}
@@ -4870,6 +4875,7 @@ mod tests {
 		let mut state = State {
 			channels: vec![Channel {
 				user_limit: None,
+				bitrate: None,
 				slowmode: 0,
 				id: Id(1),
 				guild: None,
@@ -4955,6 +4961,7 @@ mod tests {
 		let mut state = State {
 			channels: vec![Channel {
 				user_limit: None,
+				bitrate: None,
 				slowmode: 0,
 				id: Id(1),
 				guild: None,
@@ -5011,6 +5018,7 @@ mod tests {
 		let mut state = State {
 			channels: vec![Channel {
 				user_limit: None,
+				bitrate: None,
 				slowmode: 0,
 				id: Id(1),
 				guild: None,
@@ -5141,6 +5149,7 @@ mod tests {
 		let mut state = State {
 			channels: vec![Channel {
 				user_limit: None,
+				bitrate: None,
 				slowmode: 0,
 				id: Id(1),
 				guild: None,
@@ -5279,6 +5288,7 @@ mod tests {
 					.into_iter()
 					.map(|(id, guild, kind)| Channel {
 						user_limit: None,
+						bitrate: None,
 						slowmode: 0,
 						id: Id(id),
 						guild: (guild != 0).then_some(Id(guild)),
@@ -5496,6 +5506,7 @@ mod tests {
 		{
 			let channel = Channel {
 				user_limit: None,
+				bitrate: None,
 				slowmode: 0,
 				id: Id(1),
 				guild: Some(Id(10)),
@@ -5548,6 +5559,7 @@ mod tests {
 				&mut state,
 				Event::ChannelChanged(ChannelPatch {
 					user_limit: Patch::Absent,
+					bitrate: Patch::Absent,
 					slowmode: Patch::Absent,
 					icon: model::Patch::Absent,
 					id: Id(1),
@@ -5661,6 +5673,7 @@ mod tests {
 			selected: Some(channel),
 			channels: vec![Channel {
 				user_limit: None,
+				bitrate: None,
 				slowmode: 0,
 				id: channel,
 				guild: None,
@@ -6111,6 +6124,7 @@ mod tests {
 			};
 			let channel = Channel {
 				user_limit: None,
+				bitrate: None,
 				slowmode: 0,
 				last_message: None,
 				id: Id(2),
@@ -6132,6 +6146,7 @@ mod tests {
 				&mut state,
 				Event::ChannelChanged(ChannelPatch {
 					user_limit: Patch::Absent,
+					bitrate: Patch::Absent,
 					slowmode: Patch::Absent,
 					icon: model::Patch::Absent,
 					last_message: model::Patch::Absent,
@@ -6154,6 +6169,7 @@ mod tests {
 				&mut state,
 				Event::ChannelChanged(ChannelPatch {
 					user_limit: Patch::Absent,
+					bitrate: Patch::Absent,
 					slowmode: Patch::Absent,
 					icon: model::Patch::Absent,
 					last_message: model::Patch::Absent,
@@ -6176,6 +6192,7 @@ mod tests {
 					&mut state,
 					Event::ChannelCreated(Channel {
 						user_limit: None,
+						bitrate: None,
 						slowmode: 0,
 						last_message: None,
 						id: Id(id as u64),
@@ -6203,6 +6220,7 @@ mod tests {
 				selected: Some(Id(1)),
 				channels: vec![Channel {
 					user_limit: None,
+					bitrate: None,
 					slowmode: 0,
 					id: Id(1),
 					guild: None,
@@ -6398,6 +6416,7 @@ mod tests {
 			auth: auth::AuthState::Authenticated,
 			channels: vec![Channel {
 				user_limit: None,
+				bitrate: None,
 				slowmode: 0,
 				last_message: None,
 				id: Id(1),
@@ -6541,6 +6560,7 @@ mod tests {
 	fn voice_navigation_survives_ready_but_revocation_ends_the_call_before_restoration() {
 		let channel = Channel {
 			user_limit: None,
+			bitrate: None,
 			slowmode: 0,
 			id: Id(1),
 			guild: Some(Id(10)),
@@ -6637,6 +6657,7 @@ mod tests {
 		{
 			let channel = |kind| Channel {
 				user_limit: None,
+				bitrate: None,
 				slowmode: 0,
 				id: Id(1),
 				guild: None,
@@ -6797,6 +6818,7 @@ mod tests {
 					guilds: vec![],
 					channels: vec![Channel {
 						user_limit: None,
+						bitrate: None,
 						slowmode: 0,
 						last_message: None,
 						id: Id(1),

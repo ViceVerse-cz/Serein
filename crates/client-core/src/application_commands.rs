@@ -295,6 +295,7 @@ mod tests {
 			selected: Some(Id(2)),
 			channels: vec![Channel {
 				user_limit: None,
+				bitrate: None,
 				slowmode: 0,
 				id: Id(2),
 				guild: None,

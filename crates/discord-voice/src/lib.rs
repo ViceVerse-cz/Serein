@@ -6,6 +6,7 @@ mod capture;
 mod crypto;
 mod diagnostics;
 mod jitter;
+mod microphone;
 mod mixer;
 mod presentation;
 pub mod screen;
@@ -50,6 +51,10 @@ pub struct Controls {
 	pub user_volumes: [(u64, u16); 64],
 	/// Watched stream playback percentage, independently muted with zero.
 	pub stream_volume: u16,
+	/// Microphone encoding; may change during the call.
+	pub microphone: model::voice_settings::MicrophoneQuality,
+	/// The call channel's bitrate in bits per second; None for DMs or when unknown.
+	pub channel_bitrate: Option<u32>,
 }
 impl Default for Controls {
 	fn default() -> Self {
@@ -61,6 +66,8 @@ impl Default for Controls {
 			deafened: false,
 			user_volumes: [(0, 100); 64],
 			stream_volume: 100,
+			microphone: Default::default(),
+			channel_bitrate: None,
 		}
 	}
 }

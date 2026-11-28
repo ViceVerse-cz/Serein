@@ -45,6 +45,7 @@ fn ready() -> Event {
 				message_count: None,
 				member_list_id: None,
 				user_limit: None,
+				bitrate: None,
 				slowmode: 0,
 				tags: None,
 			})

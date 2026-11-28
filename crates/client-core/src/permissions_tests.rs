@@ -409,6 +409,7 @@ fn user() -> User {
 fn channel(id: u64, kind: u8, parent: Option<Id>) -> Channel {
 	Channel {
 		user_limit: None,
+		bitrate: None,
 		slowmode: 0,
 		id: Id(id),
 		guild: Some(Id(10)),
@@ -1349,6 +1350,7 @@ fn deleting_an_unassigned_role_prunes_its_overwrites_and_invalidates_cached_deci
 						guild: Id(10),
 						patch: ChannelPatch {
 							user_limit: Patch::Absent,
+							bitrate: Patch::Absent,
 							slowmode: Patch::Absent,
 							icon: model::Patch::Absent,
 							id: Id(30),
