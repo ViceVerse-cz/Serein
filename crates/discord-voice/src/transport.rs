@@ -1448,6 +1448,23 @@ async fn run_stream_inner(
 		Codec::Av1 => 106,
 		Codec::H264 | Codec::H265 => 102,
 	};
+	// Which codec this stream puts on the wire is the first thing to know when a viewer reports
+	// that it never saw a picture.
+	if video.is_some() && crate::diagnostics::enabled() {
+		eprintln!(
+			"[Serein voice Stream] codec={} payload={} rtx={rtx_payload_type}",
+			match send_codec {
+				Codec::Av1 => "AV1",
+				Codec::H264 => "H.264",
+				Codec::H265 => "H.265",
+			},
+			match send_codec {
+				Codec::Av1 => 105,
+				Codec::H264 | Codec::H265 => 101,
+			},
+		);
+	}
+	let mut first_video_frame = video.is_some();
 	let mut receivers = Receivers::default();
 	let mut metrics = crate::diagnostics::Metrics::new(if video.is_some() {
 		crate::diagnostics::Scope::StreamSend
@@ -1824,6 +1841,12 @@ async fn run_stream_inner(
 					Codec::Av1 => crate::video::packetize_av1(&encrypted,&mut sequence,frame.timestamp,video_ssrc)?,
 					Codec::H264|Codec::H265 => crate::video::packetize(&encrypted,&mut sequence,frame.timestamp,video_ssrc)?,
 				};
+				if first_video_frame {
+					first_video_frame=false;
+					if crate::diagnostics::enabled() {
+						eprintln!("[Serein voice Stream] first frame bytes={} keyframe={} packets={}", frame.data.len(), frame.keyframe, packets.len());
+					}
+				}
 				outgoing.queue(packets,Instant::now());
 				outgoing_keyframe=frame.keyframe;
 				metrics.finish(crate::diagnostics::Stage::VideoSend,start);
