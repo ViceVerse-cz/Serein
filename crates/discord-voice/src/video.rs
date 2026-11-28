@@ -1,13 +1,13 @@
-//! Small Annex-B H.264 packetizer for a single Go Live video stream.
+//! Small Annex-B H.264 and AOM AV1 packetizers for a single Go Live video stream.
 use std::{collections::VecDeque, time::Duration};
 use tokio::time::Instant;
 
 const MTU: usize = 1200;
-const RTP_HEADER: usize = 12;
+pub(crate) const RTP_HEADER: usize = 12;
 // XChaCha20-Poly1305 tag plus the rtpsize nonce trailer.
 const TRANSPORT_OVERHEAD: usize = 20;
 // Reserve the original sequence number added by RFC 4588 retransmission.
-const MAX_PAYLOAD: usize = MTU - RTP_HEADER - TRANSPORT_OVERHEAD - 2;
+pub(crate) const MAX_PAYLOAD: usize = MTU - RTP_HEADER - TRANSPORT_OVERHEAD - 2;
 pub(crate) const MAX_FRAGMENTS: usize = 2048;
 const MAX_DAVE_FRAME: usize = 2 * 1024 * 1024 + 64 * 1024;
 
@@ -277,7 +277,13 @@ impl History {
 	pub fn has_pending(&self) -> bool {
 		!self.pending.is_empty()
 	}
-	pub fn repair(&mut self, ssrc: u32, sequence: &mut u16, now: Instant) -> Option<Packet> {
+	pub fn repair(
+		&mut self,
+		ssrc: u32,
+		sequence: &mut u16,
+		now: Instant,
+		rtx_payload_type: u8,
+	) -> Option<Packet> {
 		self.expire(now);
 		if ssrc == 0 {
 			return None;
@@ -298,7 +304,7 @@ impl History {
 			sent.retries += 1;
 			sent.last_retry = Some(now);
 			let mut header = sent.packet.header;
-			header[1] = (header[1] & 0x80) | 102;
+			header[1] = (header[1] & 0x80) | rtx_payload_type;
 			header[2..4].copy_from_slice(&sequence.to_be_bytes());
 			header[8..12].copy_from_slice(&ssrc.to_be_bytes());
 			*sequence = sequence.wrapping_add(1);
@@ -336,6 +342,7 @@ pub(crate) fn packetize(
 				ssrc,
 				nalu.to_vec(),
 				last_nalu,
+				101,
 			)?;
 			continue;
 		}
@@ -355,7 +362,7 @@ pub(crate) fn packetize(
 			);
 			payload.extend_from_slice(&nalu[offset..offset + take]);
 			let last = last_nalu && offset + take == nalu.len();
-			push(&mut packets, sequence, timestamp, ssrc, payload, last)?;
+			push(&mut packets, sequence, timestamp, ssrc, payload, last, 101)?;
 			offset += take;
 		}
 	}
@@ -372,6 +379,244 @@ pub(crate) fn validate_source(frame: &[u8]) -> Result<(), &'static str> {
 	nalus(frame).map(|_| ())
 }
 
+/// One AV1 OBU inside an encoded frame: its header, optional LEB128 size and payload.
+fn obus_av1(data: &[u8]) -> Option<Vec<(usize, usize)>> {
+	let mut spans = Vec::new();
+	let mut at = 0;
+	while at < data.len() {
+		if spans.len() == 256 {
+			return None;
+		}
+		let rest = &data[at..];
+		let header = *rest.first()?;
+		// Forbidden bit, reserved OBU types and non-zero extension bits are not encoder output.
+		if header & 0x81 != 0 || matches!((header >> 3) & 15, 0 | 8) {
+			return None;
+		}
+		let head = if header & 4 != 0 {
+			if rest.get(1)? & 31 != 0 {
+				return None;
+			}
+			2
+		} else {
+			1
+		};
+		let (len, prefix) = if header & 2 != 0 {
+			let mut value = 0usize;
+			let mut used = 0;
+			loop {
+				let byte = *rest.get(head + used)?;
+				used += 1;
+				if used > 4 {
+					return None;
+				}
+				value = value.checked_add(usize::from(byte & 127) << (7 * (used - 1)))?;
+				if byte & 128 == 0 {
+					break;
+				}
+			}
+			(value, used)
+		} else {
+			(rest.len() - head, 0)
+		};
+		let end = head.checked_add(prefix)?.checked_add(len)?;
+		if end == 0 || end > rest.len() {
+			return None;
+		}
+		spans.push((at, at + end));
+		at += end;
+	}
+	(!spans.is_empty()).then_some(spans)
+}
+
+/// The framing the AV1 receiver rebuilds before decoding: every OBU keeps its size field except
+/// the last one, whose size the frame boundary implies. DAVE encrypts exactly these bytes, so the
+/// sender has to produce what the receiver reconstructs.
+pub(crate) fn av1_sender_frame(data: &[u8]) -> Result<Vec<u8>, &'static str> {
+	const INVALID: &str = "Invalid AV1 frame";
+	// Temporal delimiters, tile lists and padding carry no coded data: DAVE drops them before it
+	// encrypts, so they must not stand between the last real OBU and the frame end here either.
+	// Left in, the last surviving OBU would keep a size field and the protocol data DAVE appends
+	// would be parsed as one more OBU.
+	const DROPPED: [u8; 3] = [2, 8, 15];
+	let mut spans = obus_av1(data).ok_or(INVALID)?;
+	spans.retain(|(start, _)| !DROPPED.contains(&((data[*start] >> 3) & 15)));
+	let count = spans.len();
+	if count == 0 {
+		return Err(INVALID);
+	}
+	let mut frame = Vec::with_capacity(data.len());
+	for (index, (start, end)) in spans.into_iter().enumerate() {
+		let obu = &data[start..end];
+		let header = obu[0];
+		let head = if header & 4 != 0 { 2 } else { 1 };
+		// Drop the size field of the final OBU and clear its "has size" bit.
+		let (size_prefix, payload) = if index + 1 == count {
+			let mut used = 0;
+			while header & 2 != 0 && obu.get(head + used).is_some_and(|byte| byte & 128 != 0) {
+				used += 1;
+			}
+			(
+				0,
+				if header & 2 != 0 {
+					head + used + 1
+				} else {
+					head
+				},
+			)
+		} else {
+			(head, 0)
+		};
+		if frame.len() + obu.len() + 8 > MAX_DAVE_FRAME {
+			return Err("AV1 frame exceeds the sharing limit");
+		}
+		frame.push(if index + 1 == count {
+			header & !2
+		} else {
+			header
+		});
+		frame.extend_from_slice(&obu[1..head]);
+		if index + 1 == count {
+			frame.extend_from_slice(&obu[payload..]);
+		} else {
+			frame.extend_from_slice(&obu[size_prefix..]);
+		}
+	}
+	Ok(frame)
+}
+
+/// Packetize an already DAVE-encrypted AV1 frame as AOM AV1 RTP v1.0.0 payloads: one aggregation
+/// header per packet, then size-prefixed elements, `Z`/`Y` marking an element that continues
+/// across packets, and the marker bit on the final packet.
+pub(crate) fn packetize_av1(
+	frame: &[u8],
+	sequence: &mut u16,
+	timestamp: u32,
+	ssrc: u32,
+) -> Result<Vec<Packet>, &'static str> {
+	if frame.len() > MAX_DAVE_FRAME {
+		return Err("DAVE AV1 frame exceeds the sharing limit");
+	}
+	let spans = obus_av1(frame).ok_or("Invalid AV1 frame")?;
+	// `N` marks the packet carrying the start of a coded video sequence, which is the packet that
+	// carries the sequence header first; the receiver resets its dependency state on it.
+	let starts_sequence = spans
+		.first()
+		.is_some_and(|(start, _)| (frame[*start] >> 3) & 15 == 1);
+	// The receiver refuses a payload with more than 64 elements, so the sender flushes before
+	// packing the 65th even when the bytes still fit.
+	const MAX_ELEMENTS: u8 = 64;
+	let mut packets = Vec::new();
+	let mut payload = vec![0u8; 1];
+	let mut elements = 0u8;
+	for (start, end) in spans {
+		let element = &frame[start..end];
+		let mut prefix = [0u8; 3];
+		let prefix = size_bytes(element.len(), &mut prefix);
+		if 1 + prefix.len() + element.len() <= MAX_PAYLOAD {
+			if payload.len() + prefix.len() + element.len() > MAX_PAYLOAD
+				|| elements == MAX_ELEMENTS
+			{
+				flush_av1(
+					&mut payload,
+					&mut elements,
+					&mut packets,
+					sequence,
+					timestamp,
+					ssrc,
+				)?;
+			}
+			payload.extend_from_slice(prefix);
+			payload.extend_from_slice(element);
+			elements = elements.saturating_add(1);
+			continue;
+		}
+		// A single OBU larger than one payload is fragmented across packets, each carrying one
+		// element, with `Z` continuing the previous one and `Y` continuing into the next.
+		let take = MAX_PAYLOAD - 1 - prefix.len();
+		flush_av1(
+			&mut payload,
+			&mut elements,
+			&mut packets,
+			sequence,
+			timestamp,
+			ssrc,
+		)?;
+		let mut offset = 0;
+		while offset < element.len() {
+			let mut fragment = vec![0u8; 1];
+			let chunk = (element.len() - offset).min(take);
+			let last = offset + chunk == element.len();
+			fragment[0] = u8::from(offset > 0) << 7 | u8::from(!last) << 6;
+			let mut chunk_prefix = [0u8; 3];
+			fragment.extend_from_slice(size_bytes(chunk, &mut chunk_prefix));
+			fragment.extend_from_slice(&element[offset..offset + chunk]);
+			push(
+				&mut packets,
+				sequence,
+				timestamp,
+				ssrc,
+				fragment,
+				false,
+				105,
+			)?;
+			offset += chunk;
+		}
+	}
+	flush_av1(
+		&mut payload,
+		&mut elements,
+		&mut packets,
+		sequence,
+		timestamp,
+		ssrc,
+	)?;
+	if packets.is_empty() {
+		return Err("AV1 frame has no OBUs");
+	}
+	if starts_sequence {
+		packets[0].payload[0] |= 0x08;
+	}
+	let last = packets.len() - 1;
+	packets[last].header[1] |= 0x80;
+	Ok(packets)
+}
+
+/// Emits the AV1 payload built so far and starts an empty one.
+fn flush_av1(
+	payload: &mut Vec<u8>,
+	elements: &mut u8,
+	packets: &mut Vec<Packet>,
+	sequence: &mut u16,
+	timestamp: u32,
+	ssrc: u32,
+) -> Result<(), &'static str> {
+	if *elements == 0 {
+		return Ok(());
+	}
+	// `W` stays zero: every element then carries its own size, so the receiver never has to
+	// infer the last one's length from the element count.
+	payload[0] = 0;
+	let filled = std::mem::replace(payload, vec![0u8; 1]);
+	*elements = 0;
+	push(packets, sequence, timestamp, ssrc, filled, false, 105)
+}
+
+/// LEB128 element size, written into `out`; returns the written slice.
+fn size_bytes(value: usize, out: &mut [u8; 3]) -> &[u8] {
+	let mut length = 0;
+	let mut value = value;
+	loop {
+		let byte = (value & 127) as u8;
+		value >>= 7;
+		out[length] = if value == 0 { byte } else { byte | 128 };
+		length += 1;
+		if value == 0 || length == out.len() {
+			return &out[..length];
+		}
+	}
+}
+
 fn push(
 	packets: &mut Vec<Packet>,
 	sequence: &mut u16,
@@ -379,13 +624,14 @@ fn push(
 	ssrc: u32,
 	payload: Vec<u8>,
 	marker: bool,
+	payload_type: u8,
 ) -> Result<(), &'static str> {
 	if packets.len() == MAX_FRAGMENTS {
-		return Err("H264 frame exceeds fragment limit");
+		return Err("Frame exceeds fragment limit");
 	}
 	let mut header = [0; RTP_HEADER];
 	header[0] = 0x80;
-	header[1] = 101 | u8::from(marker) << 7;
+	header[1] = payload_type | u8::from(marker) << 7;
 	header[2..4].copy_from_slice(&sequence.to_be_bytes());
 	header[4..8].copy_from_slice(&timestamp.to_be_bytes());
 	header[8..12].copy_from_slice(&ssrc.to_be_bytes());
@@ -430,6 +676,267 @@ fn nalus(frame: &[u8]) -> Result<Vec<&[u8]>, &'static str> {
 mod tests {
 	use super::*;
 	use crate::{crypto::Dave, test_mls::Delivery};
+
+	/// A sized sequence header followed by a sized frame header, as an encoder emits them.
+	const AV1_ENCODER_FRAME: [u8; 9] = [0x0a, 2, 0x20, 0x10, 0x32, 3, 0x20, 0x30, 0x10];
+
+	fn av1_packets(frame: &[u8]) -> Vec<Packet> {
+		let mut sequence = 0u16;
+		packetize_av1(frame, &mut sequence, 7, 9).expect("packetized")
+	}
+
+	/// The receiver this stream's own viewers run, used as the oracle for the wire format.
+	fn av1_rebuild(packets: &[Packet]) -> Vec<u8> {
+		let mut frame = Vec::new();
+		let mut fragments = crate::video_av1::Fragments::default();
+		for packet in packets {
+			fragments
+				.append(&packet.payload, packet.header[1] & 0x80 != 0, &mut frame)
+				.expect("reassembled");
+		}
+		frame
+	}
+
+	#[test]
+	fn av1_sender_framing_and_packetizer_round_trip_through_the_receiver() {
+		let frame = av1_sender_frame(&AV1_ENCODER_FRAME).expect("a framed access unit");
+		// The final OBU loses its size field; the first keeps it.
+		assert_eq!(frame, [0x0a, 2, 0x20, 0x10, 0x30, 0x20, 0x30, 0x10]);
+		let packets = av1_packets(&frame);
+		assert_eq!(packets.len(), 1);
+		assert_eq!(packets[0].header[1] & 0x7f, 105, "AV1 payload type");
+		assert_ne!(packets[0].header[1] & 0x80, 0, "the last packet is marked");
+		assert_eq!(
+			(packets[0].payload[0] >> 4) & 3,
+			0,
+			"every element carries its size"
+		);
+		assert_eq!(av1_rebuild(&packets), frame);
+	}
+
+	#[test]
+	fn an_av1_obu_larger_than_a_payload_fragments_and_rebuilds() {
+		let mut encoder = vec![0x0a, 2, 0x20, 0x10];
+		let body = vec![0x41u8; 3 * MAX_PAYLOAD];
+		encoder.push(0x32);
+		let mut size = [0u8; 3];
+		encoder.extend_from_slice(size_bytes(body.len(), &mut size));
+		encoder.extend_from_slice(&body);
+		let frame = av1_sender_frame(&encoder).expect("a framed access unit");
+		let packets = av1_packets(&frame);
+		assert!(packets.len() >= 3, "the large OBU spans several packets");
+		assert_eq!(
+			packets.last().map(|packet| packet.header[1] & 0x80),
+			Some(0x80)
+		);
+		assert_eq!(av1_rebuild(&packets), frame);
+	}
+
+	#[test]
+	fn av1_frames_without_obus_are_rejected() {
+		let mut sequence = 0u16;
+		assert!(packetize_av1(&[0x0a], &mut sequence, 0, 0).is_err());
+		assert!(av1_sender_frame(&[]).is_err());
+		// A reserved OBU type is not encoder output.
+		// The forbidden bit cannot appear in encoder output.
+		assert!(av1_sender_frame(&[0x80, 1]).is_err());
+	}
+
+	#[test]
+	fn av1_obus_dave_drops_never_stand_last() {
+		// A keyframe as an encoder emits it: temporal delimiter, sequence header, frame, padding.
+		let encoder = [
+			0x12, 0x00, // temporal delimiter
+			0x0a, 2, 0x20, 0x10, // sequence header
+			0x32, 3, 0x20, 0x30, 0x10, // frame
+			0x7a, 3, 0, 0, 0, // padding
+		];
+		let frame = av1_sender_frame(&encoder).expect("a framed access unit");
+		// Padding must not keep the frame OBU's size field, which DAVE would then leave in place
+		// while appending its protocol data behind it.
+		assert_eq!(frame, [0x0a, 2, 0x20, 0x10, 0x30, 0x20, 0x30, 0x10]);
+		let packets = av1_packets(&frame);
+		assert_ne!(
+			packets[0].payload[0] & 0x08,
+			0,
+			"the packet carrying the sequence header opens a coded video sequence"
+		);
+		assert_eq!(av1_rebuild(&packets), frame);
+	}
+
+	#[test]
+	fn av1_payloads_stay_within_the_receivers_element_budget() {
+		// Sixty-five OBUs fit one payload by bytes alone; the receiver stops at 64 elements.
+		let encoder: Vec<u8> = (0..65).flat_map(|_| [0x32, 1, 0x00]).collect();
+		let frame = av1_sender_frame(&encoder).expect("a framed access unit");
+		let packets = av1_packets(&frame);
+		assert_eq!(packets.len(), 2, "the 65th element opens a second payload");
+		assert_eq!(av1_rebuild(&packets), frame);
+	}
+
+	/// libwebrtc's `video_rtp_depacketizer_av1.cc`, ported close enough to answer one question: does
+	/// the code the official client runs accept the packets this sender writes? A rejection here is a
+	/// rejection there, and this repository's own receiver cannot answer that — sender and receiver
+	/// were written together.
+	fn reference_assemble(payloads: &[&[u8]]) -> Result<Vec<u8>, &'static str> {
+		fn leb(data: &[u8]) -> Option<(u64, usize)> {
+			let mut value = 0u64;
+			for (index, byte) in data.iter().copied().enumerate() {
+				if index == 8 {
+					return None;
+				}
+				value |= u64::from(byte & 0x7f) << (index * 7);
+				if byte & 0x80 == 0 {
+					return Some((value, index + 1));
+				}
+			}
+			None
+		}
+		fn encode_leb(mut value: u64) -> Vec<u8> {
+			let mut bytes = Vec::new();
+			loop {
+				let byte = (value & 0x7f) as u8;
+				value >>= 7;
+				if value == 0 {
+					bytes.push(byte);
+					return bytes;
+				}
+				bytes.push(byte | 0x80);
+			}
+		}
+		let mut obus: Vec<Vec<u8>> = Vec::new();
+		let mut expects_continuation = false;
+		for payload in payloads {
+			let Some((&header, body)) = payload.split_first() else {
+				return Err("empty payload");
+			};
+			// The reference also rejects the reserved bits, and this sender leaves them clear.
+			if header & 0x07 != 0 {
+				return Err("reserved aggregation bits set");
+			}
+			let continues = header & 0x80 != 0;
+			if continues != expects_continuation {
+				return Err("Z bit disagrees with the previous packet");
+			}
+			let expected = usize::from((header >> 4) & 0x03);
+			if body.is_empty() {
+				if expected != 1 {
+					return Err("packet carries only an aggregation header");
+				}
+				if !continues {
+					obus.push(Vec::new());
+				}
+				expects_continuation = header & 0x40 != 0;
+				continue;
+			}
+			let (mut at, mut index) = (0usize, 1usize);
+			while at < body.len() {
+				let has_size = index != expected;
+				let (size, prefix) = if has_size {
+					let (size, used) = leb(&body[at..]).ok_or("element size")?;
+					(usize::try_from(size).map_err(|_| "element size")?, used)
+				} else {
+					(body.len() - at, 0)
+				};
+				if size > body.len() - at - prefix {
+					return Err("element runs past the packet");
+				}
+				let element = &body[at + prefix..at + prefix + size];
+				if index == 1 && continues {
+					obus.last_mut()
+						.ok_or("continuation without an OBU")?
+						.extend_from_slice(element);
+				} else {
+					obus.push(element.to_vec());
+				}
+				at += prefix + size;
+				index += 1;
+			}
+			expects_continuation = header & 0x40 != 0;
+		}
+		if expects_continuation {
+			return Err("the last packet ends inside an OBU");
+		}
+		let mut frame = Vec::new();
+		for obu in obus {
+			let Some((&header, rest)) = obu.split_first() else {
+				return Err("empty OBU");
+			};
+			let prefix = if header & 0x04 != 0 {
+				if rest.is_empty() {
+					return Err("OBU extension missing");
+				}
+				2
+			} else {
+				1
+			};
+			let (payload, size_field) = if header & 0x02 == 0 {
+				(obu.len() - prefix, 0)
+			} else {
+				let (declared, used) = leb(&obu[prefix..]).ok_or("OBU size")?;
+				let actual = obu.len() - prefix - used;
+				if declared as usize != actual {
+					return Err("declared OBU size disagrees with the segment");
+				}
+				(actual, used)
+			};
+			// The reference sets the size bit on the header it writes, whatever the wire carried.
+			let mut head = obu[..prefix].to_vec();
+			head[0] |= 0x02;
+			frame.extend_from_slice(&head);
+			frame.extend_from_slice(&encode_leb(payload as u64));
+			frame.extend_from_slice(&obu[prefix + size_field..]);
+		}
+		Ok(frame)
+	}
+
+	/// The OBU sequence as `(type, payload)`, so frames assembled with different size fields still
+	/// compare by what they carry.
+	fn obu_payloads(data: &[u8]) -> Vec<(u8, Vec<u8>)> {
+		obus_av1(data)
+			.expect("an OBU walk")
+			.into_iter()
+			.map(|(start, end)| {
+				let obu = &data[start..end];
+				let header = obu[0];
+				let mut at = if header & 0x04 != 0 { 2 } else { 1 };
+				if header & 0x02 != 0 {
+					while obu.get(at).is_some_and(|byte| byte & 0x80 != 0) {
+						at += 1;
+					}
+					at += 1;
+				}
+				((header >> 3) & 15, obu[at..].to_vec())
+			})
+			.collect()
+	}
+
+	/// The official client runs libwebrtc's AV1 depacketizer, so a share only reaches it when that
+	/// code accepts these packets. This checks a keyframe that carries a sequence header and a delta
+	/// frame that does not.
+	#[test]
+	fn the_reference_depacketizer_accepts_the_av1_packets_we_send() {
+		let keyframe = [
+			0x12, 0x00, // temporal delimiter
+			0x0a, 2, 0x20, 0x10, // sequence header
+			0x32, 3, 0x20, 0x30, 0x10, // frame
+		];
+		let delta = [0x32, 3, 0x20, 0x30, 0x10];
+		for encoder in [keyframe.to_vec(), delta.to_vec()] {
+			let frame = av1_sender_frame(&encoder).expect("a framed access unit");
+			let packets = av1_packets(&frame);
+			let payloads: Vec<&[u8]> = packets
+				.iter()
+				.map(|packet| packet.payload.as_slice())
+				.collect();
+			let assembled = reference_assemble(&payloads).expect("libwebrtc accepts the packets");
+			assert_eq!(
+				obu_payloads(&assembled),
+				obu_payloads(&frame),
+				"the reference assembles the same OBUs the sender framed"
+			);
+		}
+	}
 
 	fn depacketize(packets: &[Packet]) -> Vec<u8> {
 		let mut frame = Vec::new();

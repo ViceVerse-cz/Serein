@@ -66,8 +66,43 @@ pub struct AudioChunk {
 	pub epoch: u64,
 }
 
+/// Codec a started share encodes, and therefore what its transport advertises.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum StreamCodec {
+	#[default]
+	H264,
+	/// AV1: fewer bits for the same picture, but only NVENC can produce it and only up-to-date
+	/// viewers decode it.
+	Av1,
+}
+
+impl StreamCodec {
+	/// The codec a share will encode on this machine. AV1 is an explicit opt-in while its wire
+	/// format is verified against other clients.
+	pub fn requested() -> Self {
+		if crate::video_encode::av1_supported()
+			&& std::env::var("SEREIN_STREAM_CODEC")
+				.is_ok_and(|value| value.eq_ignore_ascii_case("av1"))
+		{
+			Self::Av1
+		} else {
+			Self::H264
+		}
+	}
+
+	/// The codec's name as the interface shows it.
+	pub fn name(self) -> &'static str {
+		match self {
+			Self::H264 => "H.264",
+			Self::Av1 => "AV1",
+		}
+	}
+}
+
 pub struct Video {
 	pub settings: Settings,
+	/// Codec this share encodes; the transport advertises exactly this one.
+	pub codec: StreamCodec,
 	/// Maximum encoder target, in bits per second, shared by the encoder and transport.
 	pub(crate) max_bitrate: u32,
 	pub frames: tokio::sync::mpsc::Receiver<EncodedFrame>,
@@ -127,6 +162,8 @@ pub struct Worker {
 	status: Arc<Mutex<&'static str>>,
 	preview_visible: Arc<AtomicBool>,
 	captured: Arc<AtomicBool>,
+	/// Codec this share encodes, which the transport advertises exactly.
+	codec: StreamCodec,
 }
 
 impl Worker {
@@ -152,6 +189,7 @@ impl Worker {
 		);
 		let bitrate = Arc::new(AtomicU32::new(max_bitrate));
 		let worker_bitrate = bitrate.clone();
+		let codec = StreamCodec::requested();
 		let preview = Arc::new(Mutex::new(None));
 		let worker_preview = preview.clone();
 		#[cfg(target_os = "linux")]
@@ -212,6 +250,7 @@ impl Worker {
 					worker_preview,
 					worker_preview_visible,
 					worker_captured,
+					codec,
 					&wake,
 				);
 				finished_ready.store(false, Ordering::Release);
@@ -237,9 +276,11 @@ impl Worker {
 				status,
 				preview_visible,
 				captured,
+				codec,
 			},
 			Video {
 				settings,
+				codec,
 				max_bitrate,
 				frames,
 				ready,
@@ -253,6 +294,11 @@ impl Worker {
 
 	pub fn set_preview_visible(&self, visible: bool) {
 		self.preview_visible.store(visible, Ordering::Release);
+	}
+
+	/// The codec this share encodes with, which the transport advertises exactly.
+	pub fn codec(&self) -> StreamCodec {
+		self.codec
 	}
 
 	/// True after capture has produced one frame. Linux can be waiting on the system picker before that.
@@ -314,6 +360,7 @@ fn encode_loop(
 	preview: Arc<Mutex<Option<image::RgbaImage>>>,
 	preview_visible: Arc<AtomicBool>,
 	captured: Arc<AtomicBool>,
+	codec: StreamCodec,
 	wake: &impl Fn(),
 ) -> Result<(), Cow<'static, str>> {
 	if stop.load(Ordering::Acquire) || send.is_closed() {
@@ -446,7 +493,7 @@ fn encode_loop(
 			.load(Ordering::Acquire)
 			.clamp(250_000, settings.bit_rate());
 		if encoding.is_none() {
-			encoding = Some(ScreenEncoder::new(settings, target)?);
+			encoding = Some(ScreenEncoder::new(settings, target, codec)?);
 		}
 		if encoding
 			.as_mut()
@@ -527,11 +574,18 @@ struct ScreenEncoder {
 	hardware: Option<crate::video_encode::hardware::Encoder>,
 	settings: Settings,
 	bitrate: u32,
+	/// Codec this encoder produces, so a reopened encoder does not change it mid-stream.
+	codec: StreamCodec,
 }
 
 #[cfg(not(target_os = "linux"))]
 impl ScreenEncoder {
-	fn new(settings: Settings, bitrate: u32) -> Result<Self, &'static str> {
+	fn new(settings: Settings, bitrate: u32, codec: StreamCodec) -> Result<Self, &'static str> {
+		// An AV1 share has no software substitute: the transport labels every frame with the
+		// negotiated codec, so an openh264 picture would reach viewers as undecodable AV1.
+		if codec == StreamCodec::Av1 && !crate::video_encode::av1_supported() {
+			return Err(crate::video_encode::AV1_UNAVAILABLE);
+		}
 		let config = crate::video_encode::Config {
 			width: settings.width,
 			height: settings.height,
@@ -539,6 +593,10 @@ impl ScreenEncoder {
 			bit_rate: bitrate,
 			max_bytes: MAX_ENCODED_BYTES,
 			profile: crate::video_encode::Profile::Main,
+			codec: match codec {
+				StreamCodec::Av1 => crate::video_encode::Codec::Av1,
+				StreamCodec::H264 => crate::video_encode::Codec::H264,
+			},
 		};
 		#[cfg(target_os = "macos")]
 		let hardware = crate::video_encode::hardware::Encoder::new(
@@ -548,10 +606,12 @@ impl ScreenEncoder {
 		.ok();
 		#[cfg(target_os = "windows")]
 		let hardware = crate::video_encode::hardware::Encoder::new(config).ok();
-		let software = if hardware.is_none() {
-			Some(encoder(settings, bitrate)?)
-		} else {
+		let software = if hardware.is_some() {
 			None
+		} else if codec == StreamCodec::Av1 {
+			return Err(crate::video_encode::AV1_UNAVAILABLE);
+		} else {
+			Some(encoder(settings, bitrate)?)
 		};
 		Ok(Self {
 			diagnostics: crate::diagnostics::EncoderRegistration::new(true, hardware.is_some()),
@@ -560,6 +620,7 @@ impl ScreenEncoder {
 			hardware,
 			settings,
 			bitrate,
+			codec,
 		})
 	}
 
@@ -587,7 +648,7 @@ impl ScreenEncoder {
 			// Reopen native encoders that refuse a live rate change at the target rate.
 			// Release scarce hardware sessions before requesting their replacement.
 			self.hardware = None;
-			*self = Self::new(self.settings, bitrate)?;
+			*self = Self::new(self.settings, bitrate, self.codec)?;
 		}
 		Ok(true)
 	}
@@ -609,9 +670,14 @@ impl ScreenEncoder {
 			if let Ok(encoded) = encoded {
 				return Ok(encoded);
 			}
-			// The viewer must restart from a keyframe once the software encoder takes over.
 			self.hardware = None;
 			self.diagnostics.set(None);
+			// Only an H.264 share may hand over to openh264: an AV1 stream that suddenly carries
+			// H.264 pictures is worse than a stream that stops.
+			if self.codec == StreamCodec::Av1 {
+				return Err(crate::video_encode::AV1_ENCODER_FAILED);
+			}
+			// The viewer must restart from a keyframe once the software encoder takes over.
 			self.software = Some(encoder(self.settings, self.bitrate)?);
 			self.diagnostics.set(Some(false));
 			software_force = true;
@@ -869,6 +935,7 @@ mod tests {
 			status: Arc::new(Mutex::new("")),
 			preview_visible: Arc::new(AtomicBool::new(true)),
 			captured: Arc::new(AtomicBool::new(false)),
+			codec: StreamCodec::H264,
 		};
 		assert!(worker.take_preview().is_some());
 		assert!(worker.take_preview().is_none());

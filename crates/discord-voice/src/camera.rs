@@ -282,6 +282,9 @@ impl CameraEncoder {
 			bit_rate: BIT_RATE,
 			max_bytes: MAX_ENCODED_BYTES,
 			profile: crate::video_encode::Profile::Baseline,
+			// The camera keeps H.264: every viewer decodes it, and AV1 is not wired into the
+			// camera's own packetizer.
+			codec: crate::video_encode::Codec::H264,
 		};
 		#[cfg(target_os = "macos")]
 		let hardware = crate::video_encode::hardware::Encoder::new(

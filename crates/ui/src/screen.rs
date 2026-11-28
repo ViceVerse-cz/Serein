@@ -33,6 +33,8 @@ pub struct ScreenUi {
 	pub busy: bool,
 	/// Capture has produced a frame for this device's live share.
 	pub sharing: bool,
+	/// Codec the live share encodes with, as the voice layer names it.
+	pub codec: Option<&'static str>,
 	/// Kept apart from the dialog so later picker changes do not relabel a running share.
 	pub(crate) started: Option<LiveShare>,
 	/// Owned when it carries a run-time detail such as a Windows error code.
@@ -60,6 +62,7 @@ impl Default for ScreenUi {
 			request: None,
 			busy: false,
 			sharing: false,
+			codec: None,
 			started: None,
 			status: Cow::Borrowed(""),
 			capture_status: None,

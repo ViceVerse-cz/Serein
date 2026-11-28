@@ -194,32 +194,64 @@ fn restart_camera(
 	request_keyframe();
 	*keyframe_at = Instant::now();
 }
-fn h264_negotiated(data: &Value) -> bool {
-	data["video_codec"]
-		.as_str()
-		.is_some_and(|codec| codec.eq_ignore_ascii_case("H264"))
+/// The codec this session sends, or `H264` for a session that only receives.
+fn sending_codec(video: Option<&crate::screen::Video>) -> Codec {
+	match video.map(|video| video.codec) {
+		Some(crate::screen::StreamCodec::Av1) => Codec::Av1,
+		_ => Codec::H264,
+	}
 }
-/// Unofficial Go Live codec signaling; payload assignments are chosen by this client.
-/// HEVC/AV1 are receive-only. The sender/camera path continues to encode H.264.
-fn stream_codecs(sending: bool, receiving: bool, hevc: bool, av1: bool) -> Vec<Value> {
-	let hevc = hevc && receiving && !sending;
-	let av1 = av1 && receiving && !sending;
+/// The call video channel is H.264 only: the camera encodes it and every viewer decodes it.
+fn h264_negotiated(data: &Value) -> bool {
+	negotiated_codec(data, Codec::H264, false, false) == Some(Codec::H264)
+}
+fn negotiated_codec(data: &Value, sending: Codec, hevc: bool, av1: bool) -> Option<Codec> {
+	let codec = Codec::from_name(data["video_codec"].as_str()?)?;
+	let sending = |codec: Codec| codec == sending;
+	match codec {
+		// We can always encode H.264; receiving it needs a decoder, which this user picks up.
+		Codec::H264 => Some(codec),
+		Codec::Av1 if sending(Codec::Av1) || av1 => Some(codec),
+		Codec::H265 if hevc => Some(codec),
+		_ => None,
+	}
+}
+/// Unofficial Go Live codec signaling; payload assignments are chosen by this client. H.265 stays
+/// receive-only, and AV1 is offered for encoding only when the selected encoder produces it and for
+/// decoding only when a decoder exists. The codec this session sends is listed first, because the
+/// server picks the stream format from this order.
+fn stream_codecs(sending: Option<Codec>, receiving: bool, hevc: bool, av1: bool) -> Vec<Value> {
+	let send_av1 = sending == Some(Codec::Av1);
+	let send_h264 = sending == Some(Codec::H264);
+	let receive_av1 = av1 && receiving;
+	let receive_hevc = hevc && receiving;
 	let mut codecs = vec![json!({"name":"opus","type":"audio","priority":1000,"payload_type":120})];
-	if av1 {
-		codecs.push(json!({"name":"AV1","type":"video","priority":1000,"payload_type":105,"rtx_payload_type":106,"encode":false,"decode":true}));
+	if send_av1 || receive_av1 {
+		codecs.push(json!({"name":"AV1","type":"video","priority":1000,"payload_type":105,"rtx_payload_type":106,"encode":send_av1,"decode":receive_av1}));
 	}
-	if hevc && receiving && !sending {
-		codecs.push(json!({"name":"H265","type":"video","priority":if av1 {2000}else{1000},"payload_type":103,"rtx_payload_type":104,"encode":false,"decode":true}));
+	if receive_hevc {
+		codecs.push(json!({"name":"H265","type":"video","priority":if send_av1 || receive_av1 {2000}else{1000},"payload_type":103,"rtx_payload_type":104,"encode":false,"decode":true}));
 	}
-	codecs.push(json!({"name":"H264","type":"video","priority":if av1 {3000}else if hevc {2000}else{1000},"payload_type":101,"rtx_payload_type":102,"encode":sending,"decode":receiving}));
+	let h264_priority = if send_h264 {
+		1000
+	} else if send_av1 {
+		2000
+	} else if receive_av1 {
+		3000
+	} else if receive_hevc {
+		2000
+	} else {
+		1000
+	};
+	codecs.push(json!({"name":"H264","type":"video","priority":h264_priority,"payload_type":101,"rtx_payload_type":102,"encode":sending.is_some() && !send_av1,"decode":receiving}));
 	codecs
 }
-fn stream_codec(data: &Value, hevc: bool, av1: bool) -> Option<Codec> {
+fn stream_codec(data: &Value, hevc: bool, av1: bool, sending: Codec) -> Option<Codec> {
 	let codec = Codec::from_name(data["video_codec"].as_str()?)?;
 	match codec {
 		Codec::H264 => Some(codec),
 		Codec::H265 if hevc => Some(codec),
-		Codec::Av1 if av1 => Some(codec),
+		Codec::Av1 if av1 || sending == Codec::Av1 => Some(codec),
 		_ => None,
 	}
 }
@@ -1409,6 +1441,30 @@ async fn run_stream_inner(
 	} else {
 		[false; 2]
 	};
+	// The share encodes one codec; the stream advertises exactly that one and refuses a session
+	// that negotiates anything else.
+	let send_codec = sending_codec(video.as_ref());
+	let rtx_payload_type = match send_codec {
+		Codec::Av1 => 106,
+		Codec::H264 | Codec::H265 => 102,
+	};
+	// Which codec this stream puts on the wire is the first thing to know when a viewer reports
+	// that it never saw a picture.
+	if video.is_some() && crate::diagnostics::enabled() {
+		eprintln!(
+			"[Serein voice Stream] codec={} payload={} rtx={rtx_payload_type}",
+			match send_codec {
+				Codec::Av1 => "AV1",
+				Codec::H264 => "H.264",
+				Codec::H265 => "H.265",
+			},
+			match send_codec {
+				Codec::Av1 => 105,
+				Codec::H264 | Codec::H265 => 101,
+			},
+		);
+	}
+	let mut first_video_frame = video.is_some();
 	let mut receivers = Receivers::default();
 	let mut metrics = crate::diagnostics::Metrics::new(if video.is_some() {
 		crate::diagnostics::Scope::StreamSend
@@ -1572,7 +1628,7 @@ async fn run_stream_inner(
 				let start=metrics.start();
 				let now=Instant::now();
 				if history.has_pending() && outgoing.allow_repair(now,rate.target)
-					&& let Some(packet)=history.repair(rtx_ssrc,&mut rtx_sequence,now) {
+					&& let Some(packet)=history.repair(rtx_ssrc,&mut rtx_sequence,now,rtx_payload_type) {
 					// The original DAVE ciphertext is reused; the transport nonce is always fresh.
 					udp_failures.send(socket,&crypto.seal(&packet.header,&packet.payload)?,"Stream retransmission failed")?;
 				}
@@ -1776,9 +1832,21 @@ async fn run_stream_inner(
 				if !secure {awaiting_keyframe=true;invalidate_stream(&mut video, &mut share_audio);continue;}
 				if awaiting_keyframe && !frame.keyframe {continue;}
 				let start=metrics.start();
-				let normalized=crate::video_sps::normalize(&frame.data)?;
-				let encrypted=dave.session.encrypt(davey::MediaType::VIDEO,davey::Codec::H264,&normalized).map_err(|_|"DAVE H264 encryption failed")?;
-				let packets=crate::video::packetize(&encrypted,&mut sequence,frame.timestamp,video_ssrc)?;
+				let (normalized,dave_codec)=match send_codec {
+					Codec::Av1 => (std::borrow::Cow::Owned(crate::video::av1_sender_frame(&frame.data)?),davey::Codec::AV1),
+					Codec::H264|Codec::H265 => (crate::video_sps::normalize(&frame.data)?,davey::Codec::H264),
+				};
+				let encrypted=dave.session.encrypt(davey::MediaType::VIDEO,dave_codec,&normalized).map_err(|_|"DAVE video encryption failed")?;
+				let packets=match send_codec {
+					Codec::Av1 => crate::video::packetize_av1(&encrypted,&mut sequence,frame.timestamp,video_ssrc)?,
+					Codec::H264|Codec::H265 => crate::video::packetize(&encrypted,&mut sequence,frame.timestamp,video_ssrc)?,
+				};
+				if first_video_frame {
+					first_video_frame=false;
+					if crate::diagnostics::enabled() {
+						eprintln!("[Serein voice Stream] first frame bytes={} keyframe={} packets={}", frame.data.len(), frame.keyframe, packets.len());
+					}
+				}
 				outgoing.queue(packets,Instant::now());
 				outgoing_keyframe=frame.keyframe;
 				metrics.finish(crate::diagnostics::Stage::VideoSend,start);
@@ -1788,7 +1856,7 @@ async fn run_stream_inner(
 				let received_at=Instant::now().into_std();
 				if discovering {
 					let (address,port)=discovery(&packet[..length],audio_ssrc)?;
-					json_send(&mut ws,json!({"op":1,"d":{"protocol":"udp","data":{"address":address.to_string(),"port":port,"mode":MODE},"codecs":stream_codecs(video.is_some(),decoder.is_some(),hevc,av1)}})).await?;
+					json_send(&mut ws,json!({"op":1,"d":{"protocol":"udp","data":{"address":address.to_string(),"port":port,"mode":MODE},"codecs":stream_codecs(video.as_ref().map(|_|send_codec),decoder.is_some(),hevc,av1)}})).await?;
 					discovering=false;
 					continue;
 				}
@@ -1878,7 +1946,8 @@ async fn run_stream_inner(
 							},
 							4=>{
 								if encryption.is_some()||udp.is_none()||discovering{return Err("Unexpected stream session description");}
-								let codec=stream_codec(data,hevc,av1).ok_or("Discord selected an unavailable stream codec")?;
+								let codec=stream_codec(data,hevc,av1,send_codec).ok_or("Discord selected an unavailable stream codec")?;
+								if video.is_some() && codec != send_codec { return Err("Discord selected a different stream codec"); }
 								if data["mode"].as_str()!=Some(MODE)||data["dave_protocol_version"].as_u64()!=Some(1){return Err("Discord did not negotiate encrypted stream media");}
 								metrics.video(match codec {Codec::H265=>Video::SessionH265,Codec::Av1=>Video::SessionAv1,Codec::H264=>Video::SessionH264},1);
 								let values=data["secret_key"].take();let values=values.as_array().ok_or("Missing stream transport key")?;if values.len()!=32{return Err("Invalid stream transport key");}
@@ -1888,7 +1957,8 @@ async fn run_stream_inner(
 							14=>{
 								if encryption.is_none() {return Err("Stream codec update preceded session description");}
 								if data.get("video_codec").is_some() {
-									let codec=stream_codec(data,hevc,av1).ok_or("Discord selected an unavailable stream codec")?;
+									let codec=stream_codec(data,hevc,av1,send_codec).ok_or("Discord selected an unavailable stream codec")?;
+								if video.is_some() && codec != send_codec { return Err("Discord selected a different stream codec"); }
 									metrics.video(match codec {Codec::H265=>Video::SessionH265,Codec::Av1=>Video::SessionAv1,Codec::H264=>Video::SessionH264},1);
 								}
 							},
@@ -1949,66 +2019,88 @@ mod tests {
 		assert!(video.accepts(&frame(4, true)));
 	}
 	#[test]
-	fn stream_negotiation_advertises_only_available_receive_codecs_and_keeps_h264_senders() {
-		for (sending, receiving, available) in [
-			(false, true, true),
-			(false, true, false),
-			(true, true, true),
-			(false, false, true),
-		] {
-			let codecs = stream_codecs(sending, receiving, available, false);
-			let hevc = codecs.iter().find(|c| c["name"] == "H265");
-			assert_eq!(hevc.is_some(), available && receiving && !sending);
-			if let Some(hevc) = hevc {
-				assert_eq!(hevc["encode"], false);
-				assert!(
-					hevc["priority"].as_u64().unwrap()
-						< codecs.iter().find(|c| c["name"] == "H264").unwrap()["priority"]
-							.as_u64()
-							.unwrap()
-				);
-			}
-			let offered = hevc.is_some();
+	fn stream_negotiation_advertises_the_codec_it_sends_and_only_available_receive_codecs() {
+		// A receive-only session lists every codec this build can decode, best first.
+		for (hevc, av1) in [(true, false), (false, false), (true, true)] {
+			let codecs = stream_codecs(None, true, hevc, av1);
+			assert_eq!(codecs[0]["name"], "opus");
+			assert_eq!(codecs.iter().any(|codec| codec["name"] == "H265"), hevc);
+			let h264 = codecs
+				.iter()
+				.find(|codec| codec["name"] == "H264")
+				.expect("H.264");
 			assert_eq!(
-				stream_codec(&json!({"video_codec":"H265"}), offered, false),
-				offered.then_some(Codec::H265)
+				(&h264["encode"], &h264["decode"]),
+				(&json!(false), &json!(true))
 			);
 			assert_eq!(
-				stream_codec(&json!({"video_codec":"H264"}), offered, false),
+				stream_codec(&json!({"video_codec":"H264"}), hevc, av1, Codec::H264),
 				Some(Codec::H264)
 			);
 			assert_eq!(
-				stream_codec(&json!({"video_codec":"AV1"}), offered, false),
-				None
+				stream_codec(&json!({"video_codec":"H265"}), hevc, av1, Codec::H264),
+				hevc.then_some(Codec::H265)
 			);
-			assert_eq!(stream_codec(&json!({"sdp":"H265"}), offered, false), None);
-			let codecs = stream_codecs(sending, receiving, available, available);
-			let av1 = codecs.iter().find(|c| c["name"] == "AV1");
-			assert_eq!(av1.is_some(), available && receiving && !sending);
-			if let Some(codec) = av1 {
-				assert_eq!(codec["encode"], false);
-				assert!(
-					codec["priority"].as_u64().unwrap()
-						< codecs.iter().find(|c| c["name"] == "H265").unwrap()["priority"]
-							.as_u64()
-							.unwrap()
-				);
-				assert_eq!(
-					stream_codec(&json!({"video_codec":"AV1X"}), false, true),
-					Some(Codec::Av1)
-				);
-			}
 			assert_eq!(
-				stream_codec(&json!({"video_codec":"H265"}), false, true),
-				None
+				stream_codec(&json!({"video_codec":"AV1"}), hevc, av1, Codec::H264),
+				av1.then_some(Codec::Av1)
 			);
+			if av1 {
+				let av1 = codecs
+					.iter()
+					.find(|codec| codec["name"] == "AV1")
+					.expect("AV1");
+				assert_eq!(
+					(&av1["encode"], &av1["decode"]),
+					(&json!(false), &json!(true))
+				);
+				assert!(av1["priority"].as_u64() < h264["priority"].as_u64());
+			}
 		}
+		// A sending session offers its own codec for encoding; the other one stays decode-only.
+		let codecs = stream_codecs(Some(Codec::Av1), false, false, false);
+		let av1 = codecs
+			.iter()
+			.find(|codec| codec["name"] == "AV1")
+			.expect("AV1");
+		assert_eq!(
+			(&av1["encode"], &av1["decode"]),
+			(&json!(true), &json!(false))
+		);
+		let h264 = codecs
+			.iter()
+			.find(|codec| codec["name"] == "H264")
+			.expect("H.264");
+		assert_eq!(h264["encode"], json!(false));
+		assert!(av1["priority"].as_u64() < h264["priority"].as_u64());
+		assert_eq!(
+			stream_codec(&json!({"video_codec":"AV1"}), false, false, Codec::Av1),
+			Some(Codec::Av1)
+		);
+		assert_eq!(
+			stream_codec(&json!({"video_codec":"AV1X"}), false, false, Codec::Av1),
+			Some(Codec::Av1)
+		);
+		// Without an AV1 decoder a session still accepts the codec it encodes.
+		assert_eq!(
+			stream_codec(&json!({"video_codec":"AV1"}), false, false, Codec::H264),
+			None
+		);
+		let codecs = stream_codecs(Some(Codec::H264), false, false, false);
+		assert_eq!(
+			codecs
+				.iter()
+				.find(|codec| codec["name"] == "H264")
+				.expect("H.264")["encode"],
+			json!(true)
+		);
+		assert!(!codecs.iter().any(|codec| codec["name"] == "AV1"));
 	}
 
 	#[test]
 	fn incoming_hevc_uses_its_payload_independently_of_h264_session_selection_and_other_sources() {
 		assert_eq!(
-			stream_codec(&json!({"video_codec":"H264"}), true, false),
+			stream_codec(&json!({"video_codec":"H264"}), true, false, Codec::H264),
 			Some(Codec::H264)
 		);
 		let mut receivers = Receivers::default();
@@ -2166,7 +2258,7 @@ mod tests {
 			test_mls::Delivery,
 		};
 		assert_eq!(
-			stream_codec(&json!({"video_codec":"H264"}), true, false),
+			stream_codec(&json!({"video_codec":"H264"}), true, false, Codec::H264),
 			Some(Codec::H264)
 		);
 		let delivery = Delivery::new();
@@ -2761,6 +2853,7 @@ mod tests {
 				cursor: true,
 				audio: true,
 			},
+			codec: crate::screen::StreamCodec::H264,
 			max_bitrate: 4_000_000,
 			frames,
 			ready: Arc::new(AtomicBool::new(true)),

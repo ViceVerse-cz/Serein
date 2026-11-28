@@ -112,7 +112,7 @@ pub(super) fn run() {
 	let mut rtx_sequence = u16::MAX;
 	let mut repaired = None;
 	for (index, original) in feedback.nacks.iter().enumerate() {
-		let packet = history.repair(43, &mut rtx_sequence, now).unwrap();
+		let packet = history.repair(43, &mut rtx_sequence, now, 102).unwrap();
 		let wire = crypto.seal(&packet.header, &packet.payload).unwrap();
 		assert!(wire.len() <= 1200);
 		let mut rtp = crypto.open(&wire).unwrap();
@@ -137,7 +137,7 @@ pub(super) fn run() {
 	history.request(&[0], now + Duration::from_millis(50));
 	assert!(
 		history
-			.repair(43, &mut rtx_sequence, now + Duration::from_millis(50))
+			.repair(43, &mut rtx_sequence, now + Duration::from_millis(50), 102)
 			.is_some()
 	);
 	assert!(history.request(&[0], now + Duration::from_millis(100))); // Exhausted retries need IDR.
@@ -146,7 +146,7 @@ pub(super) fn run() {
 	history.remember(packet(8, 2), now);
 	history.request(&[8], now);
 	history.clear();
-	assert!(!history.has_pending() && history.repair(43, &mut rtx_sequence, now).is_none());
+	assert!(!history.has_pending() && history.repair(43, &mut rtx_sequence, now, 102).is_none());
 	assert!(history.request(&[8], now));
 
 	for sequence in 0..2050 {
@@ -166,7 +166,7 @@ pub(super) fn run() {
 	}
 	history.request(&(0..200).collect::<Vec<_>>(), now);
 	let mut repairs = 0;
-	while history.repair(43, &mut rtx_sequence, now).is_some() {
+	while history.repair(43, &mut rtx_sequence, now, 102).is_some() {
 		repairs += 1;
 	}
 	assert_eq!(repairs, 128);
@@ -176,7 +176,12 @@ pub(super) fn run() {
 	history.remember(packet(2, 2), now + Duration::from_millis(900));
 	history.request(&[2], now + Duration::from_millis(900));
 	let fresh = history
-		.repair(43, &mut rtx_sequence, now + Duration::from_millis(1100))
+		.repair(
+			43,
+			&mut rtx_sequence,
+			now + Duration::from_millis(1100),
+			102,
+		)
 		.unwrap();
 	assert_eq!(&fresh.payload[..2], &2u16.to_be_bytes()); // Expired head cannot block fresh repairs.
 
