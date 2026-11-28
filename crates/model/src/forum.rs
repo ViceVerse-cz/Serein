@@ -106,12 +106,16 @@ pub struct Page {
 	pub more: bool,
 	/// The starter message of each listed post, when the service sent one.
 	pub previews: Vec<(Id, Starter)>,
+	/// Listed posts pinned to the top of the forum. Each row states its flags, so a
+	/// listed post missing here is not pinned.
+	pub pinned: Vec<Id>,
 }
 impl Page {
 	pub fn bytes(&self) -> usize {
 		self.threads.capacity().saturating_sub(self.threads.len()) * size_of::<Channel>()
 			+ self.threads.iter().map(Channel::bytes).sum::<usize>()
 			+ self.previews.capacity() * size_of::<Id>()
+			+ self.pinned.capacity() * size_of::<Id>()
 			+ self
 				.previews
 				.iter()
@@ -135,7 +139,11 @@ impl Page {
 			}) && self.previews.len() <= self.threads.len()
 			&& self.previews.iter().all(|(id, starter)| {
 				starter.valid() && self.threads.iter().any(|thread| thread.id == *id)
-			})
+			}) && self.pinned.len() <= self.threads.len()
+			&& self
+				.pinned
+				.iter()
+				.all(|id| self.threads.iter().any(|thread| thread.id == *id))
 	}
 }
 

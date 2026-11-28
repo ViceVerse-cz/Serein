@@ -51,6 +51,7 @@ pub fn check_sidebar() {
 			threads: vec![post.clone()],
 			more: true,
 			previews: vec![],
+			pinned: vec![],
 		}),
 	);
 	assert!(sidebar.posts.error.is_none());
@@ -69,6 +70,7 @@ pub fn check_sidebar() {
 			threads: vec![],
 			more: false,
 			previews: vec![],
+			pinned: vec![],
 		}),
 	);
 	assert!(sidebar.request_sidebar_forum_posts(post.guild).is_none());

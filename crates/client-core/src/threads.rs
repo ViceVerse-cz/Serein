@@ -133,6 +133,15 @@ impl State {
 			}) {
 				continue;
 			}
+			// The forum page in flight is older than this pin, so it must not overwrite it.
+			if change.pinned.is_some()
+				&& self.posts.loading
+				&& self.posts.parent.is_some()
+				&& self.channel(change.id).and_then(|thread| thread.parent_id) == self.posts.parent
+				&& self.posts.pin_updates.len() < model::forum::MAX_POSTS
+			{
+				self.posts.pin_updates.insert(change.id);
+			}
 			self.thread_info
 				.entry(change.id)
 				.or_default()
