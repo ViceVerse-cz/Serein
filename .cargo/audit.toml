@@ -13,14 +13,16 @@ ignore = [
     "RUSTSEC-2026-0370", # zvariant
     "RUSTSEC-2026-0371", # zbus_names
     "RUSTSEC-2026-0372", # zvariant_derive
-    "RUSTSEC-2026-0387", # crypto-bigint (transitive via davey/elliptic-curve 0.13)
-    "RUSTSEC-2026-0385", # ctutils (transitive via crypto-bigint)
-    "RUSTSEC-2026-0414", # pulldown-cmark (pinned in crates/ui/Cargo.toml)
-    "RUSTSEC-2026-0382", # rustls-webpki (transitive)
-    "RUSTSEC-2026-0383", # webpki-root-certs (transitive)
-    "RUSTSEC-2026-0381", # webpki-roots (transitive)
-    "RUSTSEC-2026-0386", # tokio (AsyncFd soundness advisory)
+    # crypto-bigint 0.5.5 has secret-dependent timing in operations meant to be constant-time.
+    # It arrives only through elliptic-curve 0.13 (p256/p384/k256) under davey, openmls and
+    # hpke-rs-rust-crypto, i.e. DAVE voice E2EE signing and key agreement. The fix (>= 0.7.6)
+    # needs the elliptic-curve 0.14 stack, which those crates do not support yet; there is no
+    # compatible patch release. Exploiting it requires precise timing of local signing operations.
+    # Re-check when davey/openmls move to elliptic-curve 0.14.
+    "RUSTSEC-2026-0387",
 ]
 
 [yanked]
-enabled = false
+# Yanked crates are often withdrawn for soundness bugs (e.g. wasmi 2.0.0-2.0.2 and
+# async-executor 1.14.0), so report them.
+enabled = true

@@ -43,10 +43,11 @@ P-256 signing-key generation and MLS key-package validation in `crates/discord-v
 path arrives via `davey` -> `p256 0.13` -> `elliptic-curve` -> `crypto-bigint`; the MLS path arrives
 via `openmls` -> `openmls_rust_crypto` -> `hpke-rs-rust-crypto` -> `p256 0.13` / `p384 0.13`. The upstream
 dependencies have not yet migrated to `crypto-bigint >=0.7.6`. The voice subsystem owner maintains
-this acceptance until both paths use compatible patched releases. Additional ignores in `.cargo/audit.toml`
-cover transitive advisories inherited from upstream (RUSTSEC-2026-0385, RUSTSEC-2026-0381, RUSTSEC-2026-0382,
-RUSTSEC-2026-0383, and RUSTSEC-2026-0386). The policy also retains the older
-RUSTSEC-2026-0414 exception for `pulldown-cmark`.
+this acceptance until both paths use compatible patched releases. This is the only vulnerability
+exception. The other ignores in `.cargo/audit.toml` are informational "unmaintained" notices for
+transitive crates without an independent update path: `ttf-parser` (RUSTSEC-2026-0192, via
+`winit` -> `sctk-adwaita` -> `ab_glyph` -> `owned_ttf_parser`, so a newer egui pin does not remove
+it) and `zvariant`, `zbus_names` and `zvariant_derive` (RUSTSEC-2026-0370 to -0372, via zbus 5). The audit also reports yanked crates, so a withdrawn release shows up as a warning.
 
 The direct `pulldown-cmark` pin is now 0.13.6, addressing RUSTSEC-2026-0433's quadratic
 nested-image wikilink parsing. Serein uses the default parser or enables only strikethrough;

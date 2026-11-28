@@ -9,7 +9,7 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 url.workspace = true
-wasmi = { version = "=2.0.0", default-features = false, features = ["std", "validate", "stable", "portable-dispatch"] }
+wasmi = { version = "=2.0.3", default-features = false, features = ["std", "validate", "stable", "portable-dispatch"] }
 
 [dev-dependencies]
 serein-extension-sdk = { path = "../../extensions/sdk" }
