@@ -417,14 +417,37 @@ fn queue_sound(
 		Err(mpsc::TrySendError::Disconnected(_)) => false,
 	}
 }
-/// Retries the message a full queue refused; a call that ended drops it.
+/// Whether this frame's call state lets a sound reach the outgoing stream.
+///
+/// The transport's gate is published from the same fields later in the poll, so the retry must be
+/// judged here rather than by the value the previous poll left in the watch channel.
+fn sound_gate(state: &State) -> bool {
+	let Some(call) = state.voice.active.as_ref() else {
+		return false;
+	};
+	sound_gate_open(
+		call.deafened || call.server_deafened,
+		state.can_speak(call.channel),
+		call.server_muted,
+	)
+}
+/// The gate itself: deafening, a lost speaking permission or a server mute closes it.
+fn sound_gate_open(deafened: bool, can_speak: bool, server_muted: bool) -> bool {
+	!deafened && can_speak && !server_muted
+}
+/// Retries the message a full queue refused; a closed gate or an ended call drops it.
 fn flush_sound(
 	sound: &mpsc::SyncSender<discord_voice::soundboard::Message>,
 	pending: &mut Option<discord_voice::soundboard::Message>,
+	gate_open: bool,
 ) {
 	let Some(message) = pending.take() else {
 		return;
 	};
+	if !gate_open {
+		// A request made while the gate was closed never plays after it reopens.
+		return;
+	}
 	if let Err(mpsc::TrySendError::Full(message)) = sound.try_send(message) {
 		*pending = Some(message);
 	}
@@ -1213,7 +1236,7 @@ impl Voice {
 		queue_sound(&sound, &mut self.pending_sound, message)
 	}
 	/// Retries a message the call's queue refused while it was busy.
-	fn flush_sound(&mut self) {
+	fn flush_sound(&mut self, gate_open: bool) {
 		let Some(live) = self.live.as_ref() else {
 			self.pending_sound = None;
 			return;
@@ -1221,16 +1244,8 @@ impl Voice {
 		// A retained request is outside the call's queue, so the transport's closed-gate rule
 		// cannot reach it: drop it here instead of playing it once the gate reopens. A clip that
 		// was already playing is cleared by the same gate, so both sides agree.
-		let gate_closed = {
-			let controls = live.controls.borrow();
-			controls.deafened || !controls.sound
-		};
-		if gate_closed {
-			self.pending_sound = None;
-			return;
-		}
 		let sound = live.sound.clone();
-		flush_sound(&sound, &mut self.pending_sound);
+		flush_sound(&sound, &mut self.pending_sound, gate_open);
 	}
 	pub fn poll(
 		&mut self,
@@ -1240,7 +1255,7 @@ impl Voice {
 		ctx: &egui::Context,
 	) -> Option<Command> {
 		self.reap();
-		self.flush_sound();
+		self.flush_sound(sound_gate(state));
 		self.poll_soundboard(ui, ctx);
 		// A sound plays only through a live call; retiring or replacing the transport ends it.
 		if self.live.is_none() {
@@ -2616,13 +2631,13 @@ mod tests {
 		// cannot start after the stop.
 		assert!(queue_sound(&sound, &mut pending, Message::Stop));
 		assert!(matches!(pending, Some(Message::Stop)));
-		flush_sound(&sound, &mut pending);
+		flush_sound(&sound, &mut pending, true);
 		assert!(matches!(pending, Some(Message::Stop)));
 		assert!(matches!(
 			received.try_recv().unwrap(),
 			Message::Play { id: 1, .. }
 		));
-		flush_sound(&sound, &mut pending);
+		flush_sound(&sound, &mut pending, true);
 		assert!(matches!(received.try_recv().unwrap(), Message::Stop));
 		assert!(pending.is_none());
 		// A newer play is the caller's latest intent and supersedes a waiting stop.
@@ -2631,11 +2646,46 @@ mod tests {
 		assert!(matches!(pending, Some(Message::Play { id: 3, .. })));
 		// The queued stop drains first; the waiting play follows on the next flush.
 		assert!(matches!(received.try_recv().unwrap(), Message::Stop));
-		flush_sound(&sound, &mut pending);
+		flush_sound(&sound, &mut pending, true);
 		assert!(pending.is_none());
 		assert!(matches!(
 			received.try_recv().unwrap(),
 			Message::Play { id: 3, .. }
+		));
+	}
+
+	#[test]
+	fn a_retained_sound_is_dropped_when_the_gate_closes_this_frame() {
+		use discord_voice::soundboard::Message;
+		assert!(!sound_gate(&test_support::demo_state()), "no call, no gate");
+		// The poll reads this frame's gate from the call fields, not from the value the previous
+		// poll published into the watch channel.
+		assert!(sound_gate_open(false, true, false));
+		assert!(!sound_gate_open(true, true, false), "deafened");
+		assert!(
+			!sound_gate_open(false, false, false),
+			"no speaking permission"
+		);
+		assert!(!sound_gate_open(false, true, true), "server mute");
+		let (sound, received) = mpsc::sync_channel(1);
+		let retained = || {
+			Some(Message::Play {
+				id: 7,
+				samples: Vec::new().into(),
+			})
+		};
+		// Deafened this frame: the retained play never reaches the call and is dropped.
+		let mut pending = retained();
+		flush_sound(&sound, &mut pending, sound_gate_open(true, true, false));
+		assert!(pending.is_none());
+		assert!(received.try_recv().is_err(), "nothing reached the call");
+		// An open gate retries it instead of dropping it.
+		let mut pending = retained();
+		flush_sound(&sound, &mut pending, sound_gate_open(false, true, false));
+		assert!(pending.is_none());
+		assert!(matches!(
+			received.try_recv().unwrap(),
+			Message::Play { id: 7, .. }
 		));
 	}
 
