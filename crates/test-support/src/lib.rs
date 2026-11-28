@@ -1469,6 +1469,89 @@ pub fn video_demo_state() -> State {
 	state
 }
 
+/// Offline playable link embeds: a SoundCloud-shaped `video` card whose video is the hosted
+/// player page and whose thumbnail is the square track artwork, and an `audio` card for a
+/// plain link to an audio file. Nothing in them is real: the demo player substitutes a
+/// bundled clip when a card is played.
+pub fn soundcloud_demo_state() -> State {
+	let mut state = chat_demo_state();
+	state.timeline.clear();
+	let mut message = message(603, Id(20));
+	message.content = "https://soundcloud.com/synthetic-artist/synthetic-track".into();
+	message.attachments.clear();
+	message.embeds = vec![Embed {
+		kind: "video".into(),
+		title: Some("Synthetic track (prod synthetic)".into()),
+		description: Some(
+			"@synthetic @example\n\nfirst line of a synthetic caption\nsecond line of a synthetic caption\nthird line that keeps the card's text short\nfourth line before the service truncates it\nfifth line of the synthetic caption\nsixth line of the synthetic ca"
+				.into(),
+		),
+		url: Some("https://soundcloud.com/synthetic-artist/synthetic-track".into()),
+		author: Some(EmbedAuthor {
+			name: "synthetic-artist".into(),
+			url: Some("https://soundcloud.com/synthetic-artist".into()),
+			..Default::default()
+		}),
+		provider: Some(EmbedAuthor {
+			name: "SoundCloud".into(),
+			url: Some("https://soundcloud.com/".into()),
+			..Default::default()
+		}),
+		thumbnail: Some(EmbedMedia {
+			url: Some("https://cdn.example.com/synthetic/artwork-t500x500.jpg".into()),
+			proxy_url: Some(
+				"https://images-ext-1.discordapp.net/external/syntheticartworkhash/https/cdn.example.com/synthetic/artwork-t500x500.jpg".into(),
+			),
+			width: 500,
+			height: 500,
+			..Default::default()
+		}),
+		video: Some(EmbedMedia {
+			url: Some(
+				"https://w.soundcloud.com/player/?url=https%3A%2F%2Fapi.soundcloud.com%2Ftracks%2Fsoundcloud%253Atracks%253A1000000001&auto_play=false&show_artwork=true&visual=true&origin=twitter".into(),
+			),
+			width: 435,
+			height: 400,
+			..Default::default()
+		}),
+		..Default::default()
+	}];
+	let mut link = crate::message(604, Id(20));
+	link.content = "https://cdn.example.com/synthetic/synthetic-mix.mp3".into();
+	link.attachments.clear();
+	link.embeds = vec![Embed {
+		kind: "audio".into(),
+		title: Some("Synthetic mix".into()),
+		description: Some("A synthetic audio file served over a plain link.".into()),
+		url: Some("https://cdn.example.com/synthetic/synthetic-mix.mp3".into()),
+		provider: Some(EmbedAuthor {
+			name: "cdn.example.com".into(),
+			..Default::default()
+		}),
+		thumbnail: Some(EmbedMedia {
+			url: Some("https://cdn.example.com/synthetic/mix-cover.jpg".into()),
+			proxy_url: Some(
+				"https://images-ext-1.discordapp.net/external/syntheticmixhash/https/cdn.example.com/synthetic/mix-cover.jpg".into(),
+			),
+			width: 640,
+			height: 640,
+			..Default::default()
+		}),
+		audio: Some(EmbedMedia {
+			url: Some("https://cdn.example.com/synthetic/synthetic-mix.mp3".into()),
+			proxy_url: Some(
+				"https://media.discordapp.net/external/syntheticmixhash/https/cdn.example.com/synthetic/synthetic-mix.mp3".into(),
+			),
+			..Default::default()
+		}),
+		..Default::default()
+	}];
+	state.timeline.insert(link, false, false).unwrap();
+	state.timeline.insert(message, false, false).unwrap();
+	state.revision += 1;
+	state
+}
+
 /// Offline friends overview using existing synthetic relationship data.
 pub fn friends_demo_state() -> State {
 	let mut state = demo_state();

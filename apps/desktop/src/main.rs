@@ -1810,6 +1810,8 @@ impl Desktop {
 					)
 				}) {
 					test_support::video_demo_state()
+				} else if std::env::args().any(|arg| arg == "--demo-soundcloud") {
+					test_support::soundcloud_demo_state()
 				} else if std::env::args().any(|arg| arg == "--demo-friends") {
 					test_support::friends_demo_state()
 				} else if std::env::args().any(|arg| arg == "--demo-system-messages") {
@@ -6063,17 +6065,31 @@ fn media_stop(active: bool, hidden_or_closing: bool, minimized: bool) -> MediaSt
 	}
 }
 
-/// Whether the audio player's message still renders its attachment card the way
-/// the timeline would: a retained deleted message keeps its card and playback,
-/// while a removed row or an edited-away attachment does not.
+/// Whether the audio player's message still renders the card the timeline would: a retained
+/// deleted message keeps its card and playback, while a removed row, an edited-away
+/// attachment or an edited-away SoundCloud link does not.
 fn audio_attachment_rendered(
 	state: &State,
 	channel: model::Id,
 	id: model::Id,
 	attachment: &model::Attachment,
+	origin: ui::AudioOrigin,
 ) -> bool {
 	state.timeline.get_display(id).is_some_and(|message| {
-		message.channel == channel && message.attachments.iter().any(|a| a == attachment)
+		message.channel == channel
+			&& match origin {
+				ui::AudioOrigin::Attachment => message.attachments.contains(attachment),
+				// The card is derived again from the message, so an edited or suppressed
+				// embed ends playback like a removed attachment.
+				ui::AudioOrigin::Embed => {
+					!message.embeds_suppressed
+						&& message.embeds.iter().any(|embed| {
+							ui::soundcloud_track(embed)
+								.or_else(|| ui::audio_link(embed))
+								.is_some_and(|clip| clip == *attachment)
+						})
+				}
+			}
 	})
 }
 
@@ -6533,6 +6549,7 @@ impl eframe::App for Desktop {
 		// pass to notice it. A retained deleted message keeps its card and playback.
 		// Audio started from a search or pin card was never in the timeline, so its
 		// absence there says nothing; the ui pass's visibility check covers it.
+		let audio_origin = self.messaging.audio().origin;
 		if self.audio_in_timeline
 			&& self
 				.messaging
@@ -6540,7 +6557,7 @@ impl eframe::App for Desktop {
 				.active
 				.as_ref()
 				.is_some_and(|(channel, id, attachment)| {
-					!audio_attachment_rendered(&self.state, *channel, *id, attachment)
+					!audio_attachment_rendered(&self.state, *channel, *id, attachment, audio_origin)
 				}) {
 			self.audio.stop();
 			self.messaging.audio().stop();
@@ -7127,6 +7144,7 @@ impl eframe::App for Desktop {
 						self.audio.volume(player.volume);
 						if let Err(error) = self.audio.start(
 							attachment,
+							player.origin,
 							self.runtime.handle(),
 							&ctx,
 							self.fixture_only || self.state.demo,
@@ -7142,13 +7160,20 @@ impl eframe::App for Desktop {
 					ui::AudioCommand::Stop => self.audio.stop(),
 				}
 			}
+			let audio_origin = self.messaging.audio().origin;
 			self.audio_in_timeline =
 				self.messaging
 					.audio()
 					.active
 					.as_ref()
 					.is_some_and(|(channel, id, attachment)| {
-						audio_attachment_rendered(&self.state, *channel, *id, attachment)
+						audio_attachment_rendered(
+							&self.state,
+							*channel,
+							*id,
+							attachment,
+							audio_origin,
+						)
 					});
 			let player = self.messaging.video();
 			if self.state.demo
@@ -7900,10 +7925,17 @@ mod tests {
 			&state,
 			channel,
 			message,
-			&attachment
+			&attachment,
+			ui::AudioOrigin::Attachment
 		));
 		// Another message's attachment never keeps the player alive.
-		assert!(!audio_attachment_rendered(&state, channel, message, &other));
+		assert!(!audio_attachment_rendered(
+			&state,
+			channel,
+			message,
+			&other,
+			ui::AudioOrigin::Attachment
+		));
 		// A retained deleted message keeps its card, so playback continues.
 		state.set_preserve_deleted_messages(true);
 		state.apply(Envelope {
@@ -7918,7 +7950,8 @@ mod tests {
 			&state,
 			channel,
 			message,
-			&attachment
+			&attachment,
+			ui::AudioOrigin::Attachment
 		));
 		// Dropping the retained payload removes the card with it.
 		state.set_preserve_deleted_messages(false);
@@ -7926,7 +7959,25 @@ mod tests {
 			&state,
 			channel,
 			message,
-			&attachment
+			&attachment,
+			ui::AudioOrigin::Attachment
+		));
+		// A SoundCloud card plays by its embed: it is no attachment, and an edited-away link
+		// ends it like a removed attachment.
+		let mut state = test_support::soundcloud_demo_state();
+		let message = state.timeline.get(model::Id(603)).cloned().unwrap();
+		let (channel, id) = (message.channel, message.id);
+		let clip = ui::soundcloud_track(&message.embeds[0]).unwrap();
+		let (embed, attachment) = (ui::AudioOrigin::Embed, ui::AudioOrigin::Attachment);
+		assert!(audio_attachment_rendered(&state, channel, id, &clip, embed));
+		assert!(!audio_attachment_rendered(
+			&state, channel, id, &clip, attachment
+		));
+		let mut edited = message.clone();
+		edited.embeds.clear();
+		state.timeline.insert(edited, false, false).unwrap();
+		assert!(!audio_attachment_rendered(
+			&state, channel, id, &clip, embed
 		));
 	}
 	#[cfg(feature = "demo")]

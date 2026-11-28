@@ -18,8 +18,19 @@ pub enum AudioCommand {
 	Volume(f32),
 	Stop,
 }
+/// Where the played audio comes from; the desktop admits its source by it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum AudioOrigin {
+	/// A message attachment on Discord's CDN.
+	#[default]
+	Attachment,
+	/// A SoundCloud track named by a link embed, streamed from SoundCloud.
+	Embed,
+}
 pub struct AudioUi {
 	pub active: Option<(Id, Id, Attachment)>,
+	/// Origin of [`Self::active`].
+	pub origin: AudioOrigin,
 	pub state: AudioState,
 	pub position: f64,
 	pub duration: f64,
@@ -31,6 +42,7 @@ impl Default for AudioUi {
 	fn default() -> Self {
 		Self {
 			active: None,
+			origin: AudioOrigin::Attachment,
 			state: AudioState::Idle,
 			position: 0.0,
 			duration: 0.0,
@@ -46,11 +58,62 @@ impl AudioUi {
 		self.state = AudioState::Idle;
 		self.command = Some(AudioCommand::Stop);
 	}
+
+	/// Starts, pauses, resumes, cancels or retries `attachment`, as its own button does.
+	pub fn toggle(
+		&mut self,
+		message: &Message,
+		attachment: &Attachment,
+		origin: AudioOrigin,
+		state: AudioState,
+	) {
+		self.command = Some(match state {
+			AudioState::Loading => {
+				self.active = None;
+				AudioCommand::Stop
+			}
+			AudioState::Playing => AudioCommand::Pause(true),
+			AudioState::Paused => AudioCommand::Pause(false),
+			_ => {
+				self.active = Some((message.channel, message.id, attachment.clone()));
+				self.origin = origin;
+				self.state = AudioState::Loading;
+				self.position = 0.0;
+				self.duration = 0.0;
+				AudioCommand::Play(attachment.clone())
+			}
+		});
+	}
+	/// Whether this player holds `attachment` from `origin`.
+	pub fn holds(&self, message: &Message, attachment: &Attachment, origin: AudioOrigin) -> bool {
+		self.origin == origin
+			&& self.active.as_ref().is_some_and(|(channel, id, file)| {
+				*channel == message.channel && *id == message.id && file == attachment
+			})
+	}
+	/// Keeps a player whose controls lie at `rect` on screen alive, and its progress repainting.
+	pub fn watch(
+		&mut self,
+		ui: &egui::Ui,
+		rect: egui::Rect,
+		message: &Message,
+		attachment: &Attachment,
+		origin: AudioOrigin,
+	) {
+		if ui.is_rect_visible(rect) && self.holds(message, attachment, origin) {
+			self.seen = true;
+			if matches!(self.state, AudioState::Playing | AudioState::Loading) {
+				ui.ctx()
+					.request_repaint_after(std::time::Duration::from_millis(100));
+			}
+		}
+	}
 	pub fn show(
 		&mut self,
 		ui: &mut egui::Ui,
 		message: &Message,
 		attachment: &Attachment,
+		origin: AudioOrigin,
 	) -> egui::Response {
 		let colors = crate::design::palette(ui);
 		let voice = attachment.is_voice_message();
@@ -64,9 +127,7 @@ impl AudioUi {
 		} else {
 			colors.accent_text
 		};
-		let active = self.active.as_ref().is_some_and(|(channel, id, file)| {
-			*channel == message.channel && *id == message.id && file == attachment
-		});
+		let active = self.holds(message, attachment, origin);
 		let state = if active { self.state } else { AudioState::Idle };
 		let duration = if active && self.duration > 0.0 {
 			self.duration
@@ -99,7 +160,7 @@ impl AudioUi {
 				] {
 					widget.expansion = -6.0;
 				}
-				if !voice {
+				if !voice && origin == AudioOrigin::Attachment {
 					ui.horizontal(|ui| {
 						crate::icons::inline(
 							ui,
@@ -185,22 +246,7 @@ impl AudioUi {
 						);
 					}
 					if play.on_hover_text(&label).clicked() {
-						self.command = Some(match state {
-							AudioState::Loading => {
-								self.active = None;
-								AudioCommand::Stop
-							}
-							AudioState::Playing => AudioCommand::Pause(true),
-							AudioState::Paused => AudioCommand::Pause(false),
-							_ => {
-								self.active =
-									Some((message.channel, message.id, attachment.clone()));
-								self.state = AudioState::Loading;
-								self.position = 0.0;
-								self.duration = 0.0;
-								AudioCommand::Play(attachment.clone())
-							}
-						});
+						self.toggle(message, attachment, origin, state);
 					}
 					let mut position = if active { self.position } else { 0.0 };
 					ui.spacing_mut().slider_width = ui.available_width().max(24.0);
@@ -237,7 +283,7 @@ impl AudioUi {
 							)
 						});
 						let seek = seek.on_hover_text(crate::i18n::translate("audio-show-seek"));
-						if seek.changed() {
+						if can_seek && seek.changed() {
 							self.command = Some(AudioCommand::Seek(position));
 						}
 					}
@@ -308,16 +354,7 @@ impl AudioUi {
 					_ => {}
 				}
 			});
-		if ui.is_rect_visible(card.response.rect)
-			&& self.active.as_ref().is_some_and(|(channel, id, file)| {
-				*channel == message.channel && *id == message.id && file == attachment
-			}) {
-			self.seen = true;
-			if matches!(state, AudioState::Playing | AudioState::Loading) {
-				ui.ctx()
-					.request_repaint_after(std::time::Duration::from_millis(100));
-			}
-		}
+		self.watch(ui, card.response.rect, message, attachment, origin);
 		card.response
 	}
 }
@@ -539,7 +576,11 @@ mod tests {
 					events,
 					..Default::default()
 				},
-				|ui| card = audio.show(ui, &message, &file).rect,
+				|ui| {
+					card = audio
+						.show(ui, &message, &file, AudioOrigin::Attachment)
+						.rect
+				},
 			)
 			.drop_without_applying_deltas();
 			card

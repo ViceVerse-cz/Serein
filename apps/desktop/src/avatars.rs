@@ -1052,6 +1052,14 @@ fn proxy_base(source: &str) -> Option<url::Url> {
 	Some(url)
 }
 
+/// An audio link's proxied file: only Discord's media proxy (`/external/`) or attachment paths
+/// on Discord hosts, never the third-party origin itself.
+pub(crate) fn embed_audio_url(source: &str) -> Option<url::Url> {
+	proxy_base(source).filter(|url| {
+		url.path().starts_with("/external/") || url.path().starts_with("/attachments/")
+	})
+}
+
 fn valid_stream_key(key: &str) -> bool {
 	let mut parts = key.split(':');
 	parts.next() == Some("guild")
@@ -3281,6 +3289,18 @@ mod tests {
 				embed_url(source, ui::EMBED_EDGE).is_none(),
 				"Unsafe or unsupported test URL was accepted"
 			);
+		}
+		// Audio links stream only through Discord's proxy, never from the linked origin.
+		assert!(embed_audio_url(
+			"https://media.discordapp.net/external/abcdefghijklmnopqrstuvwxyz/https/cdn.example.com/a/mix.mp3",
+		)
+		.is_some());
+		for source in [
+			"https://cdn.example.com/a/mix.mp3",
+			"https://cdn.discordapp.com/avatars/1/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png",
+			"https://media.discordapp.net.evil.test/external/abcdefghijklmnop/https/a/b.mp3",
+		] {
+			assert!(embed_audio_url(source).is_none(), "{source}");
 		}
 		assert!(embed_url(
 			"https://cdn.discordapp.com/guilds/1/users/2/avatars/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png?size=2048",
