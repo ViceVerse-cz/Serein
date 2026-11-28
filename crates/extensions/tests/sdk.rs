@@ -546,6 +546,7 @@ fn interface_ui_is_granted_activation_panel_or_event_output_and_validated() {
 			extensions::InterfaceControl::Disconnect,
 			extensions::InterfaceControl::Mute,
 			extensions::InterfaceControl::Deafen,
+			extensions::InterfaceControl::Friends,
 			extensions::InterfaceControl::Settings,
 		],
 		size: Some(extensions::InterfaceSize {

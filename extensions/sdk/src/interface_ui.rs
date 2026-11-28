@@ -144,6 +144,8 @@ pub enum InterfaceControl {
 	Mute,
 	/// Toggle your headphones.
 	Deafen,
+	/// Open the Friends / Direct Messages list in place of the window.
+	Friends,
 	/// Open the client's settings.
 	Settings,
 }
@@ -436,6 +438,7 @@ mod tests {
 				InterfaceControl::Disconnect,
 				InterfaceControl::Mute,
 				InterfaceControl::Deafen,
+				InterfaceControl::Friends,
 				InterfaceControl::Settings,
 			],
 			size: Some(InterfaceSize {
@@ -462,7 +465,7 @@ mod tests {
 		);
 		assert_eq!(
 			json["controls"],
-			serde_json::json!(["disconnect", "mute", "deafen", "settings"])
+			serde_json::json!(["disconnect", "mute", "deafen", "friends", "settings"])
 		);
 		let call = serde_json::to_value(InterfaceWindow::Call).unwrap();
 		assert_eq!(call, serde_json::json!({"kind": "call"}));

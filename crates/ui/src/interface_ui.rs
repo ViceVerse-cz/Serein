@@ -83,8 +83,37 @@ impl MessagingUi {
 			}
 			_ => None,
 		};
-		self.select_interface_chat(state, chat, commands);
-		if let Some(window) = &interface.tree.window {
+		// The Friends control swaps the plugin's window for the client's own Friends page; a
+		// friend opened there selects its direct message, which the same pane then shows. It
+		// wins over the plugin's persisted window so the toggle always responds.
+		let home = self.interface_home;
+		self.select_interface_chat(state, if home { None } else { chat }, commands);
+		if home {
+			// The Friends page takes the whole window: the plugin's slim width leaves no room
+			// for a tree beside it. Its bottom control row stays, so the Friends toggle and
+			// the call controls remain reachable.
+			egui::Panel::bottom("plugin-interface-controls")
+				.show_separator_line(!design::has_window_background(ui))
+				.frame(egui::Frame::new().inner_margin(egui::Margin::symmetric(8, 4)))
+				.show(ui, |ui| {
+					self.interface_controls(ui, state, commands, interface)
+				});
+			self.apply_voice_join(state, commands);
+			let frame = egui::Frame::new()
+				.fill(design::section_surface(
+					ui,
+					design::window_palette(ui).chat,
+					design::ImageSection::MessageList,
+				))
+				.inner_margin(0);
+			egui::CentralPanel::default().frame(frame).show(ui, |ui| {
+				if state.selected.is_none() {
+					self.friends_page(ui, state, commands);
+				} else {
+					self.interface_home_conversation(ui, state, commands);
+				}
+			});
+		} else if let Some(window) = &interface.tree.window {
 			egui::Panel::left("plugin-interface")
 				.resizable(true)
 				.show_separator_line(!design::has_window_background(ui))
@@ -184,6 +213,17 @@ impl MessagingUi {
 		if chat.is_none() || self.interface_chat != chat {
 			return;
 		}
+		self.interface_home_conversation(ui, state, commands);
+	}
+
+	/// The selected conversation for the Friends page's window: a friend opened there has
+	/// selected its direct message, and native navigation afterwards follows the selection.
+	fn interface_home_conversation(
+		&mut self,
+		ui: &mut egui::Ui,
+		state: &mut State,
+		commands: &mut Vec<Command>,
+	) {
 		let Some(channel) = state.selected.filter(|channel| {
 			state.can_view(*channel)
 				&& state
@@ -262,10 +302,50 @@ impl MessagingUi {
 						self.mute_toggle_with_settings(ui, state, commands, false)
 					}
 					InterfaceControl::Disconnect => self.interface_disconnect(ui, state, commands),
+					InterfaceControl::Friends => self.interface_friends(ui, state),
 				}
 			}
 			self.interface_dock(ui, state, interface);
 		});
+	}
+
+	/// The Friends control: a host-native toggle that swaps the plugin's window for the
+	/// client's own Friends page, or for the direct message that page opens.
+	fn interface_friends(&mut self, ui: &mut egui::Ui, state: &mut State) {
+		let open = self.interface_home;
+		let label = crate::i18n::translate("friends");
+		let response = if open {
+			// The selected fill marks the Friends page as current, like the rail's own.
+			let (rect, response) =
+				ui.allocate_exact_size(egui::vec2(32.0, 32.0), egui::Sense::click());
+			let colors = design::palette(ui);
+			if response.hovered() || response.has_focus() {
+				ui.painter().rect_filled(rect, 6, colors.hover);
+			} else {
+				ui.painter().rect_filled(rect, 6, colors.selected);
+			}
+			icons::paint(
+				ui.painter(),
+				icons::Icon::People,
+				rect.shrink(8.0),
+				colors.text_strong,
+			);
+			response
+				.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, true, &label));
+			response.on_hover_text(&label)
+		} else {
+			icons::button(ui, icons::Icon::People, 32.0, &label)
+		};
+		if response.clicked() {
+			self.interface_home = !open;
+			if self.interface_home {
+				// As the rail's own Friends button: leave the server context and any
+				// open search behind, so the title bar and pane agree with the page.
+				state.open_home();
+				self.guild = None;
+				self.search.open = false;
+			}
+		}
 	}
 
 	/// The account card's hang-up button for the active call, or its dismiss button once the
@@ -1539,5 +1619,180 @@ mod tests {
 			"no chat without a window: {texts:?}"
 		);
 		assert!(shown(&texts, "Room"), "tree listed: {texts:?}");
+	}
+
+	/// The Friends control swaps the plugin's window for the client's own Friends page and
+	/// back, and the plugin's next restated window takes the pane back.
+	#[test]
+	fn friends_control_swaps_the_window_for_the_friends_page() {
+		use extensions::InterfaceWindow;
+		let mut state = one_server();
+		let friends = crate::i18n::translate("friends");
+		let chosen = |window| {
+			let mut interface = interface(vec![node("channel:30", "Lobby")], window);
+			interface.tree.controls = vec![extensions::InterfaceControl::Friends];
+			Some(interface)
+		};
+		let mut client = Client::new(chosen(None));
+		client.frame(&mut state, vec![]);
+		let (_, names) = client.frame(&mut state, vec![]);
+		let button = names
+			.iter()
+			.find(|(name, _)| *name == friends)
+			.map(|(_, bounds)| bounds.center())
+			.expect("friends control");
+		let click = |client: &mut Client, state: &mut State, pos: egui::Pos2| {
+			for pressed in [true, false] {
+				client.frame(
+					state,
+					vec![egui::Event::PointerButton {
+						pos,
+						button: egui::PointerButton::Primary,
+						pressed,
+						modifiers: egui::Modifiers::NONE,
+					}],
+				);
+			}
+		};
+		client.frame(&mut state, vec![egui::Event::PointerMoved(button)]);
+		click(&mut client, &mut state, button);
+		let (texts, _) = client.frame(&mut state, vec![]);
+		let shown = |texts: &[(String, egui::Pos2)], needle: &str| {
+			texts.iter().any(|(text, _)| text.contains(needle))
+		};
+		assert!(shown(&texts, &friends), "the Friends page shows: {texts:?}");
+		assert!(
+			!shown(&texts, "Lobby"),
+			"the tree gives way to Friends: {texts:?}"
+		);
+		// The control toggles back to the tree, with no window open.
+		let (_, names) = client.frame(&mut state, vec![]);
+		let button = names
+			.iter()
+			.find(|(name, _)| *name == friends)
+			.map(|(_, bounds)| bounds.center())
+			.expect("friends control stays reachable");
+		click(&mut client, &mut state, button);
+		let (texts, _) = client.frame(&mut state, vec![]);
+		assert!(shown(&texts, "Lobby"), "tree restored: {texts:?}");
+		// A plugin restating its own window closes the Friends page.
+		client.frame(&mut state, vec![egui::Event::PointerMoved(button)]);
+		click(&mut client, &mut state, button);
+		client
+			.view
+			.set_plugin_interface(chosen(Some(InterfaceWindow::Chat {
+				channel_id: "20".into(),
+			})));
+		client.frame(&mut state, vec![]);
+		let (texts, _) = client.frame(&mut state, vec![]);
+		assert!(shown(&texts, "Lobby"), "tree beside a window: {texts:?}");
+		assert!(
+			!shown(&texts, &friends),
+			"the plugin's window takes the pane back: {texts:?}"
+		);
+		// An interface that stops offering the control cannot strand the user on Friends.
+		let (_, names) = client.frame(&mut state, vec![]);
+		let button = names
+			.iter()
+			.find(|(name, _)| *name == friends)
+			.map(|(_, bounds)| bounds.center())
+			.expect("friends control beside the window");
+		client.frame(&mut state, vec![egui::Event::PointerMoved(button)]);
+		click(&mut client, &mut state, button);
+		let (texts, _) = client.frame(&mut state, vec![]);
+		assert!(shown(&texts, &friends), "Friends reopened: {texts:?}");
+		let mut without = chosen(Some(InterfaceWindow::Chat {
+			channel_id: "20".into(),
+		}))
+		.unwrap();
+		without.tree.controls.clear();
+		client.view.set_plugin_interface(Some(without));
+		let (texts, _) = client.frame(&mut state, vec![]);
+		assert!(
+			shown(&texts, "Lobby"),
+			"the tree returns with the control gone: {texts:?}"
+		);
+	}
+
+	/// A direct message opened from the Friends page stays in that pane, even though the
+	/// plugin keeps restating a chat window of its own.
+	#[test]
+	fn friends_pane_keeps_an_open_direct_message() {
+		use extensions::InterfaceWindow;
+		let mut state = one_server();
+		let mut dm = channel(40, 1, "Robin");
+		dm.guild = None;
+		dm.recipients = vec![user(2, "Robin")];
+		state.channels.push(dm);
+		state
+			.permissions
+			.replace(test_support::permission_snapshot(&state))
+			.unwrap();
+		state.invalidate_navigation();
+		let friends = crate::i18n::translate("friends");
+		let chosen = || {
+			let mut interface = interface(
+				vec![node("channel:30", "Lobby")],
+				Some(InterfaceWindow::Chat {
+					channel_id: "20".into(),
+				}),
+			);
+			interface.tree.controls = vec![extensions::InterfaceControl::Friends];
+			Some(interface)
+		};
+		let mut client = Client::new(chosen());
+		client.frame(&mut state, vec![]);
+		let (_, names) = client.frame(&mut state, vec![]);
+		let button = names
+			.iter()
+			.find(|(name, _)| *name == friends)
+			.map(|(_, bounds)| bounds.center())
+			.expect("friends control");
+		client.frame(&mut state, vec![egui::Event::PointerMoved(button)]);
+		for pressed in [true, false] {
+			client.frame(
+				&mut state,
+				vec![egui::Event::PointerButton {
+					pos: button,
+					button: egui::PointerButton::Primary,
+					pressed,
+					modifiers: egui::Modifiers::NONE,
+				}],
+			);
+		}
+		let (texts, _) = client.frame(&mut state, vec![]);
+		let shown = |texts: &[(String, egui::Pos2)], needle: &str| {
+			texts.iter().any(|(text, _)| text.contains(needle))
+		};
+		assert!(shown(&texts, &friends), "the Friends page shows: {texts:?}");
+		let plugin_chat = crate::i18n::translate_args(
+			"composer-placeholder-channel",
+			&[("channel", "plans-and-notes")],
+		);
+		assert!(
+			!shown(&texts, &plugin_chat),
+			"the plugin's chat stays hidden: {texts:?}"
+		);
+		// Opening a friend's conversation selects its DM; restating the same interface
+		// must not let the plugin's own chat window take the pane back.
+		let _ = state.select(Id(40));
+		for _ in 0..2 {
+			client.view.set_plugin_interface(chosen());
+			client.frame(&mut state, vec![]);
+		}
+		let (texts, _) = client.frame(&mut state, vec![]);
+		assert_eq!(
+			state.selected,
+			Some(Id(40)),
+			"the direct message stays selected"
+		);
+		assert!(
+			shown(&texts, "Message @"),
+			"the direct message shows: {texts:?}"
+		);
+		assert!(
+			!shown(&texts, &plugin_chat),
+			"the plugin's chat still hidden: {texts:?}"
+		);
 	}
 }
