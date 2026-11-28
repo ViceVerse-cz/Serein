@@ -6,7 +6,7 @@
 //! pipeline packetizes, with SPS/PPS prepended to every keyframe.
 #![allow(unsafe_code)]
 
-use super::{Config, Profile, SourceFormat};
+use super::{Codec, Config, Profile, SourceFormat};
 use objc2_core_foundation::{
 	CFArray, CFBoolean, CFDictionary, CFNumber, CFRetained, CFString, CFType,
 };
@@ -78,6 +78,10 @@ pub(crate) struct Encoder {
 
 impl Encoder {
 	pub(crate) fn new(config: Config, format: SourceFormat) -> Result<Self, &'static str> {
+		// VideoToolbox here encodes H.264 only, and `ScreenEncoder` refuses an AV1 share before it
+		// reaches this point, so another codec is a programming error rather than a silent
+		// substitution of a stream the transport has already labelled.
+		debug_assert_eq!(config.codec, Codec::H264, "VideoToolbox encodes H.264 only");
 		let width = i32::try_from(config.width).map_err(|_| UNAVAILABLE)?;
 		let height = i32::try_from(config.height).map_err(|_| UNAVAILABLE)?;
 		let output = Arc::new(Mutex::new(Output {
