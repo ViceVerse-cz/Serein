@@ -728,6 +728,7 @@ mod tests {
 		})
 		.expect("an AV1 session");
 		let length = picture_bytes(width, height).expect("a picture size");
+		let mut encoded = Vec::new();
 		for frame in 0..4u8 {
 			let (data, keyframe) = encoder
 				.encode_with(length, frame == 0, |picture| {
@@ -750,7 +751,15 @@ mod tests {
 			}
 			crate::video::av1_sender_frame(&data)
 				.expect("the sender framing accepts encoder output");
+			encoded.push(data.len());
 		}
+		// The keyframes must stay inside the transport's per-frame bound; the receiver-side
+		// format is checked by the packetizer tests.
+		assert!(
+			encoded
+				.iter()
+				.all(|length| *length > 0 && *length <= 1 << 20)
+		);
 	}
 
 	#[test]

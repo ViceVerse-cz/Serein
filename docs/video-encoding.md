@@ -128,9 +128,15 @@ driver wait, not CPU. At 60 fps it takes about half the frame budget at 1080p; a
 
 ## Remaining work
 
-**A Windows AV1 decoder.** Serein's own receive path decodes AV1 only on Linux. A Media Foundation
-transform for `MFVideoFormat_AV1` would let Windows clients watch an AV1 share, and macOS still has no
-AV1 receive path at all. Until then AV1 sending stays opt-in.
+**A Windows AV1 decoder.** The "AV1 Video Extension" transform is enumerable through
+`MFTEnumEx(MFT_CATEGORY_VIDEO_DECODER, …, MFVideoFormat_AV1)` and activates, but it refuses every
+output type with `MF_E_INVALIDMEDIATYPE` until its input type carries the stream's
+`AV1CodecConfigurationRecord` in `MF_MT_USER_DATA`, which only exists after the sequence header
+arrives — so negotiation has to be deferred to the first access unit. The transform also reports
+`MF_TRANSFORM_ASYNC`, so an event-driven output loop is likely needed on top. A portable alternative
+is `rav1d`, the Rust port of the dav1d decoder the official client ships: one dependency for Windows,
+macOS and Linux instead of a per-platform transform, at the cost of a large pure-Rust build. macOS has
+no AV1 receive path at all today.
 
 **H.265 sending.** The same packetization work as AV1 (H.265 RTP follows RFC 7798, not the AV1 payload
 format) plus a decoder on every platform.
