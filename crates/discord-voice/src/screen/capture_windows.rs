@@ -501,10 +501,11 @@ fn duplication_loop(
 		let Ok(buffer) = frame.buffer() else {
 			continue;
 		};
-		let rows = buffer.as_nopadding_buffer(&mut packed);
-		if rows.len() < length {
+		let format = buffer.format();
+		let source = buffer.as_nopadding_buffer(&mut packed);
+		let Some(data) = packed_bgra(format, source, width, height) else {
 			continue;
-		}
+		};
 		let now = Instant::now();
 		if now < next_frame {
 			std::thread::sleep(next_frame - now);
@@ -521,11 +522,89 @@ fn duplication_loop(
 			width,
 			height,
 			stride,
-			data: rows[..length].to_vec(),
+			data,
 		};
 		if frames.try_send(frame).is_err() {
 			pending.store(false, Ordering::Release);
 		}
+	}
+}
+
+/// Converts one duplicated frame into the packed BGRA rows the encoder expects.
+///
+/// Duplication hands over the display's own format, and only sometimes converts: an HDR display
+/// produces scRGB half floats, and a colour-space change switches between the RGBA and BGRA byte
+/// orders. Reading those bytes as BGRA is what made a share flash the wrong colours, so the format
+/// is honoured here instead.
+fn packed_bgra(
+	format: DxgiDuplicationFormat,
+	source: &[u8],
+	width: u32,
+	height: u32,
+) -> Option<Vec<u8>> {
+	let pixels = usize::try_from(width)
+		.ok()?
+		.checked_mul(usize::try_from(height).ok()?)?;
+	let length = pixels.checked_mul(4)?;
+	match format {
+		DxgiDuplicationFormat::Bgra8 => source.get(..length).map(<[u8]>::to_vec),
+		DxgiDuplicationFormat::Rgba8 => {
+			let source = source.get(..length)?;
+			let mut data = Vec::with_capacity(length);
+			for pixel in source.chunks_exact(4) {
+				data.extend_from_slice(&[pixel[2], pixel[1], pixel[0], pixel[3]]);
+			}
+			Some(data)
+		}
+		DxgiDuplicationFormat::Rgba16F => {
+			let source = source.get(..pixels.checked_mul(8)?)?;
+			let table = sc_rgb_half_table();
+			let mut data = Vec::with_capacity(length);
+			for pixel in source.chunks_exact(8) {
+				let red = table[usize::from(u16::from_le_bytes([pixel[0], pixel[1]]))];
+				let green = table[usize::from(u16::from_le_bytes([pixel[2], pixel[3]]))];
+				let blue = table[usize::from(u16::from_le_bytes([pixel[4], pixel[5]]))];
+				data.extend_from_slice(&[blue, green, red, 255]);
+			}
+			Some(data)
+		}
+	}
+}
+
+/// Half float scRGB to 8-bit sRGB, tabulated once: an HDR display's 1.0 is SDR white, and the
+/// stream is 8-bit sRGB, so the table folds the clamp and the transfer function together.
+fn sc_rgb_half_table() -> &'static [u8; 65536] {
+	static TABLE: std::sync::OnceLock<[u8; 65536]> = std::sync::OnceLock::new();
+	TABLE.get_or_init(|| {
+		let mut table = [0u8; 65536];
+		for (bits, entry) in table.iter_mut().enumerate() {
+			let value = half_to_f32(bits as u16);
+			let linear = if value.is_finite() {
+				value.clamp(0.0, 1.0)
+			} else {
+				0.0
+			};
+			let encoded = if linear <= 0.003_130_8 {
+				linear * 12.92
+			} else {
+				1.055 * linear.powf(1.0 / 2.4) - 0.055
+			};
+			*entry = (encoded * 255.0 + 0.5) as u8;
+		}
+		table
+	})
+}
+
+/// One IEEE half decoded without a dependency on an `f16` type.
+fn half_to_f32(bits: u16) -> f32 {
+	let sign = if bits & 0x8000 == 0 { 1.0 } else { -1.0 };
+	let exponent = (bits >> 10) & 0x1f;
+	let mantissa = f32::from(bits & 0x03ff);
+	match exponent {
+		0 => sign * mantissa * 2f32.powi(-24),
+		31 if mantissa == 0.0 => sign * f32::INFINITY,
+		31 => f32::NAN,
+		_ => sign * (1.0 + mantissa / 1024.0) * 2f32.powi(i32::from(exponent) - 15),
 	}
 }
 
@@ -681,5 +760,36 @@ mod tests {
 		assert_eq!((frame.width, frame.height), (width, height));
 		assert_eq!(frame.stride, width as usize * 4, "packed BGRA rows");
 		assert_eq!(frame.data.len(), frame.stride * height as usize);
+	}
+
+	/// Duplication does not promise one byte order: an HDR display hands over scRGB half floats and
+	/// a colour-space change switches between RGBA and BGRA. Treating any of them as BGRA is what
+	/// made a share flash wrong colours.
+	#[test]
+	fn duplicated_frames_arrive_as_packed_bgra_whatever_the_display_hands_over() {
+		let rgba = [10, 20, 30, 255, 40, 50, 60, 255];
+		assert_eq!(
+			packed_bgra(DxgiDuplicationFormat::Rgba8, &rgba, 2, 1),
+			Some(vec![30, 20, 10, 255, 60, 50, 40, 255])
+		);
+		assert_eq!(
+			packed_bgra(DxgiDuplicationFormat::Bgra8, &rgba, 2, 1),
+			Some(rgba.to_vec())
+		);
+		// scRGB 1.0 in every channel is SDR white.
+		let mut white = Vec::new();
+		for _ in 0..3 {
+			white.extend_from_slice(&0x3c00u16.to_le_bytes());
+		}
+		white.extend_from_slice(&0u16.to_le_bytes());
+		assert_eq!(
+			packed_bgra(DxgiDuplicationFormat::Rgba16F, &white, 1, 1),
+			Some(vec![255, 255, 255, 255])
+		);
+		// A buffer too short for the picture is refused rather than read as pixels.
+		assert_eq!(
+			packed_bgra(DxgiDuplicationFormat::Bgra8, &[0; 3], 1, 1),
+			None
+		);
 	}
 }
