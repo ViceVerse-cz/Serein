@@ -1516,7 +1516,7 @@ pub fn soundcloud_demo_state() -> State {
 		}),
 		..Default::default()
 	}];
-	let mut link = crate::message(604, Id(21));
+	let mut link = crate::message(604, Id(20));
 	link.content = "https://cdn.example.com/synthetic/synthetic-mix.mp3".into();
 	link.attachments.clear();
 	link.embeds = vec![Embed {

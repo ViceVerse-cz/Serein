@@ -183,13 +183,13 @@ fn client_id_cell() -> std::sync::MutexGuard<'static, Option<String>> {
 }
 
 /// Asset script addresses in the page, last first: the bundle carrying the id is a late one.
+/// The page is scanned to its end and only its last [`MAX_SCRIPTS`] scripts are kept, so a late
+/// bundle is found however many precede it.
 fn script_urls(page: &str) -> Vec<url::Url> {
 	const PREFIX: &str = "https://a-v2.sndcdn.com/assets/";
-	let mut urls = Vec::new();
+	let mut last: std::collections::VecDeque<url::Url> = Default::default();
 	let mut rest = page;
-	while urls.len() < 16
-		&& let Some(start) = rest.find(PREFIX)
-	{
+	while let Some(start) = rest.find(PREFIX) {
 		let tail = &rest[start..];
 		let end = tail
 			.find(|c: char| c == '"' || c.is_whitespace())
@@ -197,13 +197,14 @@ fn script_urls(page: &str) -> Vec<url::Url> {
 		if let Ok(url) = url::Url::parse(&tail[..end])
 			&& url.path().ends_with(".js")
 		{
-			urls.push(url);
+			last.push_back(url);
+			if last.len() > MAX_SCRIPTS {
+				last.pop_front();
+			}
 		}
 		rest = &tail[end..];
 	}
-	urls.reverse();
-	urls.truncate(MAX_SCRIPTS);
-	urls
+	last.into_iter().rev().collect()
 }
 
 fn client_id_in(script: &[u8]) -> Option<String> {
@@ -332,7 +333,7 @@ fn playlist(text: &str, base: &url::Url) -> Result<Playlist, Failure> {
 		});
 	}
 	let init = init.ok_or(bad)?;
-	if !ended || pending.is_some() || !allowed(&init) {
+	if !ended || pending.is_some() || !allowed(&init) || segments.is_empty() || seconds <= 0.0 {
 		return Err(bad);
 	}
 	if seconds > MAX_TRACK {
@@ -438,7 +439,7 @@ async fn resolve(
 mod mp4 {
 	use super::UNSUPPORTED;
 	const MAX_BOXES: usize = 64;
-	const MAX_SAMPLES: usize = 65_536;
+	pub(super) const MAX_SAMPLES: usize = 65_536;
 
 	fn u16be(b: &[u8]) -> u16 {
 		u16::from_be_bytes([b[0], b[1]])
@@ -597,6 +598,8 @@ mod mp4 {
 				if flags & 0x20 != 0 {
 					field(4)?;
 				}
+				// Where the run before ended, from its `moof`, for a run that names no offset.
+				let mut run_end = None;
 				for (kind, _, trun) in boxes(traf)? {
 					if kind != "trun" {
 						continue;
@@ -604,21 +607,24 @@ mod mp4 {
 					let flags = u32be(trun.get(..4).ok_or(UNSUPPORTED)?) & 0xff_ffff;
 					let count = u32be(trun.get(4..8).ok_or(UNSUPPORTED)?) as usize;
 					let mut at = 8;
-					if flags & 0x001 == 0 {
-						// Without a data offset the run continues the previous one.
-						return Err(UNSUPPORTED);
-					}
-					let offset =
-						usize::try_from(i64::from(i32be(trun.get(at..at + 4).ok_or(UNSUPPORTED)?)))
-							.map_err(|_| UNSUPPORTED)?;
-					at += 4;
-					if flags & 0x004 != 0 {
+					// Without a data offset a run continues where the previous one ended; a first
+					// run has nothing to continue.
+					let mut sample = if flags & 0x001 != 0 {
+						let offset = usize::try_from(i64::from(i32be(
+							trun.get(at..at + 4).ok_or(UNSUPPORTED)?,
+						)))
+						.map_err(|_| UNSUPPORTED)?;
 						at += 4;
-					}
+						if flags & 0x004 != 0 {
+							at += 4;
+						}
+						moof + offset
+					} else {
+						run_end.ok_or(UNSUPPORTED)?
+					};
 					if samples.len() + count > MAX_SAMPLES {
 						return Err(UNSUPPORTED);
 					}
-					let mut sample = moof + offset;
 					for _ in 0..count {
 						if flags & 0x100 != 0 {
 							at += 4;
@@ -643,6 +649,7 @@ mod mp4 {
 						samples.push((sample, size));
 						sample = end;
 					}
+					run_end = Some(sample);
 				}
 			}
 		}
@@ -724,6 +731,50 @@ mod media_tests {
 			&boxed(b"trak", &boxed(b"mdia", &boxed(b"minf", &stbl))),
 		)
 	}
+	/// A fragment whose `traf` holds two runs: the first names its data, the second has no data
+	/// offset and continues where the first ended.
+	fn two_runs(second: usize) -> Vec<u8> {
+		let run = |flags: u32, offset: Option<i32>, sizes: &[u32]| {
+			let mut trun = flags.to_be_bytes().to_vec();
+			trun.extend_from_slice(&u32(sizes.len() as u32));
+			if let Some(offset) = offset {
+				trun.extend_from_slice(&offset.to_be_bytes());
+			}
+			for size in sizes {
+				trun.extend_from_slice(&u32(*size));
+			}
+			boxed(b"trun", &trun)
+		};
+		// The header's default sample size serves a run that lists none.
+		let tfhd = boxed(
+			b"tfhd",
+			&[
+				0x0002_0010_u32.to_be_bytes().to_vec(),
+				u32(1).to_vec(),
+				u32(3).to_vec(),
+			]
+			.concat(),
+		);
+		// No flags: the run names no data offset, so it continues the first run.
+		let mut continued = 0_u32.to_be_bytes().to_vec();
+		continued.extend_from_slice(&u32(second as u32));
+		let traf = boxed(
+			b"traf",
+			&[
+				tfhd,
+				run(SIZES, Some(0), &[2, 3]),
+				boxed(b"trun", &continued),
+			]
+			.concat(),
+		);
+		let moof = boxed(b"moof", &traf);
+		let mut bytes = moof.clone();
+		bytes.extend_from_slice(&boxed(b"mdat", &vec![0xaa; 5 + 3 * second]));
+		// The first run's data offset, after its flags and sample count, names the payload.
+		let at = bytes.windows(4).position(|w| w == b"trun").unwrap() + 12;
+		bytes[at..at + 4].copy_from_slice(&(moof.len() as u32 + 8).to_be_bytes());
+		bytes
+	}
 
 	#[test]
 	fn fragments_yield_their_packets_and_init_segments_the_aac_description() {
@@ -761,9 +812,26 @@ mod media_tests {
 		// A sample larger than the fragment's data, and a sample of no size.
 		assert!(mp4::fragment(&fragment(64, SIZES, &[64])).is_err());
 		assert!(mp4::fragment(&fragment(0, OFFSET_ONLY, &[0])).is_err());
-		// Sizes without a data offset, and more samples than a fragment may hold.
+		// A first run with sizes but no data offset has nothing to continue, and more samples
+		// than a fragment may hold.
 		assert!(mp4::fragment(&fragment(3, 0x200, &[1])).is_err());
 		assert!(mp4::fragment(&fragment(3, OFFSET_ONLY, &vec![0; 65_537])).is_err());
+	}
+
+	#[test]
+	fn a_run_without_an_offset_continues_the_previous_one() {
+		let bytes = two_runs(2);
+		let offset = bytes.len() - 11;
+		assert_eq!(
+			mp4::fragment(&bytes).unwrap(),
+			[
+				(offset, 2),
+				(offset + 2, 3),
+				(offset + 5, 3),
+				(offset + 8, 3)
+			]
+		);
+		assert!(mp4::fragment(&two_runs(mp4::MAX_SAMPLES)).is_err());
 	}
 }
 
@@ -818,6 +886,14 @@ struct Segments<S: Fn(usize) -> Prefetch> {
 	end: usize,
 	request: S,
 	pending: Option<Prefetch>,
+}
+impl<S: Fn(usize) -> Prefetch> Drop for Segments<S> {
+	fn drop(&mut self) {
+		// A pass that ends while a segment downloads does not leave that download running.
+		if let Some(pending) = &self.pending {
+			pending.abort();
+		}
+	}
 }
 impl<S: Fn(usize) -> Prefetch> Segments<S> {
 	fn new(first: usize, end: usize, request: S) -> Self {
@@ -898,6 +974,17 @@ pub(super) fn play(
 	let rate = config.rate;
 	let duration = Duration::from_secs_f64(playlist.seconds);
 	let mut target: u64 = 0;
+	// Reports the pass complete, then hands back a seek accepted before that report went out:
+	// it restarts the pass at its target instead of staying unread behind an ended track.
+	let ended = || {
+		publish(Status {
+			state: State::Ended,
+			position: duration,
+			duration,
+		});
+		let seek = gate.seek_millis.swap(NO_SEEK, Ordering::AcqRel);
+		(seek != NO_SEEK).then_some(seek)
+	};
 	loop {
 		if !gate.current(generation) {
 			return Ok(());
@@ -911,12 +998,13 @@ pub(super) fn play(
 		});
 		let Some((start, before)) = locate(&playlist, Duration::from_millis(target), rate) else {
 			// The target is past the end of the track.
-			publish(Status {
-				state: State::Ended,
-				position: duration,
-				duration,
-			});
-			return Ok(());
+			return match ended() {
+				Some(seek) => {
+					target = seek;
+					continue;
+				}
+				None => Ok(()),
+			};
 		};
 		let mut feed = Feed::new(
 			gate, wake, runtime, publish, generation, target, before, duration,
@@ -944,12 +1032,13 @@ pub(super) fn play(
 			continue;
 		}
 		result?;
-		publish(Status {
-			state: State::Ended,
-			position: duration,
-			duration,
-		});
-		return Ok(());
+		match ended() {
+			Some(seek) => {
+				target = seek;
+				continue;
+			}
+			None => return Ok(()),
+		}
 	}
 }
 
@@ -1086,6 +1175,17 @@ mod tests {
 			.map(|u| u.path().rsplit('/').next().unwrap().to_owned())
 			.collect();
 		assert_eq!(names, ["3-d.js", "1-b.js", "0-a.js"]);
+		// However many scripts the page holds, only its last ones are read, newest first.
+		let page: String = (0..17)
+			.map(|n| format!("<script src=\"https://a-v2.sndcdn.com/assets/{n}.js\"></script>"))
+			.collect();
+		let names: Vec<_> = script_urls(&page)
+			.iter()
+			.map(|u| u.path().rsplit('/').next().unwrap().to_owned())
+			.collect();
+		assert_eq!(names.len(), MAX_SCRIPTS);
+		assert_eq!(names[0], "16.js");
+		assert_eq!(names[MAX_SCRIPTS - 1], "9.js");
 		assert_eq!(
 			client_id_in(b"x,y={client_id:\"abcDEF123\",z:1}"),
 			Some("abcDEF123".into())
@@ -1137,6 +1237,8 @@ mod tests {
 			format!("#EXTM3U\n#EXT-X-MAP:URI=\"init.mp4\",BYTERANGE=\"0@100\"\n{body}#EXT-X-ENDLIST\n"),
 			"#EXTM3U\n#EXT-X-MAP:URI=\"a.mp4\"\n#EXTINF:10,\n0.m4s\n#EXT-X-MAP:URI=\"b.mp4\"\n#EXTINF:10,\n1.m4s\n#EXT-X-ENDLIST\n"
 				.to_owned(),
+			"#EXTM3U\n#EXT-X-MAP:URI=\"init.mp4\"\n#EXT-X-ENDLIST\n".to_owned(),
+			"#EXTM3U\n#EXT-X-MAP:URI=\"init.mp4\"\n#EXTINF:0,\n0.m4s\n#EXT-X-ENDLIST\n".to_owned(),
 		] {
 			assert!(playlist(&refused, &base).is_err(), "{refused}");
 		}

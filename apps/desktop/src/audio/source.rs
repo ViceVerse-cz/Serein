@@ -186,13 +186,8 @@ async fn fetch(
 				.await
 				.map_err(|_| invalid())?;
 		if response.status() == wreq::StatusCode::PARTIAL_CONTENT {
-			let range = format!("bytes {start}-{end}/{total}");
-			if response
-				.headers()
-				.get(wreq::header::CONTENT_RANGE)
-				.and_then(|v| v.to_str().ok())
-				!= Some(range.as_str())
-			{
+			// Compared as numbers, so a server may spell them with leading zeros.
+			if content_range_header(&response) != Some((start, end, total)) {
 				return Err(invalid());
 			}
 		} else if !(response.status() == wreq::StatusCode::OK && start == 0 && count == total) {
@@ -273,11 +268,7 @@ async fn head(
 				RANGE_UNSUPPORTED,
 			));
 		}
-		let range = response
-			.headers()
-			.get(wreq::header::CONTENT_RANGE)
-			.and_then(|v| v.to_str().ok())
-			.and_then(content_range);
+		let range = content_range_header(&response).and_then(first_range);
 		let Some((last, total)) = range else {
 			return Err(invalid());
 		};
@@ -290,14 +281,26 @@ async fn head(
 	}
 }
 
-/// `bytes 0-{last}/{total}` answering the first range of up to [`CHUNK`] bytes.
-fn content_range(value: &str) -> Option<(usize, usize)> {
-	let parse = |part: &str| part.parse::<usize>().ok();
+/// The `Content-Range` answer of `response`, as numbers.
+fn content_range_header(response: &wreq::Response) -> Option<(usize, usize, usize)> {
+	content_range(
+		response
+			.headers()
+			.get(wreq::header::CONTENT_RANGE)
+			.and_then(|v| v.to_str().ok())?,
+	)
+}
+
+/// The `first`, `last` and `total` of a `bytes first-last/total` answer, as numbers.
+fn content_range(value: &str) -> Option<(usize, usize, usize)> {
+	let parse = |part: &str| part.trim().parse::<usize>().ok();
 	let (range, total) = value.trim().strip_prefix("bytes ")?.split_once('/')?;
 	let (first, last) = range.split_once('-')?;
-	let (Some(first), Some(last), Some(total)) = (parse(first), parse(last), parse(total)) else {
-		return None;
-	};
+	Some((parse(first)?, parse(last)?, parse(total)?))
+}
+
+/// A first range of up to [`CHUNK`] bytes and the length it names.
+fn first_range((first, last, total): (usize, usize, usize)) -> Option<(usize, usize)> {
 	(first == 0 && total > 0 && last == CHUNK.min(total) - 1).then_some((last, total))
 }
 struct Raw {
@@ -989,13 +992,13 @@ pub(super) fn debug_check() {
 	assert_eq!(source.raw.position, 4106);
 	assert!(source.raw.bytes_read < 64, "ID3 payload is never fetched");
 
-	check_remote(24 * 1024 * 1024, true);
+	check_remote(24 * 1024 * 1024, true, false);
 }
 
 /// Decode a synthetic WAV of `len` bytes from a local range server: startup is one small
 /// request, steady reads are prefetched in growing blocks, and a mismatched range is rejected.
 #[cfg(any(test, all(debug_assertions, feature = "demo")))]
-fn check_remote(len: usize, known: bool) {
+fn check_remote(len: usize, known: bool, pad_total: bool) {
 	use std::{
 		io::Write,
 		sync::atomic::{AtomicBool, AtomicUsize},
@@ -1053,6 +1056,11 @@ fn check_remote(len: usize, known: bool) {
 			assert!(end + 1 - start <= MAX_BLOCK, "range blocks stay bounded");
 			observed.fetch_add(1, Ordering::AcqRel);
 			let total = expected + usize::from(corrupt_next.swap(false, Ordering::AcqRel));
+			let total = if pad_total {
+				format!("{total:07}")
+			} else {
+				total.to_string()
+			};
 			let _ = write!(
 				socket,
 				"HTTP/1.1 206 Partial Content\r\nContent-Range: bytes {start}-{end}/{total}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
@@ -1239,20 +1247,25 @@ mod tests {
 
 	#[test]
 	fn remote_audio_streams_through_few_prefetched_ranges() {
-		super::check_remote(4 * 1024 * 1024, true);
+		super::check_remote(4 * 1024 * 1024, true, false);
 	}
 
 	#[test]
 	fn remote_audio_links_learn_their_length_from_the_first_range() {
-		super::check_remote(256 * 1024, false);
+		super::check_remote(256 * 1024, false, false);
 	}
 
 	#[test]
-	fn a_first_range_must_name_the_whole_file_length() {
-		let range = |value: &str| content_range(value);
-		assert_eq!(range("bytes 0-16383/1000000"), Some((16383, 1_000_000)));
+	fn remote_audio_links_accept_range_answers_with_leading_zeros() {
+		super::check_remote(256 * 1024, false, true);
+	}
+
+	#[test]
+	fn range_answers_are_compared_as_numbers() {
+		let first = |value: &str| content_range(value).and_then(first_range);
+		assert_eq!(first("bytes 0-16383/1000000"), Some((16383, 1_000_000)));
 		// A file shorter than the first range ends there.
-		assert_eq!(range("bytes 0-999/1000"), Some((999, 1000)));
+		assert_eq!(first("bytes 0-999/1000"), Some((999, 1000)));
 		for other in [
 			"bytes 1-16383/1000000",
 			"bytes 0-16383/16383",
@@ -1261,7 +1274,19 @@ mod tests {
 			"bytes 0-16383/*",
 			"1000000",
 		] {
-			assert_eq!(range(other), None, "{other}");
+			assert_eq!(first(other), None, "{other}");
+		}
+		// A later read must name the range it asked for, however the numbers are spelled.
+		assert_eq!(
+			content_range("bytes 16384-49151/0262144"),
+			Some((16384, 49151, 262_144))
+		);
+		for other in ["bytes 16384-49152/0262144", "bytes 16385-49151/262144"] {
+			assert_ne!(
+				content_range(other),
+				Some((16384, 49151, 262_144)),
+				"{other}"
+			);
 		}
 	}
 
