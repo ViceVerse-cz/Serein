@@ -976,7 +976,10 @@ fn decode<P: Fn(Status)>(
 		)
 	};
 	let mut segments = Segments::new(start, playlist.segments.len(), request);
-	// Audio past the limit never reaches the output, whatever the segments advertise.
+	// What a pass decodes is counted against the limit, whatever the segments advertise. From
+	// the start the count is exact. After a seek it starts from the playlist's own timing, which
+	// the audio before the target is not decoded to confirm: a playlist that understates its
+	// durations can begin a pass slightly past the real limit.
 	let limit = MAX_TRACK_SECONDS * u64::from(config.rate);
 	let origin = feed.origin;
 	let before = feed.total_frames;
