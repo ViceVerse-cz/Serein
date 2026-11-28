@@ -684,24 +684,84 @@ pub fn layered_sections(ui: &egui::Ui) -> bool {
 	has_window_background(ui) || (enabled && transparency > 0)
 }
 
-/// Fill the notches outside a rounded corner at `corner`, for surfaces that cannot paint a
-/// shared coat underneath. `inward` points from the corner into the rounded rect.
-pub fn paint_corner_notch(
+/// Fill `rect` with `fill`, its left corners rounded by `radius` with `notch` outside each
+/// curve, for see-through surfaces that cannot paint a shared coat underneath.
+///
+/// One mesh covers the whole rect, so every pixel receives exactly one coat. Two translucent
+/// anti-aliased shapes meeting on the curve would each be partly transparent there and let the
+/// window behind show through as a line; overlapping them would draw a darker one instead.
+/// The curve is anti-aliased by blending `notch` into `fill`; the straight edges stay crisp.
+pub fn paint_left_rounded_surface(
 	painter: &egui::Painter,
-	corner: egui::Pos2,
-	inward: egui::Vec2,
+	rect: egui::Rect,
 	radius: f32,
-	color: Color32,
+	fill: Color32,
+	notch: Color32,
 ) {
-	const STEPS: usize = 8;
-	let center = corner + inward * radius;
-	// A fan from the square corner covers the concave notch without overlapping the arc.
-	let mut points = vec![corner];
-	points.extend((0..=STEPS).map(|step| {
-		let angle = std::f32::consts::FRAC_PI_2 * step as f32 / STEPS as f32;
-		center - egui::vec2(inward.x * angle.cos(), inward.y * angle.sin()) * radius
-	}));
-	painter.add(egui::Shape::convex_polygon(points, color, Stroke::NONE));
+	painter.add(egui::Shape::mesh(left_rounded_mesh(
+		rect,
+		radius,
+		painter.pixels_per_point(),
+		fill,
+		notch,
+	)));
+}
+
+fn left_rounded_mesh(
+	rect: egui::Rect,
+	radius: f32,
+	pixels_per_point: f32,
+	fill: Color32,
+	notch: Color32,
+) -> egui::Mesh {
+	const STEPS: u32 = 8;
+	let radius = radius.min(rect.width()).min(rect.height() / 2.0);
+	let half_feather = 0.5 / pixels_per_point;
+	let mut mesh = egui::Mesh::default();
+	let mut quad = |min: egui::Pos2, max: egui::Pos2| {
+		if min.x < max.x && min.y < max.y {
+			mesh.add_colored_rect(egui::Rect::from_min_max(min, max), fill);
+		}
+	};
+	quad(
+		rect.left_top() + egui::vec2(radius, 0.0),
+		rect.right_bottom(),
+	);
+	quad(
+		rect.left_top() + egui::vec2(0.0, radius),
+		egui::pos2(rect.left() + radius, rect.bottom() - radius),
+	);
+	for (corner, inward) in [
+		(rect.left_top(), egui::vec2(1.0, 1.0)),
+		(rect.left_bottom(), egui::vec2(1.0, -1.0)),
+	] {
+		let center = corner + inward * radius;
+		// Keeps the curve's outer feather edge inside the corner square.
+		let clamp = |point: egui::Pos2| {
+			let offset = (point - corner) * inward;
+			corner + egui::vec2(offset.x.max(0.0), offset.y.max(0.0)) * inward
+		};
+		let first = mesh.vertices.len() as u32;
+		mesh.colored_vertex(corner, notch);
+		mesh.colored_vertex(center, fill);
+		for step in 0..=STEPS {
+			let angle = std::f32::consts::FRAC_PI_2 * step as f32 / STEPS as f32;
+			// Unit vector from the curve towards its centre.
+			let toward = egui::vec2(inward.x * angle.cos(), inward.y * angle.sin());
+			let point = center - toward * radius;
+			mesh.colored_vertex(clamp(point - toward * half_feather), notch);
+			mesh.colored_vertex(point + toward * half_feather, fill);
+			if step > 0 {
+				let outer = first + 2 + 2 * step;
+				let (previous_outer, previous_inner, inner) = (outer - 2, outer - 1, outer + 1);
+				mesh.add_triangle(first, previous_outer, outer);
+				mesh.add_triangle(previous_outer, previous_inner, inner);
+				mesh.add_triangle(previous_outer, inner, outer);
+				mesh.add_triangle(first + 1, previous_inner, inner);
+			}
+		}
+	}
+	mesh
 }
 
 /// Fill and edge of the account card. With layered sections a second coat would make the card
@@ -2067,6 +2127,52 @@ fn contrast(a: Color32, b: Color32) -> f32 {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	/// Regression: the rounded corners once stacked two translucent coats (a dark spike on the
+	/// rail) or left pixels uncovered (a light seam along the curve). Sampled at pixel centres
+	/// like the GPU, every pixel of the rect must get exactly one coat and nothing outside it.
+	#[test]
+	fn left_rounded_surface_paints_exactly_one_coat() {
+		let fill = Color32::from_rgba_unmultiplied(24, 24, 27, 178);
+		let notch = Color32::from_rgba_unmultiplied(14, 14, 16, 178);
+		let rect = egui::Rect::from_min_max(egui::pos2(64.0, 36.0), egui::pos2(300.0, 740.0));
+		for pixels_per_point in [1.0, 1.25, 1.5] {
+			let mesh = left_rounded_mesh(rect, 8.0, pixels_per_point, fill, notch);
+			// Both left corners, with a margin on the rail and title-bar sides.
+			for (top, bottom) in [(32.0, 48.0), (728.0, 744.0)] {
+				let rows = (top * pixels_per_point) as u32..(bottom * pixels_per_point) as u32;
+				for y in rows {
+					for x in (60.0 * pixels_per_point) as u32..(80.0 * pixels_per_point) as u32 {
+						// Nudged off shared edges, like the rasteriser's fill rule.
+						let point =
+							egui::pos2(x as f32 + 0.5007, y as f32 + 0.5011) / pixels_per_point;
+						let mut alpha = 0.0f32;
+						for triangle in mesh.indices.chunks(3) {
+							let [a, b, c] = [0, 1, 2].map(|i| &mesh.vertices[triangle[i] as usize]);
+							let edge = |p: egui::Pos2, q: egui::Pos2| {
+								(q.x - p.x) * (point.y - p.y) - (q.y - p.y) * (point.x - p.x)
+							};
+							let sides =
+								[edge(a.pos, b.pos), edge(b.pos, c.pos), edge(c.pos, a.pos)];
+							if sides.iter().all(|s| *s >= 0.0) || sides.iter().all(|s| *s <= 0.0) {
+								let coat = f32::from(a.color.a()) / 255.0;
+								alpha += coat * (1.0 - alpha);
+							}
+						}
+						let expected = if rect.contains(point) {
+							178.0 / 255.0
+						} else {
+							0.0
+						};
+						assert!(
+							(alpha - expected).abs() < 1e-3,
+							"pixel ({x}, {y}) at {pixels_per_point}x has coat {alpha}, expected {expected}"
+						);
+					}
+				}
+			}
+		}
+	}
 
 	#[test]
 	fn role_name_color_keeps_hue_while_meeting_contrast() {
