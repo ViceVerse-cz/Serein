@@ -60,17 +60,32 @@ mod tests {
 	use super::*;
 	use opus2::{Application, Decoder};
 
-	fn packet(encoding: Encoding) -> Vec<u8> {
-		let mut encoder = Encoder::new(48_000, Channels::Stereo, Application::Audio).unwrap();
-		encoding.apply(&mut encoder).unwrap();
+	fn encoder() -> Encoder {
+		Encoder::new(48_000, Channels::Stereo, Application::Audio).unwrap()
+	}
+
+	/// Encodes 20 frames of a steady tone and returns the last 10 packets, after rate control
+	/// has settled.
+	fn packets(encoder: &mut Encoder) -> Vec<Vec<u8>> {
 		let input = std::array::from_fn::<_, 1920, _>(|i| ((i / 2) as f32 * 0.06).sin() * 0.2);
 		let mut encoded = [0; 1275];
-		let mut length = 0;
-		// Let rate control settle before measuring.
-		for _ in 0..10 {
-			length = encoder.encode_float(&input, &mut encoded).unwrap();
-		}
-		encoded[..length].to_vec()
+		(0..20)
+			.map(|_| {
+				let length = encoder.encode_float(&input, &mut encoded).unwrap();
+				encoded[..length].to_vec()
+			})
+			.skip(10)
+			.collect()
+	}
+
+	fn packet(encoding: Encoding) -> Vec<u8> {
+		let mut encoder = encoder();
+		encoding.apply(&mut encoder).unwrap();
+		packets(&mut encoder).pop().unwrap()
+	}
+
+	fn average(packets: &[Vec<u8>]) -> usize {
+		packets.iter().map(Vec::len).sum::<usize>() / packets.len()
 	}
 
 	#[test]
@@ -94,6 +109,48 @@ mod tests {
 		for packet in [channel, maximum] {
 			assert_eq!(decoder.decode_float(&packet, &mut out, false).unwrap(), 960);
 		}
+	}
+
+	/// A call keeps one encoder, so quality and channel-bitrate changes must apply in place.
+	#[test]
+	fn one_encoder_switches_modes_and_bitrates_during_a_call() {
+		let mut encoder = encoder();
+		let mut decoder = Decoder::new(48_000, Channels::Stereo).unwrap();
+		let mut out = [0.0; 1920];
+		let mut step = |encoding: Encoding| {
+			encoding.apply(&mut encoder).unwrap();
+			let packets = packets(&mut encoder);
+			for packet in &packets {
+				assert_eq!(decoder.decode_float(packet, &mut out, false).unwrap(), 960);
+			}
+			packets
+		};
+		let low = step(Encoding::new(MicrophoneQuality::Channel, Some(32_000)));
+		let high = step(Encoding::new(MicrophoneQuality::Channel, Some(128_000)));
+		let maximum = step(Encoding::new(MicrophoneQuality::Maximum, Some(128_000)));
+		let back = step(Encoding::new(MicrophoneQuality::Channel, Some(64_000)));
+
+		for packet in low.iter().chain(&high).chain(&back) {
+			assert_eq!(
+				opus2::packet::get_nb_channels(packet).unwrap(),
+				Channels::Mono
+			);
+		}
+		// 32 and 128 kb/s are 80 and 320 bytes per 20 ms frame.
+		assert!(
+			average(&high) > 2 * average(&low),
+			"{} vs {} bytes",
+			average(&high),
+			average(&low)
+		);
+		for packet in &maximum {
+			assert_eq!(
+				opus2::packet::get_nb_channels(packet).unwrap(),
+				Channels::Stereo
+			);
+			assert_eq!(packet.len(), 1275);
+		}
+		assert!(average(&back) < 400, "{} bytes", average(&back));
 	}
 
 	#[test]
