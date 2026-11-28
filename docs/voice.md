@@ -235,6 +235,11 @@ Actual stream failure still uses bounded recovery and creates a replacement host
 This addresses a device-restart path consistent with issue #569's repeated audio
 resets; the reporter's Linux/PipeWire call still requires a live retest.
 
+A call that never opened audio retries its devices for about six seconds before it
+reports a failure, so a device that is briefly invalidated — a headset reconnecting, a
+monitor waking — no longer ends the call. The retry window is measured on the worker
+itself: interface wake-ups for unrelated settings cannot shorten it.
+
 A voice-server crash (WebSocket close 4015) uses the existing two-attempt resume budget,
 retaining the UDP connection, acknowledged signaling cursor and encrypted group. Terminal
 closes, including 4014, still require an explicit new call. Bounded proposals arriving before

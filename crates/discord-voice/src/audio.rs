@@ -264,16 +264,29 @@ impl Audio {
 					{
 						// A live call keeps its place in the channel: the device is reopened as soon
 						// as the system offers it again, exactly as in the official client.
+						if worker_gate
+							.revision
+							.compare_exchange(
+								revision,
+								revision + 1,
+								Ordering::AcqRel,
+								Ordering::Acquire,
+							)
+							.is_err()
+						{
+							// A device change landed first; the next iteration owns it.
+							continue;
+						}
+						let next = revision + 1;
 						recovery_attempts += 1;
-						worker_gate.revision.fetch_add(1, Ordering::AcqRel);
 						streams = None;
 						if recovery_attempts >= MAX_RECOVERY_ATTEMPTS {
 							worker_gate.devices_missing.store(true, Ordering::Release);
 							recovery_attempts = 0;
 							emit(Ok(())); // Wake the interface for the unavailable-audio state.
-							std::thread::park_timeout(RECOVERY_PATIENCE);
+							wait_recovery(&worker_gate, next, RECOVERY_PATIENCE);
 						} else {
-							std::thread::park_timeout(RECOVERY_DELAY);
+							wait_recovery(&worker_gate, next, RECOVERY_DELAY);
 						}
 						continue;
 					}
@@ -308,12 +321,12 @@ impl Audio {
 									worker_gate.devices_missing.store(true, Ordering::Release);
 									recovery_attempts = 0;
 									emit(Ok(()));
-									std::thread::park_timeout(RECOVERY_PATIENCE);
+									wait_recovery(&worker_gate, revision, RECOVERY_PATIENCE);
 									continue;
 								}
 								if recovery_attempts < MAX_RECOVERY_ATTEMPTS {
 									recovery_attempts += 1;
-									std::thread::park_timeout(RECOVERY_DELAY);
+									wait_recovery(&worker_gate, revision, RECOVERY_DELAY);
 									continue;
 								}
 								emit(Err(error));
@@ -559,11 +572,12 @@ impl Audio {
 			self.gate.playback_generation.fetch_add(1, Ordering::AcqRel);
 		}
 	}
-	/// Changes are coalesced and applied on the worker, never in device callbacks.
+	/// Changes are coalesced and applied on the worker, never in device callbacks. The interface
+	/// repeats the current settings every frame, so only a real change may wake the worker.
 	pub fn set_processing(&self, mut settings: Processing) {
 		settings.suppression_level = settings.suppression_level.min(3);
 		settings.sensitivity_db = settings.sensitivity_db.map(|db| db.clamp(-80, 0));
-		self.processing.send_if_modified(|current| {
+		let changed = self.processing.send_if_modified(|current| {
 			if *current == settings {
 				return false;
 			}
@@ -571,7 +585,9 @@ impl Audio {
 			*current = settings;
 			true
 		});
-		self.thread.unpark();
+		if changed {
+			self.thread.unpark();
+		}
 	}
 	/// Adjusts software gain without reopening devices. Defaults to 100%; clamps to 0..=200%.
 	pub fn set_gain(&self, input_percent: u16, output_percent: u16) {
@@ -598,6 +614,30 @@ const MAX_RECOVERY_ATTEMPTS: u8 = 24;
 const RECOVERY_DELAY: Duration = Duration::from_millis(250);
 /// How long a live call waits between attempts while its devices stay away.
 const RECOVERY_PATIENCE: Duration = Duration::from_secs(5);
+
+/// Waits out a recovery delay. The interface wakes this worker for unrelated reasons, so a bare
+/// park would collapse the retry window to one frame; only a call change ends the wait early.
+fn wait_recovery(gate: &Gate, revision: u64, delay: Duration) {
+	wait_recovery_with(delay, Instant::now, std::thread::park_timeout, || {
+		gate.stopped.load(Ordering::Acquire) || gate.revision.load(Ordering::Acquire) != revision
+	});
+}
+
+fn wait_recovery_with(
+	delay: Duration,
+	now: impl Fn() -> Instant,
+	park: impl Fn(Duration),
+	changed: impl Fn() -> bool,
+) {
+	let deadline = now() + delay;
+	loop {
+		let remaining = deadline.saturating_duration_since(now());
+		if remaining.is_zero() || changed() {
+			return;
+		}
+		park(remaining);
+	}
+}
 
 struct Streams {
 	// Reuse the connection that owns these streams for polling and microphone retries.
@@ -1394,6 +1434,34 @@ mod tests {
 		assert!(!default_device_changed(None, None, || {
 			panic!("Disabled or unavailable input has no active default to follow")
 		}));
+	}
+
+	#[test]
+	fn recovery_wait_survives_unrelated_wake_ups() {
+		let start = Instant::now();
+		let elapsed = std::cell::Cell::new(Duration::ZERO);
+		let parks = std::cell::Cell::new(0u32);
+		wait_recovery_with(
+			Duration::from_millis(250),
+			|| start + elapsed.get(),
+			|requested| {
+				parks.set(parks.get() + 1);
+				// The interface wakes the worker every frame; that must not end the wait.
+				elapsed.set(elapsed.get() + Duration::from_millis(16).min(requested));
+			},
+			|| false,
+		);
+		assert!(elapsed.get() >= Duration::from_millis(250));
+		assert!(parks.get() > 1);
+		// A call change ends the wait instead of holding the worker for the full delay.
+		let parks = std::cell::Cell::new(0u32);
+		wait_recovery_with(
+			Duration::from_secs(5),
+			|| start,
+			|_| parks.set(parks.get() + 1),
+			|| true,
+		);
+		assert_eq!(parks.get(), 0);
 	}
 
 	#[test]
