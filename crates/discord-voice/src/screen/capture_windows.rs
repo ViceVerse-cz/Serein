@@ -12,6 +12,7 @@ use std::sync::{
 use std::time::{Duration, Instant};
 use windows_capture::{
 	capture::{CaptureControl, Context, GraphicsCaptureApiHandler},
+	dxgi_duplication_api::{DxgiDuplicationApi, DxgiDuplicationFormat},
 	frame::Frame,
 	graphics_capture_api::{GraphicsCaptureApi, InternalCaptureControl},
 	monitor::Monitor,
@@ -195,7 +196,23 @@ impl GraphicsCaptureApiHandler for Handler {
 
 pub(crate) struct Capture {
 	control: Option<CaptureControl<Handler, &'static str>>,
+	duplication: Option<Duplication>,
 	audio: Option<audio::Audio>,
+}
+
+/// One desktop-duplication capture: the thread that reads frames and the flag that ends it.
+struct Duplication {
+	quit: Arc<AtomicBool>,
+	thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl Drop for Duplication {
+	fn drop(&mut self) {
+		self.quit.store(true, Ordering::Release);
+		if let Some(thread) = self.thread.take() {
+			let _ = thread.join();
+		}
+	}
 }
 
 impl Capture {
@@ -230,7 +247,23 @@ impl Capture {
 					.into_iter()
 					.find(|monitor| monitor_id(monitor) == id)
 					.ok_or("Selected display is no longer available")?;
-				start_item(settings, monitor, frames, stop.clone(), pending, cancel)
+				match start_item(
+					settings,
+					monitor,
+					frames.clone(),
+					stop.clone(),
+					pending.clone(),
+					cancel,
+				) {
+					Ok(capture) => Ok(capture),
+					// Windows 11 26H2 refuses Windows Graphics Capture to an application the
+					// privacy page has not listed, while the programmatic path it does allow is
+					// desktop duplication. Read a display that way instead of failing the share.
+					Err(reason) if reason == DENIED => {
+						start_duplication(settings, monitor, frames, stop.clone(), pending)
+					}
+					Err(reason) => Err(reason),
+				}
 			}
 			SourceId::Window(id) => {
 				let window = Window::enumerate()
@@ -239,7 +272,15 @@ impl Capture {
 					.find(|window| window_id(window) == id)
 					.ok_or("Selected window is no longer available")?;
 				window_process = window.process_id().ok();
-				start_item(settings, window, frames, stop.clone(), pending, cancel)
+				start_item(settings, window, frames, stop.clone(), pending, cancel).map_err(
+					|reason| {
+						if reason == DENIED {
+							DENIED_WINDOW
+						} else {
+							reason
+						}
+					},
+				)
 			}
 			#[allow(unreachable_patterns)] // Portal may be absent from platform-scoped models.
 			_ => return Err("The desktop screen picker is available only on Linux".into()),
@@ -372,13 +413,205 @@ where
 	let control = Handler::start_free_threaded(native).map_err(|error| start_failure(&error))?;
 	Ok(Capture {
 		control: Some(control),
+		duplication: None,
 		audio: None,
 	})
+}
+
+/// Starts desktop duplication for a display Windows Graphics Capture refused.
+///
+/// Duplication is the "programmatic" capture path, which the same privacy page keeps available,
+/// and it is the only one Windows 11 26H2 offers an application that is not in its list. It draws
+/// no cursor and copies each frame through the CPU, so it stays the fallback rather than the
+/// default.
+fn start_duplication(
+	settings: CaptureSettings,
+	monitor: Monitor,
+	frames: SyncSender<RawFrame>,
+	stop: Arc<AtomicBool>,
+	pending: Arc<AtomicBool>,
+) -> Result<Capture, &'static str> {
+	let quit = Arc::new(AtomicBool::new(false));
+	let thread = {
+		let quit = Arc::clone(&quit);
+		std::thread::Builder::new()
+			.name("serein-screen-duplication".into())
+			.spawn(move || duplication_loop(settings, monitor, &frames, &stop, &pending, &quit))
+			.map_err(|_| "Screen capture could not be started")?
+	};
+	Ok(Capture {
+		control: None,
+		duplication: Some(Duplication {
+			quit,
+			thread: Some(thread),
+		}),
+		audio: None,
+	})
+}
+
+/// Reads display frames until the share stops, paced like the Windows Graphics Capture handler and
+/// dropping a frame while the encoder still holds the previous one.
+fn duplication_loop(
+	settings: CaptureSettings,
+	monitor: Monitor,
+	frames: &SyncSender<RawFrame>,
+	stop: &AtomicBool,
+	pending: &AtomicBool,
+	quit: &AtomicBool,
+) {
+	let Ok(mut api) = DxgiDuplicationApi::new_options(monitor, &[DxgiDuplicationFormat::Bgra8])
+	else {
+		stop.store(true, Ordering::Release);
+		return;
+	};
+	let interval = Duration::from_secs_f64(1.0 / f64::from(settings.fps));
+	let mut next_frame = Instant::now();
+	let mut packed = Vec::new();
+	while !quit.load(Ordering::Acquire) && !stop.load(Ordering::Acquire) {
+		let mut frame = match api.acquire_next_frame(100) {
+			Ok(frame) => frame,
+			// A static display is the normal case between updates, not an error.
+			Err(windows_capture::dxgi_duplication_api::Error::Timeout) => continue,
+			Err(_) => match api.recreate() {
+				Ok(recreated) => {
+					api = recreated;
+					continue;
+				}
+				Err(_) => break,
+			},
+		};
+		let (width, height) = (frame.width(), frame.height());
+		let Some(stride) = usize::try_from(width).ok().and_then(|w| w.checked_mul(4)) else {
+			stop.store(true, Ordering::Release);
+			break;
+		};
+		let Some(length) = stride.checked_mul(height as usize) else {
+			stop.store(true, Ordering::Release);
+			break;
+		};
+		if width == 0
+			|| height == 0
+			|| width > MAX_FRAME_WIDTH
+			|| height > MAX_FRAME_HEIGHT
+			|| length > MAX_RAW_BYTES
+		{
+			stop.store(true, Ordering::Release);
+			break;
+		}
+		let Ok(buffer) = frame.buffer() else {
+			continue;
+		};
+		let format = buffer.format();
+		let source = buffer.as_nopadding_buffer(&mut packed);
+		let Some(data) = packed_bgra(format, source, width, height) else {
+			continue;
+		};
+		let now = Instant::now();
+		if now < next_frame {
+			std::thread::sleep(next_frame - now);
+		}
+		if stop.load(Ordering::Acquire) || quit.load(Ordering::Acquire) {
+			break;
+		}
+		// The worker clears `pending` once it takes a frame, exactly as it does for the handler.
+		if pending.swap(true, Ordering::AcqRel) {
+			continue;
+		}
+		next_frame = (next_frame + interval).max(Instant::now());
+		let frame = RawFrame {
+			width,
+			height,
+			stride,
+			data,
+		};
+		if frames.try_send(frame).is_err() {
+			pending.store(false, Ordering::Release);
+		}
+	}
+}
+
+/// Converts one duplicated frame into the packed BGRA rows the encoder expects.
+///
+/// Duplication hands over the display's own format, and only sometimes converts: an HDR display
+/// produces scRGB half floats, and a colour-space change switches between the RGBA and BGRA byte
+/// orders. Reading those bytes as BGRA is what made a share flash the wrong colours, so the format
+/// is honoured here instead.
+fn packed_bgra(
+	format: DxgiDuplicationFormat,
+	source: &[u8],
+	width: u32,
+	height: u32,
+) -> Option<Vec<u8>> {
+	let pixels = usize::try_from(width)
+		.ok()?
+		.checked_mul(usize::try_from(height).ok()?)?;
+	let length = pixels.checked_mul(4)?;
+	match format {
+		DxgiDuplicationFormat::Bgra8 => source.get(..length).map(<[u8]>::to_vec),
+		DxgiDuplicationFormat::Rgba8 => {
+			let source = source.get(..length)?;
+			let mut data = Vec::with_capacity(length);
+			for pixel in source.chunks_exact(4) {
+				data.extend_from_slice(&[pixel[2], pixel[1], pixel[0], pixel[3]]);
+			}
+			Some(data)
+		}
+		DxgiDuplicationFormat::Rgba16F => {
+			let source = source.get(..pixels.checked_mul(8)?)?;
+			let table = sc_rgb_half_table();
+			let mut data = Vec::with_capacity(length);
+			for pixel in source.chunks_exact(8) {
+				let red = table[usize::from(u16::from_le_bytes([pixel[0], pixel[1]]))];
+				let green = table[usize::from(u16::from_le_bytes([pixel[2], pixel[3]]))];
+				let blue = table[usize::from(u16::from_le_bytes([pixel[4], pixel[5]]))];
+				data.extend_from_slice(&[blue, green, red, 255]);
+			}
+			Some(data)
+		}
+	}
+}
+
+/// Half float scRGB to 8-bit sRGB, tabulated once: an HDR display's 1.0 is SDR white, and the
+/// stream is 8-bit sRGB, so the table folds the clamp and the transfer function together.
+fn sc_rgb_half_table() -> &'static [u8; 65536] {
+	static TABLE: std::sync::OnceLock<[u8; 65536]> = std::sync::OnceLock::new();
+	TABLE.get_or_init(|| {
+		let mut table = [0u8; 65536];
+		for (bits, entry) in table.iter_mut().enumerate() {
+			let value = half_to_f32(bits as u16);
+			let linear = if value.is_finite() {
+				value.clamp(0.0, 1.0)
+			} else {
+				0.0
+			};
+			let encoded = if linear <= 0.003_130_8 {
+				linear * 12.92
+			} else {
+				1.055 * linear.powf(1.0 / 2.4) - 0.055
+			};
+			*entry = (encoded * 255.0 + 0.5) as u8;
+		}
+		table
+	})
+}
+
+/// One IEEE half decoded without a dependency on an `f16` type.
+fn half_to_f32(bits: u16) -> f32 {
+	let sign = if bits & 0x8000 == 0 { 1.0 } else { -1.0 };
+	let exponent = (bits >> 10) & 0x1f;
+	let mantissa = f32::from(bits & 0x03ff);
+	match exponent {
+		0 => sign * mantissa * 2f32.powi(-24),
+		31 if mantissa == 0.0 => sign * f32::INFINITY,
+		31 => f32::NAN,
+		_ => sign * (1.0 + mantissa / 1024.0) * 2f32.powi(i32::from(exponent) - 15),
+	}
 }
 
 impl Drop for Capture {
 	fn drop(&mut self) {
 		self.audio.take();
+		self.duplication.take();
 		if let Some(control) = self.control.take() {
 			let _ = control.stop();
 		}
@@ -389,6 +622,8 @@ impl Drop for Capture {
 const ACCESS_DENIED: u32 = 0x8007_0005;
 /// Windows 11 blocks programmatic capture for applications the owner has not allowed.
 const DENIED: &str = "Windows blocked screen capture for this app; allow it in Settings, Privacy & security, Screenshots and screen recording";
+/// A window share has no fallback: desktop duplication captures displays only.
+const DENIED_WINDOW: &str = "Windows blocked screen capture for this app; allow it in Settings, Privacy & security, Screenshots and screen recording, or share a whole display instead";
 /// How often a pending consent wait checks whether the share was cancelled.
 const CONSENT_POLL: Duration = Duration::from_millis(50);
 
@@ -471,5 +706,90 @@ fn start_failure(
 		Error::NewHandlerError(_) | Error::FrameHandlerError(_) => {
 			"Screen capture could not be started"
 		}
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	/// A display share has to reach the encoder on a Windows build that refuses Windows Graphics
+	/// Capture to this application, which is what the duplication fallback is for. Where capture is
+	/// allowed the same call exercises the primary path, and a headless runner produces no frame at
+	/// all, which this test then does not judge.
+	#[test]
+	fn a_display_share_produces_frames_through_whichever_path_windows_allows() {
+		let Some(monitor) = Monitor::enumerate()
+			.ok()
+			.and_then(|mut all| all.drain(..).next())
+		else {
+			return;
+		};
+		let (Ok(width), Ok(height)) = (monitor.width(), monitor.height()) else {
+			return;
+		};
+		if width < 2 || height < 2 || width > MAX_FRAME_WIDTH || height > MAX_FRAME_HEIGHT {
+			return;
+		}
+		let settings = CaptureSettings {
+			source: SourceId::Display(monitor_id(&monitor)),
+			width,
+			height,
+			fps: 30,
+			cursor: true,
+			audio: false,
+		};
+		let (send, receive) = std::sync::mpsc::sync_channel(1);
+		let Ok(capture) = Capture::start(
+			settings,
+			send,
+			None,
+			Arc::new(AtomicBool::new(false)),
+			Arc::new(AtomicBool::new(false)),
+			Arc::new(AtomicU64::new(0)),
+			Arc::new(AtomicBool::new(false)),
+			Arc::new(AtomicBool::new(false)),
+		) else {
+			return;
+		};
+		let frame = receive.recv_timeout(Duration::from_secs(5)).ok();
+		drop(capture);
+		let Some(frame) = frame else {
+			return;
+		};
+		assert_eq!((frame.width, frame.height), (width, height));
+		assert_eq!(frame.stride, width as usize * 4, "packed BGRA rows");
+		assert_eq!(frame.data.len(), frame.stride * height as usize);
+	}
+
+	/// Duplication does not promise one byte order: an HDR display hands over scRGB half floats and
+	/// a colour-space change switches between RGBA and BGRA. Treating any of them as BGRA is what
+	/// made a share flash wrong colours.
+	#[test]
+	fn duplicated_frames_arrive_as_packed_bgra_whatever_the_display_hands_over() {
+		let rgba = [10, 20, 30, 255, 40, 50, 60, 255];
+		assert_eq!(
+			packed_bgra(DxgiDuplicationFormat::Rgba8, &rgba, 2, 1),
+			Some(vec![30, 20, 10, 255, 60, 50, 40, 255])
+		);
+		assert_eq!(
+			packed_bgra(DxgiDuplicationFormat::Bgra8, &rgba, 2, 1),
+			Some(rgba.to_vec())
+		);
+		// scRGB 1.0 in every channel is SDR white.
+		let mut white = Vec::new();
+		for _ in 0..3 {
+			white.extend_from_slice(&0x3c00u16.to_le_bytes());
+		}
+		white.extend_from_slice(&0u16.to_le_bytes());
+		assert_eq!(
+			packed_bgra(DxgiDuplicationFormat::Rgba16F, &white, 1, 1),
+			Some(vec![255, 255, 255, 255])
+		);
+		// A buffer too short for the picture is refused rather than read as pixels.
+		assert_eq!(
+			packed_bgra(DxgiDuplicationFormat::Bgra8, &[0; 3], 1, 1),
+			None
+		);
 	}
 }

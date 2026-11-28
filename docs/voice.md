@@ -533,6 +533,25 @@ setting in the share dialog and the diagnostic log records the reason. The Windo
 permission applies to the exact executable path, so a build run from a new folder can be
 refused even when an installed copy was already allowed.
 
+On build 26300 (26H2) that page refuses Windows Graphics Capture to an unpackaged
+application outright. `GraphicsCaptureAccess.RequestAccessAsync` returns
+`NotDeclaredByApp` for both the programmatic and the borderless kind, so no prompt appears
+and the page records no request at all, and
+`IGraphicsCaptureItemInterop::CreateForMonitor` and `CreateForWindow` then fail with
+`E_ACCESSDENIED` ("You do not have permission to capture the given monitor") — in the
+application and equally in a console probe that only asks for the item. Desktop
+duplication is not refused by the same setting, so a display share falls back to it when
+the item call is denied. The fallback draws no cursor and copies each frame through the
+CPU; a window share keeps the refusal, with a message that points at sharing a whole
+display instead. Earlier builds keep using Windows Graphics Capture.
+
+Duplication hands over the display's own pixel format and only sometimes converts it: on
+an HDR display the first frame arrived as scRGB half floats and the rest as BGRA8, and a
+colour-space change switches between the RGBA and BGRA byte orders. The fallback therefore
+converts every frame to packed BGRA from the format the buffer reports — half floats
+through a table that maps scRGB to 8-bit sRGB — because reading them as BGRA produced a
+picture that flashed wrong colours.
+
 Source discovery alone does not start streaming. Closing or minimizing a selected source may pause frames or end capture, according to the native API. The initial Windows adapter accepts source dimensions up to 3840×2160. Changes to screen-server metadata, lost video permission, leaving the call and logout stop sharing. The sender never starts itself after reconnection.
 
 Windows capture requests border removal when the native `IsBorderRequired` API is
