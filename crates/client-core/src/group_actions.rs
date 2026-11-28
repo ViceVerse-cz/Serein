@@ -358,6 +358,7 @@ mod tests {
 			selected: Some(Id(10)),
 			channels: vec![model::Channel {
 				user_limit: None,
+				bitrate: None,
 				slowmode: 0,
 				id: Id(10),
 				guild: None,
@@ -378,6 +379,7 @@ mod tests {
 	fn patch(name: &str) -> ChannelPatch {
 		ChannelPatch {
 			user_limit: Patch::Absent,
+			bitrate: Patch::Absent,
 			slowmode: Patch::Absent,
 			id: Id(10),
 			name: Patch::Value(name.into()),

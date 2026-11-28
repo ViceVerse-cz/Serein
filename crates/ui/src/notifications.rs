@@ -695,6 +695,7 @@ mod tests {
 			&mut state,
 			Event::ChannelCreated(model::Channel {
 				user_limit: None,
+				bitrate: None,
 				slowmode: 0,
 				id: Id(44),
 				guild: None,
@@ -725,6 +726,7 @@ mod tests {
 			&mut state,
 			Event::ChannelCreated(model::Channel {
 				user_limit: None,
+				bitrate: None,
 				slowmode: 0,
 				id: Id(45),
 				guild: None,

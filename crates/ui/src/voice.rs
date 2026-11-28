@@ -10,7 +10,7 @@ use egui::RichText;
 use model::{
 	Id,
 	server_admin::VoiceChange,
-	voice_settings::{CameraFrameRate, InputProfile, NoiseSuppression},
+	voice_settings::{CameraFrameRate, InputProfile, MicrophoneQuality, NoiseSuppression},
 };
 
 /// Local mutes share the 64 per-user volume slots sent to the mixer.
@@ -3352,6 +3352,37 @@ impl MessagingUi {
 		.changed()
 		{
 			self.skip_call_switch_confirmation = !confirm;
+		}
+		design::card_divider(ui);
+		design::section(
+			ui,
+			"Microphone quality",
+			Some("What others receive from your microphone in calls. Applies at once."),
+		);
+		for (quality, label, detail) in [
+			(
+				MicrophoneQuality::Channel,
+				"Discord standard",
+				"The channel's bitrate (64 kb/s unless the server raised it), with recovery from \
+				 lost packets. Like the Discord app; best on Wi-Fi or mobile connections.",
+			),
+			(
+				MicrophoneQuality::Maximum,
+				"Maximum",
+				"Stereo at 510 kb/s, about 0.5 Mb/s upload while you talk, without loss \
+				 recovery. For music or instruments on a stable wired connection.",
+			),
+		] {
+			if design::radio_row(
+				ui,
+				self.voice_microphone_quality == quality,
+				label,
+				Some(detail),
+			)
+			.clicked()
+			{
+				self.voice_microphone_quality = quality;
+			}
 		}
 	}
 
@@ -6902,6 +6933,7 @@ mod tests {
 			gateway_connected: true,
 			channels: vec![model::Channel {
 				user_limit: None,
+				bitrate: None,
 				slowmode: 0,
 				last_message: None,
 				id: Id(1),

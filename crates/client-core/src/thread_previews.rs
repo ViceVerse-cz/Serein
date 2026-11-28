@@ -312,6 +312,7 @@ mod tests {
 	fn channel(id: Id, kind: u8, parent: Option<Id>) -> Channel {
 		Channel {
 			user_limit: None,
+			bitrate: None,
 			slowmode: 0,
 			id,
 			guild: Some(Id(1)),

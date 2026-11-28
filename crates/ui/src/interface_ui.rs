@@ -667,6 +667,7 @@ mod tests {
 			member_list_id: None,
 			message_count: None,
 			user_limit: None,
+			bitrate: None,
 			slowmode: 0,
 			tags: None,
 		}

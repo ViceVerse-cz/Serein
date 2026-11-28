@@ -662,6 +662,7 @@ mod tests {
 			user: Some(message.author.clone()),
 			channels: vec![Channel {
 				user_limit: None,
+				bitrate: None,
 				slowmode: 0,
 				id: channel,
 				guild: None,
@@ -752,6 +753,7 @@ mod tests {
 				user: Some(message.author.clone()),
 				channels: vec![Channel {
 					user_limit: None,
+					bitrate: None,
 					slowmode: 0,
 					id: channel,
 					guild: None,
@@ -1019,6 +1021,7 @@ mod tests {
 				user: Some(message.author.clone()),
 				channels: vec![Channel {
 					user_limit: None,
+					bitrate: None,
 					slowmode: 0,
 					id: channel,
 					guild: None,
@@ -1312,6 +1315,7 @@ mod tests {
 			}],
 			channels: vec![Channel {
 				user_limit: None,
+				bitrate: None,
 				slowmode: 0,
 				id: Id(10),
 				guild: Some(Id(1)),

@@ -2410,6 +2410,7 @@ mod tests {
 				*request,
 				Ok(Channel {
 					user_limit: None,
+					bitrate: None,
 					slowmode: 0,
 					id: Id(1_548_000_000_000_000_000),
 					guild: Some(Id(10)),
@@ -2516,6 +2517,7 @@ mod tests {
 				Ok(model::forum::Page {
 					threads: vec![Channel {
 						user_limit: None,
+						bitrate: None,
 						slowmode: 0,
 						id: Id(1_549_000_000_000_000_000),
 						guild: Some(Id(10)),

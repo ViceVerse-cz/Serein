@@ -365,6 +365,7 @@ pub fn demo_state() -> State {
 			channels: vec![
 				Channel {
 					user_limit: None,
+					bitrate: None,
 					slowmode: 0,
 					last_message: None,
 					id: Id(20),
@@ -381,6 +382,7 @@ pub fn demo_state() -> State {
 				},
 				Channel {
 					user_limit: None,
+					bitrate: None,
 					slowmode: 0,
 					last_message: None,
 					id: Id(21),
@@ -397,6 +399,7 @@ pub fn demo_state() -> State {
 				},
 				Channel {
 					user_limit: None,
+					bitrate: None,
 					slowmode: 0,
 					last_message: None,
 					id: Id(22),
@@ -413,6 +416,7 @@ pub fn demo_state() -> State {
 				},
 				Channel {
 					user_limit: None,
+					bitrate: None,
 					slowmode: 0,
 					last_message: None,
 					id: Id(23),
@@ -429,6 +433,7 @@ pub fn demo_state() -> State {
 				},
 				Channel {
 					user_limit: None,
+					bitrate: None,
 					slowmode: 0,
 					id: Id(40),
 					guild: None,
@@ -455,6 +460,7 @@ pub fn demo_state() -> State {
 				},
 				Channel {
 					user_limit: None,
+					bitrate: None,
 					slowmode: 0,
 					id: Id(43),
 					guild: None,
@@ -481,6 +487,7 @@ pub fn demo_state() -> State {
 				},
 				Channel {
 					user_limit: None,
+					bitrate: None,
 					slowmode: 0,
 					id: Id(29),
 					guild: None,
@@ -510,6 +517,7 @@ pub fn demo_state() -> State {
 				},
 				Channel {
 					user_limit: None,
+					bitrate: None,
 					slowmode: 0,
 					last_message: None,
 					id: Id(24),
@@ -526,6 +534,7 @@ pub fn demo_state() -> State {
 				},
 				Channel {
 					user_limit: None,
+					bitrate: None,
 					slowmode: 0,
 					last_message: None,
 					id: Id(25),
@@ -542,6 +551,7 @@ pub fn demo_state() -> State {
 				},
 				Channel {
 					user_limit: None,
+					bitrate: None,
 					slowmode: 0,
 					id: Id(26),
 					guild: Some(Id(10)),
@@ -558,6 +568,7 @@ pub fn demo_state() -> State {
 				},
 				Channel {
 					user_limit: None,
+					bitrate: None,
 					slowmode: 0,
 					id: Id(27),
 					guild: Some(Id(10)),
@@ -577,6 +588,7 @@ pub fn demo_state() -> State {
 				},
 				Channel {
 					user_limit: None,
+					bitrate: None,
 					slowmode: 0,
 					id: Id(41),
 					guild: Some(Id(10)),
@@ -596,6 +608,7 @@ pub fn demo_state() -> State {
 				},
 				Channel {
 					user_limit: None,
+					bitrate: None,
 					slowmode: 0,
 					id: Id(42),
 					guild: Some(Id(10)),
@@ -615,6 +628,7 @@ pub fn demo_state() -> State {
 				},
 				Channel {
 					user_limit: None,
+					bitrate: None,
 					slowmode: 0,
 					id: Id(28),
 					guild: Some(Id(10)),
@@ -808,6 +822,7 @@ pub fn voice_demo_state() -> State {
 	// A full two-person room shows the user-limit pill and refuses joins.
 	state.channels.push(Channel {
 		user_limit: Some(2),
+		bitrate: None,
 		slowmode: 0,
 		id: Id(37),
 		guild: Some(Id(10)),
@@ -1040,6 +1055,7 @@ pub fn seed_access_marks(state: &mut State) {
 	const ACCESS: Id = Id(60);
 	let channel = |id, kind, parent, position, name: &str| Channel {
 		user_limit: None,
+		bitrate: None,
 		slowmode: 0,
 		last_message: None,
 		id: Id(id),

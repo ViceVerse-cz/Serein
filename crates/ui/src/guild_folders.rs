@@ -989,6 +989,7 @@ mod tests {
 		test_support::seed_demo_folder_mosaic(&mut state);
 		state.channels.push(Channel {
 			user_limit: None,
+			bitrate: None,
 			slowmode: 0,
 			id: Id(111),
 			guild: Some(Id(11)),

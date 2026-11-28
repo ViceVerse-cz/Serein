@@ -2077,6 +2077,7 @@ mod tests {
 	fn channel(id: u64, kind: u8, position: i32, parent_id: Option<Id>) -> Channel {
 		Channel {
 			user_limit: None,
+			bitrate: None,
 			slowmode: 0,
 			last_message: None,
 			id: Id(id),

@@ -257,6 +257,7 @@ mod tests {
 			}),
 			channels: vec![Channel {
 				user_limit: None,
+				bitrate: None,
 				slowmode: 0,
 				id: Id(10),
 				guild: None,
@@ -534,6 +535,7 @@ mod tests {
 		typist.name = "Synthetic typist".into();
 		state.channels.push(Channel {
 			user_limit: None,
+			bitrate: None,
 			slowmode: 0,
 			id: channel,
 			guild: Some(Id(50)),

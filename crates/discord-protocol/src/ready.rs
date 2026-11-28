@@ -618,6 +618,7 @@ mod tests {
 				ready.guilds[0].channels = (0..count)
 					.map(|index| ChannelDto {
 						user_limit: 0,
+						bitrate: 0,
 						rate_limit_per_user: 0,
 						id: Id(index as u64 + 100),
 						guild_id: Some(Id(1)),

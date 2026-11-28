@@ -6317,6 +6317,7 @@ mod tests {
 			selected: Some(Id(20)),
 			channels: vec![model::Channel {
 				user_limit: None,
+				bitrate: None,
 				slowmode: 0,
 				id: Id(20),
 				guild: None,
@@ -6588,6 +6589,7 @@ mod tests {
 			state.older_exhausted = true;
 			state.channels = vec![model::Channel {
 				user_limit: None,
+				bitrate: None,
 				slowmode: 0,
 				id: Id(20),
 				guild: None,
@@ -7651,6 +7653,7 @@ mod tests {
 				result: Ok(client_core::thread_previews::Loaded {
 					channel: Some(model::Channel {
 						user_limit: None,
+						bitrate: None,
 						slowmode: 0,
 						id: thread,
 						guild: Some(Id(10)),
@@ -8402,6 +8405,7 @@ mod tests {
 				search_target: Some(Id(19)),
 				channels: vec![model::Channel {
 					user_limit: None,
+					bitrate: None,
 					slowmode: 0,
 					id: Id(20),
 					guild: None,
@@ -8537,6 +8541,7 @@ mod tests {
 			.into_iter()
 			.map(|(id, guild)| model::Channel {
 				user_limit: None,
+				bitrate: None,
 				slowmode: 0,
 				id: Id(id),
 				guild: Some(Id(guild)),
@@ -8818,6 +8823,7 @@ mod tests {
 				selected: Some(Id(20)),
 				channels: vec![model::Channel {
 					user_limit: None,
+					bitrate: None,
 					slowmode: 0,
 					id: Id(20),
 					guild: None,
@@ -8920,6 +8926,7 @@ mod tests {
 			selected: Some(Id(20)),
 			channels: vec![model::Channel {
 				user_limit: None,
+				bitrate: None,
 				slowmode: 0,
 				id: Id(20),
 				guild: None,
@@ -9026,6 +9033,7 @@ mod tests {
 			selected: Some(Id(20)),
 			channels: vec![model::Channel {
 				user_limit: None,
+				bitrate: None,
 				slowmode: 0,
 				id: Id(20),
 				guild: None,
@@ -9268,6 +9276,7 @@ mod tests {
 			selected: Some(Id(20)),
 			channels: vec![model::Channel {
 				user_limit: None,
+				bitrate: None,
 				slowmode: 0,
 				id: Id(20),
 				guild: None,
@@ -10496,6 +10505,7 @@ mod tests {
 		};
 		state.channels.push(model::Channel {
 			user_limit: None,
+			bitrate: None,
 			slowmode: 0,
 			id: Id(4),
 			guild: Some(Id(5)),
@@ -10590,6 +10600,7 @@ mod tests {
 			generation: state.generation,
 			event: client_core::Event::ChannelChanged(model::ChannelPatch {
 				user_limit: model::Patch::Absent,
+				bitrate: model::Patch::Absent,
 				slowmode: model::Patch::Absent,
 				id: Id(4),
 				name: model::Patch::Value("a-much-longer-channel-reference".into()),
@@ -11205,6 +11216,7 @@ mod tests {
 			freshness: model::Freshness::Fresh,
 			channels: vec![model::Channel {
 				user_limit: None,
+				bitrate: None,
 				slowmode: 0,
 				id: Id(channel),
 				guild: None,

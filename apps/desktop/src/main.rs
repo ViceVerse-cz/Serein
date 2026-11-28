@@ -4252,6 +4252,7 @@ impl Desktop {
 						Action::Leave(_) | Action::AddRecipient { .. } => None,
 						Action::Edit { name, icon, .. } => Some(model::ChannelPatch {
 							user_limit: Patch::Absent,
+							bitrate: Patch::Absent,
 							slowmode: Patch::Absent,
 							id: channel,
 							name: name.map_or(Patch::Absent, Patch::Value),
@@ -4436,6 +4437,7 @@ impl Desktop {
 						request,
 						result: Ok(model::Channel {
 							user_limit: None,
+							bitrate: None,
 							slowmode: 0,
 							id: model::Id(self.synthetic_id),
 							guild: Some(guild),
@@ -4490,6 +4492,7 @@ impl Desktop {
 						.into_iter()
 						.map(|id| model::Channel {
 							user_limit: None,
+							bitrate: None,
 							slowmode: 0,
 							id: model::Id(id),
 							guild: Some(guild),

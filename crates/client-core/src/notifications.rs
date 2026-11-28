@@ -1238,6 +1238,7 @@ mod tests {
 				.into_iter()
 				.map(|id| Channel {
 					user_limit: None,
+					bitrate: None,
 					slowmode: 0,
 					id: Id(id),
 					guild: Some(Id(1)),

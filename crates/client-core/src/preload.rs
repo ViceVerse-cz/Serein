@@ -383,6 +383,7 @@ mod tests {
 			channels: (1..=20)
 				.map(|id| Channel {
 					user_limit: None,
+					bitrate: None,
 					slowmode: 0,
 					id: Id(id),
 					guild: None,

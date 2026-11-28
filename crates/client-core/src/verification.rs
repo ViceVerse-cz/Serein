@@ -189,6 +189,7 @@ mod tests {
 		crate::State {
 			channels: vec![model::Channel {
 				user_limit: None,
+				bitrate: None,
 				slowmode: 0,
 				id: model::Id(1),
 				guild: None,

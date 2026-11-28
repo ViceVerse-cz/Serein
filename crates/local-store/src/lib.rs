@@ -124,6 +124,8 @@ pub struct AppPreferences {
 	/// Absent in older preferences; migrate using the legacy suppression setting.
 	#[serde(default)]
 	pub voice_processing: Option<model::voice_settings::VoiceProcessing>,
+	/// Absent in older preferences, which then follow the channel bitrate.
+	pub voice_microphone_quality: model::voice_settings::MicrophoneQuality,
 	pub voice_push_to_talk: bool,
 	/// Ask before leaving one call to join another; older preferences keep asking.
 	pub confirm_call_switch: bool,
@@ -190,6 +192,7 @@ impl Default for AppPreferences {
 			blur: 50,
 			voice_noise_suppression: true,
 			voice_processing: Some(model::voice_settings::VoiceProcessing::default()),
+			voice_microphone_quality: Default::default(),
 			voice_push_to_talk: false,
 			confirm_call_switch: true,
 			voice_muted: false,

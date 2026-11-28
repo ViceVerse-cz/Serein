@@ -1804,6 +1804,7 @@ mod tests {
 			};
 			state.channels.push(model::Channel {
 				user_limit: None,
+				bitrate: None,
 				slowmode: 0,
 				last_message: None,
 				id: Id(1),
@@ -2104,6 +2105,7 @@ mod tests {
 	fn channel(id: u64, guild: Option<Id>, kind: u8, name: &str) -> Channel {
 		Channel {
 			user_limit: None,
+			bitrate: None,
 			slowmode: 0,
 			id: Id(id),
 			guild,

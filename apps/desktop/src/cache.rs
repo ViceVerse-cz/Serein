@@ -1143,6 +1143,7 @@ mod tests {
 			freshness: model::Freshness::Fresh,
 			channels: vec![model::Channel {
 				user_limit: None,
+				bitrate: None,
 				slowmode: 0,
 				id: channel,
 				guild: None,

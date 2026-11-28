@@ -1005,6 +1005,7 @@ impl State {
 							generation: self.generation,
 							event: crate::Event::ChannelChanged(model::ChannelPatch {
 								user_limit: Patch::Absent,
+								bitrate: Patch::Absent,
 								slowmode: Patch::Absent,
 								id: channel,
 								name: Patch::Value(updated.name.clone()),
@@ -1182,6 +1183,7 @@ impl State {
 						generation: self.generation,
 						event: crate::Event::ChannelChanged(model::ChannelPatch {
 							user_limit: Patch::Absent,
+							bitrate: Patch::Absent,
 							slowmode: Patch::Absent,
 							id: channel,
 							name: Patch::Absent,
@@ -1199,6 +1201,7 @@ impl State {
 							generation: self.generation,
 							event: crate::Event::ChannelChanged(model::ChannelPatch {
 								user_limit: Patch::Absent,
+								bitrate: Patch::Absent,
 								slowmode: Patch::Absent,
 								id: shift_id,
 								name: Patch::Absent,
@@ -1279,6 +1282,7 @@ mod tests {
 			}],
 			channels: vec![model::Channel {
 				user_limit: None,
+				bitrate: None,
 				slowmode: 0,
 				id: Id(3),
 				guild: Some(Id(2)),
@@ -1504,6 +1508,7 @@ mod tests {
 		let mut state = state();
 		let thread = model::Channel {
 			user_limit: None,
+			bitrate: None,
 			slowmode: 0,
 			id: Id(4),
 			guild: Some(Id(2)),
@@ -1598,6 +1603,7 @@ mod tests {
 				guild: Id(2),
 				patch: model::ChannelPatch {
 					user_limit: Patch::Absent,
+					bitrate: Patch::Absent,
 					slowmode: Patch::Absent,
 					id: Id(4),
 					name: Patch::Value(renamed.into()),
@@ -1660,6 +1666,7 @@ mod tests {
 			generation: state.generation,
 			event: CoreEvent::ChannelChanged(model::ChannelPatch {
 				user_limit: Patch::Absent,
+				bitrate: Patch::Absent,
 				slowmode: Patch::Absent,
 				id: Id(4),
 				name: Patch::Value("Later edit".into()),
@@ -1705,6 +1712,7 @@ mod tests {
 			Ok(Outcome::Channel {
 				channel: Box::new(model::Channel {
 					user_limit: None,
+					bitrate: None,
 					slowmode: 0,
 					id: Id(4),
 					guild: Some(Id(2)),
@@ -1744,6 +1752,7 @@ mod tests {
 			Ok(Outcome::Channel {
 				channel: Box::new(model::Channel {
 					user_limit: None,
+					bitrate: None,
 					slowmode: 0,
 					id: Id(4),
 					guild: Some(Id(2)),
@@ -1876,6 +1885,7 @@ mod tests {
 			renamed.name = "renamed".into();
 			state.observe_channel_action(&CoreEvent::ChannelChanged(model::ChannelPatch {
 				user_limit: Patch::Absent,
+				bitrate: Patch::Absent,
 				slowmode: Patch::Absent,
 				id: Id(3),
 				name: Patch::Value("renamed".into()),

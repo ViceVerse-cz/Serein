@@ -356,6 +356,7 @@ mod tests {
 			message_count: None,
 			icon: None,
 			user_limit: None,
+			bitrate: None,
 			slowmode: 0,
 		});
 		state.invalidate_navigation();
@@ -407,6 +408,7 @@ mod tests {
 		// Regression: choosing the group already on screen sends nothing but still closes.
 		state.channels.push(model::Channel {
 			user_limit: None,
+			bitrate: None,
 			slowmode: 0,
 			last_message: None,
 			id: Id(50),

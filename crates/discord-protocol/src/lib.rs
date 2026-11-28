@@ -217,6 +217,9 @@ pub struct ChannelDto {
 	/// Zero means unlimited.
 	#[serde(default, deserialize_with = "lossy::null_default")]
 	pub user_limit: u32,
+	/// Voice and stage channels only; zero means unknown.
+	#[serde(default, deserialize_with = "lossy::null_default")]
+	pub bitrate: u32,
 	/// Slowmode seconds; zero means off.
 	#[serde(default, deserialize_with = "lossy::null_default")]
 	pub rate_limit_per_user: u32,
@@ -315,6 +318,7 @@ impl ChannelDto {
 			member_list_id: None,
 			message_count: self.message_count,
 			user_limit: user_limit(self.user_limit),
+			bitrate: bitrate(self.bitrate),
 			slowmode: slowmode(self.rate_limit_per_user),
 		}
 	}
@@ -323,6 +327,11 @@ impl ChannelDto {
 /// limits stay within 0..=10000; zero and anything unrepresentable mean unlimited.
 fn user_limit(limit: u32) -> Option<u16> {
 	u16::try_from(limit).ok().filter(|limit| *limit > 0)
+}
+/// [Documented](https://docs.discord.com/developers/resources/channel#channel-object) voice
+/// bitrates are at least 8000 bits per second; zero means the service sent none.
+fn bitrate(bits: u32) -> Option<u32> {
+	(bits > 0).then_some(bits)
 }
 /// [Documented](https://docs.discord.com/developers/resources/channel#channel-object) slowmode
 /// stays within 0..=21600 seconds; anything beyond is held to that ceiling.
@@ -352,6 +361,8 @@ pub struct ChannelPatchDto {
 	pub message_count: Patch<u32>,
 	#[serde(default)]
 	pub user_limit: Patch<u32>,
+	#[serde(default)]
+	pub bitrate: Patch<u32>,
 	#[serde(default)]
 	pub rate_limit_per_user: Patch<u32>,
 	#[serde(default)]
@@ -461,6 +472,11 @@ impl ChannelPatchDto {
 				Patch::Null => Patch::Null,
 				Patch::Absent => Patch::Absent,
 			},
+			bitrate: match self.bitrate {
+				Patch::Value(bits) => bitrate(bits).map_or(Patch::Null, Patch::Value),
+				Patch::Null => Patch::Null,
+				Patch::Absent => Patch::Absent,
+			},
 			slowmode: match self.rate_limit_per_user {
 				Patch::Value(seconds) => Patch::Value(slowmode(seconds)),
 				Patch::Null => Patch::Value(0),
@@ -472,6 +488,39 @@ impl ChannelPatchDto {
 #[cfg(test)]
 mod channel_tests {
 	use super::*;
+	#[test]
+	fn voice_bitrate_is_read_and_patched() {
+		let voice = decode::<ChannelDto>(br#"{"id":"3","type":2,"bitrate":96000}"#)
+			.unwrap()
+			.into_model();
+		assert_eq!(voice.bitrate, Some(96_000));
+		for text in [
+			&br#"{"id":"3","type":0}"#[..],
+			br#"{"id":"3","type":2,"bitrate":null}"#,
+			br#"{"id":"3","type":2,"bitrate":0}"#,
+		] {
+			assert_eq!(
+				decode::<ChannelDto>(text).unwrap().into_model().bitrate,
+				None
+			);
+		}
+		let patch = |json: &[u8]| {
+			decode::<ChannelPatchDto>(json)
+				.unwrap()
+				.into_model()
+				.bitrate
+		};
+		assert!(matches!(patch(br#"{"id":"3"}"#), Patch::Absent));
+		assert!(matches!(
+			patch(br#"{"id":"3","bitrate":null}"#),
+			Patch::Null
+		));
+		assert!(matches!(patch(br#"{"id":"3","bitrate":0}"#), Patch::Null));
+		assert!(matches!(
+			patch(br#"{"id":"3","bitrate":128000}"#),
+			Patch::Value(128_000)
+		));
+	}
 	#[test]
 	fn group_icon_hash_and_patches_keep_absent_null_and_value_distinct() {
 		{

@@ -92,6 +92,7 @@ fn navigation() {
 		.into_iter()
 		.map(|id| model::Channel {
 			user_limit: None,
+			bitrate: None,
 			slowmode: 0,
 			id,
 			guild: None,
@@ -194,6 +195,7 @@ fn hover_navigation() {
 	state.channels = (100..140)
 		.map(|id| model::Channel {
 			user_limit: None,
+			bitrate: None,
 			slowmode: 0,
 			id: Id(id),
 			guild: None,
